@@ -13,3 +13,8 @@ venv/
 .DS_Store
 *.parquet
 reports/
+
+# Claude task state (local only)
+.claude/work/
+# Local market data store
+data/

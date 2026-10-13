@@ -26,6 +26,8 @@ def get_engine():
 
 def init_db() -> None:
     """Create all tables. Idempotent. For prod, prefer versioned migrations."""
+    import sgt.db.registry  # noqa: F401  registers intraday ORM modules on Base
+
     Base.metadata.create_all(get_engine())
 
 

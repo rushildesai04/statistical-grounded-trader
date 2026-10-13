@@ -6,11 +6,17 @@ import os
 import tempfile
 
 # Must be set BEFORE any sgt import triggers settings/engine construction.
-_TMP_DB = os.path.join(tempfile.gettempdir(), "sgt_test.db")
+# Per-process DB/data dir: concurrent pytest runs must never share a SQLite file.
+_TMP_ROOT = tempfile.mkdtemp(prefix=f"sgt_test_{os.getpid()}_")
+_TMP_DB = os.path.join(_TMP_ROOT, "sgt_test.db")
 os.environ["SGT_DATABASE_URL"] = f"sqlite:///{_TMP_DB}"
 os.environ["SGT_SENTIMENT_BACKEND"] = "lexicon"
 os.environ["SGT_AUTHOR_HASH_SALT"] = "test-salt"
 os.environ["SGT_COST_BPS"] = "10"
+# Never touch the developer's real OS keychain from tests.
+os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
+os.environ["SGT_DATA_DIR"] = os.path.join(_TMP_ROOT, "data")
+os.environ["SGT_EVENT_LOG_DIR"] = os.path.join(_TMP_ROOT, "data", "eventlog")
 
 import pytest  # noqa: E402
 
