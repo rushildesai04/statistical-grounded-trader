@@ -1,0 +1,13 @@
+# Bounded search around trader_v0 (plan §10). 4*4*3*3*2 = 288 raw cells; grammar-invalid
+# cells (e.g. fast >= slow) are skipped and counted, never run.
+base: strategies/trader_v0.yaml
+# Research universe (captured with scripts/capture_session.py).
+symbols: [WFF, YMAT, WBUY, FCHL, MSGY, NCPL, SMTK, AAOI]
+axes:
+  trigger.fast: [5, 8, 9, 12]
+  trigger.slow: [18, 21, 24, 30]
+  confirm.signals[0].value: [2.0, 3.0, 5.0]          # rel_vol threshold
+  exits.any_of[stop_loss_pct].pct: [2.0, 3.0, 4.0]
+  exits.any_of[time_stop_minutes].n: [15, 30]
+max_combinations: 500
+min_trades: 20

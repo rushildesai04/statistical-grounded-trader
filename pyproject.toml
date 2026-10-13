@@ -19,9 +19,21 @@ dependencies = [
     "scikit-learn>=1.4",
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    # --- intraday track (pinned to tested major versions) ---
+    "pyarrow>=26.0,<27",
+    "duckdb>=1.5,<2",
+    "lightgbm>=4.7,<5",
+    "pyyaml>=6.0,<7",
+    "exchange_calendars>=4.13,<5",
+    "httpx>=0.28,<0.29",
+    "keyring>=25,<26",
 ]
 
 [project.optional-dependencies]
+# Telegram collector (user-session, read-only). `pip install .[crowd]`.
+crowd = [
+    "telethon>=1.45,<2",
+]
 # Heavy ML deps kept out of the base install. `pip install .[ml]` to enable FinBERT.
 ml = [
     "torch>=2.2",
@@ -30,6 +42,8 @@ ml = [
 dev = [
     "pytest>=8.0",
     "psycopg2-binary>=2.9",
+    "pytest-asyncio>=1.4,<2",
+    "respx>=0.23,<0.24",
 ]
 
 [tool.setuptools.packages.find]
@@ -38,3 +52,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

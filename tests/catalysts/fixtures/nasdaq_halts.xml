@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-written sample mirroring the Nasdaq Trader trade-halt RSS schema
+     (https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts). Field names follow the
+     published feed and must be re-verified against a live sample before production. -->
+<rss version="2.0" xmlns:ndaq="http://www.nasdaqtrader.com/">
+  <channel>
+    <title>Nasdaq Trade Halts</title>
+    <link>http://www.nasdaqtrader.com/trader.aspx?id=TradeHalts</link>
+    <description>Trading Halts for all US equities</description>
+    <item>
+      <title>WFF - Trading Halt</title>
+      <ndaq:ndaqNotificationId>100001</ndaq:ndaqNotificationId>
+      <ndaq:IssueSymbol>WFF</ndaq:IssueSymbol>
+      <ndaq:IssueName>Worldwide Flagship Fund</ndaq:IssueName>
+      <ndaq:Market>NASDAQ</ndaq:Market>
+      <ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice></ndaq:PauseThresholdPrice>
+      <ndaq:HaltDate>10/12/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>13:09:00</ndaq:HaltTime>
+      <ndaq:ResumptionDate>10/12/2026</ndaq:ResumptionDate>
+      <ndaq:ResumptionQuoteTime>13:14:00</ndaq:ResumptionQuoteTime>
+      <ndaq:ResumptionTradeTime>13:14:30</ndaq:ResumptionTradeTime>
+    </item>
+    <item>
+      <title>YMAT - Trading Halt</title>
+      <ndaq:ndaqNotificationId>100002</ndaq:ndaqNotificationId>
+      <ndaq:IssueSymbol>YMAT</ndaq:IssueSymbol>
+      <ndaq:IssueName>Yonder Materials Inc</ndaq:IssueName>
+      <ndaq:Market>NYSE</ndaq:Market>
+      <ndaq:ReasonCode>T1</ndaq:ReasonCode>
+      <ndaq:PauseThresholdPrice></ndaq:PauseThresholdPrice>
+      <ndaq:HaltDate>10/12/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>09:45:12</ndaq:HaltTime>
+      <ndaq:ResumptionDate></ndaq:ResumptionDate>
+      <ndaq:ResumptionQuoteTime></ndaq:ResumptionQuoteTime>
+      <ndaq:ResumptionTradeTime></ndaq:ResumptionTradeTime>
+    </item>
+  </channel>
+</rss>

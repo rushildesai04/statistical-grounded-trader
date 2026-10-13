@@ -1,0 +1,68 @@
+# TEST FIXTURE: trader_v0 with the universe rel-vol floor and price cap relaxed, so
+# engine/live MECHANICS tests (fills, stops, parity, faults) are not gated by universe
+# selection on synthetic data. Universe gating has its own tests. Regenerate from
+# strategies/trader_v0.yaml if that file changes.
+id: trader_v0_mechanics
+version: 1
+universe:
+  float_max: 40000000
+  price_min: 0.5
+  price_max: 1000000.0
+  rel_vol_min: 0.0
+  spread_max_pct: 1.5
+regime:
+- kind: session_window_in
+  windows:
+  - power_hour
+  - after_hours
+setup:
+  any_of:
+  - kind: macd_hist_state
+    state: Down2
+  - kind: pvt_bullish_divergence
+    lookback: 15
+trigger:
+  kind: ema_cross_up
+  fast: 9
+  slow: 24
+confirm:
+  k_of_m: 2
+  signals:
+  - kind: rel_vol_gt
+    lookback: 20
+    value: 3.0
+  - kind: pvt_state
+    state: above_signal
+  - kind: psar_state
+    state: below_price
+filters:
+- kind: rsi_lt
+  n: 14
+  value: 70.0
+exits:
+  any_of:
+  - kind: macd_hist_state
+    state: Up2
+  - kind: volume_exhaustion
+    price_rising_bars: 3
+    volume_falling_bars: 3
+  - kind: ema_cross_down
+    fast: 9
+    slow: 24
+  - kind: psar_flip
+    direction: down
+  - kind: stop_loss_pct
+    pct: 3.0
+  - kind: time_stop_minutes
+    n: 30
+  - kind: session_end
+    minutes_before_close: 5
+    window: post
+sizing:
+  method: fixed_risk
+  risk_per_trade_pct_of_allocation: 0.5
+  allocation_usd: 10000.0
+  max_notional_usd: 20000.0
+  entry_offset_bps: 10.0
+  exit_offset_bps: 10.0
+extended_hours: true
