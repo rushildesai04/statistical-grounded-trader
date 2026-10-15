@@ -48,6 +48,26 @@ A plain `alpaca` value is rejected — rename existing rows to `alpaca_paper` or
 
 A strategy that does not pass the acceptance criteria in plan §1 does not advance. That outcome is a finding, not a failure.
 
+### Daily accumulation (run this every trading day)
+
+Free yfinance 1-minute history only reaches back ~30 days (and ≤ ~8 days per request), so the only way to have research history later is to capture it daily before it expires. `scripts/capture_daily.py` does this end to end: it screens for the day's movers, tracks each one for `--keep-sessions` trading sessions after it was last seen (so quiet days are captured too, not just the day a symbol moved — otherwise the sample is selection-biased toward big moves), captures the last `--lookback-sessions` complete sessions for every active symbol into the immutable Parquet store (never overwriting, never re-fetching a session already on disk), and snapshots float. Float comes from two sources: a one-time SEC EDGAR backfill for symbols with no share snapshot yet, and a point-in-time **vendor float snapshot** (yfinance `floatShares` / `sharesOutstanding`) written as a `FloatOverrideRow` with `source="vendor:yfinance"`, effective at UTC-midnight of that session. The reference layer already prefers a `FloatOverrideRow` over the stale EDGAR dei proxy, so this is what lets a newly discovered microcap clear the universe gate on the same day (EDGAR dei share counts lag dilution badly on microcaps — e.g. WFF reported ~5M outstanding vs ~42M actual on 2026-10-12). Vendor snapshots are only ever written for the current session, never backdated, because a float read today does not tell you the float on a past day.
+
+Run it after the post-market close (20:00 ET / 17:00 ET on early-close days) so the day's session is complete and gets captured in the same run. It is idempotent: a second run the same day writes nothing new. `--dry-run` discovers and prints the capture plan without writing anything; `--no-float` skips both float steps; `--watchlist` adds always-active symbols; `--report-out` writes the markdown summary to a file.
+
+```bash
+# After the post-market close, capture the day and refresh float:
+.venv/bin/python scripts/capture_daily.py --watchlist WFF,YMAT,SPCX --report-out data/accumulation/$(date +%F).md
+```
+
+Schedule it with cron (22:30 ET ≈ 02:30 UTC covers the normal 20:00 ET post-close) or launchd on macOS. Cron example (document only — do not install blindly; set the venv path and working directory for your host):
+
+```cron
+# m h dom mon dow   — weekdays at 22:30 America/New_York
+30 22 * * 1-5 cd /path/to/statistical-grounded-trader && TZ=America/New_York .venv/bin/python scripts/capture_daily.py --watchlist WFF,YMAT,SPCX --report-out "data/accumulation/$(date +\%F).md" >> data/accumulation/cron.log 2>&1
+```
+
+launchd example (`~/Library/LaunchAgents/ai.metalinked.sgt.capture-daily.plist`, `StartCalendarInterval` weekdays 22:30 local) runs the same command; prefer launchd on laptops that sleep, since it runs a missed job on wake while cron does not.
+
 ## 3. Promotion ladder
 
 | Stage | How to run | Exit criteria |

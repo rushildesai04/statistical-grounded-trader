@@ -9,6 +9,7 @@ import sgt.accounts.models  # noqa: F401
 import sgt.catalysts.models  # noqa: F401
 import sgt.crowd.models  # noqa: F401
 import sgt.engine.models  # noqa: F401
+import sgt.intraday.models  # noqa: F401
 import sgt.live.models  # noqa: F401
 import sgt.risk.models  # noqa: F401
 import sgt.search.models  # noqa: F401
