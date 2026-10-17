@@ -98,6 +98,10 @@ class OrderLifecycle:
         self._ext = caps.supports_extended_hours and config.extended_hours
         self._state: dict[str, _Sym] = {}
         self._orders: dict[str, _Order] = {}
+        # Open-order index (2026-10-17 perf fix): open_order_ids() previously scanned
+        # every order ever placed on every bar (quadratic). Insertion-ordered so the
+        # iteration order -- and therefore the event log -- is unchanged.
+        self._open: dict[str, _Order] = {}
         self._leg = 0
 
     # ------------------------------------------------------------------ helpers
@@ -138,6 +142,7 @@ class OrderLifecycle:
         cid = self._cid(symbol, bar.ts, "protective_stop")
         order = _Order(cid, "stop", symbol, st.pos_qty)
         self._orders[cid] = order
+        self._open[cid] = order
         st.stop = order
         actions.append(SubmitAction(stop_intent(
             symbol, order.qty, bar, st.stop_price, cid,
@@ -162,6 +167,7 @@ class OrderLifecycle:
         cid = self._cid(symbol, bar.ts, reason)
         order = _Order(cid, "exit", symbol, st.pos_qty, reason=reason)
         self._orders[cid] = order
+        self._open[cid] = order
         st.exit = order
         intent = exit_intent(symbol, st.pos_qty, bar, reason, cid,
                              account_id=self.account_id, strategy_id=self.strategy_id,
@@ -207,6 +213,7 @@ class OrderLifecycle:
                     and not ack.status.terminal and (ack.remaining_qty or 0) > 0):
                 order = _Order(ack.client_order_id, "stop", symbol, int(ack.remaining_qty or qty))
                 self._orders[ack.client_order_id] = order
+                self._open[ack.client_order_id] = order
                 st.stop = order
                 return []
         if not self.caps.supports_broker_side_stops or st.stop_price <= 0:
@@ -215,6 +222,7 @@ class OrderLifecycle:
             cid = self._cid(symbol, now, "seed_exit")
             order = _Order(cid, "exit", symbol, qty, reason="exit:seed_stop")
             self._orders[cid] = order
+            self._open[cid] = order
             st.exit = order
             return [seed_exit_intent(symbol, qty, now, mark_price, cid,
                                      account_id=self.account_id, strategy_id=self.strategy_id,
@@ -223,6 +231,7 @@ class OrderLifecycle:
         cid = self._cid(symbol, now, "seed_stop")
         order = _Order(cid, "stop", symbol, qty)
         self._orders[cid] = order
+        self._open[cid] = order
         st.stop = order
         return [seed_stop_intent(symbol, qty, now, st.stop_price, cid,
                                  account_id=self.account_id, strategy_id=self.strategy_id)]
@@ -246,6 +255,7 @@ class OrderLifecycle:
             cid = self._cid(d.symbol, d.signal_ts, d.reason)
             order = _Order(cid, "entry", d.symbol, st.entry_qty)
             self._orders[cid] = order
+            self._open[cid] = order
             st.entry = order
             return [SubmitAction(entry_intent(d, bar, cid, account_id=self.account_id,
                                               strategy_id=self.strategy_id, ext=self._ext))]
@@ -407,7 +417,10 @@ class OrderLifecycle:
 
     # ------------------------------------------------------------------ queries
     def open_order_ids(self) -> list[str]:
-        return [cid for cid, o in self._orders.items() if o.working]
+        dead = [cid for cid, o in self._open.items() if not o.working]
+        for cid in dead:
+            del self._open[cid]
+        return list(self._open)
 
     def position_qty(self, symbol: str) -> int:
         st = self._state.get(symbol)
