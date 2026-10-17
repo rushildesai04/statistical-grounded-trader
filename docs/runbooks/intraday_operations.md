@@ -46,6 +46,14 @@ A plain `alpaca` value is rejected — rename existing rows to `alpaca_paper` or
 5. **Lockbox.** `search.py` opens the lockbox exactly once for the selected finalist and writes the result into the candidate card. A second opening for the same config is refused by design, so a strategy cannot be re-tuned against its own holdout.
 6. **Telegram alerts.** `scripts/telegram_backfill.py --since ...` then `scripts/alert_event_study.py` to measure which alert types actually led to moves, and how late the alerts were.
 
+7. **Weekly learning loop.** `scripts/learn_from_results.py --strategy strategies/trader_v0.yaml --start ... --end ...` writes `reports/learning_<date>.md`. It covers:
+   - cost attribution (before vs after costs)
+   - the outcome of every signal by context (time of day, price, float, relative volume, RSI, ...)
+   - a learned filter scored only on later, unseen sessions
+   - a two-half stability check, and rule-based recommendations
+
+   Treat its recommendations as hypotheses. A change goes into a new strategy file (e.g. `strategies/trader_v1.yaml`), runs in shadow, and must pass the search + lockbox gates before it can go live. See `docs/findings/learning_2026-10-17.md` for the first pass.
+
 A strategy that does not pass the acceptance criteria in plan §1 does not advance. That outcome is a finding, not a failure.
 
 ### Daily accumulation (run this every trading day)

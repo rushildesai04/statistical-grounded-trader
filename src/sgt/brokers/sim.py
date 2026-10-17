@@ -78,11 +78,17 @@ class SimBroker(BrokerAdapter):
         settle_days: int = 1,
         cash_account: bool = False,
         calendar_sessions: Callable[[], list[date]] | None = None,
+        max_leverage: float = 1.0,
     ) -> None:
         if starting_cash < 0:
             raise ValueError("starting_cash must be >= 0")
         if settle_days < 0:
             raise ValueError("settle_days must be >= 0")
+        if max_leverage < 1.0:
+            raise ValueError("max_leverage must be >= 1.0")
+        # Buying-power cap (2026-10-17, F-15): without it a backtest could hold far more
+        # than the account (a $25k run lost $55k). Margin accounts may raise it explicitly.
+        self.max_leverage = float(max_leverage)
         self.account_id = account_id
         self.cost_model = cost_model
         self.cash = float(starting_cash)
@@ -93,6 +99,9 @@ class SimBroker(BrokerAdapter):
         self.realized_pnl = 0.0
 
         self._orders: dict[str, _Working] = {}
+        # Per-symbol index of non-terminal orders (2026-10-17 perf fix: on_bar scanned
+        # every order ever placed). Insertion-ordered => fill order unchanged.
+        self._active: dict[str, dict[str, _Working]] = {}
         self._acks: dict[str, OrderAck] = {}
         self._positions: dict[str, _Lot] = {}
         self._halted: set[str] = set()
@@ -116,6 +125,11 @@ class SimBroker(BrokerAdapter):
             return self._reject(intent, "account mismatch")
         if intent.extended_hours and intent.order_type is not OrderType.LIMIT:
             return self._reject(intent, "extended-hours orders must be LIMIT")
+        if intent.side is Side.BUY and not self.cash_account and intent.order_type is OrderType.LIMIT:
+            assert intent.limit_price is not None
+            need = intent.qty * intent.limit_price + self.cost_model.fees(intent.qty)
+            if need > self.buying_power() + 1e-9:
+                return self._reject(intent, "insufficient buying power")
         if intent.side is Side.BUY and self.cash_account and intent.order_type is OrderType.LIMIT:
             assert intent.limit_price is not None
             need = intent.qty * intent.limit_price + self.cost_model.fees(intent.qty)
@@ -123,9 +137,11 @@ class SimBroker(BrokerAdapter):
                 return self._reject(intent, "insufficient settled cash")
 
         seq = self._bar_seq.get(intent.symbol, 0)
-        self._orders[intent.client_order_id] = _Working(
+        wk_new = _Working(
             intent=intent, submit_seq=seq, remaining=intent.qty, status=OrderStatus.PENDING
         )
+        self._orders[intent.client_order_id] = wk_new
+        self._active.setdefault(intent.symbol, {})[intent.client_order_id] = wk_new
         ack = OrderAck(
             client_order_id=intent.client_order_id,
             broker_order_id=self._broker_id(intent.client_order_id),
@@ -153,6 +169,19 @@ class SimBroker(BrokerAdapter):
         self._acks[client_order_id] = ack
         return ack
 
+    def buying_power(self) -> float:
+        """Cash x leverage minus capital already reserved by working BUY limit orders.
+
+        ``self.cash`` is debited on buy fills and credited on sells, so held positions
+        are already excluded; working buys are reserved so several orders submitted on
+        one bar cannot jointly exceed the account."""
+        reserved = sum(
+            w.remaining * (w.intent.limit_price or 0.0)
+            for book in self._active.values() for w in book.values()
+            if w.intent.side is Side.BUY and not w.status.terminal
+        )
+        return self.cash * self.max_leverage - reserved
+
     def on_halt(self, event: HaltEvent) -> None:
         if event.state is HaltState.HALTED:
             self._halted.add(event.symbol)
@@ -172,8 +201,11 @@ class SimBroker(BrokerAdapter):
             return []
 
         out: list[Fill] = []
-        for wk in list(self._orders.values()):
-            if wk.intent.symbol != sym or wk.status.terminal:
+        active = self._active.get(sym, {})
+        for cid in [c for c, w in active.items() if w.status.terminal]:
+            del active[cid]
+        for wk in list(active.values()):
+            if wk.status.terminal:
                 continue
             if seq_before < wk.submit_seq:
                 continue  # not eligible until the next bar (no same-bar fill)
@@ -216,7 +248,7 @@ class SimBroker(BrokerAdapter):
                 remaining.append((settle_at, amount))
         self._pending_settle = remaining
         self.settled_cash += released
-        for wk in self._orders.values():
+        for wk in (w for book in self._active.values() for w in book.values()):
             if wk.intent.tif is TimeInForce.DAY and not wk.status.terminal:
                 wk.status = OrderStatus.EXPIRED
                 wk.remaining = 0
