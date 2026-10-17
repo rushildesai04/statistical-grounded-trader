@@ -371,3 +371,42 @@ def test_simbroker_marketable_sell_fills_on_gap_down_but_thin_offset_does_not():
     fills = mk.on_bar(gap)
     assert fills and fills[0].price >= round(9.0 * 0.97, 6)
     assert mk._positions["AAAA"].qty == 0
+
+
+def test_open_order_index_does_not_grow_with_closed_orders():
+    """2026-10-17 perf regression: per-bar order scans were O(all orders ever placed),
+    turning a 207-symbol research backtest into a 16-hour run. Terminal orders must
+    leave the open-order index so per-bar work stays O(open orders)."""
+    from datetime import date
+
+    from sgt.engine.backtest import run_backtest
+    from sgt.intraday.synthetic import Ignition, make_multi_session
+    from sgt.intraday.calendar import default_calendar
+    from sgt.strategy.loader import load_strategy
+    from sgt.strategy.runtime import EntryOverride
+
+    cfg = load_strategy("tests/fixtures/trader_v0_mechanics.yaml")
+    sess = default_calendar().previous_sessions(date(2024, 3, 15), 3)
+    igs = tuple(Ignition(start_minute=m, length=6, drift_per_bar=0.01, volume_mult=8.0)
+                for m in range(20, 380, 25))
+    data = {"IDX": make_multi_session("IDX", sess, seed=3, ignitions=igs)}
+    captured = {}
+    import sgt.engine.backtest as bt_mod
+    real_executor = bt_mod.BacktestExecutor
+
+    class Spy(real_executor):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            captured["ex"] = self
+
+    bt_mod.BacktestExecutor = Spy
+    try:
+        res = run_backtest(cfg, data, starting_cash=100_000.0, entry_override=EntryOverride("take_every"),
+                           allow_unknown_float=True)
+    finally:
+        bt_mod.BacktestExecutor = real_executor
+    lc = captured["ex"].lifecycle
+    assert res.summary["n_trades"] >= 5, "fixture must generate many orders"
+    assert len(lc._orders) > 10
+    lc.open_order_ids()
+    assert len(lc._open) <= 2, len(lc._open)   # only genuinely working orders remain indexed
