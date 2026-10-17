@@ -78,11 +78,17 @@ class SimBroker(BrokerAdapter):
         settle_days: int = 1,
         cash_account: bool = False,
         calendar_sessions: Callable[[], list[date]] | None = None,
+        max_leverage: float = 1.0,
     ) -> None:
         if starting_cash < 0:
             raise ValueError("starting_cash must be >= 0")
         if settle_days < 0:
             raise ValueError("settle_days must be >= 0")
+        if max_leverage < 1.0:
+            raise ValueError("max_leverage must be >= 1.0")
+        # Buying-power cap (2026-10-17, F-15): without it a backtest could hold far more
+        # than the account (a $25k run lost $55k). Margin accounts may raise it explicitly.
+        self.max_leverage = float(max_leverage)
         self.account_id = account_id
         self.cost_model = cost_model
         self.cash = float(starting_cash)
@@ -119,6 +125,11 @@ class SimBroker(BrokerAdapter):
             return self._reject(intent, "account mismatch")
         if intent.extended_hours and intent.order_type is not OrderType.LIMIT:
             return self._reject(intent, "extended-hours orders must be LIMIT")
+        if intent.side is Side.BUY and not self.cash_account and intent.order_type is OrderType.LIMIT:
+            assert intent.limit_price is not None
+            need = intent.qty * intent.limit_price + self.cost_model.fees(intent.qty)
+            if need > self.buying_power() + 1e-9:
+                return self._reject(intent, "insufficient buying power")
         if intent.side is Side.BUY and self.cash_account and intent.order_type is OrderType.LIMIT:
             assert intent.limit_price is not None
             need = intent.qty * intent.limit_price + self.cost_model.fees(intent.qty)
@@ -157,6 +168,19 @@ class SimBroker(BrokerAdapter):
                        symbol=wk.intent.symbol, side=wk.intent.side, remaining_qty=0)
         self._acks[client_order_id] = ack
         return ack
+
+    def buying_power(self) -> float:
+        """Cash x leverage minus capital already reserved by working BUY limit orders.
+
+        ``self.cash`` is debited on buy fills and credited on sells, so held positions
+        are already excluded; working buys are reserved so several orders submitted on
+        one bar cannot jointly exceed the account."""
+        reserved = sum(
+            w.remaining * (w.intent.limit_price or 0.0)
+            for book in self._active.values() for w in book.values()
+            if w.intent.side is Side.BUY and not w.status.terminal
+        )
+        return self.cash * self.max_leverage - reserved
 
     def on_halt(self, event: HaltEvent) -> None:
         if event.state is HaltState.HALTED:
