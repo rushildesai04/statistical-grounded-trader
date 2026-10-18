@@ -46,7 +46,9 @@ from sgt.risk.limits import LadderStage, RiskConfig
 from sgt.risk.manager import RiskManager
 from sgt.scanner.rank import Scanner
 from sgt.strategy.base import Candidate
+from sgt.decision.policy import policy_from_config
 from sgt.strategy.loader import config_hash as compute_config_hash, load_strategy
+from sgt.strategy.schema import ModelStrategyConfig
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +104,7 @@ class LiveRunner:
         baseline_bars: Mapping[str, Sequence[Bar]] | None = None,
         dd_budget: float | None = None,
         allow_unknown_float: bool = False,
+        allow_research_artifact: bool = False,
         clock: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], "asyncio.Future"] = asyncio.sleep,
     ) -> None:
@@ -148,9 +151,17 @@ class LiveRunner:
             risk=self.risk, event_sink=self.sink, alerts=self.alerts, risk_config=risk_config,
             clock=self._clock, baseline_bars=baseline_bars, dd_budget=dd_budget,
             reference=reference, allow_unknown_float=allow_unknown_float)
+        # Model strategies (kind: model) get their policy through the fail-closed artifact
+        # loader; LIVE refuses research/quarantined artifacts outright (2026-10-18, R2-F1).
+        policy = None
+        if isinstance(self.config, ModelStrategyConfig):
+            policy = policy_from_config(self.config, live=mode is Mode.LIVE,
+                                        allow_research_artifact=allow_research_artifact)
+        elif allow_research_artifact:
+            raise ValueError("allow_research_artifact only applies to kind: model strategies")
         self.engine = StrategyEngine(self.config, calendar=self._cal, reference=reference,
                                      candidate_sink=self._candidate_sink,
-                                     allow_unknown_float=allow_unknown_float)
+                                     allow_unknown_float=allow_unknown_float, policy=policy)
         self.executor = LiveExecutor(
             self.config, self.engine, risk=self.risk, adapters=self.adapters,
             exposure=self.exposure, cost_model=self.cost_model, event_sink=self.sink,
@@ -164,6 +175,7 @@ class LiveRunner:
             ledger_cash_provider=ledger_cash_provider)
 
         self._watchlist: list[str] = [s.upper() for s in initial_watchlist]
+        self._base_watchlist: tuple[str, ...] = tuple(self._watchlist)
         self._last_bar_ts: datetime | None = None
         self._last_bar_by_symbol: dict[str, Bar] = {}
         self._last_arrival: datetime | None = None
@@ -348,7 +360,10 @@ class LiveRunner:
     async def _rescan_watchlist(self, now: datetime) -> list[str]:
         held = self._held_symbols()
         if self._scanner is None or self._scan_candidates is None or self._scan_reference is None:
-            new = sorted(set(self._watchlist) | held)[: self.max_watchlist]
+            # No scanner: held names first, then the operator watchlist, then symbols alerted
+            # by Telegram/TradingView (alerts never displace held or configured names).
+            alerts = sorted(s.upper() for s in (self._alert_symbols() if self._alert_symbols else ()))
+            new = list(dict.fromkeys(sorted(held) + list(self._base_watchlist) + alerts))[: self.max_watchlist]
         else:
             items = self._scanner.scan(
                 now, self._scan_candidates(now), reference=self._scan_reference,

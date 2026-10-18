@@ -84,6 +84,8 @@ def run_backtest(
     entry_timeout_bars: int = 3,
     strict_invariants: bool = False,
     allow_unknown_float: bool = False,
+    policy: object = None,
+    cost_source: object = None,
 ) -> BacktestResult:
     cost_model = cost_model or DEFAULT_COST_MODEL
     sink = event_sink if event_sink is not None else InMemoryEventSink()
@@ -98,7 +100,8 @@ def run_backtest(
     meta_scorer: MetaScorer | None = meta_filter.score if meta_filter is not None else None
     engine = StrategyEngine(
         config, reference=reference, meta_scorer=meta_scorer, entry_override=entry_override,
-        candidate_sink=candidate_sink, allow_unknown_float=allow_unknown_float)
+        candidate_sink=candidate_sink, allow_unknown_float=allow_unknown_float,
+        policy=policy, cost_source=cost_source)
     executor = BacktestExecutor(
         config, engine, risk_config=risk_config or default_risk_config(config),
         cost_model=cost_model, starting_cash=starting_cash, event_sink=sink,
