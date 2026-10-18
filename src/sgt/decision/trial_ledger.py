@@ -17,6 +17,7 @@ import math
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, Integer, String, UniqueConstraint, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from sgt.db.models import Base
@@ -76,7 +77,15 @@ def record_trial(
     # Commit immediately (2026-10-18, DB-2): a trainer holding one transaction for hours
     # locked the shared SQLite DB for every other writer, and a crash would have rolled
     # back the trial count that the deflated Sharpe ratio depends on.
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        # F4 (2026-10-18): the select-then-insert above is not atomic. A concurrent run
+        # may insert the same (run_id, config_hash) between our SELECT and COMMIT; the
+        # unique constraint then fires. Treat it as already-recorded (idempotent) rather
+        # than crashing the losing writer.
+        session.rollback()
+        return False
     return True
 
 

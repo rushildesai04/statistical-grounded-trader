@@ -111,8 +111,15 @@ def ledger_mark_from_ack(cid: str, ack: OrderAck, now: datetime) -> None:
         row = session.get(OrderLedger, cid)
         if row is None:
             return
+        # R2-C (2026-10-18): a terminal row never regresses (e.g. a late "canceled" or
+        # "working" ack must not overwrite "filled"); mirrors accounts.ledger.record_ack.
+        if row.status in _TERMINAL_STATUSES and row.status != ack.status.value:
+            return
         row.status = ack.status.value
         if ack.broker_order_id:
             row.broker_order_id = ack.broker_order_id
         row.updated_at = now
         session.flush()
+
+
+_TERMINAL_STATUSES = frozenset({"filled", "canceled", "rejected", "expired"})

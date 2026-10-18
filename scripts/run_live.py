@@ -61,6 +61,7 @@ class CliArgs:
     cash: float
     symbols: tuple[str, ...] = ()
     allow_unknown_float: bool = False
+    allow_research_artifact: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> CliArgs:
@@ -81,6 +82,9 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
     ap.add_argument("--allow-unknown-float", action="store_true",
                     help="shadow/paper only: admit symbols with no float data (universe float cap "
                          "unenforced for them). Refused in live mode.")
+    ap.add_argument("--allow-research-artifact", action="store_true",
+                    help="shadow/paper only: let a kind:model strategy load a quarantined / "
+                         "promotion-ineligible model artifact. Refused in live mode.")
     ns = ap.parse_args(argv)
     accounts = tuple(a.strip() for a in ns.accounts.split(",") if a.strip())
     if not accounts:
@@ -89,7 +93,8 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
     if not symbols:
         raise SystemExit("no symbols given")
     return CliArgs(ns.strategy, _MODES[ns.mode], accounts, ns.feed, ns.risk,
-                   ns.confirm_live, ns.flatten_on_exit, ns.cash, symbols, ns.allow_unknown_float)
+                   ns.confirm_live, ns.flatten_on_exit, ns.cash, symbols, ns.allow_unknown_float,
+                   ns.allow_research_artifact)
 
 
 def validate(args: CliArgs) -> None:
@@ -100,6 +105,8 @@ def validate(args: CliArgs) -> None:
         raise SystemExit("LIVE mode requires --feed sip (real-time consolidated)")
     if args.mode is Mode.LIVE and args.allow_unknown_float:
         raise SystemExit("--allow-unknown-float is refused in LIVE mode")
+    if args.mode is Mode.LIVE and args.allow_research_artifact:
+        raise SystemExit("--allow-research-artifact is refused in LIVE mode")
     if args.mode in (Mode.PAPER, Mode.LIVE) and not args.risk_path:
         raise SystemExit(f"{args.mode.value} mode requires --risk <config.yaml>")
 
@@ -225,7 +232,8 @@ def build_runner(args: CliArgs) -> LiveRunner:
         risk_config=_risk_config(args), flatten_on_exit=args.flatten_on_exit,
         reference=ReferenceDataProvider(), initial_watchlist=args.symbols,
         alert_symbols=_recent_alert_symbols,
-        allow_unknown_float=args.allow_unknown_float)
+        allow_unknown_float=args.allow_unknown_float,
+        allow_research_artifact=args.allow_research_artifact)
 
 
 def _print_arm_instructions(runner: LiveRunner, mode: Mode) -> None:

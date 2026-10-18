@@ -135,7 +135,14 @@ class DecisionRuntime:
         # first preserves every other exit's relative order.
         self._exits = tuple(sorted(config.exits.any_of,
                                    key=lambda c: 0 if isinstance(c, AtrStop) else 1))
-        self._cutoff_min = config.bracket.session_end_minutes_before_close
+        # F2 (DECISION_MODEL.md §10): the training labels drop (NaN) any trade whose H-bar
+        # time stop would resolve after the session close, so the model never learned those
+        # late entries. Mirror that at serve time: block an entry once fewer than
+        # max(session_end buffer, H bars) minutes remain in the last tradable segment. Bars
+        # are 1-minute, so H bars == time_stop_minutes. Using only the session_end buffer
+        # (default 5) admitted entries the model was never trained on -> train/serve skew.
+        self._cutoff_min = max(config.bracket.session_end_minutes_before_close,
+                               config.bracket.time_stop_minutes)
 
         # F4 (DECISION_MODEL.md §10): the runtime exit bracket, the policy's k values and
         # the label config the model was trained on must agree, or every bar would resolve

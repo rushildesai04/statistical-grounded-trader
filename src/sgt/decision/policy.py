@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from math import sqrt
+from pathlib import Path
 from typing import Mapping, Protocol, Sequence, runtime_checkable
 
 # ``y_net__tp{k_tp}_sl{k_sl}_h{H}`` -- the dataset label column the model was trained on.
@@ -170,6 +171,33 @@ class EnsembleModelPolicy:
         self._model = model
         self._p = params
 
+    @classmethod
+    def from_artifact(cls, artifact_path: str | Path, params: PolicyParams, *,
+                      allow_research_artifact: bool = False) -> "EnsembleModelPolicy":
+        """Model-strategy load path: build a policy from a saved artifact, fail-closed (F1).
+
+        Refuses a quarantined artifact (``*.quarantine.joblib``) or one whose metadata is
+        not promotion-eligible (see :func:`sgt.decision.models.artifact_is_eligible`) by
+        raising ``ValueError`` unless ``allow_research_artifact=True`` is passed for
+        offline research inspection. Callers MUST NOT pass that flag in LIVE mode; use
+        :func:`load_model_policy` with ``live=True``, which refuses the override outright.
+        """
+        from sgt.decision.models import DecisionModel, artifact_is_eligible
+
+        path = Path(artifact_path)
+        model = DecisionModel.load(path)
+        quarantined = ".quarantine." in path.name
+        eligible = artifact_is_eligible(getattr(model, "metadata", {}) or {})
+        if (quarantined or not eligible) and not allow_research_artifact:
+            verdict = (getattr(model, "metadata", {}) or {}).get("verdict", "<unknown>")
+            raise ValueError(
+                f"refusing to load artifact {path.name!r} for trading (F1): "
+                f"quarantined={quarantined}, promotion_eligible="
+                f"{(getattr(model, 'metadata', {}) or {}).get('promotion_eligible', False)}, "
+                f"verdict={verdict!r}. Pass allow_research_artifact=True only for offline "
+                "research (never in LIVE mode).")
+        return cls(model, params)
+
     @property
     def params(self) -> PolicyParams:
         """Policy params (read by the runtime's F4 exit-consistency check)."""
@@ -240,6 +268,24 @@ class EnsembleModelPolicy:
         return PolicyDecision(True, float(size), stop_price, tp_price, reason, contribs)
 
 
+def load_model_policy(artifact_path: str | Path, params: PolicyParams, *,
+                      allow_research_artifact: bool = False,
+                      live: bool = False) -> EnsembleModelPolicy:
+    """Model-strategy load path used by the engine/live wiring to build a trading policy.
+
+    Fail-closed (F1): a quarantined or promotion-ineligible artifact is refused unless
+    ``allow_research_artifact=True``. In LIVE mode that research override is itself
+    refused -- a live runner must never trade a research/quarantined artifact -- so the
+    live caller passes ``live=True`` and the flag can only relax a backtest/research load.
+    """
+    if live and allow_research_artifact:
+        raise ValueError(
+            "allow_research_artifact=True is refused in LIVE mode (F1): a live model "
+            "strategy may only load a promotion-eligible, non-quarantined artifact")
+    return EnsembleModelPolicy.from_artifact(
+        artifact_path, params, allow_research_artifact=allow_research_artifact)
+
+
 def sized_returns(
     decisions: Sequence[PolicyDecision], net_returns: Sequence[float]
 ) -> list[float]:
@@ -253,3 +299,27 @@ def sized_returns(
         if d.trade:
             out.append(d.size_fraction * float(r))
     return out
+
+
+def policy_from_config(config, *, live: bool,
+                       allow_research_artifact: bool = False) -> EnsembleModelPolicy:
+    """Build the trading policy for a ``kind: model`` strategy config (F1 load path).
+
+    PolicyParams come from the config (bracket k_tp/k_sl, model z/h/p_min/f_max) plus the
+    artifact's own effective sample size; the artifact goes through
+    :func:`load_model_policy`, so quarantined / ineligible artifacts are refused, and in
+    LIVE mode the research override is refused too. A relative ``artifact_path``
+    resolves against the working directory (repo root), like every other CLI path."""
+    from sgt.decision.models import DecisionModel
+
+    path = Path(config.model.artifact_path)
+    if not path.exists():
+        raise FileNotFoundError(f"model artifact not found: {path}")
+    probe = DecisionModel.load(path)  # read n_eff for the sizing regime
+    params = PolicyParams(
+        k_tp=config.bracket.k_tp, k_sl=config.bracket.k_sl,
+        n_eff=int(getattr(probe, "n_eff", 0) or 0),
+        z=config.model.z, h=config.model.h, p_min=config.model.p_min,
+        f_max=config.model.max_size_fraction)
+    return load_model_policy(path, params, allow_research_artifact=allow_research_artifact,
+                             live=live)

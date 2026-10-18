@@ -239,6 +239,7 @@ class SchwabHarness:
         self.orders: list = []
         self.post_count = 0
         self.last_order_id = ""
+        self.canceled: set[str] = set()
 
     async def setup(self):
         r = self.router
@@ -262,8 +263,18 @@ class SchwabHarness:
             return httpx.Response(201, headers={
                 "Location": f"{self.base}/trader/v1/accounts/HASH/orders/{self.last_order_id}"})
         r.post("/trader/v1/accounts/HASH/orders").mock(side_effect=post)
-        r.delete(url__regex=r"/trader/v1/accounts/HASH/orders/.+").mock(
-            return_value=httpx.Response(200))
+        # Stateful cancel: DELETE accepts; the single-order read-back (R2-C) then reports
+        # CANCELED, as Schwab does once the cancel has been processed.
+        def delete(request):
+            self.canceled.add(request.url.path.rsplit("/", 1)[-1])
+            return httpx.Response(200)
+
+        def get_one(request):
+            oid = request.url.path.rsplit("/", 1)[-1]
+            status = "CANCELED" if oid in self.canceled else "WORKING"
+            return httpx.Response(200, json=_schwab_order(oid, status=status))
+        r.delete(url__regex=r"/trader/v1/accounts/HASH/orders/.+").mock(side_effect=delete)
+        r.get(url__regex=r"/trader/v1/accounts/HASH/orders/.+").mock(side_effect=get_one)
         await self.adapter.connect()
 
     async def teardown(self):

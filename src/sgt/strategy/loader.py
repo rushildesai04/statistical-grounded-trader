@@ -26,6 +26,17 @@ def load_strategy(path: str | Path) -> StrategyConfig:
     raw = yaml.safe_load(p.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise StrategyValidationError([f"config at {p} must be a mapping, got {type(raw).__name__}"])
+    if raw.get("kind") == "model":
+        # Decision-model strategy (docs/DECISION_MODEL.md §9). Its artifact is loaded and
+        # eligibility-checked separately by sgt.decision.policy.policy_from_config.
+        from pydantic import ValidationError
+
+        from sgt.strategy.schema import ModelStrategyConfig
+
+        try:
+            return ModelStrategyConfig.model_validate(raw)
+        except ValidationError as exc:
+            raise StrategyValidationError([f"model strategy {p}: {exc}"]) from exc
     return validate_strategy(raw)
 
 

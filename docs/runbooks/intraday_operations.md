@@ -86,6 +86,10 @@ launchd example (`~/Library/LaunchAgents/ai.metalinked.sgt.capture-daily.plist`,
 
 Live mode refuses to start on a delayed or IEX-only feed, refuses a strategy without a validated decay baseline in the strategy registry, refuses `--allow-unknown-float`, and refuses an Alpaca live account that has shorting enabled (this system is long-only; disable shorting in the Alpaca account configuration first, so the broker itself rejects any accidental over-sell).
 
+### Model strategies (`kind: model`)
+
+A strategy YAML with `kind: model` names a decision-model artifact (`model.artifact_path`, relative to the repo root). The policy is built from the bracket (`k_tp`, `k_sl`), the model block (`z`, `h`, `p_min`, `max_size_fraction`) and the artifact's own effective sample size. An artifact is tradeable only when its training verdict is PROMOTE-CANDIDATE or PROMOTE-CANDIDATE-UNVERIFIED-COSTS **and** its dataset was promotion-eligible (the strict discovery-gated dataset). The trainer writes anything else as `*.quarantine.joblib`. Shadow, paper and backtest runs refuse such an artifact unless you pass `--allow-research-artifact`, which is for inspection only. Live mode refuses that flag outright.
+
 ## 4. Control plane
 
 ```bash

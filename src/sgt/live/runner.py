@@ -46,7 +46,9 @@ from sgt.risk.limits import LadderStage, RiskConfig
 from sgt.risk.manager import RiskManager
 from sgt.scanner.rank import Scanner
 from sgt.strategy.base import Candidate
+from sgt.decision.policy import policy_from_config
 from sgt.strategy.loader import config_hash as compute_config_hash, load_strategy
+from sgt.strategy.schema import ModelStrategyConfig
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +104,7 @@ class LiveRunner:
         baseline_bars: Mapping[str, Sequence[Bar]] | None = None,
         dd_budget: float | None = None,
         allow_unknown_float: bool = False,
+        allow_research_artifact: bool = False,
         clock: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], "asyncio.Future"] = asyncio.sleep,
     ) -> None:
@@ -148,9 +151,17 @@ class LiveRunner:
             risk=self.risk, event_sink=self.sink, alerts=self.alerts, risk_config=risk_config,
             clock=self._clock, baseline_bars=baseline_bars, dd_budget=dd_budget,
             reference=reference, allow_unknown_float=allow_unknown_float)
+        # Model strategies (kind: model) get their policy through the fail-closed artifact
+        # loader; LIVE refuses research/quarantined artifacts outright (2026-10-18, R2-F1).
+        policy = None
+        if isinstance(self.config, ModelStrategyConfig):
+            policy = policy_from_config(self.config, live=mode is Mode.LIVE,
+                                        allow_research_artifact=allow_research_artifact)
+        elif allow_research_artifact:
+            raise ValueError("allow_research_artifact only applies to kind: model strategies")
         self.engine = StrategyEngine(self.config, calendar=self._cal, reference=reference,
                                      candidate_sink=self._candidate_sink,
-                                     allow_unknown_float=allow_unknown_float)
+                                     allow_unknown_float=allow_unknown_float, policy=policy)
         self.executor = LiveExecutor(
             self.config, self.engine, risk=self.risk, adapters=self.adapters,
             exposure=self.exposure, cost_model=self.cost_model, event_sink=self.sink,

@@ -42,9 +42,19 @@ def _sqlite_pragmas(dbapi_conn, _record) -> None:
             # WAL is a persistent property of the file; switching needs a moment of
             # exclusive access. If another process holds the DB, keep the current mode
             # (busy_timeout still applies) and retry on the next connection.
-            cur.execute("PRAGMA journal_mode=WAL")
+            row = cur.execute("PRAGMA journal_mode=WAL").fetchone()
         except sqlite3.OperationalError as exc:
             logging.getLogger(__name__).warning("could not enable SQLite WAL yet: %s", exc)
+        else:
+            # F5 (2026-10-18): SQLite does NOT raise when it cannot switch journal modes --
+            # it silently returns the mode still in effect. Read it back and warn so a
+            # degraded (non-WAL) connection under contention is visible, not silent.
+            mode = (str(row[0]).lower() if row else "")
+            if mode != "wal":
+                logging.getLogger(__name__).warning(
+                    "SQLite WAL not enabled (journal_mode=%s); another process may hold the "
+                    "DB. busy_timeout still applies; retrying on the next connection.",
+                    mode or "unknown")
     finally:
         cur.close()
 

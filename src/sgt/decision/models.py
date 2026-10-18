@@ -33,6 +33,12 @@ from sklearn.preprocessing import StandardScaler
 from sgt.learning.meta_filter import GBMMetaFilter, LogisticMetaFilter
 
 ARTIFACT_VERSION = "1"
+
+# F1 (DECISION_MODEL.md §10): only a run whose training verdict cleared the promotion
+# gates AND whose dataset was promotion-eligible may back a trading artifact. Any other
+# verdict (NO-TRADE, INVALID, research-only) is quarantined and refused at the load path.
+PROMOTABLE_VERDICTS = frozenset({"PROMOTE-CANDIDATE", "PROMOTE-CANDIDATE-UNVERIFIED-COSTS"})
+
 _SEED = 17
 _N_BAG = 5
 _N_STABILITY = 20
@@ -49,6 +55,15 @@ class Tier:
     name: str
     max_features: int | None   # None == all
     use_gbm: bool
+
+
+def artifact_is_eligible(metadata: Mapping) -> bool:
+    """True iff an artifact's metadata marks it fit for trading (F1).
+
+    Requires a promotable training ``verdict`` AND an explicit ``promotion_eligible``
+    flag from the dataset. Missing / unknown fields fail closed (ineligible)."""
+    return (str(metadata.get("verdict", "")) in PROMOTABLE_VERDICTS
+            and bool(metadata.get("promotion_eligible", False)))
 
 
 def select_tier(n_eff: int) -> Tier:
@@ -357,6 +372,19 @@ class DecisionModel:
         return [(n, v) for n, v in ordered[:top_k]]
 
     # ------------------------------------------------------------- id / io
+    def set_release_metadata(self, *, verdict: str, promotion_eligible: bool,
+                             run_id: str) -> None:
+        """Stamp the training verdict / dataset eligibility / run id into the artifact
+        metadata before save (F1). The load path reads these to refuse quarantined or
+        promotion-ineligible artifacts for trading."""
+        self.metadata["verdict"] = str(verdict)
+        self.metadata["promotion_eligible"] = bool(promotion_eligible)
+        self.metadata["run_id"] = str(run_id)
+
+    def is_promotion_eligible(self) -> bool:
+        """Whether this fitted model's metadata clears the F1 trading gate."""
+        return artifact_is_eligible(self.metadata)
+
     def _model_id(self, config_hash: str) -> str:
         h = hashlib.sha256()
         h.update(ARTIFACT_VERSION.encode())

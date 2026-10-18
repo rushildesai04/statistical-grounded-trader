@@ -24,7 +24,12 @@ from sgt.core.types import (
 
 log = logging.getLogger(__name__)
 
-_MATCH_WINDOW_S = 600  # recent-order reconciliation window around the intent anchor
+# Reconciliation match window (R2-E, 2026-10-18): a broker order "is" our intent only if
+# its time_placed lies within +/- this many seconds of the intent anchor. Comparing our
+# clock to the brokerage's means host clock skew eats into this window: keep the host
+# NTP-synced (macOS: `sntp -sS time.apple.com`); skew > a few seconds is an ops alert.
+MATCH_WINDOW_S = 600
+_MATCH_WINDOW_S = MATCH_WINDOW_S
 
 # SnapTrade AccountOrderRecordStatus -> our OrderStatus (type/account_order_record_status.py).
 STATUS_MAP: dict[str, OrderStatus] = {

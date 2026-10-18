@@ -94,8 +94,23 @@ def main(argv=None) -> int:
              out.with_suffix(".report.md"))
 
     if result.model is not None:
-        artifact = result.model.save(out.with_suffix(".joblib"))
-        log.info("wrote model artifact %s", artifact)
+        # F1 (DECISION_MODEL.md §10): stamp the verdict + dataset eligibility + run id into
+        # the artifact metadata, then quarantine any artifact that is not fit for trading so
+        # the load path refuses it. A quarantined file is still written for research.
+        promotion_eligible = bool(meta.get("promotion_eligible", False))
+        result.model.set_release_metadata(
+            verdict=result.verdict, promotion_eligible=promotion_eligible,
+            run_id=args.run_id)
+        eligible = result.model.is_promotion_eligible()
+        suffix = ".joblib" if eligible else ".quarantine.joblib"
+        artifact = result.model.save(out.with_suffix(suffix))
+        if eligible:
+            log.info("wrote promotion-eligible model artifact %s", artifact)
+        else:
+            log.warning(
+                "QUARANTINED model artifact %s (verdict=%s, promotion_eligible=%s): "
+                "refused by the trading load path, kept for research only",
+                artifact, result.verdict, promotion_eligible)
     else:
         log.warning("no model artifact written (no configuration selected)")
     print(report_md)

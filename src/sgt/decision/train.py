@@ -13,6 +13,7 @@ label-shuffle null (F8). Verdict: PROMOTE-CANDIDATE, NO-TRADE, or INVALID.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Sequence
@@ -26,6 +27,19 @@ from sgt.decision.policy import PolicyParams
 from sgt.decision.validation import Gate
 
 _LABEL_RE = re.compile(r"^y_net__tp([0-9.]+)_sl([0-9.]+)_h([0-9]+)$")
+_log = logging.getLogger(__name__)
+
+
+def _degenerate_labels(df: pd.DataFrame, col: str) -> bool:
+    """True if the FINITE labels for this config carry fewer than two distinct signs (F3).
+
+    Session-truncated trades hold NaN labels and are dropped before fitting; computing the
+    single-class guard on the raw column counts NaN as its own ``np.sign`` value, so a fold
+    whose only real labels are one-sided looked multi-class and crashed the fit. The guard
+    must see only labeled rows."""
+    y = df[col].to_numpy(dtype=float)
+    y = y[np.isfinite(y)]
+    return y.size == 0 or len(np.unique(np.sign(y))) < 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +166,7 @@ def _inner_select(train_df, feature_cols, specs, n_eff, tc, rt, session, seed):
         for tr_s, te_s in splits:
             tr = val.rows_for_sessions(train_df, tr_s, tc.session_col)
             te = val.rows_for_sessions(train_df, te_s, tc.session_col)
-            if tr.empty or te.empty or len(np.unique(np.sign(tr[spec.col]))) < 2:
+            if tr.empty or te.empty or _degenerate_labels(tr, spec.col):
                 continue
             try:
                 m = _fit_model(tr, feature_cols, spec, n_eff, tc, "inner", seed)
@@ -223,6 +237,7 @@ def train_decision_model(df: pd.DataFrame, tc: TrainConfig, *, session=None,
     per_fold_exp = []
     aucs, corrs = [], []
     chosen_counter: dict = {}
+    skipped_folds: list[dict] = []   # F3: degenerate folds skipped (never crash the run)
     for i, (tr_s, te_s) in enumerate(splits):
         tr = val.rows_for_sessions(df, tr_s, tc.session_col)
         te = val.rows_for_sessions(df, te_s, tc.session_col)
@@ -233,12 +248,22 @@ def train_decision_model(df: pd.DataFrame, tc: TrainConfig, *, session=None,
         fold_n_eff = effective_n(tr, tc.symbol_col, tc.session_col)
         spec, z, h, pm = _inner_select(tr, feature_cols, specs, fold_n_eff, tc, rt, session,
                                        tc.seed + i)
-        if len(np.unique(np.sign(tr[spec.col]))) < 2:
+        if _degenerate_labels(tr, spec.col):
+            skipped_folds.append({"fold": i, "label": spec.col, "reason": "single_class_labels"})
+            _log.info("skipping outer fold %d: finite labels for %s are single-class", i, spec.col)
             continue
         pp = _policy_params(spec, z, h, pm, fold_n_eff, tc, rt)
         cfg = _config_dict(spec, z, h, pm, tc)
-        model = _fit_model(tr, feature_cols, spec, fold_n_eff, tc,
-                           trial_ledger.config_hash(cfg), tc.seed + i)
+        try:
+            # F3: a fold that is degenerate in a way the sign guard cannot see (e.g. the
+            # win/loss class collapses after uniqueness weighting) must be skipped and
+            # counted, not crash the whole run.
+            model = _fit_model(tr, feature_cols, spec, fold_n_eff, tc,
+                               trial_ledger.config_hash(cfg), tc.seed + i)
+        except ValueError as exc:
+            skipped_folds.append({"fold": i, "label": spec.col, "reason": str(exc)})
+            _log.warning("skipping outer fold %d (%s): %s", i, spec.col, exc)
+            continue
         r, c = val.policy_trade_returns(model, pp, te, label_col=spec.col, cost_col=tc.cost_col,
                                         model_cost_col=tc.model_cost_col)
         diag = val.fold_diagnostics(model, te, spec.col)
@@ -258,6 +283,7 @@ def train_decision_model(df: pd.DataFrame, tc: TrainConfig, *, session=None,
     coverage = {
         "n_rows": int(len(df)), "n_sessions": int(df[tc.session_col].nunique()),
         "n_symbols": int(df[tc.symbol_col].nunique()), "n_folds": len(folds),
+        "n_skipped_folds": len(skipped_folds), "skipped_folds": skipped_folds,
         "n_oos_trades": int(returns.size), "median_round_trip": rt,
         "measured_cost_coverage": measured_coverage,
         "discovery_sources": sorted(df["discovered_session"].dropna().unique().tolist())

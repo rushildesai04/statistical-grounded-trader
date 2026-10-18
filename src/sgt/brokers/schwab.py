@@ -52,6 +52,7 @@ import httpx
 from sgt.brokers import schwab_ledger as ledger
 from sgt.brokers import schwab_mapping as mapping
 from sgt.brokers.schwab_auth import SCHWAB_BASE_URL, SchwabTokenManager
+from sgt.brokers.submit_guard import KeyedLocks, claim_ledger_row
 from sgt.brokers.schwab_ledger import SUBMITTING as _SUBMITTING
 from sgt.brokers.schwab_ledger import UNKNOWN as _UNKNOWN
 from sgt.config import get_settings
@@ -83,6 +84,8 @@ _MATCH_SLACK_MIN = 5          # slack subtracted from the intent anchor when rec
 # [VERIFY] the exact maximum query span against the Schwab Trader API docs.
 _MAX_QUERY_WINDOW = timedelta(days=60)
 _HEALTH_REAUTH_MARGIN = timedelta(hours=24)
+_CANCEL_POLL_ATTEMPTS = 3       # read an order back after DELETE before trusting the outcome
+_CANCEL_POLL_INTERVAL_S = 0.3
 
 
 class SchwabBroker(BrokerAdapter):
@@ -117,6 +120,7 @@ class SchwabBroker(BrokerAdapter):
         self._auth = auth or SchwabTokenManager.shared(clock=self._clock)
         self._account_hash: str | None = None
         self._seen_fill_ids: set[str] = set()
+        self._submit_locks = KeyedLocks()
 
     def _now(self) -> datetime:
         return self._clock()
@@ -234,7 +238,10 @@ class SchwabBroker(BrokerAdapter):
     async def submit(self, intent: OrderIntent) -> OrderAck:
         if intent.order_type is OrderType.MARKET and intent.extended_hours:
             raise BrokerRejectedError("MARKET orders are not allowed in extended hours")
+        async with self._submit_locks.hold(intent.client_order_id):   # R2-D
+            return await self._submit_locked(intent)
 
+    async def _submit_locked(self, intent: OrderIntent, *, claimed_race: bool = False) -> OrderAck:
         prior = ledger.ledger_lookup(intent.client_order_id)
         if prior is not None:
             status, broker_order_id, stored = prior
@@ -252,7 +259,13 @@ class SchwabBroker(BrokerAdapter):
 
         if intent.side is Side.SELL:
             await self._enforce_long_only(intent)
-        ledger.ledger_mark(intent, _SUBMITTING, None, self._now())
+        if not claim_ledger_row(intent, _SUBMITTING, mapping.intent_to_json(intent), self._now()):
+            # Another writer claimed this client_order_id after our lookup: take the
+            # existing-row path (adopt / reconcile) instead of a second POST.
+            if claimed_race:
+                raise BrokerUnavailableError(
+                    f"submit {intent.client_order_id}: ledger claim contention; retry")
+            return await self._submit_locked(intent, claimed_race=True)
         return await self._post_order(intent)
 
     async def _enforce_long_only(self, intent: OrderIntent) -> None:
@@ -355,13 +368,41 @@ class SchwabBroker(BrokerAdapter):
         broker_order_id = prior[1]
         resp = await self._request("DELETE", self._accounts_path(f"/orders/{broker_order_id}"),
                                    retry=False)
-        if resp.status_code in (200, 201, 204, 404, 400):
-            ack = OrderAck(client_order_id, broker_order_id, OrderStatus.CANCELED,
-                           self._now(), "canceled", remaining_qty=0)
-            ledger.ledger_mark_from_ack(client_order_id, ack, self._now())
-            return ack
-        self._raise_for_status(resp, "cancel")
-        raise BrokerUnavailableError("cancel: unexpected response")
+        if resp.status_code not in (200, 201, 204, 404, 400):
+            self._raise_for_status(resp, "cancel")
+            raise BrokerUnavailableError("cancel: unexpected response")
+        # R2-C (2026-10-18): a 2xx only ACCEPTS the cancel request, and 400/404 usually
+        # mean the order already reached a terminal state -- which may be FILLED, not
+        # canceled. Never assume: read the order back and record what the broker reports.
+        # A fill that raced the cancel must reach the ledger/risk, not be erased.
+        observed = await self._poll_order_terminal(broker_order_id, client_order_id)
+        if observed is not None and observed.status.terminal:
+            ledger.ledger_mark_from_ack(client_order_id, observed, self._now())
+            return observed
+        remaining = observed.remaining_qty if observed is not None else None
+        return OrderAck(client_order_id, broker_order_id, OrderStatus.WORKING, self._now(),
+                        "cancel requested; not yet confirmed terminal",
+                        symbol=observed.symbol if observed else "",
+                        side=observed.side if observed else None, remaining_qty=remaining)
+
+    async def _poll_order_terminal(self, broker_order_id: str, cid: str) -> OrderAck | None:
+        """Bounded read-back of one order; the terminal ack, else the last one seen."""
+        last: OrderAck | None = None
+        for attempt in range(_CANCEL_POLL_ATTEMPTS):
+            try:
+                resp = await self._request(
+                    "GET", self._accounts_path(f"/orders/{broker_order_id}"), retry=True)
+            except BrokerUnavailableError:
+                resp = None
+            if resp is not None and resp.status_code == 200:
+                last = mapping.ack_from_order(cid, resp.json(), self._now())
+                if last.status.terminal:
+                    return last
+            elif resp is not None and resp.status_code not in (404, 429) and resp.status_code < 500:
+                self._raise_for_status(resp, "cancel read-back")
+            if attempt < _CANCEL_POLL_ATTEMPTS - 1:
+                await asyncio.sleep(_CANCEL_POLL_INTERVAL_S)
+        return last
 
     async def open_orders(self) -> list[OrderAck]:
         resp = await self._request("GET", self._accounts_path("/orders"), retry=True,

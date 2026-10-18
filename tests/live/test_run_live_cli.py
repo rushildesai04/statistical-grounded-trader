@@ -160,3 +160,12 @@ def test_missing_account_ref_fails_closed(monkeypatch):
     monkeypatch.delenv("SGT_SECRET_SCHWAB_ACCOUNT_REF_NOREF", raising=False)
     with pytest.raises(MissingSecretError):
         run_live._build_adapter(AccountSpec("noref", "schwab_live", "cash", True, 1.0, 0.0), Mode.LIVE, 0.0)
+
+
+def test_live_refuses_research_artifact_flag():
+    """R2-F1: a LIVE run may never load a quarantined / research model artifact."""
+    args = run_live.parse_args(["--strategy", "x.yaml", "--mode", "live", "--accounts", "a",
+                                "--feed", "sip", "--risk", "r.yaml", "--confirm-live",
+                                "--symbols", "AAA", "--allow-research-artifact"])
+    with pytest.raises(SystemExit, match="allow-research-artifact"):
+        run_live.validate(args)

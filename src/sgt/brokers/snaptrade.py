@@ -40,10 +40,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 from sgt.accounts.ledger import record_ack, record_fill
+from sgt.brokers.submit_guard import KeyedLocks
 from sgt.config import get_settings
 from sgt.core.interfaces import (
     AdapterHealth,
@@ -85,6 +87,11 @@ log = logging.getLogger(__name__)
 _LEDGER_UNKNOWN = "unknown"
 _CANCEL_POLL_ATTEMPTS = 3       # confirm a cancel landed before marking the ledger terminal
 _CANCEL_POLL_INTERVAL_S = 0.3
+# SnapTrade `days` lookback for orders/fills. 7 covers DAY orders across a long weekend;
+# reconciliation refuses (ledger=unknown) rather than search beyond what it trusts.
+# [VERIFY] SnapTrade's maximum honoured `days` value per brokerage (docs: default 30).
+_FILL_LOOKBACK_DAYS = 7
+_RECONCILE_MAX_DAYS = 7
 
 # --------------------------------------------------------------------------- adapter
 class SnapTradeBroker(BrokerAdapter):
@@ -120,6 +127,7 @@ class SnapTradeBroker(BrokerAdapter):
         self._tracked: dict[str, dict[str, Any]] = {}   # brokerage_order_id -> {cid, symbol, side}
         self._emitted_filled: dict[str, float] = {}      # brokerage_order_id -> cumulative filled qty
         self._seen_fill_ids: set[str] = set()
+        self._submit_locks = KeyedLocks()
 
     # ------------------------------------------------------------------ lifecycle
     async def connect(self) -> None:
@@ -166,14 +174,21 @@ class SnapTradeBroker(BrokerAdapter):
         return acks
 
     async def fills(self) -> AsyncIterator[Fill]:
-        orders = await self._client.get_orders(self._st_account_id, state="all", days=7)
+        orders = await self._client.get_orders(self._st_account_id, state="all",
+                                               days=_FILL_LOOKBACK_DAYS)
         for rec in orders:
             boid = str(rec.get("brokerage_order_id", ""))
-            track = self._tracked.get(boid)
+            track = self._track_for(boid)
             if track is None:
                 continue
             filled = num(rec.get("filled_quantity"))
-            prev = self._emitted_filled.get(boid, 0.0)
+            if boid not in self._emitted_filled:
+                # R2-B (2026-10-18): seed the cumulative baseline from the durable fill
+                # ledger, never from zero -- after a restart the in-memory map is empty and
+                # the full cumulative quantity would otherwise be re-emitted as a new fill.
+                self._emitted_filled[boid] = float(
+                    sledger.recorded_fill_qty(self.account_id, boid))
+            prev = self._emitted_filled[boid]
             if filled <= prev:
                 continue
             qty = int(round(filled - prev))
@@ -194,18 +209,39 @@ class SnapTradeBroker(BrokerAdapter):
                 ts=parse_ts(rec.get("time_executed") or rec.get("time_updated") or rec.get("time_placed")),
                 fill_id=fill_id,
             )
+            # Persist BEFORE advancing the in-memory baseline: if the write fails the
+            # exception surfaces (poller alerts) and the next poll retries this delta.
+            with get_session() as session:
+                inserted = record_fill(session, fill)
             self._seen_fill_ids.add(fill_id)
             self._emitted_filled[boid] = filled
-            with get_session() as session:
-                record_fill(session, fill)
-            yield fill
+            if inserted:   # an already-persisted fill_id is never yielded twice
+                yield fill
+
+    def _track_for(self, boid: str) -> dict[str, Any] | None:
+        """In-memory tracking, else rebuilt from this account's ledger (post-restart)."""
+        track = self._tracked.get(boid)
+        if track is not None or not boid:
+            return track
+        row = sledger.ledger_by_broker_id(self.account_id, boid)
+        if row is None:
+            return None
+        it = row["intent"]
+        if not it.get("side") or not it.get("symbol"):
+            return None
+        track = {"cid": row["cid"], "symbol": str(it["symbol"]), "side": Side(it["side"])}
+        self._tracked[boid] = track
+        return track
 
     # ------------------------------------------------------------------ writes
     async def submit(self, intent: OrderIntent) -> OrderAck:
         self._require_trade()
         if intent.extended_hours:
             raise BrokerRejectedError("extended-hours orders are not supported on SnapTrade connections")
+        async with self._submit_locks.hold(intent.client_order_id):   # R2-D
+            return await self._submit_locked(intent)
 
+    async def _submit_locked(self, intent: OrderIntent, *, claimed_race: bool = False) -> OrderAck:
         existing = sledger.ledger_row(intent.client_order_id)
         if existing is not None:
             if existing["status"] == _LEDGER_UNKNOWN:
@@ -223,7 +259,18 @@ class SnapTradeBroker(BrokerAdapter):
         if intent.side is Side.SELL:
             await self._reject_oversell(intent)
 
-        sledger.ledger_register(intent)
+        if existing is not None:
+            # Only a previously REJECTED intent reaches here with a row: it was never live
+            # at the broker, so re-arm the same row instead of claiming a new one.
+            sledger.ledger_set_status(intent.client_order_id, "pending", "resubmit after reject")
+            return await self._place_with_reconcile(intent)
+        if not sledger.ledger_register(intent):
+            # Another writer claimed this client_order_id between our read and insert.
+            # Re-enter through the existing-row path (adopt / reconcile), never POST.
+            if claimed_race:
+                raise BrokerUnavailableError(
+                    f"submit {intent.client_order_id!r}: ledger claim contention; retry")
+            return await self._submit_locked(intent, claimed_race=True)
         return await self._place_with_reconcile(intent)
 
     async def _place_with_reconcile(self, intent: OrderIntent) -> OrderAck:
@@ -319,7 +366,8 @@ class SnapTradeBroker(BrokerAdapter):
         """
         last: OrderAck | None = None
         for attempt in range(_CANCEL_POLL_ATTEMPTS):
-            orders = await self._client.get_orders(self._st_account_id, state="all", days=1)
+            orders = await self._client.get_orders(self._st_account_id, state="all",
+                                                   days=_FILL_LOOKBACK_DAYS)
             rec = next((o for o in orders if str(o.get("brokerage_order_id", "")) == boid), None)
             if rec is not None:
                 last = smap.ack_from_record(rec, self._cid_for(rec))
@@ -368,7 +416,24 @@ class SnapTradeBroker(BrokerAdapter):
         return total + sledger.ledger_working_sells(self.account_id, symbol, exclude_cid)
 
     async def _reconcile(self, intent: OrderIntent, anchor: datetime) -> list[dict[str, Any]]:
-        orders = await self._client.get_orders(self._st_account_id, state="all", days=1)
+        """Broker orders matching ``intent`` near ``anchor``.
+
+        R2-A (2026-10-18): the lookback is sized from the ANCHOR's age, not "now - 1 day";
+        a restart more than a day after the original submit previously searched a window
+        that no longer contained the order, saw zero matches and resubmitted a duplicate.
+        An anchor older than the broker lookback we trust cannot be reconciled confidently:
+        mark the ledger ``unknown`` and refuse (operator resolves), never resubmit.
+        """
+        age_s = (datetime.now(timezone.utc) - anchor).total_seconds() + smap.MATCH_WINDOW_S
+        days = max(1, math.ceil(age_s / 86_400))
+        if days > _RECONCILE_MAX_DAYS:
+            sledger.ledger_set_status(intent.client_order_id, _LEDGER_UNKNOWN,
+                                      f"reconcile anchor {anchor.isoformat()} too old")
+            raise BrokerUnavailableError(
+                f"submit {intent.client_order_id!r}: original intent is older than the "
+                f"{_RECONCILE_MAX_DAYS}-day reconciliation lookback; ledger=unknown, "
+                "operator reconciliation required")
+        orders = await self._client.get_orders(self._st_account_id, state="all", days=days)
         return [o for o in orders if smap.order_matches(o, intent, anchor)]
 
     def _cid_for(self, rec: dict[str, Any]) -> str:

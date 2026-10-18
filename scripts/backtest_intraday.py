@@ -18,7 +18,9 @@ from sgt.db.session import init_db
 from sgt.engine.backtest import run_backtest
 from sgt.engine.report import render_report
 from sgt.intraday.store import ParquetBarStore
+from sgt.decision.policy import policy_from_config
 from sgt.strategy.loader import load_strategy
+from sgt.strategy.schema import ModelStrategyConfig
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -33,6 +35,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--allow-unknown-float", action="store_true",
                     help="admit symbols with no free-float data (research only; the universe "
                          "float cap then cannot be enforced). Default: fail closed.")
+    ap.add_argument("--allow-research-artifact", action="store_true",
+                    help="kind:model strategies: allow a quarantined / promotion-ineligible "
+                         "artifact (research inspection only)")
     args = ap.parse_args(argv)
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -41,6 +46,10 @@ def main(argv: list[str] | None = None) -> None:
     start, end = date.fromisoformat(args.start), date.fromisoformat(args.end)
 
     config = load_strategy(args.strategy)
+    policy = None
+    if isinstance(config, ModelStrategyConfig):
+        policy = policy_from_config(config, live=False,
+                                    allow_research_artifact=args.allow_research_artifact)
     store = ParquetBarStore(args.data)
     bars_by_symbol = {}
     for sym in symbols:
@@ -53,7 +62,7 @@ def main(argv: list[str] | None = None) -> None:
     init_db()
     result = run_backtest(config, bars_by_symbol, starting_cash=args.cash,
                           run_id=f"backtest:{config.id}", reference=ReferenceDataProvider(),
-                          allow_unknown_float=args.allow_unknown_float)
+                          allow_unknown_float=args.allow_unknown_float, policy=policy)
     if args.allow_unknown_float:
         print("NOTE: --allow-unknown-float: universe float cap NOT enforced for symbols without float data")
     report = render_report(result)
