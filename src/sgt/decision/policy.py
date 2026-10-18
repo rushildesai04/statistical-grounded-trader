@@ -323,3 +323,14 @@ def policy_from_config(config, *, live: bool,
         f_max=config.model.max_size_fraction)
     return load_model_policy(path, params, allow_research_artifact=allow_research_artifact,
                              live=live)
+
+
+def cost_source_for(policy: EnsembleModelPolicy):
+    """The cost source the policy's model was trained against (F-2 train/serve parity).
+
+    Raises ``ValueError`` for an artifact without a recorded ``cost_spec``: pricing costs
+    with a different model would shift both the cost feature and the trade hurdle."""
+    from sgt.decision.cost_spec import source_from_spec
+
+    meta = getattr(policy._model, "metadata", {}) or {}
+    return source_from_spec(meta.get("cost_spec"))

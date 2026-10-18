@@ -99,6 +99,7 @@ async def replay_session(
     strict_invariants: bool = False,
     allow_unknown_float: bool = False,
     policy: object = None,
+    cost_source: object = None,
 ) -> ShadowResult:
     cost_model = cost_model or DEFAULT_COST_MODEL
     sink = event_sink if event_sink is not None else InMemoryEventSink()
@@ -113,7 +114,8 @@ async def replay_session(
     meta_scorer = meta_filter.score if meta_filter is not None else None
     engine = StrategyEngine(config, reference=reference, meta_scorer=meta_scorer,
                             entry_override=entry_override, candidate_sink=candidate_sink,
-                            allow_unknown_float=allow_unknown_float, policy=policy)
+                            allow_unknown_float=allow_unknown_float, policy=policy,
+                            cost_source=cost_source)
 
     sim = SimBroker(_SHADOW_ACCOUNT, cost_model, starting_cash)
     exposure = DictExposureView()

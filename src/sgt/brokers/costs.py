@@ -121,3 +121,8 @@ class CostModel:
 
 
 DEFAULT_COST_MODEL = CostModel()
+
+# Median measured half-spreads by price bucket (Alpaca SIP NBBO, 40 symbols x 10
+# sessions, 2,579 windows, 2026-10-03..16; scripts/measure_spreads.py).
+CALIBRATED_COST_MODEL = CostModel(hs_under_1=0.00581, hs_1_to_5=0.00124,
+                                  hs_5_to_20=0.00064, hs_over_20=0.00085)

@@ -16,6 +16,8 @@ import pandas as pd
 import pytest
 
 from sgt.core.types import Bar, Mode, Segment
+from sgt.brokers.costs import CALIBRATED_COST_MODEL
+from sgt.decision.cost_spec import source_from_spec, spec_of
 from sgt.decision.features import CostModelAdapter
 from sgt.decision.models import DecisionModel
 from sgt.decision.policy import (
@@ -49,6 +51,7 @@ def _artifact(tmp_path, *, verdict="PROMOTE-CANDIDATE", eligible=True, name="m.j
     df = _df()
     m = DecisionModel().fit(df, ["f_sig", "f_n0"], LABEL)
     m.set_release_metadata(verdict=verdict, promotion_eligible=eligible, run_id="t")
+    m.metadata["cost_spec"] = spec_of(CostModelAdapter(CALIBRATED_COST_MODEL, tag="calibrated"))
     return m.save(tmp_path / name), m
 
 
@@ -367,3 +370,31 @@ def test_wal_readback_silent_when_wal(caplog):
     with caplog.at_level(logging.WARNING, logger="sgt.db.session"):
         _sqlite_pragmas(_Conn(), None)
     assert not caplog.records
+
+
+# ------------------------------------------------------------------ F-2 cost parity
+
+def test_runner_uses_the_cost_model_the_artifact_was_trained_with(tmp_path):
+    path, _ = _artifact(tmp_path)
+    r = _live_runner(_model_yaml(tmp_path, path), Mode.SHADOW)
+    src = r.engine._cost_source
+    assert isinstance(src, CostModelAdapter) and src.model == CALIBRATED_COST_MODEL
+
+
+def test_artifact_without_cost_spec_is_refused(tmp_path):
+    df = _df()
+    m = DecisionModel().fit(df, ["f_sig", "f_n0"], LABEL)
+    m.set_release_metadata(verdict="PROMOTE-CANDIDATE", promotion_eligible=True, run_id="t")
+    path = m.save(tmp_path / "nospec.joblib")
+    with pytest.raises(ValueError, match="cost_spec"):
+        _live_runner(_model_yaml(tmp_path, path), Mode.SHADOW)
+
+
+def test_cost_spec_roundtrip_and_rejects_unknown():
+    spec = spec_of(CostModelAdapter(CALIBRATED_COST_MODEL, tag="calibrated"))
+    src = source_from_spec(spec)
+    assert src.round_trip("X", None, 10.0) == (2 * 0.00064, "calibrated")
+    with pytest.raises(ValueError):
+        source_from_spec({"kind": "bucket", "model": {"bogus": 1.0}})
+    with pytest.raises(ValueError):
+        source_from_spec({"kind": "nope"})

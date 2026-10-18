@@ -23,7 +23,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -83,10 +83,17 @@ def stream_candidates(
     reference_fn: ReferenceFn | None,
     cost_source: CostSource,
     gate_session: date | None,
+    active_sessions: frozenset[date] | None = None,
 ) -> list[_Candidate]:
     """Stream one symbol's bars, returning a candidate per flat-bar trigger firing on a
     session at/after ``gate_session`` (None = no gate). Point-in-time: a candidate's
-    features read only data up to and including its own bar."""
+    features read only data up to and including its own bar.
+
+    ``active_sessions`` (H2 in-play universe): when given, candidates are admitted only on
+    those sessions and only from the regular open onward -- the gap that makes a day
+    "active" is defined by the opening print, so pre-market bars cannot know it yet.
+    Indicators still warm up on every bar (the relative-volume baseline needs the prior
+    sessions)."""
     if not bars:
         return []
     symbol = bars[0].symbol
@@ -138,7 +145,10 @@ def stream_candidates(
             bars_since_high = (bars_since_high or 0) + 1
 
         trig = fired_trigger(view)
-        if trig is not None and (gate_session is None or bar.session_date >= gate_session):
+        admitted = (gate_session is None or bar.session_date >= gate_session) and (
+            active_sessions is None
+            or (bar.session_date in active_sessions and bar.segment is not Segment.PRE))
+        if trig is not None and admitted:
             try:
                 cost_frac, _src = cost_source.round_trip(symbol, bar.ts, bar.close)
             except Exception:  # noqa: BLE001 - degrade the cost feature to NaN, logged
@@ -221,8 +231,11 @@ def _entry_half(bars, signal_idx, symbol, cost_source) -> float:
     return frac / 2.0
 
 
-def _cost_cols(bars, cand, symbol, cost_source, model_source) -> tuple[float, float, str]:
-    """(cost_rt_measured, cost_rt_model, cost_source) at the entry bar."""
+def _cost_cols(bars, cand, symbol, cost_source, model_source) -> tuple[float, float, str, float]:
+    """(cost_rt_measured, cost_rt_model, cost_source, cost_rt_label) at the entry bar.
+
+    ``cost_rt_label`` is the round trip the labels were netted with (whatever the cost
+    source); the trainer's hurdle and cost stress must use it (F-1, 2026-10-18)."""
     i = cand.signal_idx + 1
     if i < len(bars) and bars[i].session_date == cand.session_date:
         price, ts = bars[i].open, bars[i].ts
@@ -231,7 +244,7 @@ def _cost_cols(bars, cand, symbol, cost_source, model_source) -> tuple[float, fl
     frac, source = cost_source.round_trip(symbol, ts, price)
     model_frac, _ = model_source.round_trip(symbol, ts, price)
     measured = frac if source == "measured" else float("nan")
-    return measured, model_frac, source
+    return measured, model_frac, source, frac
 
 
 # --------------------------------------------------------------------------- discovery
@@ -270,7 +283,8 @@ def _arrow_schema(grid: Sequence[LabelConfig]) -> pa.Schema:
     fields.append(pa.field("q_float_degraded", pa.float64()))
     fields += [pa.field("cost_rt_measured", pa.float64()),
                pa.field("cost_rt_model", pa.float64()),
-               pa.field("cost_source", pa.string(), nullable=False)]
+               pa.field("cost_source", pa.string(), nullable=False),
+               pa.field("cost_rt_label", pa.float64())]
     for cfg in grid:
         suf = cfg.suffix
         fields += [pa.field(f"y_net__{suf}", pa.float64()),
@@ -302,6 +316,7 @@ def build_dataset(
     reference_fn: ReferenceFn | None = None,
     symbols: Sequence[str] | None = None,
     research_ungated: bool = False,
+    active_days: Mapping[str, frozenset[date]] | None = None,
 ) -> BuildSummary:
     """Build the decision dataset from the Parquet store. Returns a summary; writes
     ``<out_dir>/<dataset_id>/dataset.parquet`` and ``meta.json``."""
@@ -315,10 +330,17 @@ def build_dataset(
         reference_fn = _default_reference_fn()
 
     all_symbols = sorted(symbols) if symbols is not None else store.symbols()
+    if active_days is not None:
+        # H2: the in-play gate is itself point-in-time and applied to every listed
+        # equity, so it replaces the discovery gate (which exists for screener lists).
+        active_days = {s.upper(): v for s, v in active_days.items()}
+        all_symbols = [s for s in all_symbols if s.upper() in active_days]
+        research_ungated = False
     # research_ungated: admit sessions before each symbol's discovery. Those symbols were
     # chosen BECAUSE they moved later, so the sample is momentum-biased: hypothesis
     # generation only; the sidecar marks it promotion-ineligible (2026-10-17 ruling).
-    disco = {} if research_ungated else discovery_map(all_symbols, watchlist)
+    disco = ({} if research_ungated or active_days is not None
+             else discovery_map(all_symbols, watchlist))
     dataset_id = dataset_id or datetime.now(_UTC).strftime("decision_%Y%m%dT%H%M%SZ")
     out_path = Path(out_dir) / dataset_id
     out_path.mkdir(parents=True, exist_ok=True)
@@ -341,7 +363,9 @@ def build_dataset(
                                 else DISCOVERED_UNKNOWN))
             bars = store.read(sym, sessions[0], sessions[-1])
             cands = stream_candidates(
-                bars, reference_fn=reference_fn, cost_source=cost_source, gate_session=gate)
+                bars, reference_fn=reference_fn, cost_source=cost_source, gate_session=gate,
+                active_sessions=(active_days.get(sym.upper()) if active_days is not None
+                                 else None))
             if not cands:
                 continue
             label_cols = _label_symbol(bars, cands, grid, cost_source)
@@ -364,7 +388,8 @@ def build_dataset(
 
     elapsed = _time.monotonic() - t0
     _write_sidecar(out_path, dataset_id, grid, store_root, rows_total, symbols_with_rows,
-                   sorted(sessions_seen), cost_source, research_ungated)
+                   sorted(sessions_seen), cost_source, research_ungated,
+                   universe="gap_days" if active_days is not None else "store")
     return BuildSummary(dataset_id, str(pq_path), rows_total, symbols_with_rows,
                         len(sessions_seen), truncated, elapsed)
 
@@ -381,13 +406,14 @@ def _symbol_table(sym, bars, cands, label_cols, grid, cost_source, model_source,
     for f in FEATURE_NAMES:
         data[f] = [c.features.get(f, float("nan")) for c in cands]
     data["q_float_degraded"] = [c.features.get("q_float_degraded", float("nan")) for c in cands]
-    measured, model_c, source_c = [], [], []
+    measured, model_c, source_c, label_c = [], [], [], []
     for c in cands:
-        m, mo, s = _cost_cols(bars, c, sym, cost_source, model_source)
-        measured.append(m); model_c.append(mo); source_c.append(s)
+        m, mo, s, lc = _cost_cols(bars, c, sym, cost_source, model_source)
+        measured.append(m); model_c.append(mo); source_c.append(s); label_c.append(lc)
     data["cost_rt_measured"] = measured
     data["cost_rt_model"] = model_c
     data["cost_source"] = source_c
+    data["cost_rt_label"] = label_c
     for cfg in grid:
         suf = cfg.suffix
         data[f"y_net__{suf}"] = label_cols[f"y_net__{suf}"]
@@ -404,8 +430,18 @@ def _default_reference_fn() -> ReferenceFn:
     return lambda sym, d: provider.get(sym, d)
 
 
+def _cost_spec_or_none(cost_source):
+    from sgt.decision.cost_spec import spec_of
+
+    try:
+        return spec_of(cost_source)
+    except TypeError:
+        return None
+
+
 def _write_sidecar(out_path, dataset_id, grid, store_root, rows, n_symbols, sessions,
-                   cost_source, research_ungated: bool = False) -> None:
+                   cost_source, research_ungated: bool = False,
+                   universe: str = "store") -> None:
     meta = {
         "dataset_id": dataset_id,
         "created_utc": datetime.now(_UTC).isoformat(),
@@ -419,7 +455,12 @@ def _write_sidecar(out_path, dataset_id, grid, store_root, rows, n_symbols, sess
         "label_grid": [{"k_tp": c.k_tp, "k_sl": c.k_sl, "h": c.h, "suffix": c.suffix}
                        for c in grid],
         "cost_model": type(cost_source).__name__,
+        "cost_spec": _cost_spec_or_none(cost_source),
         "research_ungated": research_ungated,
+        "universe": universe,
+        # Gap days come from today's ACTIVE asset list: names delisted since are missing
+        # (mild survivorship bias, likely flattering). Recorded, not hidden.
+        "bias_flags": (["survivorship:active_assets"] if universe == "gap_days" else []),
         "promotion_eligible": not research_ungated,
     }
     (out_path / "meta.json").write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
