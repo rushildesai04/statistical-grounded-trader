@@ -93,6 +93,9 @@ class SimBroker(BrokerAdapter):
         self.realized_pnl = 0.0
 
         self._orders: dict[str, _Working] = {}
+        # Per-symbol index of non-terminal orders (2026-10-17 perf fix: on_bar scanned
+        # every order ever placed). Insertion-ordered => fill order unchanged.
+        self._active: dict[str, dict[str, _Working]] = {}
         self._acks: dict[str, OrderAck] = {}
         self._positions: dict[str, _Lot] = {}
         self._halted: set[str] = set()
@@ -123,9 +126,11 @@ class SimBroker(BrokerAdapter):
                 return self._reject(intent, "insufficient settled cash")
 
         seq = self._bar_seq.get(intent.symbol, 0)
-        self._orders[intent.client_order_id] = _Working(
+        wk_new = _Working(
             intent=intent, submit_seq=seq, remaining=intent.qty, status=OrderStatus.PENDING
         )
+        self._orders[intent.client_order_id] = wk_new
+        self._active.setdefault(intent.symbol, {})[intent.client_order_id] = wk_new
         ack = OrderAck(
             client_order_id=intent.client_order_id,
             broker_order_id=self._broker_id(intent.client_order_id),
@@ -172,8 +177,11 @@ class SimBroker(BrokerAdapter):
             return []
 
         out: list[Fill] = []
-        for wk in list(self._orders.values()):
-            if wk.intent.symbol != sym or wk.status.terminal:
+        active = self._active.get(sym, {})
+        for cid in [c for c, w in active.items() if w.status.terminal]:
+            del active[cid]
+        for wk in list(active.values()):
+            if wk.status.terminal:
                 continue
             if seq_before < wk.submit_seq:
                 continue  # not eligible until the next bar (no same-bar fill)
@@ -216,7 +224,7 @@ class SimBroker(BrokerAdapter):
                 remaining.append((settle_at, amount))
         self._pending_settle = remaining
         self.settled_cash += released
-        for wk in self._orders.values():
+        for wk in (w for book in self._active.values() for w in book.values()):
             if wk.intent.tif is TimeInForce.DAY and not wk.status.terminal:
                 wk.status = OrderStatus.EXPIRED
                 wk.remaining = 0
