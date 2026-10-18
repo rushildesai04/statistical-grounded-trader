@@ -21,7 +21,9 @@ from sgt.strategy.conditions import (
     SessionWindowIn,
     VolumeExhaustion,
 )
-from sgt.strategy.exits import StopLossPct, TimeStopMinutes
+from sgt.strategy.exits import AtrStop, AtrTakeProfit, StopLossPct, TimeStopMinutes
+
+_ATR_KEY = "atr(n=14).value"
 
 
 def _bar(close=10.0, high=None, low=None, vol=1000.0, minute=600, seg=Segment.RTH) -> Bar:
@@ -140,3 +142,32 @@ def test_exit_conditions_need_a_position():
                         high_since_entry=10.5, bars_held=40)
     assert TimeStopMinutes(n=30).evaluate(_view(later, {}, position=pos2)) is True
     assert TimeStopMinutes(n=60).evaluate(_view(later, {}, position=pos2)) is False
+
+
+def test_atr_brackets_use_frozen_entry_atr_not_live():
+    # ATR has expanded to 2.0 live, but the barriers must stay at the entry ATR (0.5),
+    # matching the training label's FIXED signal-bar barriers (DECISION_MODEL.md §5 F1).
+    bar = _bar(close=10.5, high=10.55, low=10.45)  # moved only +/-0.05 from entry 10.0
+    snap = {_ATR_KEY: 2.0}  # live ATR blown out
+    frozen = PositionView(qty=100, entry_price=10.0, entry_ts=bar.ts, high_since_entry=10.5,
+                          bars_held=3, entry_atr=0.5)
+    # k_tp=1 -> barrier 10.0 + 1*0.5 = 10.5; bar.high 10.55 >= 10.5 -> hit with frozen ATR.
+    assert AtrTakeProfit(k=1.0).evaluate(_view(bar, snap, position=frozen)) is True
+    # With the LIVE ATR (2.0) the barrier would be 12.0 and NOT hit; this is the bug fix.
+    live = PositionView(qty=100, entry_price=10.0, entry_ts=bar.ts, high_since_entry=10.5,
+                        bars_held=3, entry_atr=None)  # rule strategies: fall back to live
+    assert AtrTakeProfit(k=1.0).evaluate(_view(bar, snap, position=live)) is False
+    # Stop: k_sl=1 -> barrier 10.0 - 0.5 = 9.5; bar.low 10.45 > 9.5 -> not hit (frozen).
+    assert AtrStop(k=1.0).evaluate(_view(bar, snap, position=frozen)) is False
+
+
+def test_atr_brackets_fall_back_to_live_atr_for_rule_strategies():
+    # entry_atr None => old behavior: read the live point-in-time ATR from the snapshot.
+    bar = _bar(close=11.0, high=12.1, low=10.9)
+    snap = {_ATR_KEY: 2.0}
+    pos = PositionView(qty=100, entry_price=10.0, entry_ts=bar.ts, high_since_entry=11.0,
+                       bars_held=1, entry_atr=None)
+    # barrier 10.0 + 1*2.0 = 12.0; high 12.1 >= 12.0 -> hit via live ATR.
+    assert AtrTakeProfit(k=1.0).evaluate(_view(bar, snap, position=pos)) is True
+    # Missing ATR and no frozen value -> False, never raise.
+    assert AtrTakeProfit(k=1.0).evaluate(_view(bar, {}, position=pos)) is False

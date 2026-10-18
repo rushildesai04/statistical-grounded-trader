@@ -113,7 +113,16 @@ class AlpacaHistoricalBars(HistoricalBarSource):
         headers = _alpaca_headers()
         url = self.base_url + _BARS_PATH
         for attempt in range(_MAX_RETRIES + 1):
-            resp = self._client.get(url, params=params, headers=headers, timeout=self.timeout)
+            try:
+                resp = self._client.get(url, params=params, headers=headers, timeout=self.timeout)
+            except httpx.TransportError as exc:
+                # Dropped connections / timeouts are transient (2026-10-17: an unretried
+                # RemoteProtocolError aborted a multi-hour backfill).
+                if attempt < _MAX_RETRIES:
+                    log.warning("alpaca transport error (%s); retrying", type(exc).__name__)
+                    self._sleep(_backoff(attempt))
+                    continue
+                raise DataSourceError(f"alpaca unreachable after {attempt + 1} tries: {type(exc).__name__}") from exc
             sc = resp.status_code
             if sc == 200:
                 return resp.json()
@@ -290,7 +299,14 @@ class AlpacaPollingLiveSource(LiveBarSource):
         headers = _alpaca_headers()
         url = self.base_url + _BARS_PATH
         for attempt in range(_MAX_RETRIES + 1):
-            resp = await self._client.get(url, params=params, headers=headers, timeout=self.timeout)
+            try:
+                resp = await self._client.get(url, params=params, headers=headers, timeout=self.timeout)
+            except httpx.TransportError as exc:
+                if attempt < _MAX_RETRIES:
+                    log.warning("alpaca transport error (%s); retrying", type(exc).__name__)
+                    await self._sleep(_backoff(attempt))
+                    continue
+                raise DataSourceError(f"alpaca unreachable after {attempt + 1} tries: {type(exc).__name__}") from exc
             sc = resp.status_code
             if sc == 200:
                 return resp.json()

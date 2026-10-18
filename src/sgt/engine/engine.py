@@ -21,7 +21,7 @@ from sgt.indicators.registry import IndicatorBank, IndicatorContext
 from sgt.intraday.calendar import SessionCalendar, default_calendar
 from sgt.strategy.base import Candidate, Decision, EvalView, HistoryView
 from sgt.strategy.runtime import EntryOverride, MetaScorer, StrategyRuntime
-from sgt.strategy.schema import StrategyConfig
+from sgt.strategy.schema import ModelStrategyConfig, StrategyConfig
 
 ReferenceFn = Callable[[str, date], ReferenceData | None]
 
@@ -41,7 +41,7 @@ def _normalize_reference(reference: object) -> ReferenceFn | None:
 @dataclass(slots=True)
 class _SymCtx:
     bank: IndicatorBank
-    runtime: StrategyRuntime
+    runtime: object  # StrategyRuntime | sgt.decision.runtime.DecisionRuntime
     reference: ReferenceData | None
     session_date: date | None
     session_high: float | None   # max high over PRE+RTH bars seen so far this session
@@ -65,16 +65,28 @@ class StrategyEngine:
         entry_override: EntryOverride | None = None,
         candidate_sink: Callable[[Candidate], None] | None = None,
         allow_unknown_float: bool = False,
+        policy: object = None,
+        cost_source: object = None,
     ) -> None:
         self.config = config
+        self._is_model = isinstance(config, ModelStrategyConfig)
         self._allow_unknown_float = allow_unknown_float
         self.calendar = calendar or default_calendar()
         self._reference_fn = _normalize_reference(reference)
         self._meta = meta_scorer
         self._override = entry_override
         self._candidate_sink = candidate_sink
-        self._specs = self._collect_specs(config)
-        self._history = max((c.history_window() for c in config.all_conditions()), default=0)
+        self._policy = policy
+        self._cost_source = cost_source
+        if self._is_model:
+            if policy is None:
+                raise ValueError("a model strategy requires an injected policy")
+            from sgt.decision.runtime import model_history_window, model_indicator_specs
+            self._specs = model_indicator_specs(config)
+            self._history = model_history_window(config)
+        else:
+            self._specs = self._collect_specs(config)
+            self._history = max((c.history_window() for c in config.all_conditions()), default=0)
         self._maxlen = max(self._history, 1)
         self._ctx: dict[str, _SymCtx] = {}
 
@@ -86,9 +98,22 @@ class StrategyEngine:
                 seen.setdefault(spec.key, spec)
         return list(seen.values())
 
-    def runtime_for(self, symbol: str) -> StrategyRuntime | None:
+    def runtime_for(self, symbol: str):
         ctx = self._ctx.get(symbol)
         return ctx.runtime if ctx else None
+
+    def _open_risk_usd(self) -> float:
+        """Total dollar at-risk across every model runtime's open/pending position.
+
+        Feeds each :class:`~sgt.decision.runtime.DecisionRuntime`'s portfolio at-risk cap.
+        The engine is per strategy, so summing over its runtimes is the whole strategy's
+        exposure."""
+        total = 0.0
+        for ctx in self._ctx.values():
+            fn = getattr(ctx.runtime, "at_risk_usd", None)
+            if fn is not None:
+                total += fn()
+        return total
 
     # ------------------------------------------------------------------ per-symbol context
     def _ensure_ctx(self, symbol: str, session_date: date) -> _SymCtx:
@@ -96,10 +121,18 @@ class StrategyEngine:
         if ctx is None:
             ref = self._reference_fn(symbol, session_date) if self._reference_fn else None
             bank = IndicatorBank(self._specs, IndicatorContext(reference=ref))
-            runtime = StrategyRuntime(
-                self.config, symbol, candidate_sink=self._candidate_sink,
-                meta_scorer=self._meta, entry_override=self._override,
-                allow_unknown_float=self._allow_unknown_float)
+            if self._is_model:
+                from sgt.decision.runtime import DecisionRuntime
+                runtime = DecisionRuntime(
+                    self.config, symbol, policy=self._policy, cost_source=self._cost_source,
+                    candidate_sink=self._candidate_sink,
+                    allow_unknown_float=self._allow_unknown_float,
+                    open_risk_fn=self._open_risk_usd)
+            else:
+                runtime = StrategyRuntime(
+                    self.config, symbol, candidate_sink=self._candidate_sink,
+                    meta_scorer=self._meta, entry_override=self._override,
+                    allow_unknown_float=self._allow_unknown_float)
             ctx = _SymCtx(
                 bank=bank, runtime=runtime, reference=ref, session_date=session_date,
                 session_high=None, premarket_high=None, prev_snap=None,

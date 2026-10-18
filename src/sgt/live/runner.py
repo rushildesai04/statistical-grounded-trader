@@ -164,6 +164,7 @@ class LiveRunner:
             ledger_cash_provider=ledger_cash_provider)
 
         self._watchlist: list[str] = [s.upper() for s in initial_watchlist]
+        self._base_watchlist: tuple[str, ...] = tuple(self._watchlist)
         self._last_bar_ts: datetime | None = None
         self._last_bar_by_symbol: dict[str, Bar] = {}
         self._last_arrival: datetime | None = None
@@ -348,7 +349,10 @@ class LiveRunner:
     async def _rescan_watchlist(self, now: datetime) -> list[str]:
         held = self._held_symbols()
         if self._scanner is None or self._scan_candidates is None or self._scan_reference is None:
-            new = sorted(set(self._watchlist) | held)[: self.max_watchlist]
+            # No scanner: held names first, then the operator watchlist, then symbols alerted
+            # by Telegram/TradingView (alerts never displace held or configured names).
+            alerts = sorted(s.upper() for s in (self._alert_symbols() if self._alert_symbols else ()))
+            new = list(dict.fromkeys(sorted(held) + list(self._base_watchlist) + alerts))[: self.max_watchlist]
         else:
             items = self._scanner.scan(
                 now, self._scan_candidates(now), reference=self._scan_reference,

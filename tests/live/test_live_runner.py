@@ -125,3 +125,18 @@ async def test_graceful_shutdown_blocks_entries_flushes_and_keeps_stops():
     with get_session() as s:
         row = s.get(LiveSession, "run-test")
     assert row is not None and row.status == "stopped" and row.ended_at is not None
+
+
+async def test_alert_symbols_join_watchlist_without_displacing_configured_names():
+    """TradingView/Telegram-alerted tickers are watched; configured names always stay."""
+    r = LiveRunner(
+        "tests/fixtures/trader_v0_mechanics.yaml", Mode.SHADOW, [_SPEC],
+        source=InMemoryLiveSource([]), adapters={"acct": SimBroker("acct", DEFAULT_COST_MODEL, 100_000.0)},
+        risk_config=default_risk_config(CFG), clock=Clock(datetime(2024, 3, 12, 15, 0, tzinfo=timezone.utc)),
+        sleep=_noop_sleep, run_id="run-alerts", initial_watchlist=("BASE",),
+        alert_symbols=lambda: {"zzz", "AAA"}, max_watchlist=2)
+    wl = await r._rescan_watchlist(datetime(2024, 3, 12, 15, 0, tzinfo=timezone.utc))
+    assert wl[0] == "BASE" and wl == ["BASE", "AAA"]          # cap keeps configured name first
+    r.max_watchlist = 5
+    wl = await r._rescan_watchlist(datetime(2024, 3, 12, 15, 1, tzinfo=timezone.utc))
+    assert wl == ["BASE", "AAA", "ZZZ"]

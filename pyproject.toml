@@ -34,6 +34,11 @@ dependencies = [
 crowd = [
     "telethon>=1.45,<2",
 ]
+# Interactive Brokers adapter (local IB Gateway / TWS). `pip install .[ibkr]`.
+# Imported lazily by sgt.brokers.ibkr; the base install and test-suite never require it.
+ibkr = [
+    "ib_async>=2.1,<3",
+]
 # Heavy ML deps kept out of the base install. `pip install .[ml]` to enable FinBERT.
 ml = [
     "torch>=2.2",
