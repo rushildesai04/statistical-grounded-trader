@@ -25,7 +25,8 @@ def spec_of(source: CostSource) -> dict[str, Any]:
     from sgt.brokers.measured_costs import MeasuredCostModel
 
     if isinstance(source, CostModelAdapter):
-        return {"kind": "bucket", "tag": source.tag, "model": asdict(source.model)}
+        return {"kind": "bucket", "tag": source.tag, "model": asdict(source.model),
+                "open_hour_mult": source.open_hour_mult, "rest_mult": source.rest_mult}
     if isinstance(source, MeasuredCostModel):
         return {"kind": "measured", "base": asdict(source._base),
                 "min_samples": source._min_samples}
@@ -40,7 +41,9 @@ def source_from_spec(spec: Mapping[str, Any] | None, *,
     kind = spec.get("kind")
     if kind == "bucket":
         model = _bucket(spec.get("model") or {})
-        return CostModelAdapter(model, tag=str(spec.get("tag", "model")))
+        return CostModelAdapter(model, tag=str(spec.get("tag", "model")),
+                                open_hour_mult=float(spec.get("open_hour_mult", 1.0)),
+                                rest_mult=float(spec.get("rest_mult", 1.0)))
     if kind == "measured":
         from sgt.brokers.measured_costs import MeasuredCostModel
         from sgt.db.session import get_session

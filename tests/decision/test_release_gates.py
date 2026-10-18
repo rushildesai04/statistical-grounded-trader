@@ -398,3 +398,21 @@ def test_cost_spec_roundtrip_and_rejects_unknown():
         source_from_spec({"kind": "bucket", "model": {"bogus": 1.0}})
     with pytest.raises(ValueError):
         source_from_spec({"kind": "nope"})
+
+
+def test_gapper_cost_is_time_of_day_aware_and_serializes():
+    from datetime import datetime, timezone
+
+    from sgt.brokers.costs import GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT, GAPPER_REST_MULT
+
+    a = CostModelAdapter(GAPPER_COST_MODEL, tag="gapper", open_hour_mult=GAPPER_OPEN_HOUR_MULT,
+                         rest_mult=GAPPER_REST_MULT)
+    base = 2 * GAPPER_COST_MODEL.half_spread_pct(10.0)
+    utc = timezone.utc
+    at = lambda h, m: a.round_trip("X", datetime(2026, 10, 13, h, m, tzinfo=utc), 10.0)[0]  # noqa: E731
+    assert abs(at(13, 45) - base * GAPPER_OPEN_HOUR_MULT) < 1e-12   # 09:45 ET, first hour
+    assert abs(at(15, 0) - base * GAPPER_REST_MULT) < 1e-12         # 11:00 ET
+    assert abs(at(21, 0) - base * GAPPER_OPEN_HOUR_MULT) < 1e-12    # 17:00 ET post-market
+    assert abs(at(12, 0) - base * GAPPER_OPEN_HOUR_MULT) < 1e-12    # 08:00 ET pre-market
+    back = source_from_spec(spec_of(a))
+    assert back == a

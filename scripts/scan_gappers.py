@@ -53,20 +53,26 @@ def _get(client: httpx.Client, url: str, params: dict[str, Any]) -> Any:
     raise SystemExit("alpaca retries exhausted")
 
 
-def active_symbols(client: httpx.Client) -> list[str]:
+def active_symbols(client: httpx.Client, *, include_inactive: bool = False) -> list[str]:
+    """Listed US equities. ``include_inactive`` adds delisted symbols so a multi-year scan
+    is not survivorship-biased (delisted gappers are disproportionately losers). Caveat:
+    a recycled ticker can splice two companies; a spurious 'gap' at the splice is rare
+    and is recorded rather than hidden."""
     s = get_settings()
-    rows = _get(client, s.alpaca_paper_url.rstrip("/") + "/v2/assets",
-                {"status": "active", "asset_class": "us_equity"})
-    if not isinstance(rows, list):
-        raise SystemExit("assets response is not a list")
     out = []
-    for a in rows:
-        if not isinstance(a, dict):
-            continue
-        sym = str(a.get("symbol", ""))
-        if (a.get("tradable") and str(a.get("exchange", "")) in _EXCHANGES
-                and sym.isalpha() and 1 <= len(sym) <= 5):
-            out.append(sym.upper())
+    for status in (("active", "inactive") if include_inactive else ("active",)):
+        rows = _get(client, s.alpaca_paper_url.rstrip("/") + "/v2/assets",
+                    {"status": status, "asset_class": "us_equity"})
+        if not isinstance(rows, list):
+            raise SystemExit("assets response is not a list")
+        for a in rows:
+            if not isinstance(a, dict):
+                continue
+            sym = str(a.get("symbol", ""))
+            tradable_ok = a.get("tradable") or status == "inactive"
+            if (tradable_ok and str(a.get("exchange", "")) in _EXCHANGES
+                    and sym.isalpha() and 1 <= len(sym) <= 5):
+                out.append(sym.upper())
     return sorted(set(out))
 
 
@@ -104,12 +110,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--price-min", type=float, default=1.0)
     ap.add_argument("--price-max", type=float, default=30.0)
     ap.add_argument("--out", type=Path, default=Path("data/universe/gappers.csv"))
+    ap.add_argument("--include-inactive", action="store_true",
+                    help="also scan delisted symbols (removes survivorship bias)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     with httpx.Client(timeout=get_settings().http_timeout_s) as client:
-        syms = active_symbols(client)
+        syms = active_symbols(client, include_inactive=args.include_inactive)
         log.info("%d active listed equities", len(syms))
         gaps = []
         fetch_start = args.start - timedelta(days=10)   # previous close for the first day

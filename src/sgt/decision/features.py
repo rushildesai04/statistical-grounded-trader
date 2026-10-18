@@ -11,6 +11,7 @@ builder and :class:`sgt.decision.runtime.DecisionRuntime` build identical banks.
 """
 from __future__ import annotations
 
+import functools
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -93,6 +94,23 @@ class CostSource(Protocol):
     def round_trip(self, symbol: str, ts: datetime, price: float) -> tuple[float, str]: ...
 
 
+@functools.lru_cache(maxsize=4096)
+def _rth_bounds_for(d) -> tuple[datetime, datetime] | None:
+    from sgt.intraday.calendar import default_calendar
+
+    try:
+        b = default_calendar().bounds(d)
+    except ValueError:
+        return None
+    return b.rth_open, b.rth_close
+
+
+def _rth_bounds(ts: datetime) -> tuple[datetime, datetime] | None:
+    from sgt.intraday.calendar import ET
+
+    return _rth_bounds_for(ts.astimezone(ET).date())
+
+
 @dataclass(frozen=True, slots=True)
 class CostModelAdapter:
     """Adapts a bucket :class:`CostModel` to the :class:`CostSource` interface so the
@@ -100,11 +118,27 @@ class CostModelAdapter:
 
     model: CostModel = CostModel()
     tag: str = "model"   # "calibrated" when the buckets are fitted to measured spreads
+    # Time-of-day multipliers on the bucket half-spread (2026-10-18, gapper costs): first
+    # RTH hour, rest of RTH. Outside RTH the open multiplier applies (spreads there are
+    # at least as wide as the open; conservative). 1.0/1.0 = price-only buckets.
+    open_hour_mult: float = 1.0
+    rest_mult: float = 1.0
 
     def round_trip(self, symbol: str, ts: datetime, price: float) -> tuple[float, str]:
         if price <= 0:
             raise ValueError("round_trip price must be > 0")
-        return 2.0 * self.model.half_spread_pct(price), self.tag
+        return 2.0 * self.model.half_spread_pct(price) * self._tod_mult(ts), self.tag
+
+    def _tod_mult(self, ts: datetime | None) -> float:
+        if ts is None or (self.open_hour_mult == 1.0 and self.rest_mult == 1.0):
+            return 1.0
+        b = _rth_bounds(ts)
+        if b is None:
+            return self.open_hour_mult
+        rth_open, rth_close = b
+        if rth_open <= ts < rth_close:
+            return self.open_hour_mult if (ts - rth_open).total_seconds() < 3600 else self.rest_mult
+        return self.open_hour_mult
 
 
 # --------------------------------------------------------------------------- context

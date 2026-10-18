@@ -43,6 +43,18 @@ def window_start(first: date, lookback: int) -> date:
     return d
 
 
+def merge_windows(ds: list[date], lookback: int) -> list[tuple[date, date]]:
+    """[gap - lookback sessions, gap] windows, merged where they overlap or touch."""
+    out: list[tuple[date, date]] = []
+    for d in sorted(set(ds)):
+        lo = window_start(d, lookback)
+        if out and lo <= out[-1][1] + timedelta(days=7):
+            out[-1] = (out[-1][0], d)
+        else:
+            out.append((lo, d))
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--gappers", type=Path, default=Path("data/universe/gappers.csv"))
@@ -60,10 +72,12 @@ def main(argv: list[str] | None = None) -> int:
     totals: dict[str, int] = defaultdict(int)
     try:
         for i, (sym, ds) in enumerate(sorted(days.items()), 1):
-            st = backfill([sym], window_start(min(ds), args.lookback), max(ds), store=store,
-                          fetch=src.fetch, pacing_s=args.pacing)
-            for k, v in st.items():
-                totals[k] += v
+            # One window per CLUSTER of nearby gap days (a symbol gapping in 2024 and again
+            # in 2026 must not pull the two years in between).
+            for lo, hi in merge_windows(ds, args.lookback):
+                st = backfill([sym], lo, hi, store=store, fetch=src.fetch, pacing_s=args.pacing)
+                for k, v in st.items():
+                    totals[k] += v
             if i % 50 == 0 or i == len(days):
                 log.info("%d/%d symbols; %s", i, len(days), dict(totals))
     finally:

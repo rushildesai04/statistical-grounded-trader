@@ -126,3 +126,14 @@ DEFAULT_COST_MODEL = CostModel()
 # sessions, 2,579 windows, 2026-10-03..16; scripts/measure_spreads.py).
 CALIBRATED_COST_MODEL = CostModel(hs_under_1=0.00581, hs_1_to_5=0.00124,
                                   hs_5_to_20=0.00064, hs_over_20=0.00085)
+
+# In-play (gap-day) half-spreads: 5%-trimmed means of RTH NBBO windows on 300 random gap
+# days (scripts/measure_gapper_spreads.py, 2026-10-18; n=638/712/248 windows for
+# $1-5/$5-20/>$20). 3-4x the general calibration. <$1 keeps the general value (only 99
+# windows, and a lower measured mean than $1-5 is not credible). The first hour runs
+# ~1.4x the all-day mean: GAPPER_OPEN_HOUR_MULT / GAPPER_REST_MULT (0.478% / 0.280% vs
+# the 0.347% all-window mean) apply it through CostModelAdapter.
+GAPPER_OPEN_HOUR_MULT = 1.38
+GAPPER_REST_MULT = 0.81
+GAPPER_COST_MODEL = CostModel(hs_under_1=0.00581, hs_1_to_5=0.00453,
+                              hs_5_to_20=0.00279, hs_over_20=0.00257)

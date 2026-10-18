@@ -36,6 +36,12 @@ def _cost_source(kind: str):
         return None  # builder default: bucket CostModel
     if kind == "calibrated":
         return CostModelAdapter(CALIBRATED_COST_MODEL, tag="calibrated")
+    if kind == "gapper":
+        from sgt.brokers.costs import (GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT,
+                                       GAPPER_REST_MULT)
+        return CostModelAdapter(GAPPER_COST_MODEL, tag="gapper",
+                                open_hour_mult=GAPPER_OPEN_HOUR_MULT,
+                                rest_mult=GAPPER_REST_MULT)
     from sgt.brokers.measured_costs import MeasuredCostModel
     from sgt.db.session import get_session, init_db
 
@@ -66,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--research-ungated", action="store_true",
                         help="ignore discovery gating (momentum-biased; never promotion-eligible)")
-    parser.add_argument("--cost", choices=("model", "calibrated", "measured"), default="model",
+    parser.add_argument("--cost", choices=("model", "calibrated", "gapper", "measured"), default="model",
                         help="cost source: bucket model, bucket model calibrated to measured "
                              "spreads (aggregate, no look-ahead), or per-symbol point-in-time "
                              "measured spreads (falls back to the model when unsampled)")

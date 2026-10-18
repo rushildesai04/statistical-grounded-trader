@@ -61,3 +61,18 @@ def test_empty_lockbox():
     r = evaluate_lockbox(_Stub(), _params(), _df([]), label_col=LABEL, horizon_min=30,
                          cost_col="cost_rt_measured", model_cost_col=None)
     assert r.n_trades == 0 and r.pnl_usd == 0.0
+
+
+def test_zero_kelly_size_is_not_a_trade():
+    """F-3: p*b < 1-p gives Kelly f* <= 0 -> size 0. Live declines it; so must validation."""
+    class _BadPayoff(_Stub):
+        def predict_frame(self, df):
+            out = super().predict_frame(df)
+            out["p"] = np.full(len(df), 0.6)
+            out["b"] = np.full(len(df), 0.3)      # 0.6 - 0.4/0.3 < 0
+            return out
+
+    df = _df([("2026-10-06T14:00Z", "2026-10-06", "AAA", True, 0.01, 0.002)])
+    r = evaluate_lockbox(_BadPayoff(), _params(n_eff=5000), df, label_col=LABEL,
+                         horizon_min=30, cost_col="cost_rt_measured", model_cost_col=None)
+    assert r.n_signals == 0 and r.n_trades == 0

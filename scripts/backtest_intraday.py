@@ -11,6 +11,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from datetime import date
 
 from sgt.catalysts.reference import ReferenceDataProvider
@@ -54,7 +55,13 @@ def main(argv: list[str] | None = None) -> None:
                                     allow_research_artifact=args.allow_research_artifact)
         cost_source = cost_source_for(policy)   # F-2: same costs as training
         if isinstance(cost_source, CostModelAdapter):
-            sim_cost_model = cost_source.model   # simulated fills pay the same spreads
+            # Simulated fills pay the same spreads. SimBroker has no time-of-day term, so
+            # it charges the WORST multiplier all day (conservative, never flattering).
+            m = max(cost_source.open_hour_mult, cost_source.rest_mult, 1.0)
+            b = cost_source.model
+            sim_cost_model = dataclasses.replace(
+                b, hs_under_1=b.hs_under_1 * m, hs_1_to_5=b.hs_1_to_5 * m,
+                hs_5_to_20=b.hs_5_to_20 * m, hs_over_20=b.hs_over_20 * m)
     store = ParquetBarStore(args.data)
     bars_by_symbol = {}
     for sym in symbols:
