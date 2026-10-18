@@ -54,13 +54,22 @@ class Role(str, enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class PositionView:
-    """Open-position facts exposed to exit conditions."""
+    """Open-position facts exposed to exit conditions.
+
+    ``entry_atr`` (additive, 2026-10-17, DECISION_MODEL.md §5 F1) is the ATR frozen at
+    the signal bar used to size the position. The model-strategy ATR brackets
+    (:class:`~sgt.strategy.exits.AtrTakeProfit` / :class:`~sgt.strategy.exits.AtrStop`)
+    read it so the runtime barriers equal the FIXED signal-bar barriers the training
+    labels used, instead of drifting with the live ATR. ``None`` (the default for rule
+    strategies, which never set it) keeps the previous live-ATR behavior.
+    """
 
     qty: int
     entry_price: float
     entry_ts: datetime
     high_since_entry: float
     bars_held: int
+    entry_atr: float | None = None
 
     def minutes_held(self, now: datetime) -> float:
         return (now - self.entry_ts).total_seconds() / 60.0

@@ -46,6 +46,14 @@ A plain `alpaca` value is rejected — rename existing rows to `alpaca_paper` or
 5. **Lockbox.** `search.py` opens the lockbox exactly once for the selected finalist and writes the result into the candidate card. A second opening for the same config is refused by design, so a strategy cannot be re-tuned against its own holdout.
 6. **Telegram alerts.** `scripts/telegram_backfill.py --since ...` then `scripts/alert_event_study.py` to measure which alert types actually led to moves, and how late the alerts were.
 
+7. **Weekly learning loop.** `scripts/learn_from_results.py --strategy strategies/trader_v0.yaml --start ... --end ...` writes `reports/learning_<date>.md`. It covers:
+   - cost attribution (before vs after costs)
+   - the outcome of every signal by context (time of day, price, float, relative volume, RSI, ...)
+   - a learned filter scored only on later, unseen sessions
+   - a two-half stability check, and rule-based recommendations
+
+   Treat its recommendations as hypotheses. A change goes into a new strategy file (e.g. `strategies/trader_v1.yaml`), runs in shadow, and must pass the search + lockbox gates before it can go live. See `docs/findings/learning_2026-10-17.md` for the first pass.
+
 A strategy that does not pass the acceptance criteria in plan §1 does not advance. That outcome is a finding, not a failure.
 
 ### Daily accumulation (run this every trading day)
@@ -77,6 +85,10 @@ launchd example (`~/Library/LaunchAgents/ai.metalinked.sgt.capture-daily.plist`,
 | Live micro → small → standard | `--mode live --feed sip --risk <risk.yaml> --confirm-live`, then arm via control plane | Plan §11.5 gates; promotion is a human decision, demotion is automatic |
 
 Live mode refuses to start on a delayed or IEX-only feed, refuses a strategy without a validated decay baseline in the strategy registry, refuses `--allow-unknown-float`, and refuses an Alpaca live account that has shorting enabled (this system is long-only; disable shorting in the Alpaca account configuration first, so the broker itself rejects any accidental over-sell).
+
+### Model strategies (`kind: model`)
+
+A strategy YAML with `kind: model` names a decision-model artifact (`model.artifact_path`, relative to the repo root). The policy is built from the bracket (`k_tp`, `k_sl`), the model block (`z`, `h`, `p_min`, `max_size_fraction`) and the artifact's own effective sample size. An artifact is tradeable only when its training verdict is PROMOTE-CANDIDATE or PROMOTE-CANDIDATE-UNVERIFIED-COSTS **and** its dataset was promotion-eligible (the strict discovery-gated dataset). The trainer writes anything else as `*.quarantine.joblib`. Shadow, paper and backtest runs refuse such an artifact unless you pass `--allow-research-artifact`, which is for inspection only. Live mode refuses that flag outright.
 
 ## 4. Control plane
 

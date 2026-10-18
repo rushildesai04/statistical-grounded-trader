@@ -213,3 +213,23 @@ def test_sell_never_oversells_position():
                                 limit_price=None, qty=50))
     f = sim.on_bar(make_bar(minute=571, open=6.0, volume=1_000_000))
     assert f[0].qty == 10  # capped at held
+
+
+def test_buys_cannot_exceed_account_buying_power():
+    """F-15 regression: a $25k backtest lost $55k because buys were never capped."""
+    sim = SimBroker("acct", CostModel(), 1_000.0)
+    first = sim.submit_sync(make_intent(cid="b1", qty=150, limit_price=5.0))    # $750
+    second = sim.submit_sync(make_intent(cid="b2", qty=100, limit_price=5.0))   # +$500 > $1000
+    assert first.status is OrderStatus.PENDING
+    assert second.status is OrderStatus.REJECTED and "buying power" in second.message
+
+
+def test_explicit_leverage_allows_margin_sizing():
+    sim = SimBroker("acct", CostModel(), 1_000.0, max_leverage=2.0)
+    assert sim.submit_sync(make_intent(cid="b1", qty=150, limit_price=5.0)).status is OrderStatus.PENDING
+    assert sim.submit_sync(make_intent(cid="b2", qty=100, limit_price=5.0)).status is OrderStatus.PENDING
+
+
+def test_leverage_below_one_rejected():
+    with pytest.raises(ValueError):
+        SimBroker("acct", CostModel(), 1_000.0, max_leverage=0.5)

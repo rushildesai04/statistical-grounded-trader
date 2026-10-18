@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
+from sgt.core.interfaces import IndicatorSpec
 from sgt.core.types import Segment
 from sgt.intraday.calendar import default_calendar
 from sgt.strategy.base import Condition, EvalView, Family, Role
@@ -79,6 +80,84 @@ class TimeStopMinutes(Condition):
         if pos is None or self.n <= 0:
             return False
         return pos.minutes_held(view.bar.ts) >= self.n
+
+
+def _barrier_atr(view: EvalView, atr_n: int) -> float | None:
+    """ATR that defines the fixed barrier (DECISION_MODEL.md §5 F1, 2026-10-17).
+
+    The barrier is frozen at the signal-bar ATR the model used to size the entry
+    (``pos.entry_atr``), so the runtime barrier equals the training label's FIXED
+    barrier. Only when ``entry_atr`` is ``None`` -- rule strategies, which never set it
+    -- does the condition fall back to the live point-in-time ATR (the historical
+    behavior). A non-positive or missing value makes the condition ``False``.
+    """
+    pos = view.position
+    if pos is not None and pos.entry_atr is not None:
+        atr = pos.entry_atr
+    else:
+        atr = view.now(f"{IndicatorSpec.of('atr', n=atr_n).key}.value")
+    if atr is None or atr <= 0.0:
+        return None
+    return float(atr)
+
+
+class AtrTakeProfit(Condition):
+    """ATR-scaled profit target: bar high at or above ``entry + k * ATR(atr_n)``.
+
+    Additive exit for the model strategy (docs/DECISION_MODEL.md §9). The ATR is the
+    barrier ATR frozen at entry (``pos.entry_atr``) for model strategies, or the live
+    point-in-time ATR for rule strategies that do not set it (see :func:`_barrier_atr`);
+    a missing ATR or no position makes it ``False``. Not part of the rule-grammar
+    condition union — it is constructed programmatically by ``ModelStrategyConfig``.
+    """
+
+    kind: Literal["atr_take_profit"] = "atr_take_profit"
+    k: float
+    atr_n: int = 14
+
+    FAMILY: ClassVar[Family] = Family.VOLATILITY
+    ROLES: ClassVar[frozenset[Role]] = _EXIT_ONLY
+
+    def required_specs(self) -> list[IndicatorSpec]:
+        return [IndicatorSpec.of("atr", n=self.atr_n)]
+
+    def evaluate(self, view: EvalView) -> bool:
+        pos = view.position
+        if pos is None or self.k <= 0:
+            return False
+        atr = _barrier_atr(view, self.atr_n)
+        if atr is None:
+            return False
+        return view.bar.high >= pos.entry_price + self.k * atr
+
+
+class AtrStop(Condition):
+    """ATR-scaled stop: bar low at or below ``entry - k * ATR(atr_n)``.
+
+    Additive model-strategy exit (see :class:`AtrTakeProfit`). The broker-side
+    protective stop (placed on the entry fill at the policy's stop price) is the hard
+    floor; this is the runtime's bar-close evaluation of the same barrier. Like the
+    take-profit it uses the barrier ATR frozen at entry for model strategies.
+    """
+
+    kind: Literal["atr_stop"] = "atr_stop"
+    k: float
+    atr_n: int = 14
+
+    FAMILY: ClassVar[Family] = Family.VOLATILITY
+    ROLES: ClassVar[frozenset[Role]] = _EXIT_ONLY
+
+    def required_specs(self) -> list[IndicatorSpec]:
+        return [IndicatorSpec.of("atr", n=self.atr_n)]
+
+    def evaluate(self, view: EvalView) -> bool:
+        pos = view.position
+        if pos is None or self.k <= 0:
+            return False
+        atr = _barrier_atr(view, self.atr_n)
+        if atr is None:
+            return False
+        return view.bar.low <= pos.entry_price - self.k * atr
 
 
 class SessionEnd(Condition):

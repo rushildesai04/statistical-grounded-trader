@@ -1,0 +1,69 @@
+# trader_v1 — HYPOTHESIS derived from the 2026-10-17 learning pass (docs/findings/
+# learning_2026-10-17.md). Shadow-only candidate: it may not trade live until it
+# passes the walk-forward + lockbox gates (plan §10/§11.5). Changes vs trader_v0:
+#   * float cap 20M (was 40M): the only bucket with a positive gross move was 5-20M.
+#   * bar rel-vol > 1 is a HARD filter (was 1 of 3 votes): volume spikes were the
+#     only context that turned low-float crosses positive after costs.
+#   * RSI < 75 filter (signals with RSI > 70 lost the most).
+#   * no pre-market / first hour (worst windows); regular hours only (no reliable
+#     after-hours volume in free data; widest after-hours spreads).
+#   * fast exits: +3% target, -2% stop, 15-minute time stop (big spikes faded by 30 min).
+id: trader_v1
+version: 1
+
+universe:
+  float_max: 20000000
+  price_min: 1.0
+  price_max: 20.0
+  rel_vol_min: 0.0
+  spread_max_pct: 1.5
+
+regime:
+  - kind: session_window_in
+    windows: [midday, power_hour]
+
+trigger:
+  kind: ema_cross_up
+  fast: 9
+  slow: 24
+
+confirm:
+  k_of_m: 1
+  signals:
+    - kind: pvt_state
+      state: above_signal
+    - kind: psar_state
+      state: below_price
+
+filters:
+  - kind: rel_vol_gt
+    lookback: 20
+    value: 1.0
+  - kind: rsi_lt
+    n: 14
+    value: 75.0
+
+exits:
+  any_of:
+    - kind: take_profit_pct
+      pct: 3.0
+    - kind: stop_loss_pct
+      pct: 2.0
+    - kind: time_stop_minutes
+      n: 15
+    - kind: ema_cross_down
+      fast: 9
+      slow: 24
+    - kind: session_end
+      minutes_before_close: 5
+      window: rth
+
+sizing:
+  method: fixed_risk
+  risk_per_trade_pct_of_allocation: 0.5
+  allocation_usd: 10000.0
+  max_notional_usd: 5000.0
+  entry_offset_bps: 10.0
+  exit_offset_bps: 10.0
+
+extended_hours: false

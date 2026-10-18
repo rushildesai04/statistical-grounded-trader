@@ -246,3 +246,46 @@ async def test_live_auth_error_raises():
         async for _ in src.stream(["WFF"]):
             pass
     await src.close()
+
+
+def test_transport_error_is_retried_then_succeeds(monkeypatch):
+    """2026-10-17 regression: an unretried RemoteProtocolError aborted a long backfill."""
+    from datetime import datetime, timezone
+
+    import httpx
+
+    from sgt.intraday.sources import AlpacaHistoricalBars
+
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return httpx.Response(200, json={"bars": {"AAA": []}, "next_page_token": None})
+
+    monkeypatch.setenv("SGT_SECRET_ALPACA_KEY_ID", "k")
+    monkeypatch.setenv("SGT_SECRET_ALPACA_SECRET_KEY", "s")
+    src = AlpacaHistoricalBars(client=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    out = src.fetch("AAA", datetime(2026, 10, 12, 13, 0, tzinfo=timezone.utc),
+                    datetime(2026, 10, 12, 14, 0, tzinfo=timezone.utc))
+    assert out == [] and calls["n"] == 2
+
+
+def test_persistent_transport_error_raises_data_source_error(monkeypatch):
+    from datetime import datetime, timezone
+
+    import httpx
+    import pytest
+
+    from sgt.intraday.sources import AlpacaHistoricalBars, DataSourceError
+
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setenv("SGT_SECRET_ALPACA_KEY_ID", "k")
+    monkeypatch.setenv("SGT_SECRET_ALPACA_SECRET_KEY", "s")
+    src = AlpacaHistoricalBars(client=httpx.Client(transport=httpx.MockTransport(handler)), sleep=lambda s: None)
+    with pytest.raises(DataSourceError):
+        src.fetch("AAA", datetime(2026, 10, 12, 13, 0, tzinfo=timezone.utc),
+                  datetime(2026, 10, 12, 14, 0, tzinfo=timezone.utc))

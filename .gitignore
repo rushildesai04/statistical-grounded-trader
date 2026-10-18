@@ -18,3 +18,6 @@ reports/
 .claude/work/
 # Local market data store
 data/
+*.db-wal
+*.db-shm
+*.db-journal
