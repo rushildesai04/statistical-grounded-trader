@@ -84,7 +84,7 @@ class TickCache:
                       "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"), "feed": "sip", "limit": 10000}
             if token:
                 params["page_token"] = token
-            for attempt in range(5):
+            for attempt in range(6):
                 try:
                     r = self.client.get(self.url, params=params, headers=_alpaca_headers())
                 except httpx.TransportError:
@@ -96,6 +96,8 @@ class TickCache:
                     time.sleep(2 ** attempt)
                     continue
                 raise SystemExit(f"trades HTTP {r.status_code}: {r.text[:200]!r}")
+            else:
+                raise SystemExit(f"trades for {sym} {ts_open} unreachable after retries")
             j = r.json()
             rows += (j.get("trades") or {}).get(sym, []) or []
             token = j.get("next_page_token")
