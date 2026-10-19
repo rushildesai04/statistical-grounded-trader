@@ -53,6 +53,14 @@ def _parse_args(argv=None) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
+def _horizon_minutes(h: int, meta: dict) -> int:
+    """Label horizon in minutes for the lockbox one-position-per-symbol rule. Swing
+    datasets count H in trading days: 5 trading days span 7 calendar days."""
+    if meta.get("label_unit") == "days":
+        return int(h * 1440 * 7 / 5)
+    return int(h)
+
+
 def _resolve_cost_spec(meta: dict, override: str | None, df: pd.DataFrame) -> dict:
     """The dataset's cost spec (F-2). Legacy datasets need ``--dataset-cost``, which is
     accepted only if it reproduces the dataset's own f_cost_rt_pct feature."""
@@ -112,6 +120,20 @@ def main(argv=None) -> int:
         log.info("capped to %d per (symbol, session): %d -> %d rows", args.max_per_cluster, before, len(df))
 
     train_df = df[df[session_col].astype(str) < lockbox].copy()
+    meta_path = args.dataset.parent / "meta.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    if meta.get("label_unit") == "days":
+        # Multi-day labels overlap across sessions: the CV embargo must cover the longest
+        # horizon, and training rows whose label window reaches into the lockbox are
+        # purged (their outcomes are lockbox prices).
+        max_h = max(s.H for s in discover_labels(df.columns))
+        tc = dataclasses.replace(tc, embargo=max_h + 1)
+        sess = sorted(train_df[session_col].astype(str).unique())
+        purge_from = sess[-max_h] if len(sess) > max_h else lockbox
+        before = len(train_df)
+        train_df = train_df[train_df[session_col].astype(str) < purge_from].copy()
+        log.info("day-unit labels: embargo=%d sessions; purged %d rows on/after %s",
+                 tc.embargo, before - len(train_df), purge_from)
     held = int(len(df) - len(train_df))
     log.info("loaded %d rows; %d training, %d held out on/after %s",
              len(df), len(train_df), held, lockbox)
@@ -124,8 +146,6 @@ def main(argv=None) -> int:
 
     # A momentum-biased research dataset can generate hypotheses but never promote
     # (2026-10-17 ruling; DECISION_MODEL.md §10 F2).
-    meta_path = args.dataset.parent / "meta.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     if not meta.get("promotion_eligible", False) and result.verdict == "PROMOTE-CANDIDATE":
         result = dataclasses.replace(result, verdict="RESEARCH-PROMISING (dataset not promotion-eligible)")
     elif not meta.get("promotion_eligible", False):
@@ -140,7 +160,8 @@ def main(argv=None) -> int:
     if result.model is not None and result.chosen_params is not None and not held_full.empty:
         spec = next(s for s in discover_labels(df.columns) if s.col == result.chosen_label)
         lb = evaluate_lockbox(result.model, result.chosen_params, held_full,
-                              label_col=spec.col, horizon_min=spec.H, cost_col=tc.cost_col,
+                              label_col=spec.col, horizon_min=_horizon_minutes(spec.H, meta),
+                              cost_col=tc.cost_col,
                               model_cost_col=tc.model_cost_col, equity=args.equity,
                               session_col=session_col)
         report_md += "\n" + lb.to_markdown()

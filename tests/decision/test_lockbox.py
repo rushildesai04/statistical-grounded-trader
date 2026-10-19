@@ -76,3 +76,13 @@ def test_zero_kelly_size_is_not_a_trade():
     r = evaluate_lockbox(_BadPayoff(), _params(n_eff=5000), df, label_col=LABEL,
                          horizon_min=30, cost_col="cost_rt_measured", model_cost_col=None)
     assert r.n_signals == 0 and r.n_trades == 0
+
+
+def test_cluster_key_overrides_symbol_session_clusters():
+    from sgt.decision.models import effective_n
+    from sgt.decision.validation import cluster_ids
+
+    df = pd.DataFrame({"symbol": ["A", "B", "C"], "session_date": ["d1", "d1", "d2"]})
+    assert effective_n(df) == 3
+    df["cluster_key"] = df["session_date"]
+    assert effective_n(df) == 2 and list(cluster_ids(df)) == ["d1", "d1", "d2"]

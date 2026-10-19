@@ -74,6 +74,10 @@ def rows_for_sessions(df: pd.DataFrame, sessions: Sequence, col: str = "session_
 
 def cluster_ids(df: pd.DataFrame, symbol_col: str = "symbol",
                 session_col: str = "session_date") -> np.ndarray:
+    # A dataset may declare its own dependence unit (swing: the DATE -- the whole market
+    # moves together overnight, so same-day trades across symbols are not independent).
+    if "cluster_key" in df.columns:
+        return df["cluster_key"].astype(str).to_numpy()
     return (df[symbol_col].astype(str) + "|" + df[session_col].astype(str)).to_numpy()
 
 

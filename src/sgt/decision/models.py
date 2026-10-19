@@ -87,6 +87,8 @@ class ModelPrediction:
 def effective_n(df: pd.DataFrame, symbol_col: str = "symbol",
                 session_col: str = "session_date") -> int:
     """Number of distinct (symbol, session) clusters carrying a signal (F4)."""
+    if "cluster_key" in df.columns:   # dataset-declared dependence unit (see cluster_ids)
+        return int(df["cluster_key"].nunique())
     if symbol_col not in df.columns or session_col not in df.columns:
         raise KeyError(f"dataset must have {symbol_col!r} and {session_col!r} columns")
     return int(df.loc[:, [symbol_col, session_col]].drop_duplicates().shape[0])

@@ -1,0 +1,40 @@
+# gapper_model_v1 — FORWARD PAPER TEST of the selective gap-day decision model
+# (2026-10-18). Trained on 2 years of in-play gap days (gappers_2y): verdict NO-TRADE
+# (too few trades to prove anything); lockbox Apr-Oct 2026 took 15 of 436,809
+# candidates, 60% hit, +1.22%/trade, CI includes 0. The artifact is QUARANTINED, so
+# this runs only in shadow/paper with --allow-research-artifact (refused in live).
+# Run with --gap-scanner so the watchlist is today's gap-ups, as in training.
+# The bracket MUST match the trained label y_net__tp1_sl1.5_h10 (enforced at startup).
+id: gapper_model_v1
+version: 1
+kind: model
+
+universe:
+  float_max: 1000000000000
+  price_min: 1.0
+  price_max: 30.0
+  rel_vol_min: 0.0
+  spread_max_pct: 100.0
+
+triggers: [ema_cross_up, macd_cross_up, vwap_reclaim, hod_break, pmh_break, psar_flip_up]
+
+bracket:
+  atr_n: 14
+  k_tp: 1.0
+  k_sl: 1.5
+  time_stop_minutes: 10
+  session_end_minutes_before_close: 5
+
+sizing:
+  risk_per_trade_pct_of_allocation: 0.5
+  allocation_usd: 25000
+  max_notional_usd: 5000
+
+model:
+  artifact_path: reports/decision/gappers_2y.quarantine.joblib
+  z: 0.5
+  h: 0.0
+  p_min: 0.5
+  max_size_fraction: 0.02
+
+extended_hours: false

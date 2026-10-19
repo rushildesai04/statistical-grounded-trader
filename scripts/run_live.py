@@ -62,6 +62,7 @@ class CliArgs:
     symbols: tuple[str, ...] = ()
     allow_unknown_float: bool = False
     allow_research_artifact: bool = False
+    gap_scanner: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> CliArgs:
@@ -82,6 +83,10 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
     ap.add_argument("--allow-unknown-float", action="store_true",
                     help="shadow/paper only: admit symbols with no float data (universe float cap "
                          "unenforced for them). Refused in live mode.")
+    ap.add_argument("--gap-scanner", action="store_true",
+                    help="add today's in-play gap-ups (open >= +10%% over prior close, $1-30, "
+                         "prior volume >= 50k; same rule as the gap-day datasets) to the "
+                         "watchlist, scanned once shortly after the open")
     ap.add_argument("--allow-research-artifact", action="store_true",
                     help="shadow/paper only: let a kind:model strategy load a quarantined / "
                          "promotion-ineligible model artifact. Refused in live mode.")
@@ -94,7 +99,7 @@ def parse_args(argv: list[str] | None = None) -> CliArgs:
         raise SystemExit("no symbols given")
     return CliArgs(ns.strategy, _MODES[ns.mode], accounts, ns.feed, ns.risk,
                    ns.confirm_live, ns.flatten_on_exit, ns.cash, symbols, ns.allow_unknown_float,
-                   ns.allow_research_artifact)
+                   ns.allow_research_artifact, ns.gap_scanner)
 
 
 def validate(args: CliArgs) -> None:
@@ -176,6 +181,22 @@ def _build_adapter(spec: AccountSpec, mode: Mode, cash: float) -> BrokerAdapter:
     return AlertOnlyBroker(spec.account_id, notifier)
 
 
+def _alert_source(args: CliArgs):
+    """TradingView alerts, plus today's in-play gap-ups when --gap-scanner is on."""
+    if not args.gap_scanner:
+        return _recent_alert_symbols
+    import httpx
+
+    from scan_gappers import active_symbols
+    from sgt.scanner.live_gappers import LiveGapScanner
+
+    with httpx.Client(timeout=30.0) as client:
+        universe = active_symbols(client)
+    scanner = LiveGapScanner(universe)
+    scanner.start()
+    return lambda: _recent_alert_symbols() | set(scanner.symbols())
+
+
 def _recent_alert_symbols() -> set[str]:
     """Tickers alerted by TradingView in the current session (since 04:00 ET today)."""
     from datetime import datetime, time as dtime, timezone
@@ -231,7 +252,7 @@ def build_runner(args: CliArgs) -> LiveRunner:
         args.strategy, args.mode, specs, source=source, adapters=adapters,
         risk_config=_risk_config(args), flatten_on_exit=args.flatten_on_exit,
         reference=ReferenceDataProvider(), initial_watchlist=args.symbols,
-        alert_symbols=_recent_alert_symbols,
+        alert_symbols=_alert_source(args),
         allow_unknown_float=args.allow_unknown_float,
         allow_research_artifact=args.allow_research_artifact)
 
