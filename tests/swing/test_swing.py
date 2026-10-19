@@ -56,3 +56,14 @@ def test_features_are_point_in_time():
     cols = [c for c in base.columns if c != "trigger"]
     pd.testing.assert_frame_equal(base.loc[:299, cols], alt.loc[:299, cols])
     assert (base.loc[:299, "trigger"].fillna("-") == alt.loc[:299, "trigger"].fillna("-")).all()
+
+
+def test_market_regime_is_nan_before_200_days():
+    from sgt.swing.features import market_features
+
+    n = 260
+    spy = pd.DataFrame({"date": pd.date_range("2016-01-01", periods=n, freq="B").astype(str),
+                        "close": np.linspace(100, 50, n)})          # falling market
+    m = market_features(spy)
+    assert m["f_mkt_above_200"].iloc[:199].isna().all()
+    assert (m["f_mkt_above_200"].iloc[199:] == 0.0).all()

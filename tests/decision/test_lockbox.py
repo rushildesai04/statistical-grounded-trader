@@ -86,3 +86,21 @@ def test_cluster_key_overrides_symbol_session_clusters():
     assert effective_n(df) == 3
     df["cluster_key"] = df["session_date"]
     assert effective_n(df) == 2 and list(cluster_ids(df)) == ["d1", "d1", "d2"]
+
+
+def test_model_treats_infinite_features_as_missing():
+    from sgt.decision.models import DecisionModel
+
+    rng = np.random.default_rng(0)
+    rows = []
+    for d in range(40):
+        for s in range(5):
+            for _ in range(6):
+                f = float(rng.normal())
+                rows.append({"symbol": f"S{s}", "session_date": f"2026-01-{d % 28 + 1:02d}-{d}",
+                             "f_a": f, "f_b": np.inf if rng.uniform() < 0.05 else float(rng.normal()),
+                             LABEL: 0.02 * f + float(rng.normal(scale=0.01))})
+    df = pd.DataFrame(rows)
+    m = DecisionModel().fit(df, ["f_a", "f_b"], LABEL)          # must not raise
+    p = m.predict({"f_a": 0.5, "f_b": float("inf")})
+    assert np.isfinite(p.mu)

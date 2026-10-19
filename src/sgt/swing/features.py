@@ -78,6 +78,8 @@ def symbol_features(df: pd.DataFrame) -> pd.DataFrame:
     for name in reversed(TRIGGER_ORDER):           # first in TRIGGER_ORDER wins
         trig = trig.mask(conds[name].fillna(False), name)
     out["trigger"] = trig
+    num = out.columns.difference(["trigger"])
+    out[num] = out[num].replace([np.inf, -np.inf], np.nan)   # zero ATR / zero volume base
     return out
 
 
@@ -85,10 +87,13 @@ def market_features(spy: pd.DataFrame) -> pd.DataFrame:
     """Market context from SPY daily bars, keyed by date."""
     c = spy["close"]
     r = c.pct_change()
+    ma200 = c.rolling(200).mean()
     return pd.DataFrame({
         "date": spy["date"].values,
         "f_mkt_ret_5": (c / c.shift(5) - 1).values,
         "f_mkt_ret_20": (c / c.shift(20) - 1).values,
-        "f_mkt_above_200": (c > c.rolling(200).mean()).astype(float).values,
+        # NaN until 200 days exist: a NaN average must not read as "below" (it did,
+        # labelling the first 200 sessions a bear market; fixed 2026-10-18).
+        "f_mkt_above_200": (c > ma200).astype(float).where(ma200.notna()).values,
         "f_mkt_vol_20": r.rolling(20).std().values,
     })
