@@ -128,11 +128,14 @@ def main(argv=None) -> int:
             trial_ledger.record_trial(session, run_id=args.run_id, kind="orb",
                                       params={"variant": k, **asdict(cfg)},
                                       metrics={"n": s["n"], "mean": s["mean"], "ci_lo": s["ci"][0]})
-        if s["n"] >= 30 and (best is None or s["ci"][0] > best[1]["ci"][0]):
+        # Only a variant whose TRAINING lower bound is above zero earns a lockbox look; a
+        # strategy that lost in training is rejected, not "tested anyway" (2026-10-18).
+        if s["n"] >= 30 and s["ci"][0] > 0 and (best is None or s["ci"][0] > best[1]["ci"][0]):
             best = (k, s, cfg)
 
     if best is None:
-        lines += ["", "No variant had >= 30 training trades; lockbox not opened."]
+        lines += ["", "No variant had >= 30 training trades with a positive lower CI; "
+                      "lockbox not opened."]
     else:
         k, s_train, cfg = best
         lb = run_variant(cfg, lock_days, store, cost)
