@@ -25,6 +25,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -272,14 +273,14 @@ def discovery_map(
 
 # --------------------------------------------------------------------------- schema / build
 
-def _arrow_schema(grid: Sequence[LabelConfig]) -> pa.Schema:
+def _arrow_schema(grid: Sequence[LabelConfig], extra: Sequence[str] = ()) -> pa.Schema:
     fields = [
         pa.field("symbol", pa.string(), nullable=False),
         pa.field("ts", pa.timestamp("us", tz="UTC"), nullable=False),
         pa.field("session_date", pa.string(), nullable=False),
         pa.field("trigger", pa.string(), nullable=False),
     ]
-    fields += [pa.field(f, pa.float64()) for f in FEATURE_NAMES]
+    fields += [pa.field(f, pa.float64()) for f in (*FEATURE_NAMES, *extra)]
     fields.append(pa.field("q_float_degraded", pa.float64()))
     fields += [pa.field("cost_rt_measured", pa.float64()),
                pa.field("cost_rt_model", pa.float64()),
@@ -317,6 +318,7 @@ def build_dataset(
     symbols: Sequence[str] | None = None,
     research_ungated: bool = False,
     active_days: Mapping[str, frozenset[date]] | None = None,
+    feature_sources: Sequence = (),
 ) -> BuildSummary:
     """Build the decision dataset from the Parquet store. Returns a summary; writes
     ``<out_dir>/<dataset_id>/dataset.parquet`` and ``meta.json``."""
@@ -345,7 +347,10 @@ def build_dataset(
     out_path = Path(out_dir) / dataset_id
     out_path.mkdir(parents=True, exist_ok=True)
     pq_path = out_path / "dataset.parquet"
-    schema = _arrow_schema(grid)
+    # Research-only extra features (news, market context): each source has ``names`` and
+    # ``features(symbol, bar_open_ns)``; see those modules on live parity.
+    extra = tuple(n for src in feature_sources for n in src.names)
+    schema = _arrow_schema(grid, extra)
 
     rows_total = 0
     sessions_seen: set[date] = set()
@@ -370,7 +375,7 @@ def build_dataset(
                 continue
             label_cols = _label_symbol(bars, cands, grid, cost_source)
             table = _symbol_table(sym, bars, cands, label_cols, grid, cost_source,
-                                  model_source, discovered, schema)
+                                  model_source, discovered, schema, feature_sources)
             truncated += sum(int(v != v) for v in label_cols[f"y_net__{grid[0].suffix}"])
             if writer is None:
                 writer = pq.ParquetWriter(pq_path, schema)
@@ -388,14 +393,14 @@ def build_dataset(
 
     elapsed = _time.monotonic() - t0
     _write_sidecar(out_path, dataset_id, grid, store_root, rows_total, symbols_with_rows,
-                   sorted(sessions_seen), cost_source, research_ungated,
+                   sorted(sessions_seen), cost_source, research_ungated, extra_features=extra,
                    universe="gap_days" if active_days is not None else "store")
     return BuildSummary(dataset_id, str(pq_path), rows_total, symbols_with_rows,
                         len(sessions_seen), truncated, elapsed)
 
 
 def _symbol_table(sym, bars, cands, label_cols, grid, cost_source, model_source,
-                  discovered, schema) -> pa.Table:
+                  discovered, schema, feature_sources=()) -> pa.Table:
     n = len(cands)
     data: dict[str, list] = {
         "symbol": [sym] * n,
@@ -419,6 +424,10 @@ def _symbol_table(sym, bars, cands, label_cols, grid, cost_source, model_source,
         data[f"y_net__{suf}"] = label_cols[f"y_net__{suf}"]
         data[f"y_exit_bar__{suf}"] = label_cols[f"y_exit_bar__{suf}"]
         data[f"uniq_w__{suf}"] = label_cols[f"uniq_w__{suf}"]
+    for src in feature_sources:
+        vals = [src.features(sym, pd.Timestamp(c.ts).value) for c in cands]
+        for name in src.names:
+            data[name] = [v[name] for v in vals]
     data["discovered_session"] = [discovered] * n
     return pa.table(data, schema=schema)
 
@@ -441,7 +450,7 @@ def _cost_spec_or_none(cost_source):
 
 def _write_sidecar(out_path, dataset_id, grid, store_root, rows, n_symbols, sessions,
                    cost_source, research_ungated: bool = False,
-                   universe: str = "store") -> None:
+                   universe: str = "store", extra_features: Sequence[str] = ()) -> None:
     meta = {
         "dataset_id": dataset_id,
         "created_utc": datetime.now(_UTC).isoformat(),
@@ -450,7 +459,7 @@ def _write_sidecar(out_path, dataset_id, grid, store_root, rows, n_symbols, sess
         "symbols": n_symbols,
         "sessions": [d.isoformat() for d in sessions],
         "data_range": ([sessions[0].isoformat(), sessions[-1].isoformat()] if sessions else []),
-        "feature_names": list(FEATURE_NAMES),
+        "feature_names": list(FEATURE_NAMES) + list(extra_features),
         "quality_flags": ["q_float_degraded"],
         "label_grid": [{"k_tp": c.k_tp, "k_sl": c.k_sl, "h": c.h, "suffix": c.suffix}
                        for c in grid],

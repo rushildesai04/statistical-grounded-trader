@@ -51,6 +51,13 @@ def _fmt(x: float) -> str:
     return str(int(x)) if float(x).is_integer() else str(x)
 
 
+def gapper_grid() -> tuple[LabelConfig, ...]:
+    """Brackets sized for in-play small caps (2026-10-28): a 0.7-1.4% round trip needs
+    targets of several 1-minute ATRs and holds long enough for them to be reached."""
+    return tuple(LabelConfig(tp, sl, h) for tp in (2.0, 4.0, 8.0) for sl in (2.0, 4.0)
+                 for h in (15, 60, 180))
+
+
 def default_grid() -> tuple[LabelConfig, ...]:
     return tuple(
         LabelConfig(tp, sl, h)

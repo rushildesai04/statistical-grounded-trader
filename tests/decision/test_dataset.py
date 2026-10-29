@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
+import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
@@ -226,3 +227,20 @@ def test_active_days_exclude_premarket_candidates():
     assert stream_candidates(bars, active_sessions=frozenset({sd}), **common)
     assert stream_candidates(pre, active_sessions=frozenset({sd}), **common) == []
     assert stream_candidates(bars, active_sessions=frozenset(), **common) == []
+
+
+def test_news_features_flow_into_dataset(tmp_path):
+    from sgt.decision.news_features import NEWS_FEATURES, NewsIndex
+
+    store = ParquetBarStore(tmp_path)
+    _write_session(store, date(2024, 3, 12))
+    news = NewsIndex.from_frame(pd.DataFrame(
+        [("2024-03-12T13:30:00Z", "AAAA", "AAAA Receives FDA Clearance")],
+        columns=["created_at", "symbols", "headline"]))
+    summary = build_dataset(store_root=tmp_path, out_dir=tmp_path / "out", dataset_id="t6",
+                            symbols=["AAAA"], watchlist=["AAAA"], reference_fn=lambda s, d: None,
+                            feature_sources=[news])
+    t = pq.read_table(summary.out_path).to_pandas()
+    assert set(NEWS_FEATURES) <= set(t.columns)
+    after = t[t["ts"] >= pd.Timestamp("2024-03-12T13:30:00Z")]
+    assert not after.empty and (after["f_news_last_fda"] == 1.0).all()

@@ -49,6 +49,22 @@ def _cost_source(kind: str):
     return MeasuredCostModel.from_db(get_session)
 
 
+def _grid(name: str):
+    from sgt.decision.labels import default_grid, gapper_grid
+    return gapper_grid() if name == "gapper" else default_grid()
+
+
+def _sources(args) -> list:
+    out = []
+    if args.news:
+        from sgt.decision.news_features import NewsIndex
+        out.append(NewsIndex.from_glob())
+    if args.market:
+        from sgt.decision.market_features import MarketIndex
+        out.append(MarketIndex.from_parquet(args.market))
+    return out
+
+
 def _gap_days(path: str, min_prev_volume: float) -> dict[str, frozenset]:
     import csv
     from collections import defaultdict
@@ -76,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="cost source: bucket model, bucket model calibrated to measured "
                              "spreads (aggregate, no look-ahead), or per-symbol point-in-time "
                              "measured spreads (falls back to the model when unsampled)")
+    parser.add_argument("--label-grid", choices=("default", "gapper"), default="default",
+                        help="label bracket grid (gapper: wider targets, 15-180 min holds)")
+    parser.add_argument("--news", action="store_true",
+                        help="add point-in-time news features from data/news (research only)")
+    parser.add_argument("--market", default=None,
+                        help="SPY 1-minute parquet for market-context features (research only)")
     parser.add_argument("--gap-days", default=None,
                         help="CSV from scripts/scan_gappers.py: admit candidates only on "
                              "these in-play days, from the open (H2 universe)")
@@ -95,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         research_ungated=args.research_ungated,
         cost_source=_cost_source(args.cost),
         active_days=(_gap_days(args.gap_days, args.min_prev_volume) if args.gap_days else None),
+        grid=_grid(args.label_grid),
+        feature_sources=_sources(args),
     )
     print(
         f"dataset_id={summary.dataset_id} rows={summary.rows} symbols={summary.symbols} "
