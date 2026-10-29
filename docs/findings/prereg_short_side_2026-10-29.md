@@ -30,3 +30,12 @@ The $5 cut was chosen after looking -> this test exists to confirm or reject it.
 - Same rule on rows capped like training (consistency with the exploratory result).
 - Current Alpaca `shortable` / `easy_to_borrow` flags of traded symbols (today's flags, not
   historical) and the result on the easy-to-borrow subset.
+
+## Result (scored once, 2026-10-29) — VERDICT: FAIL
+- PRIMARY (uncapped, first qualifying candidate per stock-day): n=1107, mean -0.320%/trade,
+  median +0.300%, hit 51%, 90% CI [-0.583%, -0.052%], worst -30.18% (squeeze), 254 days.
+- Secondary (capped like training): n=585, mean +0.030%, CI [-0.349%, +0.428%].
+- Easy-to-borrow today (39% of names): n=322, mean -0.796%, CI [-1.178%, -0.435%].
+- The exploratory +0.54% depended on the random per-day sampling of candidates, not the rule.
+Short side rejected. Combined with the long-side results (gappers_5y: 0 OOS trades; best
+decile -0.46..-0.59%/trade), the intraday day-trading track stops per the criteria above.
