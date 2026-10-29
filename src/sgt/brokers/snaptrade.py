@@ -42,7 +42,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 from sgt.accounts.ledger import record_ack, record_fill
 from sgt.brokers.submit_guard import KeyedLocks
@@ -85,6 +85,10 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 _LEDGER_UNKNOWN = "unknown"
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 _CANCEL_POLL_ATTEMPTS = 3       # confirm a cancel landed before marking the ledger terminal
 _CANCEL_POLL_INTERVAL_S = 0.3
 # SnapTrade `days` lookback for orders/fills. 7 covers DAY orders across a long weekend;
@@ -108,8 +112,11 @@ class SnapTradeBroker(BrokerAdapter):
         trade_enabled: bool,
         authorization_id: str | None = None,
         client: SnapTradeClient | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.account_id = account_id
+        # Injectable clock (2026-10-29): reconciliation windows are age-based; tests pin it.
+        self._clock = clock or (lambda: _utcnow())
         self._st_account_id = snaptrade_account_id
         self._trade_enabled = trade_enabled
         self._authorization_id = authorization_id
@@ -332,12 +339,12 @@ class SnapTradeBroker(BrokerAdapter):
         row = sledger.ledger_row(client_order_id)
         if row is None or not row["broker_order_id"]:
             return OrderAck(client_order_id, "", OrderStatus.CANCELED,
-                            datetime.now(timezone.utc), "unknown order")
+                            self._clock(), "unknown order")
         boid = row["broker_order_id"]
         intent = row["intent"]
         if row["status"] in ("filled", "canceled", "rejected", "expired"):
             return OrderAck(client_order_id, boid, OrderStatus(row["status"]),
-                            datetime.now(timezone.utc), "already terminal",
+                            self._clock(), "already terminal",
                             symbol=str(intent.get("symbol", "")), remaining_qty=0)
         await self._client.cancel_order(self._st_account_id, boid)
         side = Side(intent["side"]) if intent.get("side") else None
@@ -350,12 +357,12 @@ class SnapTradeBroker(BrokerAdapter):
         if observed is not None and observed.status.terminal:
             sledger.ledger_set_status(client_order_id, observed.status.value, "canceled")
             return OrderAck(client_order_id, boid, observed.status,
-                            datetime.now(timezone.utc), "canceled",
+                            self._clock(), "canceled",
                             symbol=symbol or observed.symbol, side=side or observed.side,
                             remaining_qty=0)
         remaining = observed.remaining_qty if observed is not None else None
         return OrderAck(client_order_id, boid, OrderStatus.WORKING,
-                        datetime.now(timezone.utc),
+                        self._clock(),
                         "cancel requested; not yet confirmed terminal",
                         symbol=symbol, side=side, remaining_qty=remaining)
 
@@ -424,7 +431,7 @@ class SnapTradeBroker(BrokerAdapter):
         An anchor older than the broker lookback we trust cannot be reconciled confidently:
         mark the ledger ``unknown`` and refuse (operator resolves), never resubmit.
         """
-        age_s = (datetime.now(timezone.utc) - anchor).total_seconds() + smap.MATCH_WINDOW_S
+        age_s = (self._clock() - anchor).total_seconds() + smap.MATCH_WINDOW_S
         days = max(1, math.ceil(age_s / 86_400))
         if days > _RECONCILE_MAX_DAYS:
             sledger.ledger_set_status(intent.client_order_id, _LEDGER_UNKNOWN,

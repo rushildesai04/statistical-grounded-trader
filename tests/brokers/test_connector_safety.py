@@ -29,7 +29,7 @@ from sgt.db.session import get_session
 
 from brk_helpers import make_intent
 from conftest import _schwab_order, snaptrade_order_record
-from test_schwab import BASE as SCHWAB_BASE, _FakeSecrets, _fixed_clock, _make_broker, _token_ok
+from test_schwab import BASE as SCHWAB_BASE, TEST_NOW, _FakeSecrets, _fixed_clock, _make_broker, _token_ok
 from test_snaptrade import AUTH_ID, ST_ACCT, _client as _st_client, _register_base
 
 BASE_ST = "https://api.snaptrade.com"
@@ -233,8 +233,10 @@ async def test_f5_schwab_shared_manager_single_post_under_concurrent_refresh():
 
         with respx.mock(base_url=SCHWAB_BASE, assert_all_called=False) as r:
             r.post("/v1/oauth/token").mock(side_effect=tok)
-            m1 = SchwabTokenManager.shared(secret_get=store.get, secret_set=store.set)
-            m2 = SchwabTokenManager.shared(secret_get=store.get, secret_set=store.set)
+            m1 = SchwabTokenManager.shared(secret_get=store.get, secret_set=store.set,
+                                              clock=_fixed_clock(TEST_NOW))
+            m2 = SchwabTokenManager.shared(secret_get=store.get, secret_set=store.set,
+                                              clock=_fixed_clock(TEST_NOW))
             assert m1 is m2  # one manager per app key
             t1, t2 = await asyncio.gather(m1.access_token(), m2.access_token())
             assert t1 == t2 == "AT-NEW"
@@ -284,7 +286,7 @@ def _honour_days(orders: list[dict]):
     """GET /orders handler that only returns orders placed within `days` of real now."""
     def handler(request):
         days = int(request.url.params.get("days", "30"))
-        floor = datetime.now(UTC) - timedelta(days=days)
+        floor = TEST_NOW - timedelta(days=days)
         return httpx.Response(200, json=[
             o for o in orders if smap.parse_ts(o["time_placed"]) >= floor])
     return handler
@@ -305,7 +307,7 @@ def _seed_pending(cid: str, created: datetime):
 
 async def test_r2a_snaptrade_restart_days_later_reconciles_not_duplicates():
     """Pre-fix: reconcile queried days=1, missed a 3-day-old landed order, and POSTed again."""
-    created = datetime.now(UTC) - timedelta(days=3)
+    created = TEST_NOW - timedelta(days=3)
     landed = snaptrade_order_record("boid-old", symbol="AAA", action="BUY", qty=10,
                                     status="ACCEPTED", limit_price=5.5, time_placed=created)
     posts = {"n": 0}
@@ -329,7 +331,7 @@ async def test_r2a_snaptrade_restart_days_later_reconciles_not_duplicates():
 
 
 async def test_r2a_snaptrade_refuses_when_anchor_beyond_lookback():
-    created = datetime.now(UTC) - timedelta(days=12)
+    created = TEST_NOW - timedelta(days=12)
     posts = {"n": 0}
     with respx.mock(base_url=BASE_ST, assert_all_called=False) as r:
         _register_base(r)
@@ -358,7 +360,7 @@ async def _drain(broker):
 async def test_r2b_snaptrade_restart_emits_only_the_fill_delta():
     """Pre-fix: the cumulative baseline lived in memory, so after a restart the whole
     cumulative quantity was re-emitted under a new fill_id (double-counted position)."""
-    now = datetime.now(UTC)
+    now = TEST_NOW
     rec = snaptrade_order_record("boid-pf", symbol="AAA", action="BUY", qty=10,
                                  status="PARTIAL", filled=4, execution_price=5.0,
                                  limit_price=5.5, time_placed=now)

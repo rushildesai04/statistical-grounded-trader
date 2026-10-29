@@ -407,3 +407,11 @@ async def harness(request):
         yield h
     finally:
         await h.teardown()
+
+
+@pytest.fixture(autouse=True)
+def _pin_snaptrade_clock(monkeypatch):
+    """All SnapTrade adapters in tests see the same fixed 'now' as their fixtures
+    (2026-10-29: age-based reconciliation turned real-clock tests into date bombs)."""
+    from sgt.brokers import snaptrade
+    monkeypatch.setattr(snaptrade, "_utcnow", lambda: datetime(2026, 10, 12, 15, 0, tzinfo=timezone.utc))

@@ -75,7 +75,7 @@ async def test_refresh_persists_new_token_before_use():
 
     with respx.mock(base_url=BASE, assert_all_called=False) as r:
         r.post("/v1/oauth/token").mock(side_effect=tok)
-        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set)
+        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set, clock=_fixed_clock(TEST_NOW))
         t1 = await mgr.access_token()
         # New refresh token persisted to the store (before the access token is handed out).
         assert store.get("schwab_refresh_token") == "RT1"
@@ -92,7 +92,7 @@ async def test_refresh_rejected_maps_to_auth_error():
     store = _FakeSecrets()
     with respx.mock(base_url=BASE, assert_all_called=False) as r:
         r.post("/v1/oauth/token").mock(return_value=httpx.Response(400, json={"error": "bad"}))
-        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set)
+        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set, clock=_fixed_clock(TEST_NOW))
         with pytest.raises(BrokerAuthError):
             await mgr.access_token()
         await mgr.close()
@@ -108,7 +108,7 @@ async def test_refresh_timeout_requires_reauth_no_blind_retry():
 
     with respx.mock(base_url=BASE, assert_all_called=False) as r:
         r.post("/v1/oauth/token").mock(side_effect=tok)
-        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set)
+        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set, clock=_fixed_clock(TEST_NOW))
         with pytest.raises(BrokerAuthError):
             await mgr.access_token()
         assert calls["n"] == 1  # a timed-out refresh is never retried (token may be spent)
@@ -129,7 +129,7 @@ async def test_expired_refresh_token_requires_reauth_without_network():
 async def test_missing_refresh_token_requires_reauth():
     store = _FakeSecrets(schwab_refresh_token=None)
     with respx.mock(base_url=BASE, assert_all_called=False):
-        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set)
+        mgr = SchwabTokenManager(secret_get=store.get, secret_set=store.set, clock=_fixed_clock(TEST_NOW))
         with pytest.raises(BrokerAuthError):
             await mgr.access_token()
         await mgr.close()
