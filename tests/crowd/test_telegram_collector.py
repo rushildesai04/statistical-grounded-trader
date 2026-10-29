@@ -12,20 +12,23 @@ from sgt.db.session import get_session
 
 
 class FakeSource:
-    """In-memory, read-only message source mimicking telethon's min_id/limit."""
+    """In-memory, read-only message source mimicking telethon's reverse=True
+    iteration: ascending ids, min_id exclusive, optional since, capped at limit."""
 
     def __init__(self, by_channel: dict[str, list[SourceMessage]]):
         self.by_channel = by_channel
         self.calls: list[tuple[str, int, int]] = []
 
     async def iter_messages(
-        self, channel: str, *, min_id: int, limit: int
+        self, channel: str, *, min_id: int, limit: int, since: datetime | None = None
     ) -> AsyncIterator[SourceMessage]:
         self.calls.append((channel, min_id, limit))
-        msgs = sorted(self.by_channel.get(channel, []), key=lambda m: m.id, reverse=True)
+        msgs = sorted(self.by_channel.get(channel, []), key=lambda m: m.id)
         yielded = 0
         for m in msgs:
             if m.id <= min_id:
+                continue
+            if since is not None and min_id == 0 and m.date < since:
                 continue
             if yielded >= limit:
                 break
@@ -115,3 +118,35 @@ async def test_reparse_updates_alert_rows_without_duplicating():
         collector._store(session, "chan", _msg(1, "YMAT new high 4.49 💰", 0),
                          datetime(2026, 10, 9, 18, 0, tzinfo=timezone.utc))
     assert _counts() == (1, 1)
+
+
+async def test_capped_backfill_fills_full_history_across_runs():
+    # Regression (2026-10-29): newest-first fetch + min_id resume kept only the newest
+    # `limit` messages forever. Oldest-first must fill everything after `since`.
+    since = datetime(2026, 10, 9, 18, 2, tzinfo=timezone.utc)
+    src = FakeSource({"chan": [_msg(i, f"T{chr(64 + i)} new high 1.{i}", i) for i in range(1, 8)]})
+    collector = TelegramCollector(["chan"], "unused.session", source=src, max_messages_per_run=2)
+    total = 0
+    for _ in range(10):
+        n = await collector.backfill(since)
+        if n == 0:
+            break
+        total += n
+    with get_session() as session:
+        ids = sorted(session.execute(select(TelegramMessage.message_id)).scalars())
+    assert ids == [2, 3, 4, 5, 6, 7]  # minute >= 2 only, none missing
+    assert total == 6
+
+
+async def test_edit_date_is_stored():
+    edited = datetime(2026, 10, 9, 19, 0, tzinfo=timezone.utc)
+    src = FakeSource({"chan": [
+        SourceMessage(id=1, date=datetime(2026, 10, 9, 18, 0, tzinfo=timezone.utc),
+                      text="YMAT new high 4.49", edited_at=edited),
+        _msg(2, "WFF  gaining volume  13.56", 1),
+    ]})
+    await TelegramCollector(["chan"], "unused.session", source=src).poll()
+    with get_session() as session:
+        rows = dict(session.execute(select(TelegramMessage.message_id, TelegramMessage.edited_at)).all())
+    assert rows[2] is None
+    assert rows[1].replace(tzinfo=timezone.utc) == edited

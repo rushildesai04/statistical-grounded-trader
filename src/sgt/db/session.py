@@ -63,7 +63,29 @@ def init_db() -> None:
     """Create all tables. Idempotent. For prod, prefer versioned migrations."""
     import sgt.db.registry  # noqa: F401  registers intraday ORM modules on Base
 
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(engine)
+    _add_missing_nullable_columns(engine)
+
+
+def _add_missing_nullable_columns(engine) -> None:
+    """Additive-only schema sync (2026-10-29): create_all never alters an existing
+    table, so a NULLABLE column added to a model later is appended here. Never drops,
+    renames or retypes anything; non-nullable additions still need a real migration."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have or not col.nullable or col.primary_key:
+                    continue
+                ddl = col.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}'))
 
 
 @contextmanager

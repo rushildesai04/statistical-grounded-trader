@@ -34,7 +34,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill Telegram alert history.")
     parser.add_argument("--since", required=True, help="ISO date/datetime, e.g. 2026-09-01")
     parser.add_argument("--channels", default="", help="comma-separated channels (overrides config)")
-    parser.add_argument("--max-messages", type=int, default=20_000, help="per-channel cap per run")
+    parser.add_argument("--max-messages", type=int, default=20_000, help="per-channel cap per batch")
+    parser.add_argument("--max-batches", type=int, default=50, help="stop after this many batches")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -53,8 +54,17 @@ def main() -> None:
         settings.telegram_session_path,
         max_messages_per_run=args.max_messages,
     )
-    stored = asyncio.run(collector.backfill(since))
-    print(f"Telegram backfill: stored {stored} messages since {since.isoformat()}")
+    # Oldest-first batches resume from the max stored id; loop until caught up.
+    total = 0
+    for batch in range(1, args.max_batches + 1):
+        stored = asyncio.run(collector.backfill(since))
+        total += stored
+        print(f"batch {batch}: stored {stored}")
+        if stored == 0:
+            break
+    else:
+        print(f"WARNING: hit --max-batches={args.max_batches}; rerun to continue")
+    print(f"Telegram backfill: stored {total} messages since {since.isoformat()}")
 
 
 if __name__ == "__main__":

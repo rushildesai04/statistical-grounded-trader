@@ -32,6 +32,9 @@ class TelegramMessage(Base):
     raw_text: Mapped[str] = mapped_column(Text, default="")
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     parse_status: Mapped[str] = mapped_column(String(16), default="unparsed", index=True)
+    # Last edit time (UTC) when the channel edited the message; studies exclude edited
+    # messages because an edit can carry information from after ``posted_at``.
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CrowdAlert(Base):

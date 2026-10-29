@@ -8,8 +8,9 @@ it (``pip install .[crowd]``); a missing dependency raises a clear error.
 The Telethon client is reached through the ``MessageSource`` adapter protocol so
 tests inject a fake. Messages are stored raw + strictly parsed and both writes are
 idempotent (upsert on the natural keys), so re-running ``backfill``/``poll`` never
-duplicates rows. Fetches are bounded (``max_messages_per_run``) and resume from the
-max stored ``message_id`` per channel.
+duplicates rows. Fetches are bounded (``max_messages_per_run``), run oldest-first and
+resume from the max stored ``message_id`` per channel. (2026-10-29: was newest-first,
+which made a capped backfill keep only the newest messages and never fill older ones.)
 """
 from __future__ import annotations
 
@@ -44,15 +45,17 @@ class SourceMessage:
     id: int
     date: datetime
     text: str
+    edited_at: datetime | None = None
 
 
 class MessageSource(Protocol):
     """Adapter over a Telegram message reader. Read-only by contract."""
 
     def iter_messages(
-        self, channel: str, *, min_id: int, limit: int
+        self, channel: str, *, min_id: int, limit: int, since: datetime | None = None
     ) -> AsyncIterator[SourceMessage]:
-        """Yield messages with ``id > min_id`` for ``channel``, at most ``limit``."""
+        """Yield messages with ``id > min_id`` (and posted after ``since`` when given)
+        for ``channel`` in ascending id order, at most ``limit``."""
         ...
 
 
@@ -74,17 +77,23 @@ class TelethonMessageSource:
         return TelegramClient(self._session_path, self._api_id, self._api_hash)
 
     async def iter_messages(
-        self, channel: str, *, min_id: int, limit: int
+        self, channel: str, *, min_id: int, limit: int, since: datetime | None = None
     ) -> AsyncIterator[SourceMessage]:
         client = self._new_client()
+        # Oldest-first. Telethon gives offset_id (from min_id) priority over offset_date,
+        # so ``since`` only seeds the start of a channel's very first fetch.
+        kwargs = {"reverse": True, "limit": limit, "min_id": min_id}
+        if since is not None and min_id == 0:
+            kwargs["offset_date"] = since
         async with client:  # connects; uses the existing user session file
-            async for msg in client.iter_messages(channel, min_id=min_id, limit=limit):
+            async for msg in client.iter_messages(channel, **kwargs):
                 if msg is None:
                     continue
                 yield SourceMessage(
                     id=int(msg.id),
                     date=to_utc(msg.date),
                     text=msg.message or "",
+                    edited_at=to_utc(msg.edit_date) if msg.edit_date else None,
                 )
 
 
@@ -157,7 +166,7 @@ class TelegramCollector:
                 min_id = self._max_stored_id(session, channel)
                 seen = 0
                 async for msg in source.iter_messages(
-                    channel, min_id=min_id, limit=self.max_messages_per_run
+                    channel, min_id=min_id, limit=self.max_messages_per_run, since=since
                 ):
                     if seen >= self.max_messages_per_run:
                         break
@@ -187,6 +196,7 @@ class TelegramCollector:
                 "raw_text": text,
                 "ingested_at": utcnow(),
                 "parse_status": status,
+                "edited_at": msg.edited_at,
             },
             ["channel", "message_id"],
         )
