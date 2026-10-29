@@ -33,12 +33,16 @@ fi
 
 case "$REPO" in
   "$HOME/Downloads"/*|"$HOME/Desktop"/*|"$HOME/Documents"/*)
-    echo "REFUSING: the repo is at $REPO."
-    echo "macOS privacy rules block background (launchd) jobs from reading Downloads/Desktop/Documents,"
-    echo "so the job would load but fail every run. Move the repo first, e.g.:"
-    echo "    mkdir -p ~/code && mv \"$REPO\" ~/code/"
-    echo "then run ~/code/$(basename "$REPO")/scripts/install_schedule.sh"
-    exit 1;;
+    if [[ "${1:-}" != "--protected-folder-ok" ]]; then
+      echo "REFUSING: the repo is at $REPO."
+      echo "macOS blocks background (launchd) jobs from Downloads/Desktop/Documents unless the shell"
+      echo "has Full Disk Access. Either:"
+      echo "  a) grant /bin/zsh Full Disk Access (System Settings > Privacy & Security > Full Disk"
+      echo "     Access > + > Cmd+Shift+G > /bin/zsh), then rerun with --protected-folder-ok"
+      echo "  b) move the repo outside those folders and rerun"
+      exit 1
+    fi
+    echo "note: installing from a protected folder; requires /bin/zsh Full Disk Access";;
 esac
 [[ -x "$REPO/.venv/bin/python" ]] || { echo "missing $REPO/.venv (create the virtualenv first)"; exit 1; }
 
