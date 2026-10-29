@@ -45,3 +45,13 @@ are tuned on our data. Nothing below may change after the run.
 ## Reported metrics
 CAGR, annualised volatility, Sharpe (excess over SHY), max drawdown, worst calendar year,
 average annual turnover, and per-period tables.
+
+## Result (scored once, 2026-10-29) — VERDICT: FAIL
+- Integrity: VNQ daily-return corr vs Alpaca 0.980 < 0.99 -> excluded per the rule; 8 risk assets.
+- Post-publication (2013-01..2026-10), net of costs: S1 CAGR 3.52%, vol 4.7%, Sharpe 0.50,
+  maxDD -9.2% vs B3 Sharpe 0.56, maxDD -21.3% -> Sharpe criterion FAILED (drawdown passed).
+- Held-out (2024-10..2026-10): S1 +17.3% vs cash +5.8% (passed).
+- Full period: S1 Sharpe 0.47 / maxDD -9.2% / worst year -6.0%; 60/40 0.60 / -32.2%; SPY 0.53 / -55.2%.
+- Secondary (not eligible): S3 Sharpe 0.69 post-2013, +53.1% held-out; S2 0.59.
+Reading: trend filtering cut drawdowns sharply but did not beat passive benchmarks on Sharpe
+after 2013; 60/40 had the best risk-adjusted result in every long window.
