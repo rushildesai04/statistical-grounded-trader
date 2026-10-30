@@ -101,3 +101,11 @@ def test_half_day_has_no_decisions_after_close():
     g = b[b.ts.dt.tz_convert("America/New_York").dt.date == day].reset_index(drop=True)
     r = f[(f.session == day) & (f.k == 180)].iloc[0]
     assert r["label"] == pytest.approx(g.close.iloc[-1] / g.open[180] - 1)   # 12:30 -> 12:59 close
+
+
+def test_real_early_close_uses_exchange_calendar():
+    s = [date(2024, 11, 27), date(2024, 11, 29)]                   # 11-29 closes 13:00 ET
+    b = bars(s)                                                    # full 390 bars both days
+    f = build(b, daily_for(b))
+    assert sorted(f[f.session == date(2024, 11, 29)].k) == [30, 60, 90, 120, 150, 180]
+    assert len(f[f.session == date(2024, 11, 27)]) == 12

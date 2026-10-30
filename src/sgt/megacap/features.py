@@ -32,8 +32,15 @@ def to_grid(bars: pd.DataFrame) -> dict:
     b["session"] = et.dt.date
     b["k"] = (et.dt.hour * 60 + et.dt.minute) - (9 * 60 + 30)
     b = b[(b.k >= 0) & (b.k < GRID)]
+    from sgt.intraday.calendar import default_calendar
+
+    cal = default_calendar()
     out = {}
     for sess, g in b.groupby("session", sort=True):
+        if not cal.is_session(sess):
+            continue
+        close_k = int((cal.bounds(sess).rth_close - pd.Timestamp(f"{sess} 09:30", tz=ET)).total_seconds() // 60)
+        g = g[g.k < close_k]                       # early closes: drop post-market bars (A2)
         g = g.set_index("k").reindex(range(GRID))
         if g.close.notna().sum() < GRID // 2:
             continue  # half day or broken session
@@ -42,7 +49,7 @@ def to_grid(bars: pd.DataFrame) -> dict:
         h = g.high.fillna(pd.Series(c, index=g.index)).to_numpy(float)
         lo = g.low.fillna(pd.Series(c, index=g.index)).to_numpy(float)
         v = g.volume.fillna(0.0).to_numpy(float)
-        last = int(g.close.last_valid_index())     # half days end early (e.g. 13:00 ET)
+        last = int(g.close.last_valid_index())     # last regular-session bar
         out[sess] = {"open": o, "high": h, "low": lo, "close": c, "volume": v, "last": last}
     return out
 
