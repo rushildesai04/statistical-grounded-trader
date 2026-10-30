@@ -109,3 +109,28 @@ def test_real_early_close_uses_exchange_calendar():
     f = build(b, daily_for(b))
     assert sorted(f[f.session == date(2024, 11, 29)].k) == [30, 60, 90, 120, 150, 180]
     assert len(f[f.session == date(2024, 11, 27)]) == 12
+
+
+def test_daily_features_point_in_time():
+    from sgt.megacap.daily import DAILY_FEATURES, build_daily
+
+    sess = [d.date() for d in pd.bdate_range("2023-01-03", periods=300)]
+    sess = [s for s in sess if s not in (date(2023, 1, 16), date(2023, 2, 20), date(2023, 4, 7), date(2023, 5, 29),
+                                         date(2023, 6, 19), date(2023, 7, 4), date(2023, 9, 4), date(2023, 11, 23),
+                                         date(2023, 12, 25), date(2024, 1, 1), date(2024, 1, 15), date(2024, 2, 19))]
+    b = bars(sess)
+    d = daily_for(b).assign(volume=1e6)
+    base = build_daily(b, d, b, d, b, d)
+    assert set(DAILY_FEATURES) <= set(base.columns)
+    t = sess[-20]
+    i = list(d.index).index(t)
+    assert base.set_index("session").label[t] == pytest.approx(d.close.iloc[i + 1] / d.close.iloc[i] - 1)
+    d2 = d.copy()
+    d2.loc[d2.index >= t, ["close", "high", "low"]] *= 1.3          # today's close and later
+    b2 = b.copy()
+    after = b2.ts >= pd.Timestamp(f"{t} 15:50", tz="America/New_York").tz_convert("UTC")
+    b2.loc[after, ["open", "high", "low", "close"]] *= 1.3            # today after 15:49 and later days
+    alt = build_daily(b2, d2, b2, d2, b2, d2)
+    r1, r2 = base.set_index("session").loc[t], alt.set_index("session").loc[t]
+    for f in DAILY_FEATURES:
+        assert r1[f] == pytest.approx(r2[f], nan_ok=True), f

@@ -35,7 +35,7 @@ OUT = Path("reports/megacap")
 
 
 def adjusted_daily(sym: str) -> pd.DataFrame:
-    path = CACHE / f"daily_{sym}.parquet"
+    path = CACHE / f"daily_v_{sym}.parquet"     # with volume (2026-10-30, daily-horizon test)
     if path.exists():
         return pd.read_parquet(path)
     url = get_settings().alpaca_data_url.rstrip("/") + "/v2/stocks/bars"
@@ -56,7 +56,8 @@ def adjusted_daily(sym: str) -> pd.DataFrame:
         raise SystemExit(f"{sym}: daily pagination did not finish")
     d = pd.DataFrame(rows)
     d.index = pd.to_datetime(d.t).dt.tz_convert("America/New_York").dt.date
-    d = d.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close"})[["open", "high", "low", "close"]]
+    d = d.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
+    d = d[["open", "high", "low", "close", "volume"]]
     d.to_parquet(path)
     return d
 

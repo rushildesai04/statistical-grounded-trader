@@ -16,19 +16,21 @@ Q_LOW, Q_HIGH = 0.10, 0.90
 MIN_TRAIN_SESSIONS = 250
 
 
-def fit_predict(train: pd.DataFrame, test: pd.DataFrame, features: list[str]) -> tuple[np.ndarray, float, float]:
+def fit_predict(train: pd.DataFrame, test: pd.DataFrame, features: list[str],
+                params: dict | None = None) -> tuple[np.ndarray, float, float]:
     import lightgbm as lgb
 
     y = train.label.to_numpy(float)
     lo, hi = np.quantile(y, [0.01, 0.99])
-    model = lgb.LGBMRegressor(**LGB_PARAMS)
+    model = lgb.LGBMRegressor(**(params or LGB_PARAMS))
     model.fit(train[features], np.clip(y, lo, hi))
     ins = model.predict(train[features])
     q_lo, q_hi = np.quantile(ins, [Q_LOW, Q_HIGH])
     return model.predict(test[features]), float(q_lo), float(q_hi)
 
 
-def walk_forward(df: pd.DataFrame, start: str, *, features: list[str] | None = None) -> pd.DataFrame:
+def walk_forward(df: pd.DataFrame, start: str, *, features: list[str] | None = None,
+                 params: dict | None = None) -> pd.DataFrame:
     """``df``: rows with ``session`` (date), FEATURES, ``label``. Returns test rows with
     ``pred`` and ``position`` (+1 / -1 / 0) for every month from ``start``."""
     feats = list(features or FEATURES)
@@ -41,7 +43,7 @@ def walk_forward(df: pd.DataFrame, start: str, *, features: list[str] | None = N
         train, test = d[d.month < m], d[d.month == m]
         if train.session.nunique() < MIN_TRAIN_SESSIONS or test.empty:
             continue
-        pred, q_lo, q_hi = fit_predict(train, test, feats)
+        pred, q_lo, q_hi = fit_predict(train, test, feats, params) if params else fit_predict(train, test, feats)
         t = test.assign(pred=pred, q_lo=q_lo, q_hi=q_hi)
         t["position"] = np.where(pred >= q_hi, 1, np.where(pred <= q_lo, -1, 0))
         out.append(t)
