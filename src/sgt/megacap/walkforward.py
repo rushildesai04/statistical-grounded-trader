@@ -35,12 +35,12 @@ def walk_forward(df: pd.DataFrame, start: str, *, features: list[str] | None = N
     ``pred`` and ``position`` (+1 / -1 / 0) for every month from ``start``."""
     feats = list(features or FEATURES)
     d = df.copy()
-    d["month"] = pd.to_datetime(d.session).dt.to_period("M")
+    d["_wf_month"] = pd.to_datetime(d.session).dt.to_period("M")   # not "month": that is a daily feature
     out = []
-    for m in sorted(d.month.unique()):
+    for m in sorted(d._wf_month.unique()):
         if m < pd.Period(start, "M"):
             continue
-        train, test = d[d.month < m], d[d.month == m]
+        train, test = d[d._wf_month < m], d[d._wf_month == m]
         if train.session.nunique() < MIN_TRAIN_SESSIONS or test.empty:
             continue
         pred, q_lo, q_hi = fit_predict(train, test, feats, params) if params else fit_predict(train, test, feats)

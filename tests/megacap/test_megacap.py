@@ -134,3 +134,13 @@ def test_daily_features_point_in_time():
     r1, r2 = base.set_index("session").loc[t], alt.set_index("session").loc[t]
     for f in DAILY_FEATURES:
         assert r1[f] == pytest.approx(r2[f], nan_ok=True), f
+
+
+def test_walk_forward_accepts_a_feature_named_month():
+    sessions = [d.date() for d in pd.bdate_range("2023-01-02", "2024-03-29")]
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"session": sessions, "month": [s.month for s in sessions], "x": rng.normal(size=len(sessions)),
+                       "label": rng.normal(0, 0.01, len(sessions))})
+    out = wf.walk_forward(df, "2024-02", features=["month", "x"],
+                          params=dict(n_estimators=5, num_leaves=3, min_child_samples=5, verbose=-1))
+    assert len(out) and out.month.between(1, 12).all()

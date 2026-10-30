@@ -51,3 +51,8 @@ forward paper test (>= 3 months) before any real money.
 ## Secondary (never decides)
 Long-only; 0.5x costs; pooled single model; per-ticker IC by year; gross bp per trade.
 Trial ledger run id `megacap-daily-2026-10-30`.
+
+## Run log
+- 2026-10-30: first run crashed in the first model fit (the walk-forward's internal month column
+  collided with the `month` feature). No prediction, return or output existed. Fixed (internal column
+  renamed, regression test added) and run once.
