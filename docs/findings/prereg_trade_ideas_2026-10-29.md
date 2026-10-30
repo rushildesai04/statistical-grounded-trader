@@ -43,3 +43,32 @@ Day-clustered bootstrap, 10,000 resamples, seed 20261029. One primary cell (all 
 Fill rate; share of filled calls whose high reached +5% before the stop (their "went green" claim);
 win rate; by "HIGH RISK" flag; by time of day; gross vs net; results with entry at the posted price
 with no limit (market) for comparison. Trial ledger run id `trade-ideas-2026-10-29`.
+
+## Result (scored once, 2026-10-29) — VERDICT: FAIL
+1,326 calls (first per symbol-day): 1,088 filled, 75 not filled in 10 min, 163 skipped (140 "already
+ran" > 3% above entry, 23 under $1). Data guard 0.0%. D* = 2026-03-26.
+
+| training (2024-01 .. 2026-03) | value |
+|---|---|
+| filled calls | 814 (fill rate 93%) |
+| mean net per trade | **-1.27%** (median -1.02%), 95% one-sided lower bound -1.90% |
+| gross before costs | -0.10% |
+| measured cost (round trip) | 1.16% |
+| win rate | 47% |
+| reached +5% before the stop | 74% |
+| stopped out | 47%; stopped trades average -9.8% gross, the rest +8.6% |
+| net if costs were only half | -0.68% |
+| market entry instead of limit | -1.51% |
+| HIGH RISK / normal | -1.20% / -1.28% |
+
+Training failed, so held-out (274 calls) was never examined. Reading: the calls often do go green
+(74% touch +5%, consistent with the channel's "went green" claim), but the wide stop (median 16%
+below entry) loses about as much as the targets win, so the edge before costs is ~0, and
+low-priced stocks in the first minutes after the open cost ~1.2% per round trip.
+Per the rule above, stock calls go watch-only in the live bot.
+
+Correction (same day): the first printout showed "reached +5% before stop 0%". That was a display
+bug (numpy booleans in an object column summed with logical OR); fixed in
+`scripts/trade_ideas_test.py`, value recomputed from `reports/trade_ideas/trades.csv` (74%). The
+primary result uses float returns and was not affected; nothing was re-scored.
+Trial ledger: run id trade-ideas-2026-10-29.

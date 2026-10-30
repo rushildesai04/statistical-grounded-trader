@@ -70,7 +70,7 @@ def _exits(f: pd.DataFrame, start: int, fill: float, legs, eod_tod: int) -> tupl
             px = min(stop, o)
             out = [px if x is None else x for x in out]
             return out, green
-        green = green or h >= fill * 1.05
+        green = green or bool(h >= fill * 1.05)
         for k, leg in enumerate(legs):
             if out[k] is None and h >= leg.take_profit:
                 out[k] = leg.take_profit
