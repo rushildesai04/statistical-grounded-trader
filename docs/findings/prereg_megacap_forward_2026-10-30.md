@@ -47,3 +47,9 @@ historical data, which is exactly what this forward test checks.)
    +0.028%/day.
 3. Real-time execution (needed only when real orders go to a broker) moves to a cloud runner before
    any real money; it is not part of this paper test.
+
+## Amendment A2 (2026-10-30 15:52 ET, before any forward decision exists)
+Start moved from 2026-11-02 to 2026-10-30 (user: start as soon as possible). The 2026-10-30 decision is
+made by the A1 batch job after 16:10 ET from the October models (trained on sessions < 2026-10-01, the
+same models the corrected backtest used for October) and filled close 10-30 -> close 11-02. No forward
+decision or forward price had been seen when this was written. Decision points unchanged.

@@ -31,7 +31,7 @@ ET = ZoneInfo("America/New_York")
 CONTEXT = ("SPY", "QQQ")
 ALL = list(TICKERS) + list(CONTEXT)
 HIST_START = date(2016, 1, 4)
-FIRST_DECISION = date(2026, 11, 2)     # prereg: forward test starts here
+FIRST_DECISION = date(2026, 10, 30)    # prereg amendment A2: forward test starts here
 log = logging.getLogger("megacap_forward")
 
 
