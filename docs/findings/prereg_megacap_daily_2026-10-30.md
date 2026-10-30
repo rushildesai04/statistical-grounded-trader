@@ -56,3 +56,32 @@ Trial ledger run id `megacap-daily-2026-10-30`.
 - 2026-10-30: first run crashed in the first model fit (the walk-forward's internal month column
   collided with the `month` feature). No prediction, return or output existed. Fixed (internal column
   renamed, regression test added) and run once.
+
+## Result (scored once, 2026-10-30) — VERDICT: FAIL (near miss; first positive result in the project)
+Walk-forward 2018-01-02 .. 2026-10-28 (2,218 days). Portfolio: mean daily net +0.028% (one-sided 95%
+lower bound +0.004%), Sharpe 0.63, ~+7.0%/yr; 2x costs +0.019%/day; 2025+ +0.016%/day.
+By year: 2018 +18.4%, 2019 -6.0%, 2020 +29.7%, 2021 +5.7%, 2022 +8.5%, 2023 -1.3%, 2024 -0.6%,
+2025 +16.4%, 2026 -9.3%. Checks: lower bound > 0 PASS, Sharpe >= 1 FAIL (0.63), 2x costs PASS,
+>= 6 positive years FAIL (5), 2025+ PASS. Per the frozen rule: FAIL.
+
+| ticker | trades | gross bp/trade | hit | daily net | Sharpe | IC |
+|---|---|---|---|---|---|---|
+| AAPL | 421 | +14.3 | 52% | +0.020% | +0.29 | +0.009 |
+| AMZN | 472 | +23.8 | 54% | +0.042% | +0.54 | +0.031 |
+| GOOGL | 514 | +24.9 | 54% | +0.048% | +0.74 | +0.096 |
+| MSFT | 559 | +17.7 | 55% | +0.035% | +0.48 | +0.069 |
+| META | 536 | +15.7 | 52% | +0.028% | +0.30 | +0.017 |
+| NVDA | 433 | +24.6 | 51% | +0.040% | +0.37 | +0.027 |
+| TSLA | 365 | -3.4 | 50% | -0.012% | -0.11 | +0.004 |
+| RDDT | 70 | -8.4 | 44% | -0.032% | -0.23 | -0.004 |
+
+Secondary: 0.5x costs Sharpe 0.73; long-only Sharpe 0.76; pooled model Sharpe 0.61.
+
+POST-HOC diagnostic (not pre-registered; does not change the verdict): is the edge just market drift?
+Positions were 40-60% long, so drift explains only -3..+5 bp of the gross edge; the timing part is
++13 to +28 bp per trade for the six names above, with long days above each stock's average day AND
+short days below it. TSLA (-9 bp) and RDDT (-13 bp, 70 trades) show no timing edge.
+Reading: unlike every earlier test, this is a real, cost-surviving signal, but not strong or steady
+enough to clear the bar set in advance. Next honest step: a forward paper test of this exact frozen
+system on new data (separate pre-registration), not further cuts of this history.
+Trial ledger: megacap-daily-2026-10-30. OOS predictions: reports/megacap_daily/oos_*.parquet.
