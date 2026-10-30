@@ -89,3 +89,12 @@ Cells, replacing the type list above (each still: first alert of that type per s
 first-alert-of-any-type cell. `halted` stays excluded (not enterable). `premarket_high` and
 `after_hours_high` are reported in the extended-hours secondary only. All other rules unchanged.
 The second MetaTradings channel ("OPTIONS & STOCKS TRADE IDEAS") is NOT part of this test.
+
+### A2 (2026-10-29, before any price was loaded)
+Order of operations, fixed because the text above allowed two readings: the population
+filter comes first, then "first alert of that type per symbol-session". Primary = the first
+alert of the type whose entry falls in 09:30-15:44 ET (what a regular-hours follower would
+take); the extended-hours secondary dedups separately. The pooled cell = first alert of any
+cell type per symbol-session inside the primary window. D* uses the union of the per-type
+primary trades. Secondary breakdowns are computed on TRAINING only, so held-out is looked at
+solely for cells that pass training.
