@@ -69,4 +69,23 @@ Bonferroni bound: the (1 - 0.05/k) one-sided lower bound of mean net.
   run id `telegram-alerts-2026-10-29`).
 
 ## Amendments (before scoring only)
-(none)
+
+### A1 (2026-10-29, after download, before any price was loaded)
+Source: the channel is MetaTradings' private "NEWS , VOLUME , BREAKOUTS" (id -1001254273411).
+Downloaded 25,462 messages, 2024-01-04 .. 2026-10-30; 650 edited (excluded per the rule above).
+The original grammar (built from the trader's video) parsed 40%. Templates were added from
+message TEXT only (`src/sgt/crowd/telegram_parser.py`, tests
+`tests/crowd/test_telegram_parser_2024_templates.py`): `$`/leading-dot prices; synonyms
+("volume increase", "gaining volumed", "new day high", "new high of day", "day high");
+"<phrase>, halted" -> `halted`; news blocks without a "-" line; one-line "TKR - headline" news;
+new types `volume_spike`, `premarket_high`, `testing_high`, `price_level` ("over $N", "at N").
+Result: 80% of messages parsed; the rest are banners, swing-trade recaps and templates with
+< 40 occurrences each.
+
+Cells, replacing the type list above (each still: first alert of that type per symbol-session):
+`volume_increasing`, `volume_spike`, `gaining_volume`, `gaining_momentum`,
+`high_of_day` (= `new_high` + `intraday_high`; the channel uses them interchangeably),
+`testing_high`, `price_level`, `resumed`, `news` with `has_news = true`, plus the pooled
+first-alert-of-any-type cell. `halted` stays excluded (not enterable). `premarket_high` and
+`after_hours_high` are reported in the extended-hours secondary only. All other rules unchanged.
+The second MetaTradings channel ("OPTIONS & STOCKS TRADE IDEAS") is NOT part of this test.

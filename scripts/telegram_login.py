@@ -22,6 +22,15 @@ from sgt.config import get_settings
 from sgt.core.secrets import get_secret
 
 
+def _ask_phone() -> str:
+    # Telegram needs international format; a bare 10-digit number is PHONE_NUMBER_INVALID.
+    while True:
+        raw = re.sub(r"[\s\-()]", "", input("Phone in international format (e.g. +1XXXXXXXXXX): "))
+        if re.fullmatch(r"\+\d{7,15}", raw):
+            return raw
+        print("must start with + and country code (US: +1)")
+
+
 def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
@@ -30,7 +39,8 @@ async def _run(title: str) -> None:
     session_path = get_settings().telegram_session_path
     Path(session_path).parent.mkdir(parents=True, exist_ok=True)
     client = TelegramClient(session_path, int(get_secret("telegram_api_id")), get_secret("telegram_api_hash"))
-    async with client:  # start(): prompts for phone / code / password on first run
+    await client.start(phone=_ask_phone)  # prompts for phone / code / password on first run
+    async with client:
         me = await client.get_me()
         print(f"logged in (user id {me.id})")
         want = _norm(title)

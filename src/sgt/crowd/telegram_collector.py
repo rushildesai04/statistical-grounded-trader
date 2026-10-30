@@ -85,8 +85,11 @@ class TelethonMessageSource:
         kwargs = {"reverse": True, "limit": limit, "min_id": min_id}
         if since is not None and min_id == 0:
             kwargs["offset_date"] = since
+        # Private channels have no username; a numeric id ("-100...") must reach
+        # Telethon as an int or it is looked up as a username.
+        entity = int(channel) if channel.lstrip("-").isdigit() else channel
         async with client:  # connects; uses the existing user session file
-            async for msg in client.iter_messages(channel, **kwargs):
+            async for msg in client.iter_messages(entity, **kwargs):
                 if msg is None:
                     continue
                 yield SourceMessage(
