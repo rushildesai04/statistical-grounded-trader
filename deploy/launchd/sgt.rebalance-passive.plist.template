@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Passive 60/40 rebalance (PAPER). Rendered by scripts/install_schedule.sh; do not copy by hand.
-     Runs weekdays at __HOUR__:__MINUTE__ local time (= 15:40 ET); the script itself acts only on
-     the first trading day of the month, once. -->
+     Runs weekdays hourly 10:05-15:05 ET (local times rendered by the installer) and at login; missed
+     runs fire at wake. The script trades once per month, in the first 5 sessions, 09:45-15:55 ET. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>local.sgt.rebalance-passive</string>
@@ -13,12 +13,8 @@
   </array>
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MINUTE__</integer></dict>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MINUTE__</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MINUTE__</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MINUTE__</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MINUTE__</integer></dict>
+__INTERVALS__
   </array>
-  <key>RunAtLoad</key><false/>
+  <key>RunAtLoad</key><true/>
 </dict>
 </plist>

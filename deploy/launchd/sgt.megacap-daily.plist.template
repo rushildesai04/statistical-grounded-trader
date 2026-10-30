@@ -1,20 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Forward paper test of the daily per-ticker models (virtual ledger, no orders).
-     Rendered by scripts/install_megacap_daily.sh. Weekdays 08:30 (train month models if missing)
-     and 15:50 (write today's decisions). Local time must be US Eastern (the installer checks). -->
+<!-- Forward paper tests (virtual ledgers, no orders): daily per-ticker models (catch-up of every missed
+     session) and the ETF allocation sleeves (refresh + monthly snapshot). Rendered by
+     scripts/install_megacap_daily.sh. Runs at login/wake and daily 08:00, 12:00, 17:30, 21:00 local;
+     timing is not critical (prereg_megacap_forward A1). -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>local.sgt.megacap-daily</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string><string>-lc</string>
-    <string>cd "__REPO__" &amp;&amp; PYTHONPATH=src:scripts .venv/bin/python scripts/megacap_forward.py auto &gt;&gt; reports/megacap_forward/run.log 2&gt;&amp;1</string>
+    <string>cd "__REPO__" &amp;&amp; PYTHONPATH=src:scripts .venv/bin/python scripts/megacap_forward.py auto &gt;&gt; reports/megacap_forward/run.log 2&gt;&amp;1; PYTHONPATH=src:scripts .venv/bin/python scripts/forward_paper.py refresh &gt;&gt; reports/forward/run.log 2&gt;&amp;1 &amp;&amp; PYTHONPATH=src .venv/bin/python scripts/forward_paper.py snapshot &gt;&gt; reports/forward/run.log 2&gt;&amp;1</string>
   </array>
   <key>StartCalendarInterval</key>
   <array>
 __INTERVALS__
   </array>
-  <key>RunAtLoad</key><false/>
+  <key>RunAtLoad</key><true/>
 </dict>
 </plist>

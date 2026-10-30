@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from sgt.allocation.rebalance import first_trading_day, plan
+from sgt.allocation.rebalance import first_trading_day, in_rebalance_days, plan, trading_day_of_month
 
 PX = {"SPY": 500.0, "IEF": 100.0}
 
@@ -48,3 +48,11 @@ def test_first_trading_day():
     assert not first_trading_day(date(2026, 10, 2))
     assert first_trading_day(date(2026, 11, 2))        # Nov 1 is a Sunday
     assert not first_trading_day(date(2026, 11, 1))
+
+
+def test_rebalance_window_first_five_sessions():
+    assert trading_day_of_month(date(2026, 11, 2)) == 1         # Nov 1 is a Sunday
+    assert trading_day_of_month(date(2026, 11, 6)) == 5
+    assert in_rebalance_days(date(2026, 11, 6)) and not in_rebalance_days(date(2026, 11, 9))
+    assert not in_rebalance_days(date(2026, 11, 7))              # Saturday
+    assert trading_day_of_month(date(2026, 11, 27)) is not None  # half day still a session

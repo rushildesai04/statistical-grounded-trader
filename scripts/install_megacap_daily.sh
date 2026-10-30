@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install / remove the forward-test job (weekdays 08:30 and 15:50 US Eastern).
+# Install / remove the forward-test catch-up job (login/wake + daily 08:00, 12:00, 17:30, 21:00 local).
 #   scripts/install_megacap_daily.sh            # install
 #   scripts/install_megacap_daily.sh --remove
 set -euo pipefail
@@ -10,16 +10,12 @@ if [[ "${1:-}" == "--remove" ]]; then
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   rm -f "$DEST"; echo "removed $LABEL"; exit 0
 fi
-TZNAME="$(readlink /etc/localtime | sed 's#.*zoneinfo/##')"
-[[ "$TZNAME" == "America/New_York" ]] || { echo "REFUSING: Mac timezone is $TZNAME, job times assume America/New_York"; exit 1; }
 [[ -x "$REPO/.venv/bin/python" ]] || { echo "missing $REPO/.venv"; exit 1; }
-mkdir -p "$REPO/reports/megacap_forward" "$HOME/Library/LaunchAgents"
+mkdir -p "$REPO/reports/megacap_forward" "$REPO/reports/forward" "$HOME/Library/LaunchAgents"
 IV=""
-for wd in 1 2 3 4 5; do
-  for hm in "8 30" "15 50"; do
-    set -- $hm
-    IV+="    <dict><key>Weekday</key><integer>$wd</integer><key>Hour</key><integer>$1</integer><key>Minute</key><integer>$2</integer></dict>"$'\n'
-  done
+for hm in "8 0" "12 0" "17 30" "21 0"; do
+  set -- $hm
+  IV+="    <dict><key>Hour</key><integer>$1</integer><key>Minute</key><integer>$2</integer></dict>"$'\n'
 done
 python3 - "$REPO" "$DEST" "$IV" <<'PY'
 import sys, pathlib
@@ -30,4 +26,4 @@ PY
 plutil -lint "$DEST" >/dev/null
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$DEST"
-echo "installed $LABEL (weekdays 08:30 and 15:50 ET); log: $REPO/reports/megacap_forward/run.log"
+echo "installed $LABEL (login/wake + daily 08:00 12:00 17:30 21:00); logs: reports/megacap_forward/run.log, reports/forward/run.log"

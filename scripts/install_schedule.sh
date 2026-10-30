@@ -19,15 +19,20 @@ if [[ "${1:-}" == "--remove" ]]; then
   exit 0
 fi
 
-# 15:40 America/New_York expressed in this Mac's local time (launchd uses local time).
-LOCAL=$(TZ=America/New_York date -j -f "%Y-%m-%d %H:%M" "$(TZ=America/New_York date +%Y-%m-%d) 15:40" +%s)
-HOUR=$(date -r "$LOCAL" +%-H); MINUTE=$(date -r "$LOCAL" +%-M)
-
-RENDERED=$(sed -e "s|__REPO__|$REPO|g" -e "s|__CAP__|$CAP|g" -e "s|__HOUR__|$HOUR|g" \
-               -e "s|__MINUTE__|$MINUTE|g" "$TEMPLATE")
+# Hourly 10:05-15:05 America/New_York on weekdays, expressed in this Mac's local time.
+INTERVALS=""
+for H in 10 11 12 13 14 15; do
+  LOCAL=$(TZ=America/New_York date -j -f "%Y-%m-%d %H:%M" "$(TZ=America/New_York date +%Y-%m-%d) $H:05" +%s)
+  LH=$(date -r "$LOCAL" +%-H); LM=$(date -r "$LOCAL" +%-M)
+  for WD in 1 2 3 4 5; do
+    INTERVALS+="    <dict><key>Weekday</key><integer>$WD</integer><key>Hour</key><integer>$LH</integer><key>Minute</key><integer>$LM</integer></dict>"$'\n'
+  done
+done
+RENDERED=$(sed -e "s|__REPO__|$REPO|g" -e "s|__CAP__|$CAP|g" "$TEMPLATE")
+RENDERED="${RENDERED/__INTERVALS__/${INTERVALS%$'\n'}}"
 if [[ "${1:-}" == "--dry-run" ]]; then
   print -r -- "$RENDERED"
-  echo "\n(would install to $TARGET; runs weekdays at $HOUR:$(printf %02d $MINUTE) local)"
+  echo "\n(would install to $TARGET; runs weekdays hourly 10:05-15:05 ET and at login)"
   exit 0
 fi
 
@@ -52,6 +57,6 @@ plutil -lint "$TARGET" >/dev/null
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 launchctl bootstrap "$DOMAIN" "$TARGET"
 echo "installed $LABEL -> $TARGET"
-echo "runs weekdays at $HOUR:$(printf %02d $MINUTE) local (15:40 ET); acts only on the first trading day of the month"
+echo "runs weekdays hourly 10:05-15:05 ET and at login; trades once per month within the first 5 sessions"
 echo "log: $REPO/reports/rebalance/run.log"
 launchctl print "$DOMAIN/$LABEL" | grep -E "state|path" | head -3

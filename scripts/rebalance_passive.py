@@ -1,7 +1,8 @@
 """Monthly passive rebalance (default 60% SPY / 40% IEF) on Alpaca. Safe by default.
 
 * DRY RUN unless --execute; PAPER unless --live --confirm-live.
-* Acts only on the first trading day of the month between 15:30 and 15:55 ET (unless --force).
+* Acts only during 09:45-15:55 ET on the first 5 trading days of the month (unless --force); the
+  schedule retries hourly and at wake, so a closed laptop just delays the rebalance (2026-10-30).
 * Idempotent: client order ids are rebal-YYYYMM-SYMBOL-SIDE; if any order with this month's
   prefix exists at the broker, the run exits without trading.
 * Sells first; waits for them to finish; re-reads the account; then buys from actual cash.
@@ -25,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from sgt.allocation.rebalance import DEFAULT_TARGETS, first_trading_day, plan
+from sgt.allocation.rebalance import DEFAULT_TARGETS, in_rebalance_days, plan
 from sgt.brokers.alpaca import AlpacaBroker
 from sgt.config import get_settings
 from sgt.core.types import OrderIntent, OrderStatus, OrderType, Side, TimeInForce
@@ -33,7 +34,7 @@ from sgt.db.session import init_db
 from sgt.intraday.sources import _alpaca_headers
 
 ET = ZoneInfo("America/New_York")
-WINDOW = (dtime(15, 30), dtime(15, 55))
+WINDOW = (dtime(9, 45), dtime(15, 55))
 STALE_S = 300
 
 
@@ -83,7 +84,7 @@ async def wait_terminal(broker: AlpacaBroker, cids: list[str], timeout_s: float 
 async def main_async(args) -> int:
     now = datetime.now(timezone.utc)
     et = now.astimezone(ET)
-    if not args.force and not (first_trading_day(et.date()) and WINDOW[0] <= et.time() <= WINDOW[1]):
+    if not args.force and not (in_rebalance_days(et.date()) and WINDOW[0] <= et.time() <= WINDOW[1]):
         print(f"not rebalance time ({et:%Y-%m-%d %H:%M} ET); nothing to do")
         return 0
     targets = dict(DEFAULT_TARGETS) if not args.targets else {

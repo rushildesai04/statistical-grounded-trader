@@ -66,7 +66,10 @@ def _alpaca_daily(symbol: str, start: date) -> pd.Series:
     from sgt.intraday.sources import _alpaca_headers
 
     url = get_settings().alpaca_data_url.rstrip("/") + "/v2/stocks/bars"
-    params = {"symbols": symbol, "timeframe": "1Day", "start": start.isoformat(), "adjustment": "all",
+    from datetime import timedelta
+
+    end = (datetime.now(timezone.utc) - timedelta(minutes=16)).isoformat()   # free plan: no SIP < 15 min old
+    params = {"symbols": symbol, "timeframe": "1Day", "start": start.isoformat(), "end": end, "adjustment": "all",
               "feed": "sip", "limit": 10000}
     r = httpx.get(url, params=params, headers=_alpaca_headers(), timeout=20.0)
     r.raise_for_status()

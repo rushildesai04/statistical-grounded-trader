@@ -33,6 +33,21 @@ def first_trading_day(d: date) -> bool:
     return not any(cal.is_session(date(d.year, d.month, k)) for k in range(1, d.day))
 
 
+def trading_day_of_month(d: date) -> int | None:
+    """1-based index of ``d`` among its month's exchange sessions (None if not a session)."""
+    cal = default_calendar()
+    if not cal.is_session(d):
+        return None
+    return 1 + sum(cal.is_session(date(d.year, d.month, k)) for k in range(1, d.day))
+
+
+def in_rebalance_days(d: date, max_days: int = 5) -> bool:
+    """True on the first ``max_days`` sessions of the month (2026-10-30: laptop-friendly window;
+    the run is idempotent per month, so the first run inside the window trades and later ones exit)."""
+    n = trading_day_of_month(d)
+    return n is not None and n <= max_days
+
+
 def plan(*, cash: float, holdings: dict[str, int], prices: dict[str, float],
          targets: dict[str, float] = DEFAULT_TARGETS, cash_buffer: float = 0.01,
          drift_threshold: float = 0.01, limit_band: float = 0.003,
