@@ -76,3 +76,27 @@ Half-day sessions (13:00 ET close) kept their thin 13:00-16:00 post-market bars 
 after the close. Fix: bars at or after the exchange-calendar close (XNYS) are dropped; no decision at or after the last regular bar; an exit that would fall after
 it uses that bar's close. Found via a sanity check of feature ranges (dollar-volume ratio = 0); no
 label, prediction or return had been examined.
+
+## Result (scored once, 2026-10-30) — VERDICT: FAIL
+Walk-forward 2018-01-02 .. 2026-10-29 (2,219 days), ~850 monthly per-ticker refits.
+Portfolio: mean daily net -0.061% (lower95 -0.079%), Sharpe -1.91, ~-15%/yr; negative in all 9 years;
+2x costs -0.172%/day; 2025+ -0.099%/day. All five checks failed.
+
+| ticker | trades | gross per trade | hit | daily net | Sharpe | IC (mean by year) |
+|---|---|---|---|---|---|---|
+| AAPL | 6,175 | +0.43 bp | 51% | -0.099% | -1.99 | +0.017 |
+| AMZN | 5,932 | +1.88 bp | 52% | -0.057% | -1.02 | +0.029 |
+| GOOGL | 6,573 | +1.17 bp | 51% | -0.084% | -1.59 | +0.011 |
+| MSFT | 5,885 | +1.10 bp | 51% | -0.077% | -1.57 | +0.019 |
+| META | 6,546 | +0.23 bp | 50% | -0.111% | -1.79 | +0.007 |
+| NVDA | 5,593 | +3.62 bp | 52% | -0.010% | -0.12 | +0.030 |
+| TSLA | 5,831 | +4.41 bp | 52% | +0.011% | +0.12 | +0.020 |
+| RDDT | 648 | +3.39 bp | 48% | -0.108% | -1.25 | +0.008 |
+
+Secondary: 0.5x costs -0.005%/day (Sharpe -0.17); long-only Sharpe -1.25; one pooled model Sharpe
+-1.42 (per-ticker was not better than pooled in any useful sense).
+Reading: the models do learn something real but tiny - the prediction-to-outcome rank correlation is
+positive for all 8 tickers, and gross edge is +0.2 to +4.4 bp per 30-minute trade - but that is below
+even the 4 bp mega-cap round-trip cost. Per the criteria, nothing goes to paper. Any follow-up (e.g.
+cheaper execution) must be a NEW pre-registration tested on new data, not a re-cut of this run.
+Trial ledger: megacap-brains-2026-10-30. Out-of-sample predictions: reports/megacap/oos_*.parquet.
