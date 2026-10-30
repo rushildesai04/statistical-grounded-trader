@@ -60,14 +60,22 @@ def _today(a: dict | None) -> tuple[float, float, float, float]:
 
 
 def build_daily(bars: pd.DataFrame, daily: pd.DataFrame, spy_bars: pd.DataFrame, spy_daily: pd.DataFrame,
-                qqq_bars: pd.DataFrame, qqq_daily: pd.DataFrame) -> pd.DataFrame:
+                qqq_bars: pd.DataFrame, qqq_daily: pd.DataFrame, *, require_label: bool = True,
+                live_session=None) -> pd.DataFrame:
+    """Rows for every session with intraday bars. ``require_label=False`` (live decision) keeps the
+    last session, whose next close does not exist yet (label NaN)."""
     grid, sg, qg = to_grid(bars), to_grid(spy_bars), to_grid(qqq_bars)
+    if live_session is not None:
+        # Session still open at 15:50: the cutoff comes from the exchange close, not the last bar seen.
+        for g in (grid, sg, qg):
+            if live_session in g:
+                g[live_session] = dict(g[live_session], last=g[live_session]["close_k"] - 1)
     prior = daily_block(daily).shift(1)                       # through t-1 only
     sp, qp = daily_block(spy_daily).shift(1), daily_block(qqq_daily).shift(1)
     nxt_close = daily.close.shift(-1)
     rows = []
     for t in daily.index:
-        if t not in grid or pd.isna(nxt_close.get(t)) or t not in prior.index:
+        if t not in grid or t not in prior.index or (require_label and pd.isna(nxt_close.get(t))):
             continue
         i = daily.index.get_loc(t)
         if i == 0:
@@ -75,7 +83,8 @@ def build_daily(bars: pd.DataFrame, daily: pd.DataFrame, spy_bars: pd.DataFrame,
         prev_close = daily.close.iloc[i - 1]
         gap = float(np.log(daily.open.loc[t] / prev_close))
         intr, r60, rng, _ = _today(grid[t])
-        r = {"session": t, "label": float(nxt_close.loc[t] / daily.close.loc[t] - 1.0),
+        label = nxt_close.loc[t] / daily.close.loc[t] - 1.0 if pd.notna(nxt_close.loc[t]) else np.nan
+        r = {"session": t, "label": float(label),
              **prior.loc[t].to_dict(), "t_gap": gap, "t_r_intraday": intr, "t_r_60": r60, "t_range": rng}
         for name, g, dd, blk in (("spy", sg, spy_daily, sp), ("qqq", qg, qqq_daily, qp)):
             if t in dd.index and t in g and dd.index.get_loc(t) > 0:

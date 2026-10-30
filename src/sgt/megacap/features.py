@@ -50,7 +50,8 @@ def to_grid(bars: pd.DataFrame) -> dict:
         lo = g.low.fillna(pd.Series(c, index=g.index)).to_numpy(float)
         v = g.volume.fillna(0.0).to_numpy(float)
         last = int(g.close.last_valid_index())     # last regular-session bar
-        out[sess] = {"open": o, "high": h, "low": lo, "close": c, "volume": v, "last": last}
+        out[sess] = {"open": o, "high": h, "low": lo, "close": c, "volume": v, "last": last,
+                     "close_k": close_k}
     return out
 
 
