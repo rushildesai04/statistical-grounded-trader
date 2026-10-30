@@ -31,3 +31,19 @@ historical data, which is exactly what this forward test checks.)
   the backtest's +0.028%/day (i.e. not obviously a different strategy). Otherwise STOP.
 - Stop at any time if cumulative net falls below -5%.
 - Every monthly evaluation is recorded in the trial ledger (run id `megacap-forward-2026-10-30`).
+
+## Amendment A1 (2026-10-30, before the first forward decision)
+1. Laptop-friendly batch mode replaces the 15:50 real-time job (the user's Mac is not always on).
+   `scripts/megacap_forward.py catchup` runs at login/wake and twice each weekday evening, and decides
+   every session since 2026-11-02 that has no decision yet, from exactly the point-in-time data a 15:50
+   decision would use: SIP 1-minute bars ending 15:49 (now SIP, not IEX - closer to the backtest),
+   adjusted daily bars through t-1 and t's official open. Proof is reproducibility, not the clock:
+   month models are trained only on rows whose labels were known before the month (session < M,
+   last session embargoed), saved append-only with SHA-256 hashes checked on every load, and the
+   decision code is tested point-in-time. The 15:55 void rule now applies only to real-time decisions.
+   Verified 2026-10-30: a simulated missed week (2026-10-26..29) retrained October and reproduced the
+   corrected backtest's decisions exactly (0 mismatches, predictions to 1e-12).
+2. Benchmark for the 12-month check: the corrected backtest mean (+0.032%/day, Sharpe 0.74) replaces
+   +0.028%/day.
+3. Real-time execution (needed only when real orders go to a broker) moves to a cloud runner before
+   any real money; it is not part of this paper test.

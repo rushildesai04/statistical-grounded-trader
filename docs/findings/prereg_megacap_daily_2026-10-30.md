@@ -93,3 +93,12 @@ the first session of the test month (unknowable at that session's 15:50 decision
 correctly cannot use that row. Fix: a 1-session label embargo before each test month
 (`walk_forward(..., embargo_sessions=1)`). Everything else unchanged. The corrected run is scored once
 to `reports/megacap_daily_v2/` (ledger run id `megacap-daily-2026-10-30-v2`); both results are kept here.
+
+## Corrected result (embargo fix, scored once, 2026-10-30) — VERDICT: FAIL (Sharpe < 1 only)
+Mean daily net +0.032% (lower95 +0.008%), Sharpe 0.74, ~+8.1%/yr; 2x costs +0.024%/day; 2025+
++0.025%/day. By year: 2018 +26.0%, 2019 -7.1%, 2020 +36.2%, 2021 +6.2%, 2022 +3.7%, 2023 -5.7%,
+2024 +0.8%, 2025 +20.4%, 2026 -8.9% (6 of 9 positive). Checks: all pass except Sharpe >= 1.
+Per ticker gross bp/trade: AAPL +19.5, AMZN +25.0, GOOGL +34.7, MSFT +13.1, META +15.4, NVDA +20.5,
+TSLA +4.2, RDDT +19.1 (64 trades). Secondary: 0.5x costs Sharpe 0.84; long-only 0.90; pooled 0.62.
+Note: removing one training row per month moved single years by up to 6 points; the model is noisy,
+so the forward test (prereg_megacap_forward_2026-10-30.md) is the real evidence.
