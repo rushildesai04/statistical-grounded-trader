@@ -98,3 +98,23 @@ take); the extended-hours secondary dedups separately. The pooled cell = first a
 cell type per symbol-session inside the primary window. D* uses the union of the per-type
 primary trades. Secondary breakdowns are computed on TRAINING only, so held-out is looked at
 solely for cells that pass training.
+
+## Result (scored once, 2026-10-29) — VERDICT: FAIL
+Data: 20,320 parsed alerts 2024-01-04..2026-10-29; 436 edited and 71 duplicates excluded; data guard
+3.9% unusable (< 20%). D* = 2026-07-01. k = 7 cells with >= 100 training alerts, one-sided alpha 0.0071.
+
+| cell (training, 15 min) | n | mean net | median | hit | lower bound | gross 15 min |
+|---|---|---|---|---|---|---|
+| pooled first alert | 2349 | -2.58% | -3.19% | 35% | -3.25% | -1.69% |
+| high_of_day | 1166 | -1.76% | -2.79% | 36% | -2.72% | -0.90% |
+| volume_increasing | 771 | -1.89% | -2.58% | 36% | -3.05% | -0.99% |
+| news | 758 | -1.05% | -2.03% | 39% | -2.20% | -0.13% |
+| resumed (after halt) | 484 | -3.86% | -6.41% | 33% | -5.92% | -3.06% |
+| price_level | 279 | -1.11% | -2.06% | 43% | -2.95% | -0.34% |
+| gaining_volume | 216 | -2.86% | -3.33% | 33% | -4.75% | -1.96% |
+
+No cell passed training, so held-out was never examined. Every cell is negative BEFORE costs at 5, 15
+and 60 minutes; the median stock had already risen 11-26% in the 15 minutes before the alert
+("latency"), i.e. the alerts mark the top of a move that has already happened. Power hour (the
+trader's claimed edge) was no better: -2.23% gross. Following this channel's alerts long is rejected.
+Trial ledger: run id telegram-alerts-2026-10-29. Trade files: reports/telegram/.
