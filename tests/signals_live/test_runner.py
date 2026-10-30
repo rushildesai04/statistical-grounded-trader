@@ -74,7 +74,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(rmod, "_now", clock)
     monkeypatch.setattr(rmod, "JOURNAL", tmp_path)
     b, n = FakeBroker(), FakeNotify()
-    return Runner(None, b, n, nvb=NVB, ideas=IDEAS), b, n, clock
+    return Runner(None, b, n, nvb=NVB, ideas=IDEAS, trade_alerts=True), b, n, clock
 
 
 async def test_alert_lifecycle(env):
@@ -176,3 +176,13 @@ async def test_restart_exits_unprotected_position(env):
     await r.reconcile()
     await r.tick()
     assert any(c.startswith("x-recover-ABCD") for c in b.orders)
+
+
+async def test_alerts_watch_only_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(rmod, "_now", Clock(T0))
+    monkeypatch.setattr(rmod, "JOURNAL", tmp_path)
+    b, n = FakeBroker(), FakeNotify()
+    r = Runner(None, b, n, nvb=NVB, ideas=IDEAS)
+    await r.on_message(NVB, 7, T0, "ABCD  volume spike  4.00", False)
+    assert r.trades == [] and not r.state.open_symbols and b.orders == {}
+    assert any("watch ABCD" in m and not imp for m, imp in n.msgs)

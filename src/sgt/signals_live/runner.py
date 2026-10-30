@@ -52,8 +52,12 @@ class Trade:
 
 class Runner:
     def __init__(self, client, broker: PaperBroker, notify, sms=None, *, nvb: int, ideas: int,
-                 limits: Limits = Limits(), collector: TelegramCollector | None = None):
+                 limits: Limits = Limits(), collector: TelegramCollector | None = None,
+                 trade_alerts: bool = False):
         self.client, self.broker, self.notify, self.sms = client, broker, notify, sms
+        # 2026-10-29: NVB alerts FAILED the pre-registered test (negative before costs in every
+        # cell; docs/findings/prereg_telegram_alerts_2026-10-29.md) -> watch-only unless enabled.
+        self.trade_alerts = trade_alerts
         self.nvb, self.ideas, self.lim = nvb, ideas, limits
         self.collector = collector
         self.state = State()
@@ -118,6 +122,12 @@ class Runner:
                      decision=d.reason if isinstance(d, Skip) else "trade")
         if isinstance(d, Skip):
             await self.tell(f"skip {symbol} {atype}: {d.reason}", important=False)
+            return
+        if not self.trade_alerts:
+            self.state.done_today.add(("alert", atype, symbol))
+            self.journal("alert_watch_only", symbol=symbol, type=atype, price=price)
+            await self.tell(f"watch {symbol} {atype} @ ${price:.2f} (alerts not traded: failed backtest)",
+                            important=False)
             return
         self.state.done_today.add(("alert", atype, symbol))
         self.state.open_symbols.add(symbol)
