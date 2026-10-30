@@ -30,6 +30,7 @@ ET = ZoneInfo("America/New_York")
 CONTEXT = ("SPY", "QQQ")
 ALL = list(TICKERS) + list(CONTEXT)
 HIST_START = date(2016, 1, 4)
+FIRST_DECISION = date(2026, 11, 2)     # prereg: forward test starts here
 log = logging.getLogger("megacap_forward")
 
 
@@ -80,6 +81,8 @@ def do_decide() -> int:
         time.sleep((ready - now).total_seconds())   # let the 15:49 bar publish
         now = datetime.now(ET)
     today = now.date()
+    if today < FIRST_DECISION:
+        raise LiveError(f"forward test starts {FIRST_DECISION}")
     if not default_calendar().is_session(today):
         print(f"{today}: market closed")
         return 0
@@ -115,6 +118,9 @@ def evaluate() -> int:
 
 def auto() -> int:
     now = datetime.now(ET)
+    if now.date() < FIRST_DECISION:
+        print(f"forward test starts {FIRST_DECISION}; nothing to do")
+        return 0
     month = f"{now:%Y-%m}"
     if not (model_dir(month) / "meta.json").exists():
         if now.hour >= 15:
