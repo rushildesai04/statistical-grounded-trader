@@ -1,0 +1,33 @@
+# Pre-registration: forward paper test of daily per-ticker models (2026-10-30)
+
+Committed BEFORE the first forward decision (2026-11-02 15:50 ET). Uses only prices that do not exist
+yet. Basis: `prereg_megacap_daily_2026-10-30.md` (historical FAIL by the frozen bar, Sharpe 0.63,
+~+7%/yr, with a real timing edge of +13..+28 bp/trade in six names).
+
+## What is tested
+The daily system exactly as in `src/sgt/megacap/daily.py` + `walkforward.py` (LightGBM params,
+10th/90th-percentile thresholds, monthly expanding-window retraining), on the six names that showed a
+timing edge: AAPL, AMZN, GOOGL, MSFT, META, NVDA. (TSLA and RDDT are dropped; that choice was made on
+historical data, which is exactly what this forward test checks.)
+
+## Mechanics (virtual ledger, no orders)
+- Monthly model: before the first decision of month M, each ticker's model is trained on all rows with
+  session < M (1-minute SIP store and adjusted daily bars refreshed first). Model + thresholds saved to
+  `reports/megacap_forward/models/YYYY-MM/`.
+- Daily decision at 15:50 ET (launchd `local.sgt.megacap-daily`): features from adjusted daily bars
+  through t-1 plus today's 1-minute bars ending 15:49 ET. Today's bars come from the IEX feed (the free
+  real-time feed; the backtest used SIP, a declared train/serve difference). Decisions are written to
+  `reports/megacap_forward/decisions/YYYY-MM-DD.json` with a timestamp, append-only (never overwritten).
+  A decision written after 15:55 ET is void.
+- Fill: market-on-close at the official close of t, exit at the official close of t+1 (adjusted daily
+  bars), minus 4 bp per round trip. Equal capital per ticker; portfolio day = mean over the six.
+
+## Evaluation
+- Interim: monthly. Decision points: 2027-04-30 (~6 months) and 2027-10-29 (~12 months).
+- Six months cannot confirm a Sharpe-0.6 strategy (too few days); it can only catch a broken one.
+  At 6 months: CONTINUE if cumulative net > 0, else STOP.
+- At 12 months: eligible for small real money (user decides, starting <= 10% of the account) only if
+  cumulative net > 0, annualized Sharpe >= 0.5, and the mean daily net is within 2 standard errors of
+  the backtest's +0.028%/day (i.e. not obviously a different strategy). Otherwise STOP.
+- Stop at any time if cumulative net falls below -5%.
+- Every monthly evaluation is recorded in the trial ledger (run id `megacap-forward-2026-10-30`).
