@@ -62,3 +62,12 @@ least 3 months before any real money, with the same frozen models retrained mont
 - Long-only version; costs at 0.5x; results by year, by decision time, hit rate, turnover.
 - Information coefficient (rank correlation prediction vs label) per ticker per year.
 Trial ledger run id `megacap-brains-2026-10-30`.
+
+## Amendments (before any feature was computed or model trained)
+### A1 (2026-10-30)
+The 1-minute store is split-UNadjusted (`adjustment=raw`). Within-session features and the label are
+unaffected. Cross-day inputs are therefore taken from Alpaca split/dividend-adjusted daily bars
+(`adjustment=all`): overnight gap = adj open / prior adj close; prior day's return from adjusted
+closes; prior day's high/low rescaled into today's raw price units by (today's first 1-minute open /
+today's adjusted daily open). The volume feature uses DOLLAR volume (price x shares), which splits do
+not change: last-30-minute dollar volume / mean of the same slot over the previous 20 sessions.
