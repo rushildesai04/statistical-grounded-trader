@@ -42,7 +42,8 @@ def to_grid(bars: pd.DataFrame) -> dict:
         h = g.high.fillna(pd.Series(c, index=g.index)).to_numpy(float)
         lo = g.low.fillna(pd.Series(c, index=g.index)).to_numpy(float)
         v = g.volume.fillna(0.0).to_numpy(float)
-        out[sess] = {"open": o, "high": h, "low": lo, "close": c, "volume": v}
+        last = int(g.close.last_valid_index())     # half days end early (e.g. 13:00 ET)
+        out[sess] = {"open": o, "high": h, "low": lo, "close": c, "volume": v, "last": last}
     return out
 
 
@@ -79,11 +80,12 @@ def session_rows(sess, a: dict, daily: pd.DataFrame, slot_dv: dict, spy: dict | 
         f = o[0] / today.open                      # adjusted -> today's raw units
         d_hi, d_lo = p1.high * f, p1.low * f
     rows = []
+    last = a.get("last", GRID - 1)
     for k in DECISIONS:
-        if k + 1 > GRID:
-            continue
+        if k >= last:
+            continue  # no real bars left to trade (2026-10-30: half-day sessions)
         px = c[k - 1]
-        exit_px = o[k + HORIZON] if k + HORIZON < GRID else c[GRID - 1]
+        exit_px = o[k + HORIZON] if k + HORIZON <= last else c[last]
         dv = float((c[k - 30:k] * v[k - 30:k]).sum())
         base = slot_dv.get(k)
         r = {

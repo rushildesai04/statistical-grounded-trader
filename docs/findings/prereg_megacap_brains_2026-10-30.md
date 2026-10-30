@@ -71,3 +71,8 @@ unaffected. Cross-day inputs are therefore taken from Alpaca split/dividend-adju
 closes; prior day's high/low rescaled into today's raw price units by (today's first 1-minute open /
 today's adjusted daily open). The volume feature uses DOLLAR volume (price x shares), which splits do
 not change: last-30-minute dollar volume / mean of the same slot over the previous 20 sessions.
+### A2 (2026-10-30, after the feature dry run, before any model was trained)
+Half-day sessions (13:00 ET close) were padded to 16:00 with flat prices, which would create trades
+after the close. Fix: no decision at or after a session's last real bar; an exit that would fall after
+it uses that bar's close. Found via a sanity check of feature ranges (dollar-volume ratio = 0); no
+label, prediction or return had been examined.

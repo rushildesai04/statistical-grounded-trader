@@ -88,3 +88,16 @@ def test_portfolio_costs_and_averaging():
     a_day = (0.01 - 0.0004) + (-0.01 - 0.0004)
     b_day = 0.002 - 0.001
     assert p.iloc[0] == pytest.approx((a_day + b_day) / 2)
+
+
+def test_half_day_has_no_decisions_after_close():
+    b = bars(SESS)
+    day = SESS[-1]
+    et = b.ts.dt.tz_convert("America/New_York")
+    b = b[~((et.dt.date == day) & (et.dt.hour >= 13))]          # 13:00 ET early close
+    f = build(b, daily_for(b))
+    ks = sorted(f[f.session == day].k)
+    assert ks == [30, 60, 90, 120, 150, 180]                      # 10:00 .. 12:30
+    g = b[b.ts.dt.tz_convert("America/New_York").dt.date == day].reset_index(drop=True)
+    r = f[(f.session == day) & (f.k == 180)].iloc[0]
+    assert r["label"] == pytest.approx(g.close.iloc[-1] / g.open[180] - 1)   # 12:30 -> 12:59 close
