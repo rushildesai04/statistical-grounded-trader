@@ -1,0 +1,19 @@
+# SGT cloud runner. Deploy from the repo root: fly deploy -c deploy/fly/fly.toml
+app = "sgt-runner"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SGT_MAX_ORDER_NOTIONAL = "75000"
+
+[[mounts]]
+  source = "sgt_data"
+  destination = "/data"
+  initial_size = "5gb"
+  snapshot_retention = 14
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"

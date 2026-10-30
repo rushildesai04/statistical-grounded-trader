@@ -118,11 +118,14 @@ def evaluate() -> int:
 
 
 def last_complete_session(now: datetime) -> date:
-    """Latest session whose 15:49 bars and official open are fetchable (SIP is >15 min old)."""
+    """Latest session the 1-minute store will accept: backfill writes a session only after its
+    extended-hours close (post_close, 20:00 ET; 17:00 on early closes) and SIP must be >15 min old.
+    (2026-10-30: was 16:10 ET, so evening runs found no bars for today and failed closed.)"""
     cal = default_calendar()
-    if cal.is_session(now.date()) and (now.hour, now.minute) >= (16, 10):
-        return now.date()
-    return last_session_before(now.date())
+    today = now.date()
+    if cal.is_session(today) and now >= cal.bounds(today).post_close + timedelta(minutes=16):
+        return today
+    return last_session_before(today)
 
 
 def catchup() -> int:

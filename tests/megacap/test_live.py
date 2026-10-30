@@ -79,3 +79,16 @@ def test_batch_mode_not_voided_and_hash_checked(root, monkeypatch):
     (root / "models" / "2026-03" / "AAPL.txt").write_text("tampered")
     with pytest.raises(live.LiveError, match="hash"):
         live.load_models("2026-03")
+
+
+def test_last_complete_session_waits_for_store_completeness():
+    # Regression 2026-10-30: at 17:30 ET the backfill still treats today as trading (post_close 20:00),
+    # so catch-up must not try to decide today until post_close + 16 min.
+    from megacap_forward import last_complete_session
+
+    assert last_complete_session(datetime(2026, 10, 30, 17, 30, tzinfo=ET)) == date(2026, 10, 29)
+    assert last_complete_session(datetime(2026, 10, 30, 20, 15, tzinfo=ET)) == date(2026, 10, 29)
+    assert last_complete_session(datetime(2026, 10, 30, 20, 16, tzinfo=ET)) == date(2026, 10, 30)
+    # Early close (day after Thanksgiving): post_close 17:00 ET.
+    assert last_complete_session(datetime(2026, 11, 27, 17, 16, tzinfo=ET)) == date(2026, 11, 27)
+    assert last_complete_session(datetime(2026, 11, 28, 9, 0, tzinfo=ET)) == date(2026, 11, 27)
