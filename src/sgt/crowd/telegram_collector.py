@@ -14,9 +14,11 @@ which made a capped backfill keep only the newest messages and never fill older 
 """
 from __future__ import annotations
 
+import fcntl
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncIterator, Protocol
+from typing import AsyncIterator, Iterator, Protocol
 
 from sqlalchemy import func, select
 
@@ -59,6 +61,23 @@ class MessageSource(Protocol):
         ...
 
 
+@contextmanager
+def telegram_session_lock(session_path: str) -> Iterator[None]:
+    """Exclusive, non-blocking lock on the user session (2026-10-29). Two processes using
+    one Telegram auth key at once can get the session revoked (AUTH_KEY_DUPLICATED)."""
+    fh = open(f"{session_path}.lock", "w")
+    try:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError(
+                "Telegram session is in use by another process (e.g. scripts/signals_live.py); stop it first"
+            ) from None
+        yield
+    finally:
+        fh.close()
+
+
 class TelethonMessageSource:
     """Real adapter wrapping ``telethon.TelegramClient`` (read-only, lazy import)."""
 
@@ -88,16 +107,17 @@ class TelethonMessageSource:
         # Private channels have no username; a numeric id ("-100...") must reach
         # Telethon as an int or it is looked up as a username.
         entity = int(channel) if channel.lstrip("-").isdigit() else channel
-        async with client:  # connects; uses the existing user session file
-            async for msg in client.iter_messages(entity, **kwargs):
-                if msg is None:
-                    continue
-                yield SourceMessage(
-                    id=int(msg.id),
-                    date=to_utc(msg.date),
-                    text=msg.message or "",
-                    edited_at=to_utc(msg.edit_date) if msg.edit_date else None,
-                )
+        with telegram_session_lock(self._session_path):
+            async with client:  # connects; uses the existing user session file
+                async for msg in client.iter_messages(entity, **kwargs):
+                    if msg is None:
+                        continue
+                    yield SourceMessage(
+                        id=int(msg.id),
+                        date=to_utc(msg.date),
+                        text=msg.message or "",
+                        edited_at=to_utc(msg.edit_date) if msg.edit_date else None,
+                    )
 
 
 class TelegramCollector:
@@ -182,6 +202,11 @@ class TelegramCollector:
                     self._store(session, channel, msg, posted_at)
                     stored += 1
         return stored
+
+    def store(self, channel: str, msg: SourceMessage) -> None:
+        """Store + parse one live message (idempotent upsert)."""
+        with get_session() as session:
+            self._store(session, channel, msg, to_utc(msg.date))
 
     def _store(self, session, channel: str, msg: SourceMessage, posted_at: datetime) -> None:
         text = (msg.text or "")[:MAX_TEXT_LEN]
