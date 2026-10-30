@@ -69,3 +69,12 @@ def fixed(weights: dict[str, float]) -> Strategy:
     def f(prices: pd.DataFrame, cash: str, t: pd.Timestamp) -> pd.Series:
         return pd.Series({c: float(weights.get(c, 0.0)) for c in prices.columns if c != cash})
     return f
+
+
+def sixty_forty_trend(prices: pd.DataFrame, cash: str, t: pd.Timestamp) -> pd.Series:
+    """F2 (forward prereg 2026-10-29): 60% SPY iff SPY's 12-month return beats cash, 40% IEF
+    iff IEF's does; a failing leg's weight goes to cash."""
+    ret = _total_return(_hist(prices, t), LOOKBACK)
+    legs = {"SPY": 0.6, "IEF": 0.4}
+    return pd.Series({c: (legs.get(c, 0.0) if c in legs and ret[c] > ret[cash] else 0.0)
+                      for c in prices.columns if c != cash})
