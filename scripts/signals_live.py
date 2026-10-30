@@ -54,7 +54,7 @@ async def main_async(args) -> int:
     limits = Limits(per_trade_usd=args.per_trade, max_open=args.max_open, daily_loss_stop_usd=args.daily_loss)
     runner = Runner(client, broker, notify, sms, nvb=NVB, ideas=IDEAS, limits=limits,
                     collector=TelegramCollector([str(NVB), str(IDEAS)], s.telegram_session_path),
-                    trade_alerts=args.trade_alerts)
+                    trade_alerts=args.trade_alerts, trade_ideas=args.trade_ideas)
 
     @client.on(events.NewMessage(chats=[NVB, IDEAS]))
     async def _signal(ev):  # noqa: ANN001
@@ -68,7 +68,8 @@ async def main_async(args) -> int:
     await runner.reconcile()
     mode = "OBSERVE (no orders)" if args.observe else "PAPER TRADING"
     alerts = "traded" if args.trade_alerts else "watch-only"
-    await runner.tell(f"signals bot started: {mode}; news/volume alerts {alerts}. ${args.per_trade:,.0f}/trade, max {args.max_open} open, "
+    ideas = "traded" if args.trade_ideas else "watch-only"
+    await runner.tell(f"signals bot started: {mode}; stock calls {ideas}, news/volume alerts {alerts}. ${args.per_trade:,.0f}/trade, max {args.max_open} open, "
                       f"daily stop -${args.daily_loss:,.0f}. Commands: status | pause | resume | kill")
     try:
         await runner.run_loops()
@@ -84,6 +85,8 @@ def main() -> int:
     ap.add_argument("--per-trade", type=float, default=2_000.0)
     ap.add_argument("--max-open", type=int, default=5)
     ap.add_argument("--daily-loss", type=float, default=1_000.0)
+    ap.add_argument("--trade-ideas", action="store_true",
+                    help="paper-trade stock calls (failed the 2026-10-29 test; off by default)")
     ap.add_argument("--trade-alerts", action="store_true",
                     help="also trade NEWS/VOLUME/BREAKOUTS alerts (failed the 2026-10-29 test; off by default)")
     args = ap.parse_args()

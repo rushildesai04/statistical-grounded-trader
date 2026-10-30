@@ -74,7 +74,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(rmod, "_now", clock)
     monkeypatch.setattr(rmod, "JOURNAL", tmp_path)
     b, n = FakeBroker(), FakeNotify()
-    return Runner(None, b, n, nvb=NVB, ideas=IDEAS, trade_alerts=True), b, n, clock
+    return Runner(None, b, n, nvb=NVB, ideas=IDEAS, trade_alerts=True, trade_ideas=True), b, n, clock
 
 
 async def test_alert_lifecycle(env):
@@ -186,3 +186,13 @@ async def test_alerts_watch_only_by_default(tmp_path, monkeypatch):
     await r.on_message(NVB, 7, T0, "ABCD  volume spike  4.00", False)
     assert r.trades == [] and not r.state.open_symbols and b.orders == {}
     assert any("watch ABCD" in m and not imp for m, imp in n.msgs)
+
+
+async def test_ideas_watch_only_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(rmod, "_now", Clock(T0))
+    monkeypatch.setattr(rmod, "JOURNAL", tmp_path)
+    b, n = FakeBroker(price=8.30), FakeNotify()
+    r = Runner(None, b, n, nvb=NVB, ideas=IDEAS)
+    await r.on_message(IDEAS, 11, T0, "$PCLA\nIdeal Entry: 8.36\nPT: 5%\nSL: 7.02", False)
+    assert b.orders == {} and r.trades == []
+    assert any("watch idea PCLA" in m for m, _ in n.msgs)
