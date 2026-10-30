@@ -26,7 +26,7 @@ PARAMS = dict(n_estimators=300, learning_rate=0.03, num_leaves=7, min_child_samp
               colsample_bytree=0.8, subsample=0.8, subsample_freq=1, random_state=0, verbose=-1)
 WF_START = "2018-01"
 SEED = 20261030
-OUT = Path("reports/megacap_daily")
+OUT = Path("reports/megacap_daily_v2")   # v2: 1-session label embargo (first run leaked 1 row/month)
 
 
 def main() -> int:
@@ -50,7 +50,7 @@ def main() -> int:
         return 0
 
     feats = list(DAILY_FEATURES)
-    trades = {s: walk_forward(d, WF_START, features=feats, params=PARAMS) for s, d in data.items()}
+    trades = {s: walk_forward(d, WF_START, features=feats, params=PARAMS, embargo_sessions=1) for s, d in data.items()}
     for s, t in trades.items():
         t.to_parquet(OUT / f"oos_{s}.parquet")
     rng = np.random.default_rng(SEED)
@@ -84,7 +84,7 @@ def main() -> int:
     half = daily_portfolio(trades, COSTS, 0.5)
     lo = daily_portfolio({s: t.assign(position=t.position.clip(lower=0)) for s, t in trades.items()}, COSTS, 1.0)
     pooled_in = pd.concat([d.assign(tid=i) for i, d in enumerate(data.values())], ignore_index=True)
-    pooled = walk_forward(pooled_in, WF_START, features=feats + ["tid"], params=PARAMS)
+    pooled = walk_forward(pooled_in, WF_START, features=feats + ["tid"], params=PARAMS, embargo_sessions=1)
     pp = daily_portfolio({s: pooled[pooled.tid == i] for i, s in enumerate(data)}, COSTS, 1.0)
     print(f"\nSECONDARY: 0.5x costs Sharpe {sharpe(half):.2f} | long-only Sharpe {sharpe(lo):.2f} "
           f"(mean {lo.mean():.4%}) | pooled Sharpe {sharpe(pp):.2f}")
@@ -95,7 +95,7 @@ def main() -> int:
     (OUT / "result.json").write_text(json.dumps(summary, indent=2, default=str))
     init_db()
     with get_session() as s:
-        trial_ledger.record_trial(s, run_id="megacap-daily-2026-10-30", kind="megacap-daily",
+        trial_ledger.record_trial(s, run_id="megacap-daily-2026-10-30-v2", kind="megacap-daily",
                                   params={"prereg": "docs/findings/prereg_megacap_daily_2026-10-30.md"},
                                   metrics=json.loads(json.dumps(summary, default=str)))
     return 0

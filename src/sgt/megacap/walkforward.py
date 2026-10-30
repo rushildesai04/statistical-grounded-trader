@@ -30,7 +30,7 @@ def fit_predict(train: pd.DataFrame, test: pd.DataFrame, features: list[str],
 
 
 def walk_forward(df: pd.DataFrame, start: str, *, features: list[str] | None = None,
-                 params: dict | None = None) -> pd.DataFrame:
+                 params: dict | None = None, embargo_sessions: int = 0) -> pd.DataFrame:
     """``df``: rows with ``session`` (date), FEATURES, ``label``. Returns test rows with
     ``pred`` and ``position`` (+1 / -1 / 0) for every month from ``start``."""
     feats = list(features or FEATURES)
@@ -41,6 +41,11 @@ def walk_forward(df: pd.DataFrame, start: str, *, features: list[str] | None = N
         if m < pd.Period(start, "M"):
             continue
         train, test = d[d._wf_month < m], d[d._wf_month == m]
+        if embargo_sessions:
+            # Labels that end inside the test month are not known at its first decision
+            # (2026-10-30: the daily label of the last session before M is the return INTO M).
+            keep = sorted(train.session.unique())[:-embargo_sessions]
+            train = train[train.session.isin(keep)]
         if train.session.nunique() < MIN_TRAIN_SESSIONS or test.empty:
             continue
         pred, q_lo, q_hi = fit_predict(train, test, feats, params) if params else fit_predict(train, test, feats)

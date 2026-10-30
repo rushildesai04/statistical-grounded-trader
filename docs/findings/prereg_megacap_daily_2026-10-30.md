@@ -85,3 +85,11 @@ Reading: unlike every earlier test, this is a real, cost-surviving signal, but n
 enough to clear the bar set in advance. Next honest step: a forward paper test of this exact frozen
 system on new data (separate pre-registration), not further cuts of this history.
 Trial ledger: megacap-daily-2026-10-30. OOS predictions: reports/megacap_daily/oos_*.parquet.
+
+## Correction (2026-10-30, written BEFORE the corrected rerun)
+A train/serve parity check of the forward-test code found a one-row look-ahead in the walk-forward:
+each month's model trained on the last session of the previous month, whose label is the return INTO
+the first session of the test month (unknowable at that session's 15:50 decision). Live training
+correctly cannot use that row. Fix: a 1-session label embargo before each test month
+(`walk_forward(..., embargo_sessions=1)`). Everything else unchanged. The corrected run is scored once
+to `reports/megacap_daily_v2/` (ledger run id `megacap-daily-2026-10-30-v2`); both results are kept here.

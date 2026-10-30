@@ -6,7 +6,8 @@ Usage:
     python scripts/megacap_forward.py retrain [--month 2026-11]   # refresh data, fit month models
     python scripts/megacap_forward.py decide                      # 15:50 ET: write today's positions
     python scripts/megacap_forward.py evaluate                    # fill at closes, print results
-    python scripts/megacap_forward.py auto                        # scheduler: retrain-if-needed / decide
+    python scripts/megacap_forward.py catchup                     # decide every missed day (batch), then evaluate
+    python scripts/megacap_forward.py auto                        # scheduler entry point (= catchup)
 """
 from __future__ import annotations
 
@@ -116,25 +117,58 @@ def evaluate() -> int:
     return 0
 
 
+def last_complete_session(now: datetime) -> date:
+    """Latest session whose 15:49 bars and official open are fetchable (SIP is >15 min old)."""
+    cal = default_calendar()
+    if cal.is_session(now.date()) and (now.hour, now.minute) >= (16, 10):
+        return now.date()
+    return last_session_before(now.date())
+
+
+def catchup() -> int:
+    """Batch-decide every session from FIRST_DECISION through the last complete one that has no
+    decision yet (amendment A1): laptop-friendly, identical to a 15:50 decision by construction."""
+    now = datetime.now(ET)
+    end = last_complete_session(now)
+    cal = default_calendar()
+    days, d = [], FIRST_DECISION
+    while d <= end:
+        if cal.is_session(d) and not (ROOT / "decisions" / f"{d}.json").exists():
+            days.append(d)
+        d += timedelta(days=1)
+    if not days:
+        print(f"up to date through {end}")
+        return evaluate()
+    for month in sorted({f"{x:%Y-%m}" for x in days}):
+        retrain(month)
+    store = ParquetBarStore("data/alpaca")
+    stats = backfill(ALL, days[0], days[-1], store=store, fetch=AlpacaHistoricalBars(feed="sip").fetch)
+    print("1-minute refresh:", dict(stats))
+    daily = adjusted_daily(end)
+    for x in days:
+        intr = {}
+        for s in ALL:
+            f = store.read_frame(s, x, x)
+            f["ts"] = pd.to_datetime(f.ts, utc=True)
+            cut = pd.Timestamp(datetime.combine(x, datetime.min.time(), ET).replace(hour=15, minute=50))
+            intr[s] = f[f.ts < cut.tz_convert("UTC")][["ts", "open", "high", "low", "close", "volume"]]
+        path = decide(x, now, intr, {s: v[v.index <= x] for s, v in daily.items()}, mode="batch")
+        pos = json.loads(path.read_text())["positions"]
+        print(f"{x} batch decisions: " + ", ".join(f"{s} {v['position']:+d}" for s, v in pos.items()))
+    return evaluate()
+
+
 def auto() -> int:
     now = datetime.now(ET)
     if now.date() < FIRST_DECISION:
         print(f"forward test starts {FIRST_DECISION}; nothing to do")
         return 0
-    month = f"{now:%Y-%m}"
-    if not (model_dir(month) / "meta.json").exists():
-        if now.hour >= 15:
-            raise LiveError(f"no models for {month} at {now:%H:%M}; decision skipped (fail closed)")
-        return retrain(month)
-    if (now.hour, now.minute) >= (15, 45):
-        return do_decide()
-    print(f"{now:%Y-%m-%d %H:%M} ET: models ready; nothing to do")
-    return 0
+    return catchup()
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["retrain", "decide", "evaluate", "auto"])
+    ap.add_argument("cmd", choices=["retrain", "decide", "evaluate", "catchup", "auto"])
     ap.add_argument("--month", default=None)
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -143,7 +177,7 @@ def main() -> int:
     print(f"--- {datetime.now(ET):%Y-%m-%d %H:%M:%S} ET {args.cmd}")
     if args.cmd == "retrain":
         return retrain(args.month or f"{datetime.now(ET):%Y-%m}")
-    return {"decide": do_decide, "evaluate": evaluate, "auto": auto}[args.cmd]()
+    return {"decide": do_decide, "evaluate": evaluate, "catchup": catchup, "auto": auto}[args.cmd]()
 
 
 if __name__ == "__main__":

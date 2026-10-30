@@ -144,3 +144,18 @@ def test_walk_forward_accepts_a_feature_named_month():
     out = wf.walk_forward(df, "2024-02", features=["month", "x"],
                           params=dict(n_estimators=5, num_leaves=3, min_child_samples=5, verbose=-1))
     assert len(out) and out.month.between(1, 12).all()
+
+
+def test_embargo_drops_last_session_before_test_month(monkeypatch):
+    seen = []
+
+    def fake(train, test, feats, params=None):
+        seen.append(train.session.max())
+        return np.zeros(len(test)), -1.0, 1.0
+
+    monkeypatch.setattr(wf, "fit_predict", fake)
+    monkeypatch.setattr(wf, "MIN_TRAIN_SESSIONS", 5)
+    sessions = [d.date() for d in pd.bdate_range("2024-01-02", "2024-03-29")]
+    df = pd.DataFrame({"session": sessions, "label": 0.0, **{f: 0.0 for f in FEATURES}})
+    wf.walk_forward(df, "2024-02", params={"x": 1}, embargo_sessions=1)
+    assert seen == [date(2024, 1, 30), date(2024, 2, 28)]   # Jan 31 and Feb 29 excluded

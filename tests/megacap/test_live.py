@@ -66,3 +66,16 @@ def test_mark_fills_at_closes_and_voids_late_files(root):
     assert m.loc[(date(2026, 3, 18), "MSFT"), "net"] == pytest.approx(-0.02 - 0.0004)
     assert m.loc[(date(2026, 3, 18), "GOOGL"), "net"] == 0
     assert m.loc[(date(2026, 3, 19), "AAPL"), "void"] and m.loc[(date(2026, 3, 19), "AAPL"), "net"] == 0
+
+
+def test_batch_mode_not_voided_and_hash_checked(root, monkeypatch):
+    live.train_month("2026-03", {s: _features() for s in live.TICKERS})
+    monkeypatch.setattr(live, "today_row", lambda *a, **k: _features(1).iloc[0])
+    p = live.decide(date(2026, 3, 18), datetime(2026, 4, 2, 21, 0, tzinfo=ET), {}, {}, mode="batch")
+    assert json.loads(p.read_text())["mode"] == "batch"
+    idx = [date(2026, 3, 18), date(2026, 3, 19)]
+    m = live.mark({s: pd.DataFrame({"close": [100.0, 101.0]}, index=idx) for s in live.TICKERS})
+    assert not m.void.any()
+    (root / "models" / "2026-03" / "AAPL.txt").write_text("tampered")
+    with pytest.raises(live.LiveError, match="hash"):
+        live.load_models("2026-03")

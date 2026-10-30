@@ -5,6 +5,7 @@ Virtual ledger only: no orders. ``train_month`` fits each ticker's model on all 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -97,7 +98,9 @@ def train_month(month: str, features_by_symbol: dict[str, pd.DataFrame]) -> dict
         ins = m.predict(tr[list(DAILY_FEATURES)])
         q_lo, q_hi = (float(x) for x in np.quantile(ins, [Q_LOW, Q_HIGH]))
         m.booster_.save_model(str(out_dir / f"{s}.txt"))
-        meta["tickers"][s] = {"rows": int(len(tr)), "last_session": str(tr.session.max()), "q_lo": q_lo, "q_hi": q_hi}
+        sha = hashlib.sha256((out_dir / f"{s}.txt").read_bytes()).hexdigest()
+        meta["tickers"][s] = {"rows": int(len(tr)), "last_session": str(tr.session.max()), "q_lo": q_lo, "q_hi": q_hi,
+                              "sha256": sha}
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     return meta
 
@@ -109,6 +112,9 @@ def load_models(month: str) -> tuple[dict, dict]:
     if not (d / "meta.json").exists():
         raise LiveError(f"no models for {month}; run retrain first")
     meta = json.loads((d / "meta.json").read_text())
+    for s, m in meta["tickers"].items():
+        if "sha256" in m and hashlib.sha256((d / f"{s}.txt").read_bytes()).hexdigest() != m["sha256"]:
+            raise LiveError(f"{month}/{s}: model file does not match its recorded hash")
     return {s: lgb.Booster(model_file=str(d / f"{s}.txt")) for s in meta["tickers"]}, meta
 
 
@@ -136,14 +142,19 @@ def today_row(today: date, intraday: dict[str, pd.DataFrame], daily: dict[str, p
     return r.iloc[0]
 
 
-def decide(today: date, now_et: datetime, intraday: dict, daily: dict) -> Path:
-    if (now_et.hour, now_et.minute) > VOID_AFTER:
+def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: str = "realtime") -> Path:
+    """``realtime``: written at 15:50 ET, void after 15:55. ``batch`` (2026-10-30, forward amendment A1):
+    computed later from the same point-in-time data (bars ending 15:49, frozen month model); proof comes
+    from the hashed models + tested point-in-time code, not the clock."""
+    if mode not in ("realtime", "batch"):
+        raise LiveError(f"unknown mode {mode}")
+    if mode == "realtime" and (now_et.hour, now_et.minute) > VOID_AFTER:
         raise LiveError(f"too late ({now_et:%H:%M} ET): decisions after 15:55 are void")
     path = ROOT / "decisions" / f"{today}.json"
     if path.exists():
         raise LiveError(f"{path} exists (append-only)")
     models, meta = load_models(f"{today:%Y-%m}")
-    out = {"date": str(today), "written_at": datetime.now(timezone.utc).isoformat(),
+    out = {"date": str(today), "written_at": datetime.now(timezone.utc).isoformat(), "mode": mode,
            "model_month": meta["month"], "positions": {}}
     for s in TICKERS:
         x = today_row(today, intraday, daily, s)
@@ -164,7 +175,8 @@ def mark(daily: dict[str, pd.DataFrame]) -> pd.DataFrame:
         dec = json.loads(p.read_text())
         t = date.fromisoformat(dec["date"])
         written = pd.Timestamp(dec["written_at"]).tz_convert(ET)
-        void = (written.date() != t) or ((written.hour, written.minute) > VOID_AFTER)
+        realtime = dec.get("mode", "realtime") == "realtime"
+        void = realtime and ((written.date() != t) or ((written.hour, written.minute) > VOID_AFTER))
         for s, v in dec["positions"].items():
             d = daily[s]
             if t not in d.index:
