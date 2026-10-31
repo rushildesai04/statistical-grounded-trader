@@ -37,3 +37,23 @@ below was ever computed in this repo.
 ## What happens next
 A PASS is not deployment. A passing rule gets its own forward paper test on Fly (pre-registered
 amendment), like the others. FAIL -> recorded and closed.
+
+## Result (2026-10-31, run once, commit 1c71327, trial ledger `anomalies-2026-10-31`)
+
+| Test | Mean net | Lower bound (1-sided 0.05/3) | 2x cost | Halves | Verdict |
+|---|---|---|---|---|---|
+| A1 intraday momentum SPY (2,056 days) | -0.021%/day (-5.4%/yr), hit 44% | -0.037% | -0.041% | -0.024% / -0.018% | **FAIL** |
+| A2 overnight SPY (2,720 nights) | +0.018%/night (+4.4%/yr; gross +9.5%) | -0.013% | -0.002% | +0.026% / +0.010% | **FAIL** |
+| A3 turn of month SPY (321 windows) | +0.258%/window (+3.1%/yr), hit 57% | +0.011% | n/a | +0.33% / +0.19% | **PASS** |
+
+A1: the published effect is gone after publication (gross ~0, QQQ also -0.022%/day). A2: overnight returns
+are real (gross +9.5%/yr) but 2 bp a night eats half; buy-and-hold SPY earned +15.5%/yr, Sharpe 0.89 vs
+0.39. A3: SPY's mean daily return inside the 4-day window is +0.071% vs +0.032% outside (2.2x); the lower
+bound clears zero narrowly. Caveat: this repo has run many trials overall; the family correction does not
+cover them all, so A3 is "probably real, small".
+
+## Amendment F1 (2026-10-31, after the result above, before any forward window)
+A3 is small on its own (+3.1%/yr, invested ~19% of days) and is not a reason to trade by itself. It gets
+a forward paper record in `scripts/forward_paper.py evaluate` (Fly, daily): every window whose entry close
+is on or after 2026-11-27 (first entry after this commit), same rule and cost. Decision after 24 windows
+(late 2028): KEEP as a timing overlay for new money / rebalances if the forward mean net > 0.
