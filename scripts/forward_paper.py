@@ -156,8 +156,26 @@ def sleeve_curves(px: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(curves)
 
 
+TOM_FIRST_ENTRY = pd.Timestamp("2026-11-27")   # prereg_anomalies_2026-10-31 amendment F1
+
+
+def tom_forward(px: pd.DataFrame) -> pd.DataFrame:
+    """Turn-of-month SPY windows (anomaly A3) whose entry close is on/after TOM_FIRST_ENTRY."""
+    from anomalies_study import turn_of_month
+
+    spy = px["SPY"].dropna()
+    tom, _ = turn_of_month(spy)
+    if tom.empty:
+        return tom
+    entries = [spy.index[spy.index.get_loc(x) - 4] for x in tom.index]   # 4 sessions held
+    return tom.assign(entry=entries).loc[lambda t: t.entry >= TOM_FIRST_ENTRY]
+
+
 def evaluate() -> int:
     px = load_prices()
+    tom = tom_forward(px)
+    print(f"turn-of-month forward (A3): {len(tom)} windows" +
+          (f", mean net {tom.net.mean():+.3%}, cumulative {float((1 + tom.net).prod() - 1):+.2%}" if len(tom) else ""))
     problems = _verify_snapshots(px)
     for p in problems:
         print("SNAPSHOT MISMATCH:", p)

@@ -58,3 +58,15 @@ def test_curves_start_at_first_execution():
     nav = fp.sleeve_curves(_prices())
     assert nav.index[0] == pd.Timestamp("2026-11-02")
     assert nav["B_6040"].iloc[0] == pytest.approx(fp.NAV0 * (1 - 2 * 1.0 * 5 / 1e4))
+
+
+def test_tom_forward_counts_only_windows_entered_after_start():
+    import forward_paper as fp
+
+    idx = pd.bdate_range("2026-11-02", "2027-01-08")
+    px = pd.DataFrame({"SPY": np.linspace(100, 110, len(idx))}, index=idx)
+    t = fp.tom_forward(px)
+    # Nov->Dec window enters 2026-11-27 (2nd-to-last bday of Nov) and exits 2026-12-03 (3rd of Dec);
+    # Oct->Nov window is not in the data, Dec->Jan enters 2026-12-30.
+    assert list(t.entry) == [pd.Timestamp("2026-11-27"), pd.Timestamp("2026-12-30")]
+    assert list(t.index) == [pd.Timestamp("2026-12-03"), pd.Timestamp("2027-01-05")]

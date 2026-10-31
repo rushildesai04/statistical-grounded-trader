@@ -26,7 +26,8 @@ if [ "${1:-}" = "job" ]; then
   case "${2:-}" in
     megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto ;;
     etf)       run reports/forward/run.log python /app/scripts/forward_paper.py refresh || true
-               run reports/forward/run.log python /app/scripts/forward_paper.py snapshot ;;
+               run reports/forward/run.log python /app/scripts/forward_paper.py snapshot
+               run reports/forward/run.log python /app/scripts/forward_paper.py evaluate ;;
     rebalance) run reports/rebalance/run.log python /app/scripts/rebalance_passive.py --execute \
                  --max-order-notional "${SGT_MAX_ORDER_NOTIONAL:-75000}" ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
