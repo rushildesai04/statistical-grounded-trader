@@ -39,3 +39,19 @@ premium (what the channel advertises vs what is achievable); win rate; median; P
 ## What happens next
 PASS -> the live bot may paper-trade these calls (options paper on Alpaca) as a pre-registered forward
 test. FAIL -> option calls stay watch-only, like the stock calls (prereg_trade_ideas_2026-10-29: FAIL).
+
+## Result (2026-10-30, run once, commit f9711ec, trial ledger `options-ideas-2026-10-30`)
+439 eligible calls, all with option bars; 426 filled, 13 no fill (price never back within +5% of the post).
+
+| Rule | Mean net per call |
+|---|---|
+| R1 posted plan (primary) | **-5.10%** (median -17.15%, win 32%, lower95 -8.61%) |
+| R1, costs doubled | -7.35% |
+| R1 first half / second half | -2.69% / -7.51% |
+| R2 all out at +20% | -4.10% |
+| R3 hold with -50% stop | -4.07% |
+| R4 filled at the posted premium | -4.85% |
+| calls / puts | -5.7% (166) / -4.7% (260) |
+
+Fills averaged +0.2% vs the posted premium, so the loss is not slippage. **VERDICT: FAIL** on all three
+checks. Losing before costs too (costs ~2% of premium). Option calls stay watch-only.
