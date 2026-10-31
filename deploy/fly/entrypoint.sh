@@ -14,7 +14,11 @@ run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
   echo "=== $(date '+%F %T %Z') $*" >> "$log"
   if "$@" >> "$log" 2>&1; then rc=0; else rc=$?; fi
-  [ "$rc" -eq 0 ] || echo "!!! exit $rc" >> "$log"
+  if [ "$rc" -ne 0 ]; then
+    echo "!!! exit $rc" >> "$log"
+    python /app/scripts/ops_notify.py "$(basename "$(dirname "$log")") job failed (exit $rc)" --log "$log" \
+      >> "$log" 2>&1 || echo "!!! alert failed" >> "$log"
+  fi
   return "$rc"
 }
 

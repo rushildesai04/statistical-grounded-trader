@@ -92,3 +92,16 @@ def test_last_complete_session_waits_for_store_completeness():
     # Early close (day after Thanksgiving): post_close 17:00 ET.
     assert last_complete_session(datetime(2026, 11, 27, 17, 16, tzinfo=ET)) == date(2026, 11, 27)
     assert last_complete_session(datetime(2026, 11, 28, 9, 0, tzinfo=ET)) == date(2026, 11, 27)
+
+
+def test_month_summaries_only_completed_months_cumulative():
+    from megacap_forward import month_summaries
+
+    port = pd.Series([0.01, -0.005, 0.002, 0.003],
+                     index=[date(2026, 10, 30), date(2026, 11, 2), date(2026, 11, 30), date(2026, 12, 1)])
+    out = month_summaries(port, date(2026, 12, 5))
+    assert list(out) == ["2026-10", "2026-11"]                     # December still running
+    assert out["2026-10"]["days"] == 1 and out["2026-10"]["cum_net"] == pytest.approx(0.01)
+    assert out["2026-11"]["days"] == 3                               # cumulative since the start
+    assert out["2026-11"]["cum_net"] == pytest.approx(1.01 * 0.995 * 1.002 - 1)
+    assert month_summaries(port, date(2026, 10, 31)) == {}           # month end day itself: not over yet

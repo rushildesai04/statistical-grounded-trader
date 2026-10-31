@@ -114,7 +114,40 @@ def evaluate() -> int:
     if cum < -0.05:
         print("STOP RULE HIT: cumulative net below -5%")
     m.to_csv(ROOT / "marks.csv", index=False)
+    record_months(port, datetime.now(ET).date())
     return 0
+
+
+def month_summaries(port: pd.Series, today: date) -> dict[str, dict]:
+    """Cumulative forward metrics at the end of every calendar month that is over (prereg: each
+    monthly evaluation goes to the trial ledger)."""
+    out = {}
+    idx = pd.to_datetime(pd.Series(port.index))
+    for month in sorted({f"{d:%Y-%m}" for d in idx}):
+        if pd.Period(month, "M").end_time.date() >= today:
+            continue
+        p = port[(idx <= pd.Period(month, "M").end_time).to_numpy()]
+        sd = p.std(ddof=1) if len(p) > 2 else float("nan")
+        out[month] = {"through": str(max(p.index)), "days": int(len(p)), "cum_net": float((1 + p).prod() - 1),
+                      "mean_daily": float(p.mean()),
+                      "sharpe": float(p.mean() / sd * np.sqrt(252)) if sd and sd > 0 else None}
+    return out
+
+
+def record_months(port: pd.Series, today: date) -> None:
+    from sgt.db.session import get_session, init_db
+    from sgt.decision import trial_ledger
+
+    months = month_summaries(port, today)
+    if not months:
+        return
+    init_db()
+    with get_session() as s:
+        for month, metrics in months.items():   # idempotent on (run_id, params)
+            trial_ledger.record_trial(s, run_id="megacap-forward-2026-10-30", kind="megacap-forward",
+                                      params={"prereg": "docs/findings/prereg_megacap_forward_2026-10-30.md",
+                                              "month": month}, metrics=metrics)
+    print("trial ledger: recorded months", ", ".join(months))
 
 
 def last_complete_session(now: datetime) -> date:
