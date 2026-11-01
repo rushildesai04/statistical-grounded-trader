@@ -1,0 +1,5 @@
+*
+!src
+!scripts
+!deploy/fly
+**/__pycache__

@@ -43,46 +43,61 @@ NEWS_HEADLINE_MAX = 500     # bound stored headline text.
 
 # 1-5 uppercase letters with an optional .A/.B share-class suffix.
 _TICKER = r"[A-Z]{1,5}(?:\.[A-Z])?"
-# Positive price, optionally with up to many decimals (channel uses up to 4).
-_PRICE = r"\d+(?:\.\d+)?"
+# Positive price, optionally with up to many decimals (channel uses up to 4); the
+# channel also writes "$2.50" and ".9549" (2026-10-29, from 2024-26 history).
+_PRICE = r"\$?(?:\d+(?:\.\d+)?|\.\d+)"
 # Trailing junk: whitespace and emojis/symbols only (never word characters).
 _TRAILER = r"\W*"
 
 ALERT_TYPES: tuple[str, ...] = (
     "volume_increasing",
+    "volume_spike",
     "gaining_volume",
     "gaining_momentum",
     "new_high",
     "intraday_high",
     "after_hours_high",
+    "premarket_high",
+    "testing_high",
+    "price_level",
     "halted",
     "resumed",
     "news",
 )
 
 # (phrase-regex, alert_type). Order is irrelevant: phrases are mutually exclusive.
+# 2026-10-29: synonyms added from the channel's 2024-26 wording (text only, before any
+# price was joined; docs/findings/prereg_telegram_alerts_2026-10-29.md amendment A1).
 _ALERT_PHRASES: tuple[tuple[str, str], ...] = (
-    (r"volume\s+increasing", "volume_increasing"),
-    (r"gaining\s+volume", "gaining_volume"),
+    (r"volume\s+(?:increasing|increase)", "volume_increasing"),
+    (r"volume\s+spike", "volume_spike"),
+    (r"gaining\s+volumed?", "gaining_volume"),
     (r"gaining\s+momentum", "gaining_momentum"),
-    (r"new\s+high", "new_high"),
-    (r"intraday\s+high", "intraday_high"),
+    (r"new\s+(?:day\s+)?high(?:\s+of\s+(?:the\s+)?day)?", "new_high"),
+    (r"(?:intraday|day)\s+high", "intraday_high"),
+    (r"testing\s+high\s+of\s+(?:the\s+)?day", "testing_high"),
+    (r"(?:new\s+)?pre-?market\s+high", "premarket_high"),
     (r"after\s+hours\s+high", "after_hours_high"),
+    (r"(?:over|at)", "price_level"),
     (r"halted", "halted"),
-    (r"open!", "resumed"),
+    (r"open!?", "resumed"),
     (r"resumed", "resumed"),
 )
+# "<phrase>, halted <price>" means the name is already halted: not enterable.
+_HALTED_SUFFIX = r"(?:\s*,\s*halted)?"
 
 # Each alert line: TICKER <phrase> [price] <trailing emoji>. fullmatch only.
 _ALERT_RES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (
-        re.compile(rf"({_TICKER})\s+{phrase}(?:\s+({_PRICE}))?\s*{_TRAILER}"),
+        re.compile(rf"({_TICKER})\s+{phrase}({_HALTED_SUFFIX})\s*,?(?:\s+({_PRICE}))?\s*{_TRAILER}"),
         atype,
     )
     for phrase, atype in _ALERT_PHRASES
 )
 
 _BARE_TICKER_RE = re.compile(rf"({_TICKER})\s*{_TRAILER}")
+# One-line news (2026-10-29, amendment A1): "TKR - <headline of 3+ words>".
+_INLINE_NEWS_RE = re.compile(rf"({_TICKER})\s+-\s+(\S+(?:\s+\S+){{2,}})")
 
 Validator = Callable[[str], bool]
 
@@ -154,10 +169,12 @@ def _match_alert(line: str, validator: Validator) -> tuple[str, str, float | Non
         symbol = m.group(1)
         if not validator(symbol):
             return None
-        raw_price = m.group(2)
+        if m.group(2):
+            atype = "halted"
+        raw_price = m.group(3)
         price: float | None = None
         if raw_price is not None:
-            price = float(raw_price)
+            price = float(raw_price.lstrip("$"))
             if price <= 0:
                 return None
         return symbol, atype, price
@@ -222,9 +239,13 @@ def parse_message(
     while i < n:
         line = lines[i]
 
-        # News block: a bare ticker line immediately followed by a "-" line.
+        # News block: a bare ticker line followed by a "-" line or (2026-10-29, amendment
+        # A1) directly by headline text that is neither an alert nor another ticker.
         sym = _bare_ticker(line, check)
-        if sym is not None and i + 1 < n and lines[i + 1].startswith("-"):
+        if sym is not None and i + 1 < n and (
+            lines[i + 1].startswith("-")
+            or (_match_alert(lines[i + 1], check) is None and _bare_ticker(lines[i + 1], check) is None)
+        ):
             body: list[str] = []
             j = i + 1
             while j < n:
@@ -245,6 +266,14 @@ def parse_message(
             )
             idx += 1
             i = j
+            continue
+
+        m_news = _INLINE_NEWS_RE.fullmatch(line)
+        if m_news is not None and check(m_news.group(1)) and re.search(r"[a-z]", m_news.group(2)):
+            items.append(ParsedNews(channel, message_id, idx, m_news.group(1), True,
+                                    m_news.group(2)[:NEWS_HEADLINE_MAX], posted_at))
+            idx += 1
+            i += 1
             continue
 
         alert = _match_alert(line, check)

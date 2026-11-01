@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Passive 60/40 rebalance (PAPER). Rendered by scripts/install_schedule.sh; do not copy by hand.
+     Runs weekdays hourly 10:05-15:05 ET (local times rendered by the installer) and at login; missed
+     runs fire at wake. The script trades once per month, in the first 5 sessions, 09:45-15:55 ET. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.sgt.rebalance-passive</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string><string>-lc</string>
+    <string>cd "__REPO__" &amp;&amp; PYTHONPATH=src .venv/bin/python scripts/rebalance_passive.py --execute --max-order-notional __CAP__ &gt;&gt; reports/rebalance/run.log 2&gt;&amp;1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+__INTERVALS__
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>

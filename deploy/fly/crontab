@@ -1,0 +1,11 @@
+# America/New_York (TZ set in the image). Every job is idempotent: catch-up decides only missing
+# sessions, rebalance trades once per month (broker-side client_order_id check), snapshot is append-only.
+# Daily-model forward test: catch-up once the 1-minute store accepts today (post_close 20:00 + 16 min),
+# a retry, and a morning pass that also covers early-close days and outages.
+30 20 * * 1-5  /app/deploy/entrypoint.sh job megacap
+30 22 * * 1-5  /app/deploy/entrypoint.sh job megacap
+0 8 * * *      /app/deploy/entrypoint.sh job megacap
+# ETF forward test (F1/F2 vs 60/40): prices + month-end snapshot.
+45 17 * * 1-5  /app/deploy/entrypoint.sh job etf
+# 60/40 paper rebalance: hourly during the first 5 sessions of the month (script gates the window).
+5 10-15 * * 1-5 /app/deploy/entrypoint.sh job rebalance

@@ -74,6 +74,10 @@ def rows_for_sessions(df: pd.DataFrame, sessions: Sequence, col: str = "session_
 
 def cluster_ids(df: pd.DataFrame, symbol_col: str = "symbol",
                 session_col: str = "session_date") -> np.ndarray:
+    # A dataset may declare its own dependence unit (swing: the DATE -- the whole market
+    # moves together overnight, so same-day trades across symbols are not independent).
+    if "cluster_key" in df.columns:
+        return df["cluster_key"].astype(str).to_numpy()
     return (df[symbol_col].astype(str) + "|" + df[session_col].astype(str)).to_numpy()
 
 
@@ -93,6 +97,10 @@ def _apply_sizing(preds: dict, params: PolicyParams, rt_cost: np.ndarray) -> tup
         bb = np.maximum(b, 1e-6)
         f_star = p_low - (1.0 - p_low) / bb
         size = np.clip(params.kelly_fraction * f_star, 0.0, params.f_max)
+    # F-3 (2026-10-18): live EnsembleModelPolicy.decide declines a size-0 decision ("size
+    # collapsed to 0"); validation must too, or zero-size rows count as trades, dilute the
+    # expectancy toward 0 and satisfy min-trade gates with trades that never happen.
+    mask = mask & (size > 0.0)
     return mask, size
 
 

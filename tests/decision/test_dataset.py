@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
+import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
@@ -161,3 +163,84 @@ def _track(symbol: str, *, first_seen: str) -> None:
             symbol=symbol, first_seen_session=first_seen, last_seen_session=first_seen,
             sources=["test"], active_until_session="2099-01-01",
             created_at=datetime.now(timezone.utc)))
+
+
+def test_cost_rt_label_is_the_cost_the_labels_netted(tmp_path):
+    """F-1 (2026-10-18): a non-measured cost source left cost_rt_measured NaN and the
+    trainer fell back to the OLD default cost model for its hurdle. The dataset must carry
+    the round trip the labels actually used, independent of the source tag."""
+    from sgt.brokers.costs import CostModel
+    from sgt.decision.features import CostModelAdapter
+
+    store = ParquetBarStore(tmp_path)
+    _write_session(store, date(2024, 3, 12))
+    cheap = CostModel(hs_under_1=0.001, hs_1_to_5=0.001, hs_5_to_20=0.0002, hs_over_20=0.0002)
+    summary = build_dataset(
+        store_root=tmp_path, out_dir=tmp_path / "out", dataset_id="t4",
+        symbols=["AAAA"], watchlist=["AAAA"], reference_fn=lambda s, d: None,
+        cost_source=CostModelAdapter(cheap, tag="calibrated"))
+    t = pq.read_table(summary.out_path).to_pandas()
+    assert not t.empty
+    assert t["cost_rt_measured"].isna().all()                     # not a measured source
+    assert np.allclose(t["cost_rt_label"], 0.0004)                # ~$20 stock: 2 x 0.0002
+    assert not np.allclose(t["cost_rt_model"], t["cost_rt_label"])  # default model differs
+    import json
+    from pathlib import Path
+    meta = json.loads((Path(summary.out_path).parent / "meta.json").read_text())
+    assert meta["cost_spec"]["kind"] == "bucket" and meta["cost_spec"]["tag"] == "calibrated"
+    assert meta["cost_spec"]["model"]["hs_over_20"] == 0.0002
+
+
+def test_active_days_admit_only_gap_session_from_the_open(tmp_path):
+    """H2: candidates only on in-play days and never pre-market (gap unknown before the
+    opening print); other sessions still feed indicator warm-up, not rows."""
+    store = ParquetBarStore(tmp_path)
+    for sd in [date(2024, 3, 11), date(2024, 3, 12)]:
+        _write_session(store, sd)
+    summary = build_dataset(
+        store_root=tmp_path, out_dir=tmp_path / "out", dataset_id="t5",
+        symbols=["AAAA"], reference_fn=lambda s, d: None,
+        active_days={"aaaa": frozenset({date(2024, 3, 12)})})
+    t = pq.read_table(summary.out_path).to_pandas()
+    assert set(t["session_date"]) == {"2024-03-12"}
+    import json
+    from pathlib import Path
+    meta = json.loads((Path(summary.out_path).parent / "meta.json").read_text())
+    assert meta["universe"] == "gap_days" and meta["promotion_eligible"] is True
+    assert "survivorship:active_assets" in meta["bias_flags"]
+
+
+def test_active_days_exclude_premarket_candidates():
+    from dataclasses import replace
+
+    from sgt.decision.dataset import stream_candidates
+    from sgt.decision.features import CostModelAdapter
+
+    sd = date(2024, 3, 12)
+    bars = [_bar(0, 20.0, 20.1, 19.9, 20.0, sd=sd)]
+    c = 20.0
+    for i in range(1, 25):
+        c += 0.1
+        bars.append(_bar(i, c - 0.1, c + 0.2, c - 0.2, c, sd=sd))
+    pre = [replace(b, segment=Segment.PRE) for b in bars]
+    common = dict(reference_fn=lambda s, d: None, cost_source=CostModelAdapter(), gate_session=None)
+    assert stream_candidates(bars, active_sessions=frozenset({sd}), **common)
+    assert stream_candidates(pre, active_sessions=frozenset({sd}), **common) == []
+    assert stream_candidates(bars, active_sessions=frozenset(), **common) == []
+
+
+def test_news_features_flow_into_dataset(tmp_path):
+    from sgt.decision.news_features import NEWS_FEATURES, NewsIndex
+
+    store = ParquetBarStore(tmp_path)
+    _write_session(store, date(2024, 3, 12))
+    news = NewsIndex.from_frame(pd.DataFrame(
+        [("2024-03-12T13:30:00Z", "AAAA", "AAAA Receives FDA Clearance")],
+        columns=["created_at", "symbols", "headline"]))
+    summary = build_dataset(store_root=tmp_path, out_dir=tmp_path / "out", dataset_id="t6",
+                            symbols=["AAAA"], watchlist=["AAAA"], reference_fn=lambda s, d: None,
+                            feature_sources=[news])
+    t = pq.read_table(summary.out_path).to_pandas()
+    assert set(NEWS_FEATURES) <= set(t.columns)
+    after = t[t["ts"] >= pd.Timestamp("2024-03-12T13:30:00Z")]
+    assert not after.empty and (after["f_news_last_fda"] == 1.0).all()

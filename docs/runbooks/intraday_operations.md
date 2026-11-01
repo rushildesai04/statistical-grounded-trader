@@ -134,3 +134,23 @@ Every process start is **disarmed**. A restart mid-session therefore always requ
 4. Re-arm only after the cause is understood. Promotion back up the ladder follows the normal gates.
 
 Research tool. Not investment advice.
+
+## Passive 60/40 rebalance (2026-10-29)
+
+The research concluded that no active strategy beat passive investing after costs
+(`docs/findings/prereg_*`). The system therefore runs a disciplined passive allocation:
+60% SPY / 40% IEF, rebalanced on the first trading day of each month at about 15:40 ET.
+
+- Dry run any time: `python scripts/rebalance_passive.py --force` (prints the plan, never trades).
+- Paper, on rebalance day: `python scripts/rebalance_passive.py --execute --max-order-notional 75000`.
+- Schedule: `scripts/install_schedule.sh` (from any directory). It writes
+  `~/Library/LaunchAgents/local.sgt.rebalance-passive.plist` with the repo's absolute path, converts
+  15:40 ET to this Mac's local time, and loads it with `launchctl bootstrap`. `--dry-run` prints the
+  plist; `--remove` uninstalls. It refuses to install while the repo is under ~/Downloads, ~/Desktop
+  or ~/Documents (macOS blocks background jobs from those folders). After moving the repo, re-point
+  the virtualenv: `uv pip install -e . --python .venv/bin/python`.
+- Safety: dry run unless `--execute`; paper unless `--live --confirm-live` (live also requires live
+  Alpaca keys in the keychain and shorting disabled); one rebalance per month (order ids
+  `rebal-YYYYMM-*`); sells before buys; limit orders 0.3% through the last trade; per-order cap;
+  only SPY/IEF are managed, other holdings are never touched. Each run writes
+  `reports/rebalance/YYYY-MM.json`.

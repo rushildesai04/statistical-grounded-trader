@@ -11,6 +11,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from datetime import date
 
 from sgt.catalysts.reference import ReferenceDataProvider
@@ -18,7 +19,8 @@ from sgt.db.session import init_db
 from sgt.engine.backtest import run_backtest
 from sgt.engine.report import render_report
 from sgt.intraday.store import ParquetBarStore
-from sgt.decision.policy import policy_from_config
+from sgt.decision.features import CostModelAdapter
+from sgt.decision.policy import cost_source_for, policy_from_config
 from sgt.strategy.loader import load_strategy
 from sgt.strategy.schema import ModelStrategyConfig
 
@@ -46,10 +48,20 @@ def main(argv: list[str] | None = None) -> None:
     start, end = date.fromisoformat(args.start), date.fromisoformat(args.end)
 
     config = load_strategy(args.strategy)
-    policy = None
+    policy = cost_source = None
+    sim_cost_model = None
     if isinstance(config, ModelStrategyConfig):
         policy = policy_from_config(config, live=False,
                                     allow_research_artifact=args.allow_research_artifact)
+        cost_source = cost_source_for(policy)   # F-2: same costs as training
+        if isinstance(cost_source, CostModelAdapter):
+            # Simulated fills pay the same spreads. SimBroker has no time-of-day term, so
+            # it charges the WORST multiplier all day (conservative, never flattering).
+            m = max(cost_source.open_hour_mult, cost_source.rest_mult, 1.0)
+            b = cost_source.model
+            sim_cost_model = dataclasses.replace(
+                b, hs_under_1=b.hs_under_1 * m, hs_1_to_5=b.hs_1_to_5 * m,
+                hs_5_to_20=b.hs_5_to_20 * m, hs_over_20=b.hs_over_20 * m)
     store = ParquetBarStore(args.data)
     bars_by_symbol = {}
     for sym in symbols:
@@ -61,8 +73,10 @@ def main(argv: list[str] | None = None) -> None:
 
     init_db()
     result = run_backtest(config, bars_by_symbol, starting_cash=args.cash,
+                          cost_model=sim_cost_model,
                           run_id=f"backtest:{config.id}", reference=ReferenceDataProvider(),
-                          allow_unknown_float=args.allow_unknown_float, policy=policy)
+                          allow_unknown_float=args.allow_unknown_float, policy=policy,
+                          cost_source=cost_source)
     if args.allow_unknown_float:
         print("NOTE: --allow-unknown-float: universe float cap NOT enforced for symbols without float data")
     report = render_report(result)

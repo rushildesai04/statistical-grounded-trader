@@ -17,7 +17,6 @@ import argparse
 import logging
 import sys
 
-from sgt.brokers.costs import CostModel
 from sgt.decision.dataset import build_dataset
 from sgt.decision.features import CostModelAdapter
 
@@ -28,10 +27,8 @@ def _symbols(arg: str | None) -> tuple[str, ...]:
     return tuple(s.strip().upper() for s in arg.split(",") if s.strip())
 
 
-# Median measured half-spreads by price bucket (Alpaca SIP NBBO, 40 symbols x 10
-# sessions, 2,579 windows, 2026-10-03..16; scripts/measure_spreads.py).
-CALIBRATED_COST_MODEL = CostModel(hs_under_1=0.00581, hs_1_to_5=0.00124,
-                                  hs_5_to_20=0.00064, hs_over_20=0.00085)
+# Moved to sgt.brokers.costs (2026-10-18) so the trainer can reference it; re-exported.
+from sgt.brokers.costs import CALIBRATED_COST_MODEL  # noqa: E402,F401
 
 
 def _cost_source(kind: str):
@@ -39,11 +36,46 @@ def _cost_source(kind: str):
         return None  # builder default: bucket CostModel
     if kind == "calibrated":
         return CostModelAdapter(CALIBRATED_COST_MODEL, tag="calibrated")
+    if kind == "gapper":
+        from sgt.brokers.costs import (GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT,
+                                       GAPPER_REST_MULT)
+        return CostModelAdapter(GAPPER_COST_MODEL, tag="gapper",
+                                open_hour_mult=GAPPER_OPEN_HOUR_MULT,
+                                rest_mult=GAPPER_REST_MULT)
     from sgt.brokers.measured_costs import MeasuredCostModel
     from sgt.db.session import get_session, init_db
 
     init_db()
     return MeasuredCostModel.from_db(get_session)
+
+
+def _grid(name: str):
+    from sgt.decision.labels import default_grid, gapper_grid
+    return gapper_grid() if name == "gapper" else default_grid()
+
+
+def _sources(args) -> list:
+    out = []
+    if args.news:
+        from sgt.decision.news_features import NewsIndex
+        out.append(NewsIndex.from_glob())
+    if args.market:
+        from sgt.decision.market_features import MarketIndex
+        out.append(MarketIndex.from_parquet(args.market))
+    return out
+
+
+def _gap_days(path: str, min_prev_volume: float) -> dict[str, frozenset]:
+    import csv
+    from collections import defaultdict
+    from datetime import date
+
+    out: dict[str, set] = defaultdict(set)
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            if float(row["prev_volume"]) >= min_prev_volume:
+                out[row["symbol"].upper()].add(date.fromisoformat(row["session"]))
+    return {k: frozenset(v) for k, v in out.items()}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,10 +88,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--research-ungated", action="store_true",
                         help="ignore discovery gating (momentum-biased; never promotion-eligible)")
-    parser.add_argument("--cost", choices=("model", "calibrated", "measured"), default="model",
+    parser.add_argument("--cost", choices=("model", "calibrated", "gapper", "measured"), default="model",
                         help="cost source: bucket model, bucket model calibrated to measured "
                              "spreads (aggregate, no look-ahead), or per-symbol point-in-time "
                              "measured spreads (falls back to the model when unsampled)")
+    parser.add_argument("--label-grid", choices=("default", "gapper"), default="default",
+                        help="label bracket grid (gapper: wider targets, 15-180 min holds)")
+    parser.add_argument("--news", action="store_true",
+                        help="add point-in-time news features from data/news (research only)")
+    parser.add_argument("--market", default=None,
+                        help="SPY 1-minute parquet for market-context features (research only)")
+    parser.add_argument("--gap-days", default=None,
+                        help="CSV from scripts/scan_gappers.py: admit candidates only on "
+                             "these in-play days, from the open (H2 universe)")
+    parser.add_argument("--min-prev-volume", type=float, default=50_000,
+                        help="with --gap-days: minimum previous-day volume (known pre-open)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO),
@@ -73,6 +116,9 @@ def main(argv: list[str] | None = None) -> int:
         symbols=list(_symbols(args.symbols)) or None,
         research_ungated=args.research_ungated,
         cost_source=_cost_source(args.cost),
+        active_days=(_gap_days(args.gap_days, args.min_prev_volume) if args.gap_days else None),
+        grid=_grid(args.label_grid),
+        feature_sources=_sources(args),
     )
     print(
         f"dataset_id={summary.dataset_id} rows={summary.rows} symbols={summary.symbols} "

@@ -91,6 +91,7 @@ class TrainConfig:
     run_id: str = "decision-run"
     seed: int = 0
     splits_override: tuple[tuple[tuple, tuple], ...] | None = None
+    n_jobs: int = 1   # worker processes for inner selection (1 = in-process, deterministic either way)
 
 
 @dataclass
@@ -150,6 +151,42 @@ def _config_dict(spec, z, h, p_min, tc) -> dict:
             "f_max": tc.f_max, "f_fixed": tc.f_fixed}
 
 
+def _spec_grid_returns(train_df, feature_cols, spec, splits, n_eff, tc, rt, seed):
+    """Inner-CPCV policy returns of ONE label config over the (z, h, p_min) grid.
+
+    Pure function of its inputs (fixed seeds) so it can run in a worker process; the
+    trial ledger and the selection stay in the parent (2026-10-18, iteration speed)."""
+    fold_models = []
+    for tr_s, te_s in splits:
+        tr = val.rows_for_sessions(train_df, tr_s, tc.session_col)
+        te = val.rows_for_sessions(train_df, te_s, tc.session_col)
+        if tr.empty or te.empty or _degenerate_labels(tr, spec.col):
+            continue
+        try:
+            m = _fit_model(tr, feature_cols, spec, n_eff, tc, "inner", seed)
+        except ValueError:
+            continue
+        fold_models.append((m, te))
+    out = []
+    for z in tc.z_grid:
+        for h in tc.h_grid:
+            for pm in tc.p_min_grid:
+                pp = _policy_params(spec, z, h, pm, n_eff, tc, rt)
+                rets = [val.policy_trade_returns(
+                            m, pp, te, label_col=spec.col, cost_col=tc.cost_col,
+                            model_cost_col=tc.model_cost_col)[0]
+                        for m, te in fold_models]
+                out.append((z, h, pm, np.concatenate(rets) if rets else np.array([])))
+    return out
+
+
+def _slim(train_df, spec, specs):
+    """Drop the OTHER label configs' columns before shipping a frame to a worker."""
+    other = {c for s in specs if s is not spec for c in (s.col, s.uniq_col) if c}
+    other -= {spec.col, spec.uniq_col}
+    return train_df.drop(columns=[c for c in other if c in train_df.columns])
+
+
 def _inner_select(train_df, feature_cols, specs, n_eff, tc, rt, session, seed):
     """Pick (label, z, h, p_min) by pooled inner-CPCV expectancy on training sessions only."""
     inner_sessions = sorted(train_df[tc.session_col].unique())
@@ -160,44 +197,36 @@ def _inner_select(train_df, feature_cols, specs, n_eff, tc, rt, session, seed):
         splits = val.session_cpcv(inner_sessions, groups, tc.inner_k, tc.embargo)
     except ValueError:
         splits = []
+    if tc.n_jobs > 1 and len(specs) > 1:
+        from joblib import Parallel, delayed
+
+        per_spec = Parallel(n_jobs=tc.n_jobs, backend="loky")(
+            delayed(_spec_grid_returns)(_slim(train_df, spec, specs), feature_cols, spec,
+                                        splits, n_eff, tc, rt, seed)
+            for spec in specs)
+    else:
+        per_spec = [_spec_grid_returns(train_df, feature_cols, spec, splits, n_eff, tc, rt,
+                                       seed) for spec in specs]
     best = None
-    for spec in specs:
-        fold_models = []
-        for tr_s, te_s in splits:
-            tr = val.rows_for_sessions(train_df, tr_s, tc.session_col)
-            te = val.rows_for_sessions(train_df, te_s, tc.session_col)
-            if tr.empty or te.empty or _degenerate_labels(tr, spec.col):
-                continue
-            try:
-                m = _fit_model(tr, feature_cols, spec, n_eff, tc, "inner", seed)
-            except ValueError:
-                continue
-            fold_models.append((m, te))
-        for z in tc.z_grid:
-            for h in tc.h_grid:
-                for pm in tc.p_min_grid:
-                    pp = _policy_params(spec, z, h, pm, n_eff, tc, rt)
-                    rets = []
-                    for m, te in fold_models:
-                        r, _ = val.policy_trade_returns(
-                            m, pp, te, label_col=spec.col, cost_col=tc.cost_col,
-                            model_cost_col=tc.model_cost_col)
-                        rets.append(r)
-                    allr = np.concatenate(rets) if rets else np.array([])
-                    ch = trial_ledger.config_hash(_config_dict(spec, z, h, pm, tc))
-                    if session is not None:
-                        sr = (float(allr.mean() / allr.std(ddof=1))
-                              if allr.size > 1 and allr.std(ddof=1) > 0 else None)
-                        trial_ledger.record_trial(
-                            session, run_id=tc.run_id,
-                            params=_config_dict(spec, z, h, pm, tc),
-                            metrics={"sharpe": sr, "n": int(allr.size)}, cfg_hash=ch)
-                    score = (float(allr.mean()) if allr.size >= tc.min_inner_trades
-                             else -np.inf)
-                    if best is None or score > best[0]:
-                        best = (score, spec, z, h, pm)
+    # Same iteration order as the sequential version -> identical ties and ledger rows.
+    for spec, grid in zip(specs, per_spec):
+        for z, h, pm, allr in grid:
+            ch = trial_ledger.config_hash(_config_dict(spec, z, h, pm, tc))
+            if session is not None:
+                sr = (float(allr.mean() / allr.std(ddof=1))
+                      if allr.size > 1 and allr.std(ddof=1) > 0 else None)
+                trial_ledger.record_trial(
+                    session, run_id=tc.run_id,
+                    params=_config_dict(spec, z, h, pm, tc),
+                    metrics={"sharpe": sr, "n": int(allr.size)}, cfg_hash=ch)
+            score = (float(allr.mean()) if allr.size >= tc.min_inner_trades
+                     else -np.inf)
+            if best is None or score > best[0]:
+                best = (score, spec, z, h, pm)
     if best is None:
         return specs[0], tc.z_grid[0], tc.h_grid[0], tc.p_min_grid[0]
+    _log.info("inner selection: %s z=%s h=%s p_min=%s (inner expectancy %.5f)",
+              best[1].col, best[2], best[3], best[4], best[0])
     return best[1], best[2], best[3], best[4]
 
 
@@ -246,6 +275,8 @@ def train_decision_model(df: pd.DataFrame, tc: TrainConfig, *, session=None,
         # F3: the policy params for this fold (n_eff drives sizing regime + the Wald CI)
         # must come from THIS fold's training sessions only, never the whole dataset.
         fold_n_eff = effective_n(tr, tc.symbol_col, tc.session_col)
+        _log.info("outer fold %d/%d: %d train rows, %d test rows", i + 1, len(splits),
+                  len(tr), len(te))
         spec, z, h, pm = _inner_select(tr, feature_cols, specs, fold_n_eff, tc, rt, session,
                                        tc.seed + i)
         if _degenerate_labels(tr, spec.col):

@@ -66,6 +66,12 @@ def artifact_is_eligible(metadata: Mapping) -> bool:
             and bool(metadata.get("promotion_eligible", False)))
 
 
+def _finite(X: np.ndarray) -> np.ndarray:
+    """+/-inf -> NaN (treated as missing). A feature divided by a zero ATR or a zero
+    volume baseline must read as unknown, never crash a fit or dominate it (2026-10-18)."""
+    return np.where(np.isinf(X), np.nan, X)
+
+
 def select_tier(n_eff: int) -> Tier:
     """Pick the complexity tier from the effective cluster count (F4)."""
     if n_eff < 300:
@@ -87,6 +93,8 @@ class ModelPrediction:
 def effective_n(df: pd.DataFrame, symbol_col: str = "symbol",
                 session_col: str = "session_date") -> int:
     """Number of distinct (symbol, session) clusters carrying a signal (F4)."""
+    if "cluster_key" in df.columns:   # dataset-declared dependence unit (see cluster_ids)
+        return int(df["cluster_key"].nunique())
     if symbol_col not in df.columns or session_col not in df.columns:
         raise KeyError(f"dataset must have {symbol_col!r} and {session_col!r} columns")
     return int(df.loc[:, [symbol_col, session_col]].drop_duplicates().shape[0])
@@ -207,7 +215,7 @@ class DecisionModel:
         sessions = df[session_col].astype(str).to_numpy()
         self.n_eff = effective_n(df, symbol_col, session_col)
         self.tier = select_tier(self.n_eff)
-        X_all = df[feature_cols].to_numpy(dtype=float)
+        X_all = _finite(df[feature_cols].to_numpy(dtype=float))
 
         if self.tier.max_features is not None and len(feature_cols) > self.tier.max_features:
             self.selected_features = tuple(
@@ -216,7 +224,7 @@ class DecisionModel:
         else:
             self.selected_features = tuple(feature_cols)
 
-        X = df[list(self.selected_features)].to_numpy(dtype=float)
+        X = _finite(df[list(self.selected_features)].to_numpy(dtype=float))
         weights = (df[weight_col].to_numpy(dtype=float) if weight_col
                    else np.ones(len(df), dtype=float))
         if weight_col and not np.isfinite(weights).all():
@@ -332,7 +340,7 @@ class DecisionModel:
     def predict(self, features: Mapping[str, float]) -> ModelPrediction:
         if self._prep is None or self._p is None:
             raise RuntimeError("model is not fitted")
-        X_row = self._vectorize(features)
+        X_row = _finite(self._vectorize(features))
         Xp_row = self._prep.transform(X_row)
         ridge_preds, std = self._ridge_members(Xp_row)
         members = ridge_preds
@@ -346,7 +354,7 @@ class DecisionModel:
 
     def predict_frame(self, df: pd.DataFrame) -> dict[str, np.ndarray]:
         """Batch mu/sigma/p/b for validation. Returns aligned arrays."""
-        X = df[list(self.selected_features)].to_numpy(dtype=float)
+        X = _finite(df[list(self.selected_features)].to_numpy(dtype=float))
         Xp = self._prep.transform(X)
         cols = [r.predict(s.transform(Xp)) for s, r in self._ridge]
         cols += [g.predict(X) for g in self._gbm]

@@ -8,14 +8,17 @@ it (``pip install .[crowd]``); a missing dependency raises a clear error.
 The Telethon client is reached through the ``MessageSource`` adapter protocol so
 tests inject a fake. Messages are stored raw + strictly parsed and both writes are
 idempotent (upsert on the natural keys), so re-running ``backfill``/``poll`` never
-duplicates rows. Fetches are bounded (``max_messages_per_run``) and resume from the
-max stored ``message_id`` per channel.
+duplicates rows. Fetches are bounded (``max_messages_per_run``), run oldest-first and
+resume from the max stored ``message_id`` per channel. (2026-10-29: was newest-first,
+which made a capped backfill keep only the newest messages and never fill older ones.)
 """
 from __future__ import annotations
 
+import fcntl
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncIterator, Protocol
+from typing import AsyncIterator, Iterator, Protocol
 
 from sqlalchemy import func, select
 
@@ -44,16 +47,35 @@ class SourceMessage:
     id: int
     date: datetime
     text: str
+    edited_at: datetime | None = None
 
 
 class MessageSource(Protocol):
     """Adapter over a Telegram message reader. Read-only by contract."""
 
     def iter_messages(
-        self, channel: str, *, min_id: int, limit: int
+        self, channel: str, *, min_id: int, limit: int, since: datetime | None = None
     ) -> AsyncIterator[SourceMessage]:
-        """Yield messages with ``id > min_id`` for ``channel``, at most ``limit``."""
+        """Yield messages with ``id > min_id`` (and posted after ``since`` when given)
+        for ``channel`` in ascending id order, at most ``limit``."""
         ...
+
+
+@contextmanager
+def telegram_session_lock(session_path: str) -> Iterator[None]:
+    """Exclusive, non-blocking lock on the user session (2026-10-29). Two processes using
+    one Telegram auth key at once can get the session revoked (AUTH_KEY_DUPLICATED)."""
+    fh = open(f"{session_path}.lock", "w")
+    try:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError(
+                "Telegram session is in use by another process (e.g. scripts/signals_live.py); stop it first"
+            ) from None
+        yield
+    finally:
+        fh.close()
 
 
 class TelethonMessageSource:
@@ -74,18 +96,28 @@ class TelethonMessageSource:
         return TelegramClient(self._session_path, self._api_id, self._api_hash)
 
     async def iter_messages(
-        self, channel: str, *, min_id: int, limit: int
+        self, channel: str, *, min_id: int, limit: int, since: datetime | None = None
     ) -> AsyncIterator[SourceMessage]:
         client = self._new_client()
-        async with client:  # connects; uses the existing user session file
-            async for msg in client.iter_messages(channel, min_id=min_id, limit=limit):
-                if msg is None:
-                    continue
-                yield SourceMessage(
-                    id=int(msg.id),
-                    date=to_utc(msg.date),
-                    text=msg.message or "",
-                )
+        # Oldest-first. Telethon gives offset_id (from min_id) priority over offset_date,
+        # so ``since`` only seeds the start of a channel's very first fetch.
+        kwargs = {"reverse": True, "limit": limit, "min_id": min_id}
+        if since is not None and min_id == 0:
+            kwargs["offset_date"] = since
+        # Private channels have no username; a numeric id ("-100...") must reach
+        # Telethon as an int or it is looked up as a username.
+        entity = int(channel) if channel.lstrip("-").isdigit() else channel
+        with telegram_session_lock(self._session_path):
+            async with client:  # connects; uses the existing user session file
+                async for msg in client.iter_messages(entity, **kwargs):
+                    if msg is None:
+                        continue
+                    yield SourceMessage(
+                        id=int(msg.id),
+                        date=to_utc(msg.date),
+                        text=msg.message or "",
+                        edited_at=to_utc(msg.edit_date) if msg.edit_date else None,
+                    )
 
 
 class TelegramCollector:
@@ -157,7 +189,7 @@ class TelegramCollector:
                 min_id = self._max_stored_id(session, channel)
                 seen = 0
                 async for msg in source.iter_messages(
-                    channel, min_id=min_id, limit=self.max_messages_per_run
+                    channel, min_id=min_id, limit=self.max_messages_per_run, since=since
                 ):
                     if seen >= self.max_messages_per_run:
                         break
@@ -170,6 +202,11 @@ class TelegramCollector:
                     self._store(session, channel, msg, posted_at)
                     stored += 1
         return stored
+
+    def store(self, channel: str, msg: SourceMessage) -> None:
+        """Store + parse one live message (idempotent upsert)."""
+        with get_session() as session:
+            self._store(session, channel, msg, to_utc(msg.date))
 
     def _store(self, session, channel: str, msg: SourceMessage, posted_at: datetime) -> None:
         text = (msg.text or "")[:MAX_TEXT_LEN]
@@ -187,6 +224,7 @@ class TelegramCollector:
                 "raw_text": text,
                 "ingested_at": utcnow(),
                 "parse_status": status,
+                "edited_at": msg.edited_at,
             },
             ["channel", "message_id"],
         )

@@ -247,3 +247,14 @@ def test_trial_ledger_commits_each_trial_immediately():
         # A second, independent session must already see it while s1 is still open.
         with get_session() as s2:
             assert trial_ledger.trial_count(s2, "durable") == 1
+
+
+def test_parallel_inner_selection_matches_sequential():
+    """n_jobs>1 must be a pure speed-up: same selection, same OOS returns."""
+    df = _dataset(seed=7)
+    seq = train_decision_model(df, _tc(run_id="seq", z_grid=(0.5, 1.0)), fit_final=False)
+    par = train_decision_model(df, _tc(run_id="par", z_grid=(0.5, 1.0), n_jobs=2),
+                               fit_final=False)
+    assert seq.chosen_label == par.chosen_label
+    assert seq.chosen_params == par.chosen_params
+    np.testing.assert_array_equal(seq.oos_returns, par.oos_returns)

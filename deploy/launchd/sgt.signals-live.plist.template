@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Live MetaTradings signals -> PAPER trading (scripts/signals_live.py). Rendered by
+     scripts/install_signals_live.sh; do not copy by hand. Always running; restarted by
+     launchd 60 s after any exit. __MODE__ is "--observe" or empty (paper trading). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.sgt.signals-live</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string><string>-lc</string>
+    <string>cd "__REPO__" &amp;&amp; PYTHONPATH=src exec .venv/bin/python scripts/signals_live.py __MODE__ &gt;&gt; reports/signals_live/stdout.log 2&gt;&amp;1</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+</dict>
+</plist>
