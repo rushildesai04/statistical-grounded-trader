@@ -52,3 +52,28 @@ PASS -> forward paper record only (no capital): the bot logs a hypothetical shor
 alert, scored monthly; plus a locate-availability check with a locate broker before any money.
 FAIL -> the MetaTradings alert channel has no use as a trade signal in either direction.
 Trial ledger run id: `alert-fade-2026-11-01`.
+
+## Result (2026-11-01, run once, commit b1921bc, trial ledger `alert-fade-2026-11-01`) — VERDICT: PASS (narrow)
+Held-out 2026-07-01 .. 2026-10-29: 764 alerts, 429 symbols, 0.0% missing bars.
+
+| Primary (short at alert, 20% stop, 60 min, gapper costs + 0.5% locate) | value |
+|---|---|
+| mean net per trade | **+1.12%** (median +2.51%, win 57%) |
+| 95% one-sided lower bound | +0.05% |
+| 5 best trades' share of total | 0.30 |
+| first half / second half | +1.61% / +0.64% |
+| worst trade / worst 1% | -49.3% / -27.8% |
+
+| Secondary (no effect on the verdict) | mean net |
+|---|---|
+| gross, before any cost | +2.52% |
+| locate 1% / 2% | +0.62% / **-0.38%** (break-even locate about 1.6%) |
+| no stop | +1.47% (worst -183.9%) |
+| 15-minute exit | +0.18% |
+| **easy-to-borrow at Alpaca today (64 trades, 56 symbols)** | **-0.55%** (win 44%) |
+| cells: resumed 218 / high_of_day 395 / volume_increasing 270 / news 210 | +3.16% / +0.38% / +0.45% / -1.22% |
+
+Reading: the alerts mark short-term tops, and fading them held up out of sample, but only for names
+that are hard to borrow. The names Alpaca can short lost money. The edge is all in the locate cost:
+it survives a 0.5-1% locate and dies at 2%. Next step per the rule above: forward paper record and a
+real locate-price check; no capital, and not tradeable at Alpaca.
