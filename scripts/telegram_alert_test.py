@@ -110,6 +110,14 @@ def attach_trades(df: pd.DataFrame, store: ParquetBarStore) -> pd.DataFrame:
     return t
 
 
+def primary_events(t: pd.DataFrame) -> pd.DataFrame:
+    """Primary population: cell alerts with an entry inside 09:30-15:44 ET priced $1-50, by time.
+    (Shared with the alert-fade forward record, so both use identical events.)"""
+    cand = t[t.alert_type.map(CELL_OF).notna()].assign(cell=lambda d: d.alert_type.map(CELL_OF))
+    ok = (cand.status == "ok") & cand.primary_window & cand.entry.between(1, 50)
+    return cand[ok].sort_values("posted_at")
+
+
 def boot_means(x: np.ndarray, days: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     ud, inv = np.unique(days, return_inverse=True)
     s = np.bincount(inv, weights=x)
@@ -145,7 +153,6 @@ def main() -> int:
 
     # ---- primary population (A2: filter, then first per type per symbol-session)
     cand = t[t.cell.notna()].copy()
-    in_win = (cand.status == "ok") & cand.primary_window
     # data guard denominator: alerts posted inside the window whose trade could not be built
     et = cand.posted_at.dt.tz_convert(ET)
     pm = et.dt.hour * 60 + et.dt.minute
@@ -154,7 +161,7 @@ def main() -> int:
     guard = float(unusable.sum() / max(posted_in_win.sum(), 1))
     by_status = cand[posted_in_win].status.value_counts().to_dict()
 
-    prim = cand[in_win & cand.entry.between(1, 50)].sort_values("posted_at")
+    prim = primary_events(t)
     cells = {c: g.drop_duplicates(["symbol", "session"]) for c, g in prim.groupby("cell")}
     cells["pooled_first"] = prim.drop_duplicates(["symbol", "session"])
     union = pd.concat([g for c, g in cells.items() if c != "pooled_first"])
