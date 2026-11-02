@@ -9,3 +9,11 @@
 45 17 * * 1-5  /app/deploy/entrypoint.sh job etf
 # 60/40 paper rebalance: hourly during the first 5 sessions of the month (script gates the window).
 5 10-15 * * 1-5 /app/deploy/entrypoint.sh job rebalance
+# SMS control (2026-11-02): owner texts are polled every minute (approvals, PAUSE/RESUME/FLATTEN, STATUS).
+* * * * *      /app/deploy/entrypoint.sh job sms
+# Approved-book proposals: turn-of-month on its sessions (morning), ETF sleeves after the snapshot.
+# (megacap proposes right after its own job above.)
+40 9 * * 1-5   /app/deploy/entrypoint.sh job tom
+55 17 * * 1-5  /app/deploy/entrypoint.sh job etfbook
+# Daily digest after the megacap run has decided and marked.
+50 20 * * 1-5  /app/deploy/entrypoint.sh job digest

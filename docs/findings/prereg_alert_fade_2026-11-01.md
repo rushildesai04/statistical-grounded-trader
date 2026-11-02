@@ -77,3 +77,16 @@ Reading: the alerts mark short-term tops, and fading them held up out of sample,
 that are hard to borrow. The names Alpaca can short lost money. The edge is all in the locate cost:
 it survives a 0.5-1% locate and dies at 2%. Next step per the rule above: forward paper record and a
 real locate-price check; no capital, and not tradeable at Alpaca.
+
+## Amendment F1 — forward paper record (2026-11-01, before any alert after 2026-10-29 is fetched)
+- Events: built exactly like the alert test's `pooled_first` (cells per CELL_OF, entry 09:30-15:44 ET,
+  entry price $1-50, first alert per symbol-session) for sessions >= 2026-10-30. Channel history is
+  pulled with `scripts/telegram_backfill.py`; 1-minute bars with the same Alpaca SIP backfill as before.
+- Trade, stop, window and costs: identical to the primary rule above (20% stop, 60 min, cost_rt + 0.5%).
+- No orders, no capital. Results in `reports/alert_fade/forward.csv`; each finished month goes to the
+  trial ledger (run id `alert-fade-forward-2026-10-30`).
+- Decision at the first month-end with n >= 300 forward trades: KEEP if mean net > 0 and the
+  session-bootstrap 95% lower bound > 0; DROP if mean net <= 0; otherwise continue to n >= 600 and
+  decide on mean net > 0 alone.
+- Before any capital, separately: real locate quotes for a sample of alerted names from a locate
+  broker; the trade needs an average locate cost below about 1.5% of notional.

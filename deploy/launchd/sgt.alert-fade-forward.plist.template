@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Alert-fade forward paper record (prereg_alert_fade_2026-11-01 amendment F1; no orders). Needs the
+     local Telegram session, so it runs on this Mac, not on Fly. Rendered by
+     scripts/install_alert_fade_forward.sh. Runs at login/wake and daily 21:00 local; idempotent, so
+     missed days are caught up on the next run. A failure sends an SMS via scripts/ops_notify.py. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>local.sgt.alert-fade-forward</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string><string>-lc</string>
+    <string>cd "__REPO__" &amp;&amp; { PYTHONPATH=src:scripts .venv/bin/python scripts/alert_fade_forward.py &gt;&gt; reports/alert_fade/run.log 2&gt;&amp;1 || PYTHONPATH=src .venv/bin/python scripts/ops_notify.py "laptop alert-fade forward failed" --log reports/alert_fade/run.log &gt;&gt; reports/alert_fade/run.log 2&gt;&amp;1; }</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>

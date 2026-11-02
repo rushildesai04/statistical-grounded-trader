@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/forward reports/rebalance data/alpaca data/etf_yf
+mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops data/alpaca data/etf_yf
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -24,12 +24,20 @@ run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
 
 if [ "${1:-}" = "job" ]; then
   case "${2:-}" in
-    megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto ;;
+    megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto
+               run reports/ops/run.log python /app/scripts/sms_control.py megacap ;;
     etf)       run reports/forward/run.log python /app/scripts/forward_paper.py refresh || true
                run reports/forward/run.log python /app/scripts/forward_paper.py snapshot
                run reports/forward/run.log python /app/scripts/forward_paper.py evaluate ;;
     rebalance) run reports/rebalance/run.log python /app/scripts/rebalance_passive.py --execute \
                  --max-order-notional "${SGT_MAX_ORDER_NOTIONAL:-75000}" ;;
+    # SMS control (2026-11-02). The per-minute poll logs only when it acts or fails, and never pages
+    # (a Twilio outage would page every minute); failures surface in the daily digest instead.
+    sms)       python /app/scripts/sms_control.py poll >> reports/ops/poll.log 2>&1 || \
+                 { echo "=== $(date '+%F %T %Z') poll"; echo "!!! exit"; } >> reports/ops/poll.log ;;
+    tom)       run reports/ops/run.log python /app/scripts/sms_control.py tom ;;
+    etfbook)   run reports/ops/run.log python /app/scripts/sms_control.py etf ;;
+    digest)    run reports/ops/run.log python /app/scripts/sms_control.py digest ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?
