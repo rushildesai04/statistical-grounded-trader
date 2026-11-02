@@ -75,3 +75,12 @@ Statistic: daily cohort return (cohort net return / h), moving-block bootstrap (
 FINRA volume is off-exchange only; 13F is quarterly with a 45-day delay and long positions only;
 CUSIP mapping misses some delisted names; ETFs are in the universe; costs are flat (no per-name
 spread model); borrow is a flat 1%/year (hard-to-borrow names cost more).
+
+## Amendment A1 (2026-11-02, before the panel, cv or any held-out read)
+Data as ingested (commit 0b777cb): FINRA consolidated (CNMS) files exist only from mid-2018; earlier
+dates sum the Nasdaq (FNSQ) and NYSE (FNYX) TRF files, so the level of the FINRA features shifts at
+the switch. Features are ranked per date before the model, which removes cross-date level shifts;
+the 60-day z-score is affected for ~60 sessions around the switch (training period only). 13F: the
+deadline is rolled forward to the next business day (a literal P+45 cut-off excluded 15-25% of
+on-time filers in weekend quarters); new/exited holders count continuing filers only. CUSIP->ticker
+coverage is reported with the panel. No rule, feature, grid, or test changes.
