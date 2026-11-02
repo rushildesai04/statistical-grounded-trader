@@ -84,3 +84,26 @@ the 60-day z-score is affected for ~60 sessions around the switch (training peri
 deadline is rolled forward to the next business day (a literal P+45 cut-off excluded 15-25% of
 on-time filers in weekend quarters); new/exited holders count continuing filers only. CUSIP->ticker
 coverage is reported with the panel. No rule, feature, grid, or test changes.
+
+## Result (2026-11-02, scored once; vault unlock at commit 46ce73f, trial ledger `inst-flow-2026-11-02`) — VERDICT: T1 FAIL, T2 PASS -> rejected as a strategy
+
+Data: 4.15M eligible stock-days (median 1,645 stocks/day); FINRA coverage 97%, 13F 85% (CUSIP map 39% of
+CUSIPs, 78% of holder weight). Training cv (2019-2022 validation): FULL selected h=20, q=5%, no stop,
+long-short (mean cv Sharpe 2.5; 2020 negative); BASE selected h=20, q=10%, 2xATR stop (-0.26).
+
+| Held-out 2023-01 .. 2026-10 (941 cohort days) | mean / holding day | Sharpe* | halves | max-year share | 2.5% lower bound | verdict |
+|---|---|---|---|---|---|---|
+| T1 FULL (flow + base) | +1.93 bp (~+4.9%/yr net) | 2.92 | +3.68 / +0.19 bp | 64% | -0.0003 bp | **FAIL** (bound <= 0, year share > 50%) |
+| BASE only | -0.52 bp | -0.98 | +0.61 / -1.64 bp | | -2.05 bp | |
+| T2 FULL - BASE | +2.45 bp | | | | **+1.11 bp** | **PASS** |
+*Sharpe of overlapping 20-day cohorts is inflated; the verdict uses the 20-day block bootstrap.
+
+Secondary (reported only; a declared second vault read): VWAP + base -0.01 bp/day (no signal);
+FINRA + base +1.58 (2023 +2.9, 2024 +4.1, 2025 -0.5, 2026 -0.9); 13F + base +0.73; long leg alone
+(long top 5% hedged) -0.90 bp/day -> the profit came from SHORTING names the flow data flags, not from
+buying what institutions buy; by beta tercile: low +0.83, mid +0.32, high +5.50 (halves +10.1 / +0.9).
+
+Reading: institutional flow data (mainly FINRA off-exchange short volume, a little 13F breadth) carries
+real cross-sectional information (T2), but the learned trade did not clear costs robustly out of sample,
+decayed to ~zero in 2025-26, depends on the short side (real borrow on these names is above the 1%/yr
+assumed), and the VWAP "wash" footprint adds nothing. Not promoted; no forward test.
