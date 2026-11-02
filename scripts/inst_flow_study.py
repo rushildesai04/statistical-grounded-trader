@@ -281,7 +281,7 @@ def select(res: pd.DataFrame, feats: str) -> Rule:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["panel", "cv", "score"])
+    ap.add_argument("cmd", choices=["panel", "cv", "score", "secondary"])
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     from sgt.research.vault import Vault
@@ -308,7 +308,40 @@ def main() -> int:
         for f in ("full", "base"):
             print(f, "selected:", select(res, f))
         return 0
+    if args.cmd == "secondary":
+        return secondary(vault)
     return score(vault, args.dry_run)
+
+
+def secondary(vault) -> int:
+    """Pre-registered secondary breakdowns (reported only; the verdict is fixed by ``score``).
+    A declared second vault read, logged with its reason."""
+    rule = select(pd.read_csv(OUT / "cv.csv"), "full")
+    vault.unlock("scripts/inst_flow_study.py", rescore_reason="secondary analyses listed in the prereg; verdict unchanged")
+    p_all = pd.read_parquet(PANEL)
+    p_all = vault.frame(p_all[p_all.date <= pd.Timestamp(vault.study.holdout[1])], "date").reset_index(drop=True)
+    train, tpaths = eligible_with_paths(train_view(vault, p_all))
+    train = add_targets(train, tpaths)
+    ho, sub = eligible_with_paths(p_all, ((p_all.date >= pd.Timestamp(vault.holdout_start)) & p_all.eligible).to_numpy())
+    out = {}
+    for name, feats in (("vwap+base", BASE + VWAP), ("finra+base", BASE + FINRA), ("13f+base", BASE + F13),
+                        ("full", BASE + FLOW)):
+        pred = predict(fit(train, feats, rule.h), ho, feats)
+        c = cohort_returns(ho, pred, sub, rule)
+        out[name] = {**stats(c), "yearly_bp_per_day": (1e4 * c.groupby(pd.DatetimeIndex(c.index).year).mean()).round(2).to_dict()}
+        if name == "full":
+            for leg, side in (("long_leg", "lh"), ):
+                cl = cohort_returns(ho, pred, sub, Rule(rule.h, rule.q, rule.stop, side))
+                out[leg] = {**stats(cl)}
+            b = ho.beta_252.groupby(ho.date).rank(pct=True).to_numpy()
+            for t, (lo, hi) in {"low_beta": (0, 1 / 3), "mid_beta": (1 / 3, 2 / 3), "high_beta": (2 / 3, 1.01)}.items():
+                m = (b > lo) & (b <= hi) if lo else b <= hi
+                cb = cohort_returns(ho[m].reset_index(drop=True), pred[m], {k: v[m] for k, v in sub.items()}, rule)
+                out[t] = {**stats(cb)}
+        print(name, "done", flush=True)
+    print(json.dumps(out, indent=1, default=str))
+    (OUT / "secondary.json").write_text(json.dumps(out, indent=2, default=str))
+    return 0
 
 
 def score(vault, dry_run: bool) -> int:
