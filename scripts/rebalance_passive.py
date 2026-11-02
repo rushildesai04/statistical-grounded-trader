@@ -98,6 +98,7 @@ async def main_async(args) -> int:
         k: float(v) for k, v in (kv.split("=") for kv in args.targets.split(","))}
     prefix = f"rebal-{et:%Y%m}-"
     broker = AlpacaBroker(args.account_id, paper=not args.live)
+    approval_id = None
     try:
         await broker.connect()
         month_start = et.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
@@ -128,26 +129,34 @@ async def main_async(args) -> int:
             print(f"PLAN {o.side:4s} {o.qty:6d} {o.symbol:4s} @ {o.limit:.2f}  (${o.notional:,.0f})")
         if not orders:
             print("within drift threshold; no trades")
-        approval_id = None
         if args.execute and orders and not args.no_approval:
             approval_id = approval_gate(args, orders, et, now)
             if approval_id is None:
                 return 0
+        submitted = []
         if args.execute and orders:
             sells = [o for o in orders if o.side == "sell"]
             for o in sells:
                 print("submit", await broker.submit(intent(args.account_id, prefix, o, now)))
+                submitted.append(o)
+            buys = [o for o in orders if o.side == "buy"]
             if sells:
                 await wait_terminal(broker, [f"{prefix}{o.symbol}-sell" for o in sells])
                 state = await broker.account_state()
-                orders = current_plan(state)
-            for o in [o for o in orders if o.side == "buy"]:
+                buys = [o for o in current_plan(state) if o.side == "buy"]
+                if approval_id is not None:             # re-planned buys must still match what was approved
+                    approved_buys = [o for o in json.loads(approvals.get(OpsStore(), approval_id)["payload"])["plan"]
+                                     if o["side"] == "buy"]
+                    if not same_plan(approved_buys, buys):
+                        raise SystemExit("re-planned buys differ from the approved plan; buys skipped: " + plan_text(buys))
+            for o in buys:
                 print("submit", await broker.submit(intent(args.account_id, prefix, o, now)))
+                submitted.append(o)
         out = Path("reports/rebalance") / f"{et:%Y-%m}{'' if args.execute else '-dryrun'}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(record, indent=2, default=str))
         if approval_id is not None:
-            msg = "60/40 submitted: " + "; ".join(f"{o.side.upper()} {o.qty} {o.symbol} @ {o.limit:.2f}" for o in orders)
+            msg = "60/40 submitted: " + "; ".join(f"{o.side.upper()} {o.qty} {o.symbol} @ {o.limit:.2f}" for o in submitted)
             approvals.finish(OpsStore(), approval_id, True, msg)
             notify(f"[SGT] {msg}")
         return 0

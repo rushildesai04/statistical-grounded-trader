@@ -29,7 +29,7 @@ import pandas as pd
 from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals, book, digest
 from sgt.ops.sms import Sms
-from sgt.ops.store import OpsStore
+from sgt.ops.store import OpsStore, iso
 
 ET = ZoneInfo("America/New_York")
 SCRIPTS = Path(__file__).resolve().parent
@@ -114,15 +114,27 @@ def run_rebalance(row) -> tuple[bool, str]:
 EXECUTORS = {"passive_60_40": run_rebalance}
 
 
-def flatten(db: OpsStore, send) -> str:
-    """Close every Alpaca PAPER position and zero every approved-book strategy at the next close."""
+def flatten(db: OpsStore, send) -> tuple[bool, str]:
+    """Pause FIRST, then close every Alpaca PAPER position and zero every approved-book strategy at the
+    next close. The broker result is verified by re-reading positions; any doubt is reported as failure."""
     from sgt.config import get_settings
     from sgt.intraday.sources import _alpaca_headers
 
+    approvals.pause(db, reason="flatten_pause")
     s = get_settings()
-    r = httpx.delete(s.alpaca_paper_url.rstrip("/") + "/v2/positions", params={"cancel_orders": "true"},
-                     headers=_alpaca_headers(), timeout=s.http_timeout_s)
-    broker = f"broker close-all HTTP {r.status_code}"
+    url = s.alpaca_paper_url.rstrip("/") + "/v2/positions"
+    ok = True
+    try:
+        r = httpx.delete(url, params={"cancel_orders": "true"}, headers=_alpaca_headers(), timeout=s.http_timeout_s)
+        bad = [x.get("symbol") for x in (r.json() if r.status_code == 207 else []) if isinstance(x, dict)
+               and int(x.get("status", 200)) >= 400]
+        left = httpx.get(url, headers=_alpaca_headers(), timeout=s.http_timeout_s).json()
+        open_syms = [x.get("symbol") for x in left if isinstance(x, dict)] if isinstance(left, list) else ["?"]
+        ok = r.status_code in (200, 207) and not bad
+        broker = (f"broker close-all HTTP {r.status_code}" + (f", failed {bad}" if bad else "")
+                  + (f"; still open (closing orders may be queued until the open): {open_syms}" if open_syms else ""))
+    except Exception as exc:  # noqa: BLE001 - reported to the owner; trading already paused
+        ok, broker = False, f"broker close-all FAILED ({type(exc).__name__}); positions may still be open"
     fill = fill_session_for(datetime.now(ET))
     with db.tx() as c:
         strategies = [x[0] for x in c.execute("SELECT DISTINCT strategy FROM book_orders")]
@@ -131,9 +143,9 @@ def flatten(db: OpsStore, send) -> str:
         if cur:
             book.propose(db, send, strategy=strat, targets={k: 0.0 for k in cur}, fill_session=fill,
                          deadline=deadline(fill), label=f"{strat} FLATTEN")
-    db.set_flag("paused", "1")
-    db.audit("flatten", broker=broker)
-    return f"FLATTEN done: {broker}; book zeroed at {fill:%m-%d} close; trading PAUSED (RESUME to restart)."
+    db.audit("flatten", broker=broker, ok=ok)
+    return ok, (f"FLATTEN {'done' if ok else 'INCOMPLETE'}: {broker}; book zeroed at {fill:%m-%d} close; "
+                "trading PAUSED (RESUME to restart).")
 
 
 # ------------------------------------------------------------------ commands
@@ -157,24 +169,30 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         p = approvals.pending(db)
         return "\n".join(f"{r['summary'][:140]} -> OK {r['code']}" for r in p) or "Nothing pending."
     if cmd.verb == "PAUSE":
-        db.set_flag("paused", "1")
-        db.audit("pause", sid=sid)
-        return "PAUSED: no new trades or requests. Exits still apply. RESUME to restart."
+        voided = approvals.pause(db)
+        return ("PAUSED: pending requests expired" + (f", {voided} approved entries cancelled" if voided else "")
+                + ". Exits still apply. RESUME to restart.")
     if cmd.verb in ("RESUME", "FLATTEN") and cmd.code is None:
-        approvals.challenge(db, sms.send, cmd.verb.lower())
+        if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
+            return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."
         return ""                                  # the challenge text is the reply
     reply, row = approvals.answer(db, cmd, sid)
     if row is None or row["status"] != "approved":
         return reply
     if row["kind"] == "control":
         action = json.loads(row["payload"])["action"]
-        approvals.claim(db, row["id"])
+        if not approvals.claim(db, row["id"]):
+            return "That code expired before it could be used; send the command again."
         if action == "resume":
             db.set_flag("paused", "0")
+            db.audit("resume", sid=sid)
             approvals.finish(db, row["id"], True, "resumed")
             return "RESUMED: trading enabled."
-        out = flatten(db, sms.send)
-        approvals.finish(db, row["id"], True, out)
+        try:
+            ok, out = flatten(db, sms.send)
+        except Exception as exc:  # noqa: BLE001 - always finish the row and tell the owner
+            ok, out = False, f"FLATTEN error ({type(exc).__name__}); trading is PAUSED; check the broker."
+        approvals.finish(db, row["id"], ok, out)
         return out
     if row["kind"] == "book":
         return f"{reply}\n{book.apply_approved(db, row)}"
@@ -183,7 +201,8 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
 
 def dispatch_broker(db: OpsStore, sms: Sms) -> None:
     with db.tx() as c:
-        rows = c.execute("SELECT * FROM approvals WHERE status='approved' AND kind='broker'").fetchall()
+        rows = c.execute("SELECT * FROM approvals WHERE status='approved' AND kind='broker' AND expires_at>?",
+                         (iso(datetime.now(timezone.utc)),)).fetchall()
     for row in rows:
         fn = EXECUTORS.get(row["strategy"])
         if fn is None:
@@ -202,6 +221,23 @@ def dispatch_broker(db: OpsStore, sms: Sms) -> None:
             sms.send(f"[SGT] {row['strategy']} approval #{row['id']}: {msg}. See reports/rebalance/run.log")
 
 
+REPLY_CAP_PER_HOUR = 20
+UNPARSED_EVERY = timedelta(minutes=30)
+
+
+def send_capped(db: OpsStore, sms: Sms, text: str, unparsed: bool = False) -> None:
+    """Replies are capped (an auto-responder or a spoofed flood must not become an SMS storm)."""
+    now = datetime.now(timezone.utc)
+    if db.count_events("reply", now - timedelta(hours=1)) >= REPLY_CAP_PER_HOUR or \
+            (unparsed and db.count_events("reply_unparsed", now - UNPARSED_EVERY)):
+        db.audit("reply_suppressed", unparsed=unparsed)
+        return
+    sms.send(text)
+    db.audit("reply_unparsed" if unparsed else "reply")
+    if unparsed:
+        db.audit("reply")
+
+
 def cmd_poll(db: OpsStore) -> int:
     now = datetime.now(timezone.utc)
     if db.flag("control_since") is None:            # ignore every text sent before SMS control existed
@@ -210,19 +246,24 @@ def cmd_poll(db: OpsStore) -> int:
     approvals.expire(db, now)
     sms = Sms()
     try:
-        for m in sms.inbound(max(since, now - LOOKBACK)):
-            with db.tx() as c:
-                new = c.execute("INSERT OR IGNORE INTO inbound(sid, sent_at, body, handled_at) VALUES (?,?,?,?)",
-                                (m.sid, m.sent_at.isoformat(), m.body[:80], now.isoformat())).rowcount
-            if not new or m.sent_at < since:
-                continue
-            cmd = approvals.parse(m.body)
-            reply = handle(db, sms, cmd, m.sid)
-            with db.tx() as c:
-                c.execute("UPDATE inbound SET outcome=? WHERE sid=?", ((cmd.verb if cmd else "unparsed"), m.sid))
-            if reply:
-                sms.send(reply)
-        dispatch_broker(db, sms)
+        try:
+            for m in sms.inbound(max(since, now - LOOKBACK)):
+                with db.tx() as c:
+                    new = c.execute("INSERT OR IGNORE INTO inbound(sid, sent_at, body, handled_at) VALUES (?,?,?,?)",
+                                    (m.sid, m.sent_at.isoformat(), m.body[:80], now.isoformat())).rowcount
+                if not new or m.sent_at < since:
+                    continue
+                cmd = approvals.parse(m.body)
+                reply = handle(db, sms, cmd, m.sid)
+                with db.tx() as c:
+                    c.execute("UPDATE inbound SET outcome=? WHERE sid=?", ((cmd.verb if cmd else "unparsed"), m.sid))
+                if reply:
+                    send_capped(db, sms, reply, unparsed=cmd is None)
+        finally:                                    # dispatch + sweep even when Twilio listing fails
+            dispatch_broker(db, sms)
+            for r in approvals.sweep(db):
+                sms.send(f"[SGT] {r['strategy']} approval #{r['id']} was {r['status']} but did not complete; "
+                         "marked FAILED. Check STATUS / the broker.")
     finally:
         sms.close()
     return 0

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 import httpx
@@ -56,7 +56,13 @@ class Sms:
             sid = str(m.get("sid") or "")
             if not sent or not sid.startswith(("SM", "MM")):
                 continue
-            out.append(Inbound(sid[:64], str(m.get("body") or "")[:BODY_MAX], parsedate_to_datetime(sent)))
+            try:
+                ts = parsedate_to_datetime(sent)
+            except (TypeError, ValueError):
+                log.warning("unparseable twilio date on %s", sid[:64])
+                continue
+            ts = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)      # RFC 2822 "-0000" -> naive
+            out.append(Inbound(sid[:64], str(m.get("body") or "")[:BODY_MAX], ts))
         return sorted(out, key=lambda m: m.sent_at)
 
     def close(self) -> None:

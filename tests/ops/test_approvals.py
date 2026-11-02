@@ -52,7 +52,8 @@ def test_ok_approves_once_and_newer_request_supersedes(db):
     reply, row = ap.answer(db, ap.Command("OK", c2), "SM2", now=T0 + timedelta(minutes=2))
     assert row["id"] == second and row["status"] == "approved" and first != second
     assert ap.answer(db, ap.Command("OK", c2), "SM3", now=T0 + timedelta(minutes=3))[1] is None  # single use
-    assert ap.claim(db, second) and not ap.claim(db, second)
+    t = T0 + timedelta(minutes=3)
+    assert ap.claim(db, second, now=t) and not ap.claim(db, second, now=t)
 
 
 def test_no_rejects_and_expiry_fails_closed(db):

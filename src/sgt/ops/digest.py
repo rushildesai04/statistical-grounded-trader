@@ -78,6 +78,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     if pend:
         lines.append("Pending: " + "; ".join(f"{p['strategy']} OK {p['code']} by {approvals.fmt_et(datetime.fromisoformat(p['expires_at']))}"
                                              for p in pend))
+    stuck = approvals.attention(db, now_et - timedelta(hours=24))
+    if stuck:
+        lines.append("Attention: " + "; ".join(f"#{r['id']} {r['strategy']} {r['status']}" for r in stuck))
     fails = job_failures(now_et)
     lines.append("Jobs: " + ("FAILED " + ", ".join(fails) if fails else "all OK (24h)"))
     lines += [f"! {p}" for p in problems]

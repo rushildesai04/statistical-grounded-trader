@@ -170,3 +170,72 @@ def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
                payload={}, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
     text = digest.build(db, now, fills=[], problems=["x: missing close"], broker="Alpaca paper: $1", research=[None])
     assert "Pending: tom OK" in text and "! x: missing close" in text and "no approved positions" in text
+
+
+# --- regression tests for the 2026-11-02 security review (F1-F4)
+def test_flatten_broker_error_still_pauses_finishes_and_replies(db, monkeypatch):
+    sms = FakeSms()
+    sc.handle(db, sms, ap.parse("flatten"), "SM1")
+    def boom(*a, **k):
+        raise sc.httpx.ConnectError("dns")
+    monkeypatch.setattr(sc.httpx, "delete", boom)
+    reply = sc.handle(db, sms, ap.parse(f"FLATTEN {sms.code()}"), "SM2")
+    assert "INCOMPLETE" in reply and db.paused()
+    assert ap.latest(db, "control:flatten", date.today().isoformat())["status"] == "failed"
+
+
+def test_pause_blocks_pending_and_scheduled_entries(db):
+    sms = FakeSms()
+    sc.book.propose(db, sms.send, strategy="tom", targets={"SPY": 1.0}, fill_session=date(2026, 11, 3),
+                    deadline=datetime.now(timezone.utc) + timedelta(hours=1), label="tom")
+    code = sms.code()
+    sc.handle(db, sms, ap.parse("pause"), "SM1")
+    assert "No pending" in sc.handle(db, sms, ap.parse(f"OK {code}"), "SM2")      # PAUSE expired it
+    assert sc.book.projected(db, "tom") == {}
+    # an entry approved before PAUSE is cancelled by it
+    db.set_flag("paused", "0")
+    sc.book.propose(db, sms.send, strategy="tom", targets={"SPY": 1.0}, fill_session=date(2026, 11, 3),
+                    deadline=datetime.now(timezone.utc) + timedelta(hours=1), label="tom")
+    sc.handle(db, sms, ap.parse(f"OK {sms.code()}"), "SM3")
+    assert sc.book.projected(db, "tom") == {"SPY": 1.0}
+    assert "1 approved entries cancelled" in sc.handle(db, sms, ap.parse("pause"), "SM4")
+    assert sc.book.projected(db, "tom") == {}
+
+
+def test_replies_are_capped_and_challenges_not_replaced(db):
+    sms = FakeSms()
+    for _ in range(3):
+        sc.send_capped(db, sms, "Not understood", unparsed=True)
+    assert len(sms.sent) == 1
+    for i in range(sc.REPLY_CAP_PER_HOUR + 5):
+        sc.send_capped(db, sms, f"r{i}")
+    assert len(sms.sent) == sc.REPLY_CAP_PER_HOUR
+    sms2 = FakeSms()
+    sc.handle(db, sms2, ap.parse("resume"), "SM1")
+    first = sms2.code()
+    assert "already sent" in sc.handle(db, sms2, ap.parse("resume"), "SM2")
+    assert ap.answer(db, ap.Command("RESUME", first), "SM3")[1]["status"] == "approved"
+
+
+def test_stale_approvals_are_swept_and_dispatch_survives_twilio_failure(db, monkeypatch):
+    sms = FakeSms()
+    now = datetime.now(timezone.utc)
+    ap.request(db, sms.send, strategy="passive_60_40", kind="broker", period="2026-11", summary="60/40",
+               payload={"plan": []}, expires_at=now + timedelta(minutes=1), now=now)
+    ap.answer(db, ap.Command("OK", sms.code()), "SM1", now=now)
+    swept = ap.sweep(db, now + timedelta(minutes=2))
+    assert [r["status"] for r in swept] == ["approved"]
+    assert ap.latest(db, "passive_60_40", "2026-11")["status"] == "failed"
+
+    class Broken(FakeSms):
+        def inbound(self, since):
+            raise RuntimeError("twilio list HTTP 500")
+    ap.request(db, sms.send, strategy="passive_60_40", kind="broker", period="2026-12", summary="60/40",
+               payload={"plan": []}, expires_at=now + timedelta(hours=1), now=now)
+    ap.answer(db, ap.Command("OK", sms.code()), "SM2")
+    calls = []
+    monkeypatch.setitem(sc.EXECUTORS, "passive_60_40", lambda r: calls.append(r["id"]) or (True, "exit 0"))
+    monkeypatch.setattr(sc, "Sms", lambda: Broken())
+    with pytest.raises(RuntimeError):
+        sc.cmd_poll(db)
+    assert calls                                     # approved order still dispatched
