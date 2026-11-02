@@ -56,14 +56,16 @@ def load_daily(min_rows: int = MIN_HIST) -> pd.DataFrame:
     (90th-percentile dollar volume >= MIN_DV and >= MIN_HIST sessions), plus SPY. The per-date
     eligibility filter is applied later; this only bounds memory."""
     import duckdb
+    import pyarrow.parquet as pq
 
+    files = [str(f) for f in sorted(Path("data/daily").glob("*.parquet")) if pq.read_metadata(f).num_rows > 0]
     q = f"""WITH d AS (SELECT regexp_extract(filename, '([^/]+)\\.parquet$', 1) AS symbol, date, open, high, low,
-                       close, volume, vwap FROM read_parquet('data/daily/*.parquet', filename=true)),
+                       close, volume, vwap FROM read_parquet({files!r}, filename=true)),
             s AS (SELECT symbol FROM d GROUP BY symbol HAVING (count(*) >= {min_rows}
                   AND quantile_cont(close * volume, 0.9) >= {MIN_DV} AND max(close) >= {MIN_PRICE}) OR symbol = 'SPY')
             SELECT d.* FROM d JOIN s USING (symbol)"""
     d = duckdb.sql(q).df()
-    d["date"] = pd.to_datetime(d.date)
+    d["date"] = pd.to_datetime(d.date).astype("datetime64[ns]")
     return d.sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
@@ -88,14 +90,14 @@ def price_features(d: pd.DataFrame, spy: pd.Series) -> pd.DataFrame:
         "beta_252": 2 / 3 * cov / roll(m * m, 252).sub(roll(m, 252) ** 2) + 1 / 3,
         "vol_20": roll(ret, 20, "std") * np.sqrt(252), "atr_pct": roll(tr, 14) / d.close,
         "mom_252_21": g.close.shift(21) / g.close.shift(252) - 1, "rev_5": d.close / g.close.shift(5) - 1,
-        "ln_dv_20": np.log(roll(dv, 20, "median")), "dv_20": roll(dv, 20, "median"), "volume": d.volume})
+        "ln_dv_20": np.log(roll(dv, 20, "median").where(lambda x: x > 0)), "dv_20": roll(dv, 20, "median"), "volume": d.volume})
     return out
 
 
 def finra_features(p: pd.DataFrame, path: Path = Path("data/finra/short_volume.parquet")) -> pd.DataFrame:
     """Short volume of day t is published after t's close: it is a feature of the close of t, used at t+1 open."""
     f = pd.read_parquet(path, columns=["date", "symbol", "short_vol", "total_vol"])
-    f["date"] = pd.to_datetime(f.date)
+    f["date"] = pd.to_datetime(f.date).astype("datetime64[ns]")
     p = p.merge(f, on=["symbol", "date"], how="left")
     sv = p.short_vol / p.total_vol.where(p.total_vol > 0)
     g = sv.groupby(p.symbol, sort=False)
@@ -121,7 +123,8 @@ def f13_features(p: pd.DataFrame, agg: Path = Path("data/sec13f/holdings_agg.par
     h["breadth_chg"] = h.n_holders / g.n_holders.shift(1) - 1
     h["net_new_share"] = (h.n_new - h.n_exit) / g.n_holders.shift(1)
     h["inst_shares_chg"] = h.total_shares / g.total_shares.shift(1) - 1
-    h["available_date"] = pd.to_datetime(h.available_date)
+    h["available_date"] = pd.to_datetime(h.available_date).astype("datetime64[ns]")
+    p = p.assign(date=p.date.astype("datetime64[ns]"))
     h = h.sort_values("available_date")
     p = p.sort_values("date")
     out = pd.merge_asof(p, h[["symbol", "available_date"] + F13], left_on="date", right_on="available_date",
