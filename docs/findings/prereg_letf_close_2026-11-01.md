@@ -41,3 +41,18 @@ listing) to launch - 1.
 L1 and L2 PASS -> forward paper test on Fly (no capital), sized by beta/ATR. L2 only -> the flow is
 real but too small to trade after costs. FAIL -> rejected.
 Trial ledger run id: `letf-close-2026-11-01`.
+
+## Result (2026-11-01, run once, commit 3ab4036, trial ledger `letf-close-2026-11-01`) — VERDICT: FAIL (L1 and L2)
+
+| | n | gross/trade | net/trade | win | lower bound | halves |
+|---|---|---|---|---|---|---|
+| L1 post-launch, pooled 16 stocks | 2,628 | -0.001% | **-0.105%** | 42% | -0.148% | -0.12% / -0.09% |
+| pre-launch, same rule | 6,217 | +0.020% | | | | |
+| L2 difference post - pre (gross) | | **-0.021%** | | | -0.076% | |
+
+Secondary: exit at the official close (closing auction) -0.105%; costs 2 bp/side -0.045%;
+LETF intensity terciles (fund $ volume / stock $ volume, median 0.1% / 0.9% / 6.5%): gross +0.004% /
+-0.014% / +0.006% -> no dose-response. Per stock post-launch gross: MSTR -0.10%, AAOI -0.10% (51),
+MU +0.07%, AMD +0.04%, all others within +-0.04%.
+Reading: whatever the 2x funds buy into the close is absorbed (market makers pre-hedge or the
+closing auction takes it); there is no last-half-hour continuation to trade, before or after costs.
