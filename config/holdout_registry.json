@@ -1,0 +1,9 @@
+{
+  "studies": {
+    "inst-flow-2026-11": {
+      "train": ["2016-01-04", "2022-12-30"],
+      "holdout": ["2023-01-03", "2026-10-30"],
+      "prereg": "docs/findings/prereg_inst_flow_2026-11-02.md"
+    }
+  }
+}
