@@ -1,0 +1,172 @@
+"""SMS control plane (scripts/sms_control.py) and the 60/40 approval gate (scripts/rebalance_passive.py)."""
+from __future__ import annotations
+
+import re
+import sys
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+import rebalance_passive as rp  # noqa: E402
+import sms_control as sc  # noqa: E402
+from sgt.allocation.rebalance import PlannedOrder  # noqa: E402
+from sgt.ops import approvals as ap  # noqa: E402
+from sgt.ops.sms import Inbound  # noqa: E402
+from sgt.ops.store import OpsStore  # noqa: E402
+
+
+class FakeSms:
+    def __init__(self, inbound=()):
+        self.sent: list[str] = []
+        self._in = list(inbound)
+
+    def send(self, text):
+        self.sent.append(text)
+
+    def inbound(self, since):
+        return [m for m in self._in if m.sent_at.date() >= since.date()]
+
+    def close(self):
+        pass
+
+    def code(self):
+        return re.findall(r"(?:OK|RESUME|FLATTEN) (\d{6})", self.sent[-1])[0]
+
+
+@pytest.fixture()
+def db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "reports/rebalance").mkdir(parents=True)
+    return OpsStore(tmp_path / "ops.db")
+
+
+def msg(sid, body, minutes=0):
+    return Inbound(sid, body, datetime.now(timezone.utc) + timedelta(minutes=minutes))
+
+
+def test_pause_resume_requires_code(db):
+    sms = FakeSms()
+    assert "PAUSED" in sc.handle(db, sms, ap.parse("pause"), "SM1") and db.paused()
+    assert sc.handle(db, sms, ap.parse("resume"), "SM2") == ""          # challenge text is the reply
+    assert "RESUME" in sms.sent[-1] and db.paused()
+    assert "RESUMED" in sc.handle(db, sms, ap.parse(f"RESUME {sms.code()}"), "SM3") and not db.paused()
+    assert "Not understood" in sc.handle(db, sms, ap.parse("buy everything"), "SM4")
+
+
+def test_poll_ignores_old_texts_and_handles_each_sid_once(db, monkeypatch):
+    db.set_flag("control_since", datetime.now(timezone.utc).isoformat())
+    old, new = msg("SMold", "pause", minutes=-5), msg("SMnew", "pause", minutes=1)
+    sms = FakeSms([old, new, new])
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    sc.cmd_poll(db)
+    sc.cmd_poll(db)
+    assert db.paused() and sum("PAUSED" in t for t in sms.sent) == 1
+    with db.tx() as c:
+        assert {r[0]: r[1] for r in c.execute("SELECT sid, outcome FROM inbound")} == {"SMold": None, "SMnew": "PAUSE"}
+
+
+def test_book_approval_by_text_schedules_orders(db):
+    sms = FakeSms()
+    sc.book.propose(db, sms.send, strategy="megacap", targets={"NVDA": 0.2}, fill_session=date(2026, 11, 3),
+                    deadline=datetime.now(timezone.utc) + timedelta(hours=1), label="megacap 11-02")
+    reply = sc.handle(db, sms, ap.parse(f"ok {sms.code()}"), "SM1")
+    assert "scheduled for 2026-11-03" in reply
+    assert sc.book.projected(db, "megacap") == {"NVDA": 0.2}
+
+
+def test_unclaimed_broker_approval_is_failed_not_retried(db, monkeypatch):
+    sms = FakeSms()
+    ap.request(db, sms.send, strategy="passive_60_40", kind="broker", period="2026-11", summary="60/40",
+               payload={"plan": []}, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
+    _, row = ap.answer(db, ap.Command("OK", sms.code()), "SM1")
+    calls = []
+    monkeypatch.setitem(sc.EXECUTORS, "passive_60_40", lambda r: calls.append(r["id"]) or (True, "exit 0"))
+    sc.dispatch_broker(db, sms)
+    sc.dispatch_broker(db, sms)
+    assert calls == [row["id"]] and ap.latest(db, "passive_60_40", "2026-11")["status"] == "failed"
+    assert "not executed" in sms.sent[-1]
+
+
+def test_tom_roles_match_the_registered_windows():
+    assert sc.tom_role(date(2026, 11, 27)) == "entry"     # 2nd-to-last November session (11-26 holiday)
+    assert sc.tom_role(date(2026, 12, 3)) == "exit"       # 3rd December session
+    assert sc.tom_role(date(2026, 11, 26)) is None and sc.tom_role(date(2026, 11, 30)) is None
+
+
+def order(sym, side, qty):
+    return PlannedOrder(sym, side, qty, 100.0, qty * 100.0)
+
+
+def test_rebalance_plan_must_match_approval():
+    approved = [{"symbol": "SPY", "side": "sell", "qty": 30}, {"symbol": "IEF", "side": "buy", "qty": 100}]
+    assert rp.same_plan(approved, [order("SPY", "sell", 32), order("IEF", "buy", 109)])
+    assert not rp.same_plan(approved, [order("SPY", "sell", 30), order("IEF", "buy", 115)])
+    assert not rp.same_plan(approved, [order("SPY", "buy", 30), order("IEF", "buy", 100)])
+    assert not rp.same_plan(approved, [order("SPY", "sell", 30)])
+
+
+def test_rebalance_gate_requests_then_runs_only_with_matching_claim(db, monkeypatch):
+    sms = FakeSms()
+    monkeypatch.setattr(rp, "sms_send", sms.send)
+    monkeypatch.setattr(rp, "OpsStore", lambda: db)
+    now = datetime.now(timezone.utc)
+    orders = [order("SPY", "sell", 30)]
+    args = SimpleNamespace(approval_id=None)
+    monkeypatch.setattr(rp, "WINDOW", (rp.WINDOW[0], (now + timedelta(hours=1)).astimezone(rp.ET).time()))
+    et = now.astimezone(rp.ET)
+    assert rp.approval_gate(args, orders, et, now) is None and "OK" in sms.sent[-1]
+    assert rp.approval_gate(args, orders, et, now) is None and len(sms.sent) == 1   # pending: no re-ask
+    _, row = ap.answer(db, ap.Command("OK", sms.code()), "SM1")
+    with pytest.raises(SystemExit):
+        rp.approval_gate(SimpleNamespace(approval_id=row["id"] + 1), orders, et, now)
+    assert rp.approval_gate(SimpleNamespace(approval_id=row["id"]), orders, et, now) == row["id"]
+    with pytest.raises(SystemExit):                                                   # claimed once only
+        rp.approval_gate(SimpleNamespace(approval_id=row["id"]), orders, et, now)
+
+
+def test_megacap_proposal_is_sized_and_proposed_once(db, monkeypatch):
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(3)
+    idx = pd.bdate_range("2025-06-02", periods=300).date
+    m = rng.normal(0, 0.01, 300)
+
+    def frame(beta, vol):
+        c = 100 * np.cumprod(1 + beta * m + rng.normal(0, vol, 300))
+        return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99, "close": c, "volume": 1e6}, index=idx)
+    bars = {"NVDA": frame(2.0, 0.01), "MSFT": frame(1.0, 0.005), "AAPL": frame(1.0, 0.005), "SPY": frame(1.0, 0.0)}
+    monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
+    dec_dir = Path("reports/megacap_forward/decisions")
+    dec_dir.mkdir(parents=True)
+    d = sc.next_session(date.today()).isoformat()           # fill deadline always in the future
+    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "positions": {
+        "NVDA": {"position": 1}, "MSFT": {"position": -1}, "AAPL": {"position": 0}}}))
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    sc.cmd_megacap(db)
+    sc.cmd_megacap(db)
+    assert len(sms.sent) == 1 and "NVDA long" in sms.sent[0] and "MSFT short" in sms.sent[0]
+    t = json.loads(ap.pending(db)[0]["payload"])["targets"]
+    assert 0 < t["NVDA"] <= 0.25 and -0.25 <= t["MSFT"] < 0 and "AAPL" not in t
+    assert abs(t["NVDA"] * 1.0) < 1.0
+
+
+def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
+    from sgt.ops import digest
+
+    now = datetime.now(rp.ET)
+    log = tmp_path / "x.log"
+    log.write_text(f"=== {now - timedelta(hours=30):%Y-%m-%d %H:%M:%S} old\n!!! exit 1\n"
+                   f"=== {now - timedelta(hours=1):%Y-%m-%d %H:%M:%S} new\nok\n"
+                   f"=== {now - timedelta(minutes=5):%Y-%m-%d %H:%M:%S} newer\n!!! exit 2\n")
+    assert digest.job_failures(now, {"job": log}) == [f"job {now - timedelta(minutes=5):%m-%d %H:%M}"]
+    ap.request(db, lambda t: None, strategy="tom", kind="book", period="p", summary="tom",
+               payload={}, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
+    text = digest.build(db, now, fills=[], problems=["x: missing close"], broker="Alpaca paper: $1", research=[None])
+    assert "Pending: tom OK" in text and "! x: missing close" in text and "no approved positions" in text
