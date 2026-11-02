@@ -49,3 +49,18 @@ published, per stock and session (implemented in `scripts/aaoi_study.py::orb_tra
 PASS -> forward paper test of that rule on Fly (no capital), then a position-sizing design using
 beta and ATR. FAIL -> the morning-breakout day-trading idea is rejected for these names.
 Trial ledger run id: `aaoi-intraday-2026-11-01`.
+
+## Result (2026-11-01, run once, commit 9d277c9, trial ledger `aaoi-intraday-2026-11-01`) — VERDICT: FAIL (both)
+
+| Held-out 2024-01 .. 2026-10 | n | mean net/trade | gross | mean R | win | lower bound | halves | top-5 share |
+|---|---|---|---|---|---|---|---|---|
+| H1 pooled (7 names trade; FN never passes the volume filter) | 1,423 | -0.055% | +0.057% | -0.18 | 14% | -0.19% | +0.01% / -0.12% | n/a (total < 0) |
+| H2 AAOI | 212 | +0.124% | +0.255% | +0.10 | 16% | -0.31% | +0.23% / +0.02% | 2.79 |
+
+AAOI's positive mean comes from a handful of trend days: the 5 best trades are 279% of its total
+(without them it loses), 84% of trades lose, and 2026 to date is -0.11%/trade. Secondary: long
++0.04%, short -0.16%, relative volume >= 2 -0.04% (402), costs doubled -0.17%; per name AAOI +0.12%,
+CRDO +0.19%, SMCI +0.12%, MRVL -0.11%, CIEN -0.17%, LITE -0.24%, COHR -0.32%. AAOI signals traded
+through AAOX/AAOZ (2x, 2026 only): 38 trades, +1.84%/trade (too few to mean anything).
+Reading: the published morning breakout did not survive publication on these names; on AAOI it is
+a lottery ticket (rare big trend days), not a steady edge.
