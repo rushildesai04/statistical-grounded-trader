@@ -47,7 +47,7 @@ Trial ledger run id: `letf-close-2026-11-01`.
 | | n | gross/trade | net/trade | win | lower bound | halves |
 |---|---|---|---|---|---|---|
 | L1 post-launch, pooled 16 stocks | 2,628 | -0.001% | **-0.105%** | 42% | -0.148% | -0.12% / -0.09% |
-| pre-launch, same rule | 6,217 | +0.020% | | | | |
+| pre-launch, same rule | 6,221 | +0.020% | | | | |
 | L2 difference post - pre (gross) | | **-0.021%** | | | -0.076% | |
 
 Secondary: exit at the official close (closing auction) -0.105%; costs 2 bp/side -0.045%;
