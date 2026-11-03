@@ -94,3 +94,30 @@ held-out result is therefore partly known (negative). It stays in the grid for c
 were selected on development data, the held-out test would still run but the report would flag it.
 
 Trial ledger run id `fast-megacap-2026-11-03`.
+
+## Result (2026-11-03, scored once; vault unlock `vault:fast-megacap-2026-11`, trial ledger `fast-megacap-2026-11-03`) — VERDICT: FAIL
+Development (2018-01 .. 2023-12, 1,509 days): best configuration per-name, hold to the close, q = 0.95:
++1.2%/yr, Sharpe 0.52 (just above the 0.5 stop line), so the held-out test ran.
+Held-out 2024-01-02 .. 2026-10-29 (710 days), selected configuration: mean daily net -0.0019%
+(-0.5%/yr), lower95 -0.0087%, Sharpe -0.27, 2x-cost -0.0052%; years 2024 -1.1%, 2025 -0.6%,
+2026 +0.4%. All four checks failed.
+
+Gross edge per trade, development vs held-out (per-name books; from `reports/fast_megacap/wf_*.parquet`):
+
+| H | q 0.90 | q 0.95 | q 0.98 |
+|---|---|---|---|
+| 30 min | +1.3 / +0.6 bp | +1.6 / +0.4 | +2.5 / +1.0 |
+| 60 min | +2.0 / +1.7 | +2.9 / +2.3 | +4.5 / +5.1 |
+| 120 min | +1.8 / +2.0 | +2.2 / +2.5 | +4.1 / +0.9 |
+| close | +4.9 / -1.1 | +8.6 / +1.7 | +10.6 / +4.7 |
+
+Reading: longer holds and stricter thresholds raised gross edge per trade on development data as
+intended, but the best cells shrank by 60-80% on held-out data and stayed at or below the 4 bp
+cost. Every cross-sectional book lost money in both periods. The models still have some skill
+(gross is positive in 11 of 12 per-name cells held-out), but it is too small to pay for trading. Fast
+directional trading on these 19 large caps is closed per this pre-registration; no re-cut of this data.
+
+Reporting note: the scorer's SECONDARY table printed trade counts and gross per trade over the whole
+2018-2026 walk-forward, not the held-out period alone (net returns, Sharpe and the verdict were held-out
+only and are correct). The table above is the corrected split; the scorer is left unchanged as the
+committed, unlocked version.
