@@ -271,7 +271,7 @@ def cmd_poll(db: OpsStore) -> int:
 
 def last_final_session(now_et: datetime) -> date:
     cal, d = default_calendar(), now_et.date()
-    if cal.is_session(d) and now_et >= cal.bounds(d).close.astimezone(ET) + timedelta(minutes=20):
+    if cal.is_session(d) and now_et >= cal.bounds(d).rth_close.astimezone(ET) + timedelta(minutes=20):
         return d
     d -= timedelta(days=1)
     while not cal.is_session(d):

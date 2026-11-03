@@ -181,7 +181,7 @@ def test_flatten_broker_error_still_pauses_finishes_and_replies(db, monkeypatch)
     monkeypatch.setattr(sc.httpx, "delete", boom)
     reply = sc.handle(db, sms, ap.parse(f"FLATTEN {sms.code()}"), "SM2")
     assert "INCOMPLETE" in reply and db.paused()
-    assert ap.latest(db, "control:flatten", date.today().isoformat())["status"] == "failed"
+    assert ap.latest(db, "control:flatten", datetime.now(timezone.utc).date().isoformat())["status"] == "failed"
 
 
 def test_pause_blocks_pending_and_scheduled_entries(db):
@@ -239,3 +239,11 @@ def test_stale_approvals_are_swept_and_dispatch_survives_twilio_failure(db, monk
     with pytest.raises(RuntimeError):
         sc.cmd_poll(db)
     assert calls                                     # approved order still dispatched
+
+
+def test_last_final_session_uses_rth_close():
+    # regression 2026-11-02: SessionBounds has rth_close, not close; the first live digest crashed on it
+    et = sc.ET
+    assert sc.last_final_session(datetime(2026, 11, 2, 20, 50, tzinfo=et)) == date(2026, 11, 2)
+    assert sc.last_final_session(datetime(2026, 11, 2, 16, 5, tzinfo=et)) == date(2026, 10, 30)
+    assert sc.last_final_session(datetime(2026, 11, 1, 12, 0, tzinfo=et)) == date(2026, 10, 30)
