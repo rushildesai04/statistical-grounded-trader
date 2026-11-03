@@ -69,3 +69,18 @@ returns, events per year, and an indicative annual return at 5% of capital per e
 Daily returns of 19 of these names (2016-2026) were used by earlier per-ticker and fast-intraday studies,
 never conditioned on earnings dates. No return around an earnings event has been computed for any name
 in this repository before this file. Trial ledger run id `earnings-2026-11-03`.
+
+## Result (2026-11-03, scored once; vault unlock `vault:earnings-2026-11`, trial ledger `earnings-2026-11-03`) — VERDICT: FAIL
+Development (2,980 events, 97 names, 2016-02 .. 2023-12): a clean continuation pattern. Every
+continuation configuration with a filter >= 3% or a multi-day hold was positive, every reversal configuration negative,
+and the effect grew with move size and holding time. Selected: close entry, continuation, |reaction day| >= 5%, exit
+after 5 sessions: +0.406% per event net of 10 bp, SPY-hedged, lower95 +0.156% (760 events).
+
+Held-out (2024-01-02 .. 2026-10-29), selected configuration, 425 events: mean +0.127% per event,
+lower95 -0.225%, 2x-cost +0.027%, unhedged +0.181%; by year 2024 +0.404%, 2025 +0.171%, 2026 -0.267%.
+Checks: lower95 > 0 FAIL; 2x cost, 2 of 3 years and >= 100 events pass. **VERDICT: FAIL.**
+
+Reading: post-earnings continuation on large caps shrank by about two thirds and is no longer
+distinguishable from zero; the open-entry continuation trades that worked in 2016-2023 lost money in
+2024-26 (consistent with the published decay of post-announcement drift in large, heavily traded stocks).
+Earnings-reaction trading on large caps is closed per this pre-registration.
