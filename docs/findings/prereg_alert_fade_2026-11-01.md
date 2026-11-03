@@ -90,3 +90,19 @@ real locate-price check; no capital, and not tradeable at Alpaca.
   decide on mean net > 0 alone.
 - Before any capital, separately: real locate quotes for a sample of alerted names from a locate
   broker; the trade needs an average locate cost below about 1.5% of notional.
+
+## Amendment F2 — live virtual book (2026-11-03; no change to the rule or to the F1 decision)
+- Purpose: run the same trade in real time so the owner sees each entry and exit as it happens. It is a
+  separate, smaller book; the F1 forward record (built from channel history) stays the only input to the
+  KEEP/DROP decision above.
+- Listener: a dedicated Telegram account on the runner (`scripts/fade_live.py run`). Alerts are parsed with
+  the same parser; cell types, 10 s reaction, 5 min entry limit, 09:30-15:44 ET and $1-50 are the F1 filters.
+- Ops gates that F1 does not have (so the book is a subset of F1): the owner must text `ARM <code>` each
+  day; PAUSE/DISARM stop new entries; at most 15 trades a day and 8 open; new entries stop for the day
+  once estimated losses reach 3% of the book. Each trade is 5% of the book's value.
+- Live prices are IEX (Alpaca free real-time) and are estimates only. The official result of every trade
+  is computed after the session with SIP 1-minute bars by the research code itself
+  (`attach_trades`, `primary_events`, `alert_fade_test.score`); only official results move the book.
+- Known deviations from F1: alerts edited later are traded (flagged `edited`), F1 drops them; an alert
+  the live price filter rejects is not traded even if the official SIP entry would qualify.
+- Still no orders and no capital. Real money needs a locate broker (see F1) and its own decision.
