@@ -1,9 +1,26 @@
 {
   "studies": {
     "inst-flow-2026-11": {
-      "train": ["2016-01-04", "2022-12-30"],
-      "holdout": ["2023-01-03", "2026-10-30"],
+      "train": [
+        "2016-01-04",
+        "2022-12-30"
+      ],
+      "holdout": [
+        "2023-01-03",
+        "2026-10-30"
+      ],
       "prereg": "docs/findings/prereg_inst_flow_2026-11-02.md"
+    },
+    "fast-megacap-2026-11": {
+      "train": [
+        "2016-01-04",
+        "2023-12-29"
+      ],
+      "holdout": [
+        "2024-01-02",
+        "2026-10-29"
+      ],
+      "prereg": "docs/findings/prereg_fast_megacap_2026-11-03.md"
     }
   }
 }
