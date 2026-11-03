@@ -14,6 +14,7 @@ blocked the research event) | pending (waiting for a first quote) | open | est_c
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Callable
@@ -25,6 +26,7 @@ from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals
 from sgt.ops.store import OpsStore, iso, utcnow
 
+log = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 # Mirrors telegram_alert_test.CELL_OF (cells only); tests/fast/test_fade.py asserts they stay equal.
 CELLS = frozenset({"volume_increasing", "volume_spike", "gaining_volume", "gaining_momentum", "new_high",
@@ -127,36 +129,54 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None) -> No
     with db.tx() as c:
         rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('pending','open') ORDER BY id").fetchall()
     for r in rows:
-        posted = datetime.fromisoformat(r["posted_at"])
-        if r["status"] == "pending":
-            if now < posted + REACTION:
-                continue
-            px = quote(r["symbol"])
-            if px is None or not px > 0:
-                if now - posted > MAX_ENTRY_DELAY:
-                    _set(db, r["id"], "pending", status="skipped", reason="no quote within 5 min")
-                continue
-            if not PRICE_MIN <= px <= PRICE_MAX:
-                _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
-                continue
-            if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
-                out = (now + HOLD).astimezone(ET)
-                send(f"[SGT] fade SHORT {r['symbol']} ~${_fmt(px)} est ({r['alert_type']}); stop ${_fmt(px * (1 + STOP))},"
-                     f" out by {out:%H:%M} ET. {WEIGHT:.0%} of fade book.")
-            continue
-        px = quote(r["symbol"])
-        entry, started = r["est_entry"], datetime.fromisoformat(r["est_entry_at"])
-        if px is not None and px > 0:
-            _set(db, r["id"], "open", est_last=px)
-        last = px if px is not None and px > 0 else r["est_last"]
-        why = "stop" if last and last >= entry * (1 + STOP) else ("60 min" if now >= started + HOLD else None)
-        if why is None:
-            continue
-        exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
-        if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why):
-            g = (entry - exit_px) / entry
-            send(f"[SGT] fade COVER {r['symbol']} ~${_fmt(exit_px)} est ({why}): {g:+.1%} before costs. "
-                 "Official result after SIP bars (~20 min).")
+        try:
+            _advance(db, send, quote, r, now)
+        except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
+            log.exception("fade row %s failed", r["id"])
+
+
+def _advance(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+    if r["status"] == "pending":
+        _enter(db, send, quote, r, now)
+    else:
+        _exit(db, send, quote, r, now)
+
+
+def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+    posted = datetime.fromisoformat(r["posted_at"])
+    if now < posted + REACTION:
+        return
+    if not approvals.armed(db, now):                  # DISARM / PAUSE after the alert cancels the entry
+        _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
+        return
+    px = quote(r["symbol"])
+    if px is None or not px > 0:
+        if now - posted > MAX_ENTRY_DELAY:
+            _set(db, r["id"], "pending", status="skipped", reason="no quote within 5 min")
+        return
+    if not PRICE_MIN <= px <= PRICE_MAX:
+        _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
+        return
+    if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
+        out = (now + HOLD).astimezone(ET)
+        send(f"[SGT] fade SHORT {r['symbol']} ~${_fmt(px)} est ({r['alert_type']}); stop ${_fmt(px * (1 + STOP))},"
+             f" out by {out:%H:%M} ET. {WEIGHT:.0%} of fade book.")
+
+
+def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+    px = quote(r["symbol"])
+    entry, started = r["est_entry"], datetime.fromisoformat(r["est_entry_at"])
+    if px is not None and px > 0:
+        _set(db, r["id"], "open", est_last=px)
+    last = px if px is not None and px > 0 else r["est_last"]
+    why = "stop" if last and last >= entry * (1 + STOP) else ("60 min" if now >= started + HOLD else None)
+    if why is None:
+        return
+    exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
+    if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why):
+        g = (entry - exit_px) / entry
+        send(f"[SGT] fade COVER {r['symbol']} ~${_fmt(exit_px)} est ({why}): {g:+.1%} before costs. "
+             "Official result in tonight's digest.")
 
 
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:

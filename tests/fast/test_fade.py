@@ -168,3 +168,27 @@ def test_official_uses_the_research_scorer(tmp_path, monkeypatch):
     assert 3 not in res.index                                 # bars missing, still inside VOID_AFTER: retried
     late = fl.official(due, now=T10 + timedelta(days=4)).set_index("id")
     assert not late.loc[3].qualifies
+
+
+def test_disarm_before_entry_cancels_pending(db):
+    # regression F-1 (review 2026-11-03): DISARM / PAUSE inside the reaction window must not open the trade
+    ap.arm(db, T10)
+    fade.on_alert(db, alert(), now=T10)
+    ap.disarm(db)
+    fade.monitor(db, Outbox(), lambda s: 10.0, now=T10 + timedelta(seconds=20))
+    r = rows(db)[0]
+    assert r["status"] == "skipped" and r["reason"] == "disarmed before entry"
+
+
+def test_one_failing_row_does_not_stall_the_others(db):
+    # regression F-3: a row that raises is logged and skipped; later rows still advance
+    ap.arm(db, T10)
+    fade.on_alert(db, alert("BAD"), now=T10)
+    fade.on_alert(db, alert("OK", mid=2), now=T10)
+
+    def quote(s):
+        if s == "BAD":
+            raise RuntimeError("boom")
+        return 10.0
+    fade.monitor(db, Outbox(), quote, now=T10 + timedelta(seconds=20))
+    assert [r["status"] for r in rows(db)] == ["pending", "open"]
