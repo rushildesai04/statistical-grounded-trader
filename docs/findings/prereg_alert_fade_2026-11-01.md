@@ -106,3 +106,14 @@ real locate-price check; no capital, and not tradeable at Alpaca.
 - Known deviations from F1: alerts edited later are traded (flagged `edited`), F1 drops them; an alert
   the live price filter rejects is not traded even if the official SIP entry would qualify.
 - Still no orders and no capital. Real money needs a locate broker (see F1) and its own decision.
+
+## Amendment F3 — per-trade approval in the live book (2026-11-03, no rule change for the research record)
+User request 2026-11-03: approve individual fast trades by text, not only whole days. On a day that is not
+ARMed, each event that passes the research filters and the risk caps texts an approval request
+(`OK <code>` / `NO <code>`) that expires 4 min 20 s after the alert, so that an approved entry still falls
+inside the tested 5-minute entry window. An approved trade enters at the next real-time quote (listener
+tick 10 s) and is scored officially by the same research code with the entry moved to its real entry time
+(first SIP bar at or after it); auto-ARMed trades keep the original rule (first bar >= alert + 10 s). Exits
+stay automatic (20% stop or 60 minutes) because the edge was measured with those exits. Owner texts are
+read once a minute, so a reply needs to arrive within about 3 minutes. The forward research record
+(Amendment F1) is unchanged.

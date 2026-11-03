@@ -12,6 +12,7 @@ live sample before production (see tests/catalysts/fixtures/nasdaq_halts.xml).
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, timezone
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
@@ -32,6 +33,7 @@ _UTC = timezone.utc
 HALTS_URL = "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
 MAX_PAYLOAD_BYTES = 5 * 1024 * 1024
 SOURCE = "nasdaq_trader"
+_CLOCK = re.compile(r"\d{1,2}:\d{2}:\d{2}")
 
 
 def _local(tag: str) -> str:
@@ -41,7 +43,9 @@ def _local(tag: str) -> str:
 def _combine_et(day: str, clock: str) -> datetime | None:
     """Combine MM/DD/YYYY + HH:MM:SS (ET) into a UTC datetime, or None if unparseable."""
     day = (day or "").strip()
-    clock = (clock or "").strip()
+    # The live feed pads HaltTime ("07:55:00          .000"); keep only HH:MM:SS (2026-11-03).
+    m = _CLOCK.search(clock or "")
+    clock = m.group(0) if m else ""
     if not day or not clock:
         return None
     try:
@@ -51,9 +55,7 @@ def _combine_et(day: str, clock: str) -> datetime | None:
     return naive.replace(tzinfo=ET_TZ).astimezone(_UTC)
 
 
-def parse_halts(payload: bytes) -> list[HaltEvent]:
-    """Parse the halt RSS payload into HaltEvents. Raises ValueError on an oversized
-    payload or a payload containing a DTD."""
+def _items(payload: bytes) -> list[dict[str, str]]:
     if len(payload) > MAX_PAYLOAD_BYTES:
         raise ValueError(f"halt feed payload too large: {len(payload)} bytes")
     if b"<!DOCTYPE" in payload or b"<!ENTITY" in payload:
@@ -62,10 +64,27 @@ def parse_halts(payload: bytes) -> list[HaltEvent]:
         root = ET.fromstring(payload)
     except ET.ParseError as exc:
         raise ValueError(f"halt feed is not well-formed XML: {exc}") from exc
+    return [{_local(c.tag): (c.text or "").strip() for c in item}
+            for item in root.iter() if _local(item.tag) == "item"]
 
+
+def parse_halt_rows(payload: bytes) -> list[dict]:
+    """One row per feed item: symbol, market, reason, halt and resumption-trade times (UTC or None)."""
+    out = []
+    for f in _items(payload):
+        symbol = f.get("IssueSymbol", "").strip().upper()
+        if symbol:
+            out.append({"symbol": symbol, "market": f.get("Mkt", "")[:4], "reason": f.get("ReasonCode", "")[:8],
+                        "halt": _combine_et(f.get("HaltDate", ""), f.get("HaltTime", "")),
+                        "resume": _combine_et(f.get("ResumptionDate", ""), f.get("ResumptionTradeTime", ""))})
+    return out
+
+
+def parse_halts(payload: bytes) -> list[HaltEvent]:
+    """Parse the halt RSS payload into HaltEvents. Raises ValueError on an oversized
+    payload or a payload containing a DTD."""
     events: list[HaltEvent] = []
-    for item in (el for el in root.iter() if _local(el.tag) == "item"):
-        fields = {_local(c.tag): (c.text or "").strip() for c in item}
+    for fields in _items(payload):
         symbol = fields.get("IssueSymbol", "").strip().upper()
         if not symbol:
             continue

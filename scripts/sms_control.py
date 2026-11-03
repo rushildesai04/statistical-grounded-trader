@@ -206,6 +206,8 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         return out
     if row["kind"] == "book":
         return f"{reply}\n{book.apply_approved(db, row)}"
+    if row["kind"] == "fade":                      # the fade listener claims it within ~10 s and texts the entry
+        return f"{reply}\nEntering at the next quote; the entry text follows."
     return f"{reply}\nExecuting now; fills follow."
 
 

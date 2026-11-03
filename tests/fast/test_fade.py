@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import re
+
 import pandas as pd
 import pytest
 
@@ -48,15 +50,17 @@ def test_cells_match_the_research_definition():
     assert (fade.REACTION, fade.MAX_ENTRY_DELAY) == (tat.REACTION.to_pytimedelta(), tat.MAX_ENTRY_DELAY.to_pytimedelta())
 
 
-def test_unarmed_event_is_skipped_and_blocks_later_alerts_window_filter_does_not(db):
+def test_unarmed_event_asks_and_blocks_later_alerts_window_filter_does_not(db):
     early = alert(at=datetime(2026, 11, 2, 9, 0, tzinfo=ET).astimezone(timezone.utc))
     assert fade.on_alert(db, early, now=early.posted_at) == "filtered: window"
-    assert fade.on_alert(db, alert(), now=T10) == "skipped: not armed"
+    assert fade.on_alert(db, alert(), now=T10) == "ask #2"
     ap.arm(db, T10)
     assert fade.on_alert(db, alert(mid=2), now=T10) == "duplicate symbol-session"
     assert fade.on_alert(db, alert("XYZ", "halted"), now=T10) == "not a cell"
     assert fade.on_alert(db, alert("NWS", "news", news=False), now=T10) == "not a cell"
-    assert [r["status"] for r in rows(db)] == ["filtered", "skipped"]
+    db.set_flag("paused", "1")
+    assert fade.on_alert(db, alert("PSD", mid=5), now=T10) == "skipped: paused"
+    assert [r["status"] for r in rows(db)] == ["filtered", "ask", "skipped"]
 
 
 def test_arm_is_for_today_only_and_pause_disarms(db):
@@ -192,3 +196,62 @@ def test_one_failing_row_does_not_stall_the_others(db):
         return 10.0
     fade.monitor(db, Outbox(), quote, now=T10 + timedelta(seconds=20))
     assert [r["status"] for r in rows(db)] == ["pending", "open"]
+
+
+def code_in(text: str) -> str:
+    return re.search(r"OK (\d{6})", text).group(1)
+
+
+def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db):
+    # amendment F3: not ARMed -> one approval text per event; OK -> entry at the next quote
+    out = Outbox()
+    assert fade.on_alert(db, alert("APR"), now=T10) == "ask #1"
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=25))      # no duplicate request
+    assert len(out) == 1 and "fade SHORT APR ~$10.00" in out[0] and "Reply OK" in out[0]
+    msg, row = ap.answer(db, ap.Command("OK", code_in(out[0])), "SM1", now=T10 + timedelta(minutes=2))
+    assert row["status"] == "approved"
+    fade.monitor(db, out, lambda s: 10.5, now=T10 + timedelta(minutes=2, seconds=10))
+    r = rows(db)[0]
+    assert r["status"] == "open" and r["reason"] == "approved" and r["est_entry"] == 10.5
+    assert out[-1].startswith("[SGT] fade SHORT APR ~$10.50")
+    assert ap.get(db, row["id"])["status"] == "executed"
+    fade.monitor(db, out, lambda s: 9.0, now=T10 + timedelta(minutes=63))
+    d = fade.due(db, T10 + timedelta(hours=3))
+    assert d.entry_after.iloc[0] == r["est_entry_at"]                          # official entry = real entry
+
+
+def test_declined_or_unanswered_approvals_skip(db):
+    out = Outbox()
+    fade.on_alert(db, alert("NO1"), now=T10)
+    fade.on_alert(db, alert("LATE", mid=2), now=T10)
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
+    no1 = next(t for t in out if "NO1" in t)
+    ap.answer(db, ap.Command("NO", code_in(no1)), "SM2", now=T10 + timedelta(minutes=1))
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=5))
+    assert {r["symbol"]: (r["status"], r["reason"]) for r in rows(db)} == {
+        "NO1": ("skipped", "declined"), "LATE": ("skipped", "not approved in time")}
+
+
+def test_approval_request_is_not_sent_after_the_deadline_or_outside_price(db):
+    out = Outbox()
+    fade.on_alert(db, alert("SLOW"), now=T10)
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=4, seconds=30))
+    t2 = T10 + timedelta(minutes=10)
+    fade.on_alert(db, alert("BIG", at=t2, mid=2), now=t2)
+    fade.monitor(db, out, lambda s: 80.0, now=t2 + timedelta(seconds=15))
+    assert out == []
+    assert [(r["status"], r["reason"]) for r in rows(db)] == [("skipped", "no time left to ask"),
+                                                              ("filtered", "price 80.00 outside $1-50")]
+
+
+def test_official_shifts_approved_trades_to_their_entry_time(tmp_path, monkeypatch):
+    store = ParquetBarStore(tmp_path / "bars")
+    write_bars(store, "APR", {m: (9.0, 9.0) for m in range(34, 120)})       # drops to 9.00 from 10:04
+    monkeypatch.setattr(fl, "BARS", tmp_path / "bars")
+    monkeypatch.setattr(fl, "backfill", lambda *a, **k: {})
+    base = {"id": 1, "symbol": "APR", "alert_type": "volume_spike", "posted_at": T10.isoformat(), "session": "2026-11-02"}
+    auto = fl.official(pd.DataFrame([{**base, "entry_after": None}]), now=T10 + timedelta(hours=10)).iloc[0]
+    late = fl.official(pd.DataFrame([{**base, "entry_after": (T10 + timedelta(minutes=4, seconds=5)).isoformat()}]),
+                       now=T10 + timedelta(hours=10)).iloc[0]
+    assert auto.entry == pytest.approx(10.0) and late.entry == pytest.approx(9.0)

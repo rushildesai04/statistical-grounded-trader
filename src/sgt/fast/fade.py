@@ -9,8 +9,13 @@ Two layers, so the live book can never drift from the tested rule:
   every trade with the research code itself (telegram_alert_test.attach_trades/primary_events +
   alert_fade_test.score). Only official nets move the book's NAV; estimates are display-only.
 
+Entry permission (2026-11-03, amendment F3): ARMed day -> automatic; otherwise each event texts an approval
+request ("OK <code>") that expires in time for the entry to stay inside the tested 5-minute window; an approved
+trade enters at the next quote and is officially scored from its real entry time. Exits are always automatic.
+
 Status: filtered (a research rule excluded it; does not block a later alert) | skipped (an ops gate
-blocked the research event) | pending (waiting for a first quote) | open | est_closed | settled | void.
+blocked the research event) | ask (approval texted, waiting) | pending (waiting for a first quote) | open |
+est_closed | settled | void.
 """
 from __future__ import annotations
 
@@ -42,6 +47,7 @@ WEIGHT = 0.05                                   # short notional per trade, shar
 MAX_TRADES_DAY, MAX_OPEN = 15, 8
 DAY_LOSS_STOP = -0.03                           # NAV fraction (estimates) that stops new entries for the day
 HEARTBEAT_STALE = timedelta(minutes=15)
+ASK_MARGIN = timedelta(seconds=40)              # approval must land this long before the entry deadline
 
 Quote = Callable[[str], "float | None"]
 Official = Callable[[pd.DataFrame], pd.DataFrame]
@@ -65,7 +71,7 @@ def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, 
         return c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status,"
                          " reason, weight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                          (a.symbol, session, a.alert_type, iso(a.posted_at), a.channel, a.message_id, status, reason,
-                          WEIGHT if status == "pending" else None, iso(now))).lastrowid
+                          WEIGHT if status in ("pending", "ask") else None, iso(now))).lastrowid
 
 
 def day_est_pnl(db: OpsStore, session: str) -> float:
@@ -77,13 +83,18 @@ def day_est_pnl(db: OpsStore, session: str) -> float:
 
 
 def gate(db: OpsStore, session: str, now: datetime) -> str | None:
-    """Ops reason that blocks a new entry, or None."""
+    """Ops reason that blocks a new AUTOMATIC entry, or None."""
     if not approvals.armed(db, now):
         return "paused" if db.paused() else "not armed"
+    return caps(db, session)
+
+
+def caps(db: OpsStore, session: str) -> str | None:
+    """Risk caps that block any new entry (automatic or approved), or None."""
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status IN "
-                          "('pending','open','est_closed','settled','void')", (session,)).fetchone()[0]
-        n_open = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('pending','open')").fetchone()[0]
+                          "('ask','pending','open','est_closed','settled','void')", (session,)).fetchone()[0]
+        n_open = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('ask','pending','open')").fetchone()[0]
     if n_day >= MAX_TRADES_DAY:
         return f"daily cap {MAX_TRADES_DAY}"
     if n_open >= MAX_OPEN:
@@ -111,11 +122,18 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     if now - a.posted_at > MAX_ENTRY_DELAY:
         _insert(db, a, session, "skipped", "alert received late", now)
         return "skipped: late"
-    reason = gate(db, session, now)
-    rid = _insert(db, a, session, "skipped" if reason else "pending", reason or "", now)
+    if db.paused():
+        reason, status = "paused", "skipped"
+    elif (reason := caps(db, session)) is not None:
+        status = "skipped"
+    elif approvals.armed(db, now):
+        status = "pending"
+    else:
+        status, reason = "ask", "awaiting approval"
+    rid = _insert(db, a, session, status, "" if status == "pending" else reason, now)
     if rid is None:
         return "duplicate symbol-session"
-    return f"skipped: {reason}" if reason else f"pending #{rid}"
+    return f"skipped: {reason}" if status == "skipped" else f"{status} #{rid}"
 
 
 def _fmt(px: float | None) -> str:
@@ -123,11 +141,12 @@ def _fmt(px: float | None) -> str:
 
 
 def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None) -> None:
-    """Advance live estimates: pending -> open (first quote, price filter), open -> est_closed (stop / 60 min)."""
+    """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
+    open -> est_closed (stop / 60 min)."""
     now = now or utcnow()
     db.set_flag("fade_heartbeat", iso(now))
     with db.tx() as c:
-        rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('pending','open') ORDER BY id").fetchall()
+        rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('ask','pending','open') ORDER BY id").fetchall()
     for r in rows:
         try:
             _advance(db, send, quote, r, now)
@@ -136,17 +155,62 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None) -> No
 
 
 def _advance(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
-    if r["status"] == "pending":
+    if r["status"] == "ask":
+        _ask(db, send, quote, r, now)
+    elif r["status"] == "pending":
         _enter(db, send, quote, r, now)
     else:
         _exit(db, send, quote, r, now)
+
+
+def _approval(db: OpsStore, rid: int):
+    with db.tx() as c:
+        return c.execute("SELECT * FROM approvals WHERE strategy=? AND kind='fade' ORDER BY id DESC LIMIT 1",
+                         (f"fade:{rid}",)).fetchone()
+
+
+def _ask(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+    """Text one approval request per event; an approved request becomes a pending entry (same tick)."""
+    posted = datetime.fromisoformat(r["posted_at"])
+    deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
+    a = _approval(db, r["id"])
+    if a is None:
+        if now >= deadline:
+            _set(db, r["id"], "ask", status="skipped", reason="no time left to ask")
+            return
+        px = quote(r["symbol"])
+        if px is not None and px > 0 and not PRICE_MIN <= px <= PRICE_MAX:
+            _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
+            return
+        summary = (f"fade SHORT {r['symbol']} ~${_fmt(px)} ({r['alert_type']}): 20% stop, auto-exit in 60 min, "
+                   f"{WEIGHT:.0%} of fade book.")
+        aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
+                                summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
+        if aid is None:
+            _set(db, r["id"], "ask", status="skipped", reason="approval not sent (paused or SMS failed)")
+        return
+    if a["status"] == "approved":
+        if not approvals.claim(db, a["id"], now):               # expired between the reply and this tick
+            _set(db, r["id"], "ask", status="skipped", reason="approval expired before entry")
+            return
+        if db.paused() or now > deadline + ASK_MARGIN:
+            approvals.finish(db, a["id"], False, "paused or too late")
+            _set(db, r["id"], "ask", status="skipped", reason="paused or too late after approval")
+            return
+        approvals.finish(db, a["id"], True, "entering")
+        if _set(db, r["id"], "ask", status="pending", reason="approved"):
+            _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now)
+        return
+    if a["status"] in ("rejected", "expired", "failed", "superseded") or now >= deadline:
+        _set(db, r["id"], "ask", status="skipped", reason="declined" if a["status"] == "rejected" else "not approved in time")
 
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
     if now < posted + REACTION:
         return
-    if not approvals.armed(db, now):                  # DISARM / PAUSE after the alert cancels the entry
+    allowed = approvals.armed(db, now) or (r["reason"] == "approved" and not db.paused())
+    if not allowed:                                   # DISARM / PAUSE after the alert cancels the entry
         _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
         return
     px = quote(r["symbol"])
@@ -190,8 +254,10 @@ def due(db: OpsStore, now: datetime | None = None) -> pd.DataFrame:
     """Trades whose official 60-minute window is final on SIP (``SETTLE_AFTER`` past the alert)."""
     now = now or utcnow()
     with db.tx() as c:
-        rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('open','est_closed') AND posted_at <= ? ORDER BY id",
-                         (iso(now - SETTLE_AFTER),)).fetchall()
+        rows = c.execute("SELECT f.*, CASE WHEN a.id IS NOT NULL THEN f.est_entry_at END AS entry_after "
+                         "FROM fade_trades f LEFT JOIN approvals a ON a.strategy = 'fade:' || f.id AND a.kind='fade' "
+                         "AND a.status='executed' WHERE f.status IN ('open','est_closed') AND f.est_entry_at <= ? "
+                         "ORDER BY f.id", (iso(now - SETTLE_AFTER),)).fetchall()
     return pd.DataFrame([dict(r) for r in rows])
 
 

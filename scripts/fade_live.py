@@ -41,7 +41,7 @@ ET = ZoneInfo("America/New_York")
 CHANNEL = -1001254273411                       # MetaTradings alerts (same as alert_fade_forward.CHANNEL)
 SESSION_SECRET = "tg_fade_session"
 BARS = Path("data/fast")                       # own store: never mixes with research bar stores
-TICK = 30                                      # seconds between monitor passes
+TICK = 10                                      # seconds between monitor passes (approval -> entry latency)
 MAX_FADE_TEXTS_DAY = 40
 VOID_AFTER = timedelta(days=3)                 # SIP bars still missing after this -> void
 _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
@@ -143,8 +143,11 @@ def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
     """Research scoring for due trades. Rows whose SIP bars are not stored yet are left out (retried)."""
     now = now or utcnow()
     store = ParquetBarStore(BARS)
-    a = due.assign(posted_at=pd.to_datetime(due.posted_at, utc=True),
-                   session=pd.to_datetime(due.session).dt.date, has_news=None)
+    posted = pd.to_datetime(due.posted_at, utc=True)
+    if "entry_after" in due:                   # approved trades: score from the real entry time (amendment F3)
+        after = pd.to_datetime(due.entry_after, utc=True, errors="coerce") - fade.REACTION
+        posted = after.where(after.notna(), posted)
+    a = due.assign(posted_at=posted, session=pd.to_datetime(due.session).dt.date, has_news=None)
     fetch = AlpacaHistoricalBars(feed="sip").fetch
     for d, g in a.groupby("session"):
         backfill(sorted(g.symbol.unique()), d, d, store=store, fetch=fetch)
