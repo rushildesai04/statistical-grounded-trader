@@ -194,11 +194,12 @@ def cmd_login() -> int:
 
 
 def cmd_push_secret() -> int:
-    """Keychain -> Fly secret via stdin, so the value never appears in argv, logs or the terminal."""
-    value = get_secret(SESSION_SECRET)
-    subprocess.run(["fly", "secrets", "import", "-a", "sgt-runner"], input=f"SGT_SECRET_TG_FADE_SESSION={value}\n",
-                   text=True, check=True, timeout=300)
-    print("Fly secret SGT_SECRET_TG_FADE_SESSION set (value not shown)")
+    """Keychain -> Fly secrets via stdin, so values never appear in argv, logs or the terminal. One import =
+    one release; the session secret's presence is what makes the boot script start the listener."""
+    names = ["telegram_api_id", "telegram_api_hash", SESSION_SECRET]
+    body = "".join(f"SGT_SECRET_{n.upper()}={get_secret(n)}\n" for n in names)
+    subprocess.run(["fly", "secrets", "import", "-a", "sgt-runner"], input=body, text=True, check=True, timeout=300)
+    print("Fly secrets set (values not shown): " + ", ".join(f"SGT_SECRET_{n.upper()}" for n in names))
     return 0
 
 
