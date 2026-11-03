@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops data/alpaca data/etf_yf
+mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops reports/fast data/alpaca data/etf_yf
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -38,6 +38,8 @@ if [ "${1:-}" = "job" ]; then
     tom)       run reports/ops/run.log python /app/scripts/sms_control.py tom ;;
     etfbook)   run reports/ops/run.log python /app/scripts/sms_control.py etf ;;
     digest)    run reports/ops/run.log python /app/scripts/sms_control.py digest ;;
+    # Fast alert-fade book (2026-11-03): official results from SIP bars before the digest.
+    fadesettle) run reports/fast/run.log python /app/scripts/fade_live.py settle ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?
@@ -45,4 +47,13 @@ fi
 
 # Boot: catch up anything missed while the machine was down, then hand over to cron.
 "$0" job megacap || true
+# Fast alert-fade listener (2026-11-03): only with its dedicated Telegram session secret; restarted on exit.
+# Health shows in the digest (heartbeat), not pages, so a Telegram outage cannot flood SMS.
+if [ -n "${SGT_SECRET_TG_FADE_SESSION:-}" ]; then
+  ( while true; do
+      python /app/scripts/fade_live.py run >> reports/fast/listener.log 2>&1 || true
+      echo "=== $(date '+%F %T %Z') listener exited; restart in 30s" >> reports/fast/listener.log
+      sleep 30
+    done ) &
+fi
 exec supercronic -passthrough-logs /app/deploy/crontab

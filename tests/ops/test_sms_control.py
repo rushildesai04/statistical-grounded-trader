@@ -33,7 +33,7 @@ class FakeSms:
         pass
 
     def code(self):
-        return re.findall(r"(?:OK|RESUME|FLATTEN) (\d{6})", self.sent[-1])[0]
+        return re.findall(r"(?:OK|RESUME|FLATTEN|ARM) (\d{6})", self.sent[-1])[0]
 
 
 @pytest.fixture()
@@ -247,3 +247,14 @@ def test_last_final_session_uses_rth_close():
     assert sc.last_final_session(datetime(2026, 11, 2, 20, 50, tzinfo=et)) == date(2026, 11, 2)
     assert sc.last_final_session(datetime(2026, 11, 2, 16, 5, tzinfo=et)) == date(2026, 10, 30)
     assert sc.last_final_session(datetime(2026, 11, 1, 12, 0, tzinfo=et)) == date(2026, 10, 30)
+
+
+def test_arm_needs_code_is_blocked_while_paused_and_disarm_is_immediate(db):
+    sms = FakeSms()
+    assert sc.handle(db, sms, ap.parse("arm"), "SM1") == "" and "Reply ARM" in sms.sent[-1]
+    assert "ARMED for" in sc.handle(db, sms, ap.parse(f"ARM {sms.code()}"), "SM2") and ap.armed(db)
+    assert "DISARMED" in sc.handle(db, sms, ap.parse("disarm"), "SM3") and not ap.armed(db)
+    sc.handle(db, sms, ap.parse("pause"), "SM4")
+    sc.handle(db, sms, ap.parse("arm"), "SM5")
+    assert "PAUSED" in sc.handle(db, sms, ap.parse(f"ARM {sms.code()}"), "SM6") and not ap.armed(db)
+    assert "ARM 123456" not in ap.HELP and "ARM" in ap.HELP

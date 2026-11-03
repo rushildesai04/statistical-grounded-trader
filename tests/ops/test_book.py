@@ -47,8 +47,8 @@ def test_propose_approve_settle_marks_nav(db):
     assert res["ask"] == {"A": 0.5} and "OK" in out[-1]
     code = re.findall(r"OK (\d{6})", out[-1])[0]
     _, row = ap.answer(db, ap.Command("OK", code), "SM1", now=T0)
-    assert book.apply_approved(db, row).startswith("scheduled")
-    assert book.apply_approved(db, row) == "already handled"
+    assert book.apply_approved(db, row, now=T0).startswith("scheduled")
+    assert book.apply_approved(db, row, now=T0) == "already handled"
     px = closes({"A": [100, 100, 110, 99]})
     fills, problems = book.settle(db, px, D[2])
     assert problems == [] and [f["session"] for f in fills] == ["2026-11-03"]

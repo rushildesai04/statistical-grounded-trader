@@ -16,4 +16,6 @@
 40 9 * * 1-5   /app/deploy/entrypoint.sh job tom
 55 17 * * 1-5  /app/deploy/entrypoint.sh job etfbook
 # Daily digest after the megacap run has decided and marked.
+# Fast alert-fade book: official settlement once SIP bars of the session are final (post 20:00 ET).
+40 20 * * 1-5  /app/deploy/entrypoint.sh job fadesettle
 50 20 * * 1-5  /app/deploy/entrypoint.sh job digest

@@ -172,7 +172,10 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         voided = approvals.pause(db)
         return ("PAUSED: pending requests expired" + (f", {voided} approved entries cancelled" if voided else "")
                 + ". Exits still apply. RESUME to restart.")
-    if cmd.verb in ("RESUME", "FLATTEN") and cmd.code is None:
+    if cmd.verb == "DISARM":
+        approvals.disarm(db)
+        return "DISARMED: no new fast trades today. Open fast trades still exit on their rules."
+    if cmd.verb in ("RESUME", "FLATTEN", "ARM") and cmd.code is None:
         if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
             return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."
         return ""                                  # the challenge text is the reply
@@ -183,6 +186,13 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         action = json.loads(row["payload"])["action"]
         if not approvals.claim(db, row["id"]):
             return "That code expired before it could be used; send the command again."
+        if action == "arm":
+            if db.paused():
+                approvals.finish(db, row["id"], False, "paused")
+                return "Trading is PAUSED: RESUME first, then ARM."
+            day = approvals.arm(db)
+            approvals.finish(db, row["id"], True, f"armed {day}")
+            return f"ARMED for {day}: fast alert-fade trades enter automatically (capped); each one is texted. DISARM or PAUSE stops new ones."
         if action == "resume":
             db.set_flag("paused", "0")
             db.audit("resume", sid=sid)

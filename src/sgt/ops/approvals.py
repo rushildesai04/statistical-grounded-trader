@@ -5,8 +5,8 @@ Every entry or increase (broker order or approved-book position) is sent as a re
 rejects it, silence lets it expire (fail closed). Codes are single-use; a newer request for the
 same strategy supersedes the pending one. Five wrong codes within an hour pause trading and expire
 everything pending (a spoofed sender cannot see the codes, which only go to the owner's phone).
-Control: PAUSE (no code, fail-closed direction), RESUME / FLATTEN (challenge code first),
-STATUS, PENDING, CMDS. Twilio reserves YES/STOP/HELP/START, so they are not used.
+Control: PAUSE / DISARM (no code, fail-closed direction), RESUME / FLATTEN / ARM (challenge code first),
+STATUS, PENDING, CMDS. ARM enables the fast alert-fade book for the current ET trading day only (2026-11-03). Twilio reserves YES/STOP/HELP/START, so they are not used.
 """
 from __future__ import annotations
 
@@ -26,11 +26,11 @@ MAX_BAD_CODES = 5
 BAD_WINDOW = timedelta(hours=1)
 CONTROL_TTL = timedelta(minutes=10)
 STALE_EXECUTING = timedelta(minutes=30)
-_CODED = re.compile(rf"^(OK|NO|RESUME|FLATTEN)\s+(\d{{{CODE_DIGITS}}})$")
-_WORD = re.compile(r"^(STATUS|PENDING|PAUSE|RESUME|FLATTEN|CMDS|\?)$")
+_CODED = re.compile(rf"^(OK|NO|RESUME|FLATTEN|ARM)\s+(\d{{{CODE_DIGITS}}})$")
+_WORD = re.compile(r"^(STATUS|PENDING|PAUSE|RESUME|FLATTEN|ARM|DISARM|CMDS|\?)$")
 
 HELP = ("SGT commands: STATUS, PENDING, PAUSE, RESUME (sends a code), FLATTEN (sends a code), "
-        "OK <code> / NO <code> to answer a trade request.")
+        "ARM (sends a code; fast trades for today) / DISARM, OK <code> / NO <code> to answer a trade request.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +114,7 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
     """Apply an OK/NO/RESUME/FLATTEN code. Returns (reply text, the decided row or None)."""
     now = now or utcnow()
     expire(db, now)
-    want_kind = "control" if cmd.verb in ("RESUME", "FLATTEN") else None
+    want_kind = "control" if cmd.verb in ("RESUME", "FLATTEN", "ARM") else None
     with db.tx() as c:
         row = c.execute("SELECT * FROM approvals WHERE status='pending' AND code=?", (cmd.code,)).fetchone()
         ok = row is not None and ((row["kind"] == "control") == (want_kind == "control"))
@@ -145,6 +145,7 @@ def pause(db: OpsStore, now: datetime | None = None, reason: str = "pause") -> i
     filled (automatic exits still apply). Returns the number of voided entries."""
     now = now or utcnow()
     db.set_flag("paused", "1")
+    db.set_flag("fast_armed", "")             # fast trades need a fresh ARM after any pause / lockout
     with db.tx() as c:
         c.execute("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending' AND kind!='control'",
                   (iso(now),))
@@ -161,13 +162,14 @@ def lockout(db: OpsStore, now: datetime) -> None:
 
 
 def challenge(db: OpsStore, send, action: str, now: datetime | None = None) -> int | None:
-    """RESUME / FLATTEN: text a one-time code that must be echoed back."""
+    """RESUME / FLATTEN / ARM: text a one-time code that must be echoed back."""
     now = now or utcnow()
     expire(db, now)
     with db.tx() as c:
         if c.execute("SELECT 1 FROM approvals WHERE status='pending' AND strategy=?", (f"control:{action}",)).fetchone():
             return None                       # one live challenge per action: a spoofed repeat cannot replace it
-    what = {"resume": "Resume trading", "flatten": "FLATTEN: close every broker position and zero the approved book"}
+    what = {"resume": "Resume trading", "flatten": "FLATTEN: close every broker position and zero the approved book",
+            "arm": f"ARM fast alert-fade trades for {now.astimezone(ET):%a %m-%d} (auto-entry, capped)"}
     return request(db, send, strategy=f"control:{action}", kind="control", period=now.date().isoformat(),
                    summary=what[action], payload={"action": action}, expires_at=now + CONTROL_TTL, now=now)
 
@@ -212,3 +214,22 @@ def finish(db: OpsStore, approval_id: int, ok: bool, result: str) -> None:
         c.execute("UPDATE approvals SET status=?, result=? WHERE id=?",
                   ("executed" if ok else "failed", result[:2000], approval_id))
     db.audit("executed" if ok else "execute_failed", id=approval_id, result=result[:500])
+
+
+def arm(db: OpsStore, now: datetime | None = None) -> str:
+    """Enable fast trades for the current ET date only; expires at midnight ET by construction."""
+    day = (now or utcnow()).astimezone(ET).date().isoformat()
+    db.set_flag("fast_armed", day)
+    db.audit("arm", day=day)
+    return day
+
+
+def disarm(db: OpsStore, reason: str = "disarm") -> None:
+    db.set_flag("fast_armed", "")
+    db.audit(reason)
+
+
+def armed(db: OpsStore, now: datetime | None = None) -> bool:
+    """Fast entries need ARM for today AND not paused (PAUSE always wins)."""
+    day = (now or utcnow()).astimezone(ET).date().isoformat()
+    return db.flag("fast_armed") == day and not db.paused()

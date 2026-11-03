@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS book_orders(
 CREATE TABLE IF NOT EXISTS book_nav(
   strategy TEXT NOT NULL, session TEXT NOT NULL, nav REAL NOT NULL, ret REAL NOT NULL, holdings TEXT NOT NULL,
   PRIMARY KEY(strategy, session));
+CREATE TABLE IF NOT EXISTS fade_trades(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, session TEXT NOT NULL, alert_type TEXT NOT NULL,
+  posted_at TEXT NOT NULL, channel TEXT NOT NULL, message_id INTEGER NOT NULL, status TEXT NOT NULL,
+  reason TEXT, weight REAL, est_entry REAL, est_entry_at TEXT, est_last REAL, est_exit REAL, est_exit_at TEXT,
+  entry_ts TEXT, entry REAL, cover REAL, cost_rt REAL, gross REAL, net REAL, settled_at TEXT,
+  edited INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_fade_event ON fade_trades(symbol, session) WHERE status != 'filtered';
+CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
 """
 
 

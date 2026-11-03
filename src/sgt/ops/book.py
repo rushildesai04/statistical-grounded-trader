@@ -97,9 +97,9 @@ def propose(db: OpsStore, send, *, strategy: str, targets: dict[str, float], fil
     return {"auto": auto, "ask": ask, "approval_id": aid}
 
 
-def apply_approved(db: OpsStore, row) -> str:
+def apply_approved(db: OpsStore, row, now: datetime | None = None) -> str:
     """Schedule an approved book request's orders (once)."""
-    if not approvals.claim(db, row["id"]):
+    if not approvals.claim(db, row["id"], now):
         return "already handled"
     p = json.loads(row["payload"])
     with db.tx() as c:
