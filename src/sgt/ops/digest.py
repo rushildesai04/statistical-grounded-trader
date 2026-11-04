@@ -8,13 +8,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from sgt.fast import fade
 from sgt.ops import approvals
 from sgt.ops.book import fmt_targets
 from sgt.ops.store import OpsStore
 
 LOGS = {"megacap": Path("reports/megacap_forward/run.log"), "etf": Path("reports/forward/run.log"),
         "rebalance": Path("reports/rebalance/run.log"), "ops": Path("reports/ops/run.log"),
-        "sms-poll": Path("reports/ops/poll.log")}
+        "sms-poll": Path("reports/ops/poll.log"), "fast": Path("reports/fast/run.log")}
 _RUN = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 TAIL = 400
 
@@ -68,6 +69,7 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
           broker: str | None, research: list[str]) -> str:
     lines = [f"[SGT] {now_et:%a %m-%d} digest" + ("  ** PAUSED **" if db.paused() else "")]
     lines += ["Your book:"] + (book_lines(db, now_et.date()) or ["  (no approved positions yet)"])
+    lines += fade.digest_lines(db, now_et.date(), now_et)
     if fills:
         lines.append("Fills: " + "; ".join(f"{f['strategy']} {f['symbol']} -> {f['target']:+.0%} @ {f['price']:.2f}"
                                            for f in fills))

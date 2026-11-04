@@ -188,7 +188,7 @@ def approval_gate(args, orders, et: datetime, now: datetime) -> int | None:
         return None
     if args.approval_id is not None:
         row = approvals.latest(db, STRATEGY, period)
-        if row is None or row["id"] != args.approval_id or not approvals.claim(db, args.approval_id):
+        if row is None or row["id"] != args.approval_id or not approvals.claim(db, args.approval_id, now):
             raise SystemExit(f"approval #{args.approval_id} is not the approved request for {period}; refusing")
         if same_plan(json.loads(row["payload"])["plan"], orders):
             return args.approval_id

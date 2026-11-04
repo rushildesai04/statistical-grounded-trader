@@ -90,3 +90,41 @@ real locate-price check; no capital, and not tradeable at Alpaca.
   decide on mean net > 0 alone.
 - Before any capital, separately: real locate quotes for a sample of alerted names from a locate
   broker; the trade needs an average locate cost below about 1.5% of notional.
+
+## Amendment F2 — live virtual book (2026-11-03; no change to the rule or to the F1 decision)
+- Purpose: run the same trade in real time so the owner sees each entry and exit as it happens. It is a
+  separate, smaller book; the F1 forward record (built from channel history) stays the only input to the
+  KEEP/DROP decision above.
+- Listener: a dedicated Telegram account on the runner (`scripts/fade_live.py run`). Alerts are parsed with
+  the same parser; cell types, 10 s reaction, 5 min entry limit, 09:30-15:44 ET and $1-50 are the F1 filters.
+- Ops gates that F1 does not have (so the book is a subset of F1): the owner must text `ARM <code>` each
+  day; PAUSE/DISARM stop new entries; at most 15 trades a day and 8 open; new entries stop for the day
+  once estimated losses reach 3% of the book. Each trade is 5% of the book's value.
+- Live prices are IEX (Alpaca free real-time) and are estimates only. The official result of every trade
+  is computed after the session with SIP 1-minute bars by the research code itself
+  (`attach_trades`, `primary_events`, `alert_fade_test.score`); only official results move the book.
+- Known deviations from F1: alerts edited later are traded (flagged `edited`), F1 drops them; an alert
+  the live price filter rejects is not traded even if the official SIP entry would qualify.
+- Still no orders and no capital. Real money needs a locate broker (see F1) and its own decision.
+
+## Amendment F3 — per-trade approval in the live book (2026-11-03, no rule change for the research record)
+User request 2026-11-03: approve individual fast trades by text, not only whole days. On a day that is not
+ARMed, each event that passes the research filters and the risk caps texts an approval request
+(`OK <code>` / `NO <code>`) that expires 4 min 20 s after the alert, so that an approved entry still falls
+inside the tested 5-minute entry window. An approved trade enters at the next real-time quote (listener
+tick 10 s) and is scored officially by the same research code with the entry moved to its real entry time
+(first SIP bar at or after it); auto-ARMed trades keep the original rule (first bar >= alert + 10 s). Exits
+stay automatic (20% stop or 60 minutes) because the edge was measured with those exits. Owner texts are
+read once a minute, so a reply needs to arrive within about 3 minutes. The forward research record
+(Amendment F1) is unchanged.
+
+Operational note (2026-11-04, no rule change): the listener runs on the owner's existing Telegram account via a
+separate session (its own authorized device, revocable in Telegram > Settings > Devices), not a dedicated account.
+
+## Amendment F4 — opt-out entries at the approval deadline (2026-11-04, owner decision; no research-rule change)
+The calibrated confidence study (prereg_fade_confidence_2026-11-04) found every qualifying fade is
+statistically the same bet (about 55% win, +0.95% expected net); a score cannot separate them yet. With a
+constant positive expectation, the owner chose opt-out: an unanswered approval request enters automatically at
+its deadline (4 min 20 s after the alert, inside the tested 5-minute window); `NO <code>` skips, `OK <code>`
+enters at once. PAUSE (and requests it expired), DISARM (for the rest of the ET day) and the wrong-code
+lockout block automatic entries. Auto-entered trades are scored from their real entry time (as F3).

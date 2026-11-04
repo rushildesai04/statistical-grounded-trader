@@ -94,8 +94,9 @@ def broker_line() -> str:
         pos = paper_get("/v2/positions").json()
         held = ", ".join(f"{p['symbol']} {p['qty']}" for p in pos[:6]) or "no positions"
         return f"Alpaca paper: ${eq:,.0f} ({eq / last - 1:+.2%} today) {held}"
-    except Exception as exc:  # noqa: BLE001 - digest still goes out; the gap is shown
-        return f"Alpaca paper: unavailable ({type(exc).__name__})"
+    except Exception:  # noqa: BLE001 - digest still goes out; the gap is shown, detail in the log
+        log.exception("broker line failed")
+        return "Alpaca paper: could not reach Alpaca tonight (shown again tomorrow)"
 
 
 # ------------------------------------------------------------------ broker executors
@@ -133,8 +134,9 @@ def flatten(db: OpsStore, send) -> tuple[bool, str]:
         ok = r.status_code in (200, 207) and not bad
         broker = (f"broker close-all HTTP {r.status_code}" + (f", failed {bad}" if bad else "")
                   + (f"; still open (closing orders may be queued until the open): {open_syms}" if open_syms else ""))
-    except Exception as exc:  # noqa: BLE001 - reported to the owner; trading already paused
-        ok, broker = False, f"broker close-all FAILED ({type(exc).__name__}); positions may still be open"
+    except Exception:  # noqa: BLE001 - reported to the owner in plain words; trading already paused
+        log.exception("broker close-all failed")
+        ok, broker = False, "Alpaca did not confirm closing everything; positions may still be open (check the Alpaca app)"
     fill = fill_session_for(datetime.now(ET))
     with db.tx() as c:
         strategies = [x[0] for x in c.execute("SELECT DISTINCT strategy FROM book_orders")]
@@ -172,7 +174,11 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         voided = approvals.pause(db)
         return ("PAUSED: pending requests expired" + (f", {voided} approved entries cancelled" if voided else "")
                 + ". Exits still apply. RESUME to restart.")
-    if cmd.verb in ("RESUME", "FLATTEN") and cmd.code is None:
+    if cmd.verb == "DISARM":
+        approvals.disarm(db)
+        return ("DISARMED: no new fast trades today, including auto-entries at expiry. Open fast trades still "
+                "exit on their rules.")
+    if cmd.verb in ("RESUME", "FLATTEN", "ARM") and cmd.code is None:
         if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
             return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."
         return ""                                  # the challenge text is the reply
@@ -183,6 +189,13 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         action = json.loads(row["payload"])["action"]
         if not approvals.claim(db, row["id"]):
             return "That code expired before it could be used; send the command again."
+        if action == "arm":
+            if db.paused():
+                approvals.finish(db, row["id"], False, "paused")
+                return "Trading is PAUSED: RESUME first, then ARM."
+            day = approvals.arm(db)
+            approvals.finish(db, row["id"], True, f"armed {day}")
+            return f"ARMED for {day}: fast alert-fade trades enter automatically (capped); each one is texted. DISARM or PAUSE stops new ones."
         if action == "resume":
             db.set_flag("paused", "0")
             db.audit("resume", sid=sid)
@@ -190,12 +203,15 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
             return "RESUMED: trading enabled."
         try:
             ok, out = flatten(db, sms.send)
-        except Exception as exc:  # noqa: BLE001 - always finish the row and tell the owner
-            ok, out = False, f"FLATTEN error ({type(exc).__name__}); trading is PAUSED; check the broker."
+        except Exception:  # noqa: BLE001 - always finish the row and tell the owner (plain words; detail logged)
+            log.exception("flatten failed")
+            ok, out = False, "FLATTEN could not finish; trading is PAUSED. Check the Alpaca app for open positions."
         approvals.finish(db, row["id"], ok, out)
         return out
     if row["kind"] == "book":
         return f"{reply}\n{book.apply_approved(db, row)}"
+    if row["kind"] == "fade":                      # the fade listener claims it within ~10 s and texts the entry
+        return f"{reply}\nEntering at the next quote; the entry text follows."
     return f"{reply}\nExecuting now; fills follow."
 
 
@@ -218,7 +234,7 @@ def dispatch_broker(db: OpsStore, sms: Sms) -> None:
                                                    "or already done this month")
             ok, msg = False, "not executed (outside window / nothing to trade)"
         if not ok:
-            sms.send(f"[SGT] {row['strategy']} approval #{row['id']}: {msg}. See reports/rebalance/run.log")
+            sms.send(f"[SGT] {row['strategy']} approval #{row['id']} did not execute: {msg}. Nothing else changed.")
 
 
 REPLY_CAP_PER_HOUR = 20
@@ -271,7 +287,7 @@ def cmd_poll(db: OpsStore) -> int:
 
 def last_final_session(now_et: datetime) -> date:
     cal, d = default_calendar(), now_et.date()
-    if cal.is_session(d) and now_et >= cal.bounds(d).close.astimezone(ET) + timedelta(minutes=20):
+    if cal.is_session(d) and now_et >= cal.bounds(d).rth_close.astimezone(ET) + timedelta(minutes=20):
         return d
     d -= timedelta(days=1)
     while not cal.is_session(d):

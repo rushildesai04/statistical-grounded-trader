@@ -16,4 +16,10 @@
 40 9 * * 1-5   /app/deploy/entrypoint.sh job tom
 55 17 * * 1-5  /app/deploy/entrypoint.sh job etfbook
 # Daily digest after the megacap run has decided and marked.
+# Fast alert-fade book: official settlement once SIP bars of the session are final (post 20:00 ET).
+40 20 * * 1-5  /app/deploy/entrypoint.sh job fadesettle
 50 20 * * 1-5  /app/deploy/entrypoint.sh job digest
+# Plan 2026-11-04 W1: IBKR borrow availability/fee snapshots through the trading day (public file).
+*/15 8-16 * * 1-5 /app/deploy/entrypoint.sh job borrow
+# Plan 2026-11-04 W2: alert-fade forward research record (amendment F1) on the runner, after official bars.
+5 21 * * 1-5   /app/deploy/entrypoint.sh job fadeforward

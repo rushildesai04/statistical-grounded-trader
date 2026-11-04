@@ -22,7 +22,7 @@ class Outbox(list):
         self.append(text)
 
     def code(self) -> str:
-        return re.findall(r"(?:OK|RESUME|FLATTEN) (\d{6})", self[-1])[0]
+        return re.findall(r"(?:OK|RESUME|FLATTEN) (\d{6}|\d{2})\b", self[-1])[0]
 
 
 def req(db, out, strategy="s", now=T0, ttl=timedelta(hours=2), kind="book"):
@@ -35,6 +35,7 @@ def req(db, out, strategy="s", now=T0, ttl=timedelta(hours=2), kind="book"):
     ("status", ("STATUS", None)), ("?", ("CMDS", None)), ("resume", ("RESUME", None)),
     ("RESUME 123456", ("RESUME", "123456")),
     ("YES 123456", None), ("ok 12345", None), ("ok 1234567", None), ("ok 123456; drop table", None),
+    ("ok 42", ("OK", "42")), ("no 42", ("NO", "42")), ("ok 4", None), ("ok 423", None), ("ARM 42", None),
     ("STOP", None), ("", None), ("x" * 500, None)])
 def test_parse_is_strict(body, expected):
     cmd = ap.parse(body)
@@ -48,7 +49,7 @@ def test_ok_approves_once_and_newer_request_supersedes(db):
     second = req(db, out, now=T0 + timedelta(minutes=1))
     c2 = out.code()
     reply, row = ap.answer(db, ap.Command("OK", c1), "SM1", now=T0 + timedelta(minutes=2))
-    assert row is None and "No pending" in reply                    # superseded code is dead
+    assert row is None and "replaced by a newer request" in reply   # superseded code is dead
     reply, row = ap.answer(db, ap.Command("OK", c2), "SM2", now=T0 + timedelta(minutes=2))
     assert row["id"] == second and row["status"] == "approved" and first != second
     assert ap.answer(db, ap.Command("OK", c2), "SM3", now=T0 + timedelta(minutes=3))[1] is None  # single use
@@ -97,3 +98,21 @@ def test_send_failure_leaves_request_unapprovable(db):
     assert req(db, boom) is None
     with db.tx() as c:
         assert c.execute("SELECT status FROM approvals").fetchone()[0] == "failed"
+
+
+def test_trade_codes_are_two_digits_never_reused_and_late_replies_are_not_attacks(db):
+    # owner request 2026-11-04: "OK 42"; a late reply must not count toward the wrong-code lockout
+    out = Outbox()
+    codes = set()
+    for i in range(20):
+        req(db, out, strategy=f"s{i}", ttl=timedelta(minutes=5), now=T0 + timedelta(minutes=i))
+        c = out.code()
+        assert len(c) == 2 and 10 <= int(c) <= 99 and c not in codes
+        codes.add(c)
+    late = T0 + timedelta(hours=1)
+    for c in list(codes)[:ap.MAX_BAD_CODES + 1]:
+        reply, row = ap.answer(db, ap.Command("OK", c), "SMx", now=late)
+        assert row is None and reply.startswith("Too late, not approved")
+    assert db.flag("paused") in (None, "0")                         # no lockout from late replies
+    reply, _ = ap.answer(db, ap.Command("OK", "00"), "SMy", now=late)
+    assert "No pending" in reply                                    # an unknown code is still a wrong code

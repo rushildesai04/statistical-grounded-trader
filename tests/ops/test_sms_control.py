@@ -33,7 +33,7 @@ class FakeSms:
         pass
 
     def code(self):
-        return re.findall(r"(?:OK|RESUME|FLATTEN) (\d{6})", self.sent[-1])[0]
+        return re.findall(r"(?:OK|RESUME|FLATTEN|ARM) (\d{6}|\d{2})\b", self.sent[-1])[0]
 
 
 @pytest.fixture()
@@ -112,14 +112,14 @@ def test_rebalance_gate_requests_then_runs_only_with_matching_claim(db, monkeypa
     sms = FakeSms()
     monkeypatch.setattr(rp, "sms_send", sms.send)
     monkeypatch.setattr(rp, "OpsStore", lambda: db)
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 11, 2, 17, 0, tzinfo=timezone.utc)      # 12:00 ET: fixed (real clock failed after 23:00 ET)
     orders = [order("SPY", "sell", 30)]
     args = SimpleNamespace(approval_id=None)
     monkeypatch.setattr(rp, "WINDOW", (rp.WINDOW[0], (now + timedelta(hours=1)).astimezone(rp.ET).time()))
     et = now.astimezone(rp.ET)
     assert rp.approval_gate(args, orders, et, now) is None and "OK" in sms.sent[-1]
     assert rp.approval_gate(args, orders, et, now) is None and len(sms.sent) == 1   # pending: no re-ask
-    _, row = ap.answer(db, ap.Command("OK", sms.code()), "SM1")
+    _, row = ap.answer(db, ap.Command("OK", sms.code()), "SM1", now=now)
     with pytest.raises(SystemExit):
         rp.approval_gate(SimpleNamespace(approval_id=row["id"] + 1), orders, et, now)
     assert rp.approval_gate(SimpleNamespace(approval_id=row["id"]), orders, et, now) == row["id"]
@@ -181,7 +181,7 @@ def test_flatten_broker_error_still_pauses_finishes_and_replies(db, monkeypatch)
     monkeypatch.setattr(sc.httpx, "delete", boom)
     reply = sc.handle(db, sms, ap.parse(f"FLATTEN {sms.code()}"), "SM2")
     assert "INCOMPLETE" in reply and db.paused()
-    assert ap.latest(db, "control:flatten", date.today().isoformat())["status"] == "failed"
+    assert ap.latest(db, "control:flatten", datetime.now(timezone.utc).date().isoformat())["status"] == "failed"
 
 
 def test_pause_blocks_pending_and_scheduled_entries(db):
@@ -190,7 +190,7 @@ def test_pause_blocks_pending_and_scheduled_entries(db):
                     deadline=datetime.now(timezone.utc) + timedelta(hours=1), label="tom")
     code = sms.code()
     sc.handle(db, sms, ap.parse("pause"), "SM1")
-    assert "No pending" in sc.handle(db, sms, ap.parse(f"OK {code}"), "SM2")      # PAUSE expired it
+    assert "Too late, not approved" in sc.handle(db, sms, ap.parse(f"OK {code}"), "SM2")   # PAUSE expired it
     assert sc.book.projected(db, "tom") == {}
     # an entry approved before PAUSE is cancelled by it
     db.set_flag("paused", "0")
@@ -239,3 +239,49 @@ def test_stale_approvals_are_swept_and_dispatch_survives_twilio_failure(db, monk
     with pytest.raises(RuntimeError):
         sc.cmd_poll(db)
     assert calls                                     # approved order still dispatched
+
+
+def test_last_final_session_uses_rth_close():
+    # regression 2026-11-02: SessionBounds has rth_close, not close; the first live digest crashed on it
+    et = sc.ET
+    assert sc.last_final_session(datetime(2026, 11, 2, 20, 50, tzinfo=et)) == date(2026, 11, 2)
+    assert sc.last_final_session(datetime(2026, 11, 2, 16, 5, tzinfo=et)) == date(2026, 10, 30)
+    assert sc.last_final_session(datetime(2026, 11, 1, 12, 0, tzinfo=et)) == date(2026, 10, 30)
+
+
+def test_arm_needs_code_is_blocked_while_paused_and_disarm_is_immediate(db):
+    sms = FakeSms()
+    assert sc.handle(db, sms, ap.parse("arm"), "SM1") == "" and "Reply ARM" in sms.sent[-1]
+    assert "ARMED for" in sc.handle(db, sms, ap.parse(f"ARM {sms.code()}"), "SM2") and ap.armed(db)
+    assert "DISARMED" in sc.handle(db, sms, ap.parse("disarm"), "SM3") and not ap.armed(db)
+    sc.handle(db, sms, ap.parse("pause"), "SM4")
+    sc.handle(db, sms, ap.parse("arm"), "SM5")
+    assert "PAUSED" in sc.handle(db, sms, ap.parse(f"ARM {sms.code()}"), "SM6") and not ap.armed(db)
+    assert "ARM 123456" not in ap.HELP and "ARM" in ap.HELP
+
+
+@pytest.mark.parametrize("when", [
+    datetime(2026, 11, 2, 20, 50),    # weekday digest time (the 11-02 crash)
+    datetime(2026, 11, 2, 16, 5),     # before the close is final
+    datetime(2026, 11, 7, 20, 50),    # Saturday
+    datetime(2026, 11, 27, 20, 50),   # day after Thanksgiving (early close)
+])
+def test_digest_job_runs_end_to_end_without_network(db, monkeypatch, when):
+    # regression 2026-11-03: cmd_digest crashed in production (SessionBounds.close); run the whole job
+    sent = FakeSms()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return when.replace(tzinfo=sc.ET).astimezone(tz) if tz else when
+
+    def no_broker(*a, **k):
+        raise sc.httpx.ConnectError("offline")
+    monkeypatch.setattr(sc, "datetime", Clock)
+    monkeypatch.setattr(sc, "Sms", lambda: sent)
+    monkeypatch.setattr(sc, "daily_closes", lambda symbols, start, end: {})
+    monkeypatch.setattr(sc, "paper_get", no_broker)
+    assert sc.cmd_digest(db) == 0
+    (text,) = sent.sent
+    assert text.startswith("[SGT]") and "could not reach Alpaca" in text
+    assert "Error" not in text and "Traceback" not in text

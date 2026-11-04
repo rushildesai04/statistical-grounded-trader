@@ -77,3 +77,18 @@ def test_load_halts_filters_symbol_and_range():
     HaltsCollector(client=httpx.Client()).collect()
     assert load_halts("YMAT", datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 10, 31, tzinfo=UTC))
     assert load_halts("WFF", datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 12, 31, tzinfo=UTC)) == []
+
+
+def test_padded_live_halt_time_parses_and_rows_pair_halt_with_resume():
+    # regression 2026-11-03: the live feed pads HaltTime ("07:55:00     .000"), which used to drop the halt
+    from sgt.catalysts.halts import parse_halt_rows
+
+    xml = (b'<rss xmlns:ndaq="http://www.nasdaqtrader.com/"><channel><item>'
+           b"<ndaq:IssueSymbol>ABCD</ndaq:IssueSymbol><ndaq:Mkt>Q</ndaq:Mkt><ndaq:ReasonCode>LUDP</ndaq:ReasonCode>"
+           b"<ndaq:HaltDate>10/15/2026</ndaq:HaltDate><ndaq:HaltTime>10:01:02                      .000</ndaq:HaltTime>"
+           b"<ndaq:ResumptionDate>10/15/2026</ndaq:ResumptionDate>"
+           b"<ndaq:ResumptionTradeTime>10:06:02</ndaq:ResumptionTradeTime></item></channel></rss>")
+    (row,) = parse_halt_rows(xml)
+    assert row["symbol"] == "ABCD" and row["reason"] == "LUDP" and row["market"] == "Q"
+    assert row["halt"].isoformat() == "2026-10-15T14:01:02+00:00"
+    assert row["resume"].isoformat() == "2026-10-15T14:06:02+00:00"

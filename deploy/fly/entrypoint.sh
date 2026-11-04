@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops data/alpaca data/etf_yf
+mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade data/alpaca data/etf_yf data/borrow
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -16,13 +16,14 @@ run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   if "$@" >> "$log" 2>&1; then rc=0; else rc=$?; fi
   if [ "$rc" -ne 0 ]; then
     echo "!!! exit $rc" >> "$log"
-    python /app/scripts/ops_notify.py "$(basename "$(dirname "$log")") job failed (exit $rc)" --log "$log" \
+    python /app/scripts/ops_notify.py "${JOB:-job}" --log "$log" \
       >> "$log" 2>&1 || echo "!!! alert failed" >> "$log"
   fi
   return "$rc"
 }
 
 if [ "${1:-}" = "job" ]; then
+  JOB="${2:-}"                                  # names the job in plain-English failure texts (ops_notify)
   case "${2:-}" in
     megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto
                run reports/ops/run.log python /app/scripts/sms_control.py megacap ;;
@@ -38,6 +39,11 @@ if [ "${1:-}" = "job" ]; then
     tom)       run reports/ops/run.log python /app/scripts/sms_control.py tom ;;
     etfbook)   run reports/ops/run.log python /app/scripts/sms_control.py etf ;;
     digest)    run reports/ops/run.log python /app/scripts/sms_control.py digest ;;
+    # Fast alert-fade book (2026-11-03): official results from SIP bars before the digest.
+    fadesettle) run reports/fast/run.log python /app/scripts/fade_live.py settle ;;
+    # Plan 2026-11-04: IBKR borrow snapshots (W1) and the decisive forward research record on the runner (W2).
+    borrow)    run reports/fast/borrow.log python /app/scripts/fade_live.py borrow ;;
+    fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?
@@ -45,4 +51,13 @@ fi
 
 # Boot: catch up anything missed while the machine was down, then hand over to cron.
 "$0" job megacap || true
+# Fast alert-fade listener (2026-11-03): only with its own Telegram session secret; restarted on exit.
+# Health shows in the digest (heartbeat), not pages, so a Telegram outage cannot flood SMS.
+if [ -n "${SGT_SECRET_TG_FADE_SESSION:-}" ]; then
+  ( while true; do
+      python /app/scripts/fade_live.py run >> reports/fast/listener.log 2>&1 || true
+      echo "=== $(date '+%F %T %Z') listener exited; restart in 30s" >> reports/fast/listener.log
+      sleep 30
+    done ) &
+fi
 exec supercronic -passthrough-logs /app/deploy/crontab
