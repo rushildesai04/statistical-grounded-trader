@@ -32,6 +32,17 @@
         "2026-10-29"
       ],
       "prereg": "docs/findings/prereg_earnings_2026-11-03.md"
+    },
+    "crypto-leadlag-2026-11": {
+      "train": [
+        "2024-01-01",
+        "2026-04-30"
+      ],
+      "holdout": [
+        "2026-05-01",
+        "2026-10-31"
+      ],
+      "prereg": "docs/findings/prereg_crypto_leadlag_2026-11-04.md"
     }
   }
 }
