@@ -128,3 +128,15 @@ constant positive expectation, the owner chose opt-out: an unanswered approval r
 its deadline (4 min 20 s after the alert, inside the tested 5-minute window); `NO <code>` skips, `OK <code>`
 enters at once. PAUSE (and requests it expired), DISARM (for the rest of the ET day) and the wrong-code
 lockout block automatic entries. Auto-entered trades are scored from their real entry time (as F3).
+
+## Amendment F5 — enter at the tested time, NO exits (2026-11-04, owner decision; no research-rule change)
+Why: prereg_fade_challengers_2026-11-04 found the edge is front-loaded (training: +0.97%/trade at the alert,
++0.14% two minutes late, -0.21% four minutes late); F4 entered unanswered requests at alert + 4 min 20 s.
+Live book, when not ARMed: every qualifying event enters at the tested timing (first quote at or after alert + 10 s),
+exactly as an ARMed day, and the entry text carries the full trade card plus "NO <code> = exit now" (approval kind
+`fadeexit`, open until the trade's own exit). NO closes the trade at the next live quote; OK means keep. PAUSE and
+DISARM still block entries; PAUSE leaves exit offers open (they only reduce exposure). Official scoring: entry at the
+tested timing; a NO-exited trade is covered at the last SIP 1-minute close before the NO (stop rule applied until
+then), and `rule_net` keeps the full tested result, so the cost of NO exits is measured (`sgt.fast.realism`).
+The F1 research record and its KEEP/DROP decision are unchanged. F3/F4 ask-first remains in code behind
+`fade.ASK_FIRST` (False).

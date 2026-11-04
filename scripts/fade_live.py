@@ -21,14 +21,14 @@ import logging
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
 import pandas as pd
 
-from alert_fade_test import score
+from alert_fade_test import LOCATE, cover, score
 from backfill_alpaca import backfill
 from sgt.core.secrets import get_secret
 from sgt.crowd.telegram_parser import ParsedAlert, ParsedNews, parse_message
@@ -244,7 +244,10 @@ def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
 
     Approved / auto-entered trades are scored from their real entry time (amendment F3); ``rule_entry`` /
     ``rule_net`` also score them at the tested timing (alert + 10 s), so the cost of waiting for an approval is
-    measured (plan W5, 2026-11-04). Without a delay both equal ``entry`` / ``net``."""
+    measured (plan W5, 2026-11-04). Without a delay both equal ``entry`` / ``net``.
+
+    Amendment F5: a trade the owner exited with NO is covered at the last SIP close before the NO exit (same stop
+    rule up to then); ``rule_net`` keeps the full tested result, so ``net - rule_net`` is the cost of the NO."""
     now = now or utcnow()
     store = ParquetBarStore(BARS)
     posted = pd.to_datetime(due.posted_at, utc=True)
@@ -269,7 +272,30 @@ def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
             q = rule.loc[r.id]
             hit = bool(q["qualifies"])
             out.at[i, "rule_entry"], out.at[i, "rule_net"] = (q["entry"], q["net"]) if hit else (None, None)
+    if "reason" in due:
+        info = due.set_index("id")
+        for i, r in out[ok].iterrows():
+            d = info.loc[r.id]
+            if d.reason == fade.VETO_EXIT and isinstance(d.est_exit_at, str):
+                c = early_cover(store, d.symbol, str(d.session), pd.Timestamp(r.entry_ts), float(r.entry),
+                                pd.Timestamp(d.est_exit_at))
+                if c is not None:
+                    g = (r.entry - c) / r.entry
+                    out.at[i, "cover"], out.at[i, "gross"], out.at[i, "net"] = c, g, g - r.cost_rt - LOCATE
     return out
+
+
+def early_cover(store: ParquetBarStore, symbol: str, session: str, entry_ts: pd.Timestamp, entry: float,
+                exit_at: pd.Timestamp) -> float | None:
+    """Cover for an early (NO) exit: RTH bars from the entry bar through the last bar that ended by ``exit_at``
+    (at least the entry bar), stop rule applied, else that last bar's close."""
+    d = date.fromisoformat(session)
+    f = store.read_frame(symbol, d, d)
+    if f.empty:
+        return None
+    f = f.assign(ts=pd.to_datetime(f.ts, utc=True))
+    end = max(exit_at.tz_convert("UTC").floor("min"), entry_ts + pd.Timedelta(minutes=1))
+    return cover(f[(f.segment == "rth") & (f.ts >= entry_ts) & (f.ts < end)], entry, fade.STOP)
 
 
 def _score(a: pd.DataFrame, store: ParquetBarStore, now: datetime) -> pd.DataFrame:
