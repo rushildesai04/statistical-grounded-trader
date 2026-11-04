@@ -46,3 +46,22 @@ the live rule and therefore needs the owner's OK and a prereg amendment; it is n
 ## Secondary (reported only)
 Held-out 2026-07..10 (already examined once for the champion) per challenger; win rate, mean per trade, worst 1%.
 Trial ledger run ids `fade-challengers-2026-11-04-dev`, `fade-challengers-shadow`.
+
+## Result (2026-11-04, dev run once, trial ledger `fade-challengers-2026-11-04-dev`) — no challenger passes; D4 diagnostic TRIGGERED
+Champion reproduced `alert_fade_test.score` exactly on all 2,349 training events (guard in `cmd_dev`).
+
+| training 2025-01..2026-06 | n | mean/trade | win | 1st pct | daily diff vs champion [98.75% one-sided bounds] | gate |
+|---|---|---|---|---|---|---|
+| champion (alert, 60 min) | 2,345 | +0.97% | - | -23.7% | - | - |
+| D2 (+2 min) | 2,345 | +0.14% | 53% | -22.5% | -5.52% [-8.78%, -2.17%] | fail |
+| D4 (+4 min) | 2,345 | -0.21% | 53% | -22.6% | -7.87% [-11.49%, -4.17%] | fail |
+| H30 | 2,345 | +0.65% | 55% | -21.8% | -2.17% [-4.65%, +0.21%] | fail |
+| H90 | 2,345 | +1.14% | 55% | -23.9% | +1.08% [-0.58%, +2.79%] | fail |
+
+Secondary held-out 2026-07..10 (n 764): champion +1.12%, D2 +0.28%, D4 +0.61%, H30 +0.53%, H90 +1.28%; no paired
+difference significant except H30 (worse).
+
+Reading: the fade's edge is front-loaded. Entering 2 minutes late keeps about 15% of it on training, 4 minutes
+late none. The live opt-out design enters unanswered requests at alert + 4 min 20 s (about D4), so as built it
+gives up most of the edge. Per this prereg the owner gets a redesign decision; nothing changed automatically.
+Holding 90 minutes is not distinguishable from 60. All four keep running in shadow; none can be promoted.
