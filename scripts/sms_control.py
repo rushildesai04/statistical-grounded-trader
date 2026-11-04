@@ -299,7 +299,7 @@ def cmd_digest(db: OpsStore) -> int:
     now = datetime.now(ET)
     fills, problems = book.settle(db, daily_closes, last_final_session(now))
     text = digest.build(db, now, fills=fills, problems=problems, broker=broker_line(),
-                        research=[digest.megacap_research()])
+                        research=[digest.megacap_research(), digest.challenger_research()])
     sms = Sms()
     try:
         sms.send(text)

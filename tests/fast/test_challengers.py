@@ -57,3 +57,18 @@ def test_gate_is_paired_by_session_with_bonferroni_and_tail_guard():
     assert not res["H90"]["pass"]                      # better mean but a far worse tail: fails the tail guard
     assert not res["D4"]["pass"] and res["d4_costs_money"]
     assert fc.ALPHA == pytest.approx(0.0125)
+
+
+def test_shadow_summary_reaches_the_digest_and_bad_files_are_ignored(tmp_path):
+    import json
+
+    from sgt.ops import digest
+
+    t = pd.DataFrame({f"net_{v.id}": [0.02, 0.0] for v in (fc.CHAMPION, *fc.CHALLENGERS)})
+    line = fc.summary_line(t)
+    assert line.startswith("fade challengers fwd n=2: champion +1.00%, D2 +1.00%")
+    assert digest.challenger_research(tmp_path) is None
+    (tmp_path / "shadow_summary.json").write_text(json.dumps({"line": line}))
+    assert digest.challenger_research(tmp_path) == line
+    (tmp_path / "shadow_summary.json").write_text("{not json")
+    assert digest.challenger_research(tmp_path) is None
