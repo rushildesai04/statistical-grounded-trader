@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
 COLUMNS = {
     "fade_trades": {                         # 2026-11-04 plan W1: borrow reality at alert time
         "ib_avail": "INTEGER", "ib_fee": "REAL", "ib_snap": "TEXT", "alp_etb": "INTEGER", "alp_shortable": "INTEGER",
+        "rule_entry": "REAL", "rule_net": "REAL",   # 2026-11-04 plan W5: official result at the tested timing
     },
 }
 

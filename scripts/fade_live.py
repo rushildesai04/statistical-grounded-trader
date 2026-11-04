@@ -240,17 +240,39 @@ async def run() -> int:
 
 
 def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
-    """Research scoring for due trades. Rows whose SIP bars are not stored yet are left out (retried)."""
+    """Research scoring for due trades. Rows whose SIP bars are not stored yet are left out (retried).
+
+    Approved / auto-entered trades are scored from their real entry time (amendment F3); ``rule_entry`` /
+    ``rule_net`` also score them at the tested timing (alert + 10 s), so the cost of waiting for an approval is
+    measured (plan W5, 2026-11-04). Without a delay both equal ``entry`` / ``net``."""
     now = now or utcnow()
     store = ParquetBarStore(BARS)
     posted = pd.to_datetime(due.posted_at, utc=True)
-    if "entry_after" in due:                   # approved trades: score from the real entry time (amendment F3)
-        after = pd.to_datetime(due.entry_after, utc=True, errors="coerce") - fade.REACTION
-        posted = after.where(after.notna(), posted)
-    a = due.assign(posted_at=posted, session=pd.to_datetime(due.session).dt.date, has_news=None)
+    a = due.assign(session=pd.to_datetime(due.session).dt.date, has_news=None)
     fetch = AlpacaHistoricalBars(feed="sip").fetch
     for d, g in a.groupby("session"):
         backfill(sorted(g.symbol.unique()), d, d, store=store, fetch=fetch)
+    real = posted
+    if "entry_after" in due:
+        after = pd.to_datetime(due.entry_after, utc=True, errors="coerce") - fade.REACTION
+        real = after.where(after.notna(), posted)
+    out = _score(a.assign(posted_at=real), store, now)
+    if out.empty:
+        return out.assign(rule_entry=None, rule_net=None)
+    delayed = a.assign(posted_at=posted)[(real != posted).to_numpy()]
+    rule = _score(delayed, store, now).set_index("id") if len(delayed) else pd.DataFrame()
+    ok = out.qualifies.astype(bool)
+    out["rule_entry"] = out.entry.where(ok)
+    out["rule_net"] = out.net.where(ok)
+    for i, r in out.iterrows():
+        if r.id in rule.index:
+            q = rule.loc[r.id]
+            hit = bool(q["qualifies"])
+            out.at[i, "rule_entry"], out.at[i, "rule_net"] = (q["entry"], q["net"]) if hit else (None, None)
+    return out
+
+
+def _score(a: pd.DataFrame, store: ParquetBarStore, now: datetime) -> pd.DataFrame:
     t = attach_trades(a[["id", "symbol", "alert_type", "posted_at", "session", "has_news"]], store)
     ev = primary_events(t)
     sc = score(ev.assign(session=ev.session.astype(str)), store) if len(ev) else pd.DataFrame()
@@ -288,6 +310,21 @@ def cmd_borrow() -> int:
     return 0
 
 
+def cmd_realism() -> int:
+    """Plan W5: live estimate vs official result, alert->entry time, and the cost of waiting for approvals."""
+    from sgt.fast import realism
+
+    df = realism.frame(OpsStore())
+    if df.empty:
+        print("no settled fade trades yet")
+        return 0
+    cols = ["symbol", "session", "mode", "latency_s", "est_gross", "gross", "gap", "net", "rule_net", "wait_cost",
+            "ib_avail"]
+    print(df[cols].to_string(index=False, float_format=lambda x: f"{x:+.4f}"))
+    print(realism.summary(df))
+    return 0
+
+
 def cmd_login() -> int:
     """Interactive, on the Mac: authorize a NEW session for the owner's account (phone, login code, 2FA password
     if set) and store it in the keychain only. Never reuses data/telegram.session: one auth key on two hosts at once
@@ -317,13 +354,14 @@ def cmd_push_secret() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("cmd", choices=["login", "push-secret", "run", "settle", "borrow"])
+    ap.add_argument("cmd", choices=["login", "push-secret", "run", "settle", "borrow", "realism"])
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s",
                         stream=sys.stdout)
     if args.cmd == "run":
         return asyncio.run(run())
-    return {"login": cmd_login, "push-secret": cmd_push_secret, "settle": cmd_settle, "borrow": cmd_borrow}[args.cmd]()
+    return {"login": cmd_login, "push-secret": cmd_push_secret, "settle": cmd_settle, "borrow": cmd_borrow,
+            "realism": cmd_realism}[args.cmd]()
 
 
 if __name__ == "__main__":

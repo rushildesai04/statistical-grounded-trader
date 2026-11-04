@@ -129,7 +129,8 @@ def test_settle_books_official_results_and_nav(db):
         assert set(due.symbol) == {"W", "L", "V", "LATE"}
         ids = dict(zip(due.symbol, due.id))
         return pd.DataFrame([
-            {"id": ids["W"], "qualifies": True, "entry_ts": "t", "entry": 10, "cover": 9, "cost_rt": 0.01, "gross": 0.1, "net": 0.085},
+            {"id": ids["W"], "qualifies": True, "entry_ts": "t", "entry": 10, "cover": 9, "cost_rt": 0.01, "gross": 0.1, "net": 0.085,
+             "rule_entry": 10.2, "rule_net": 0.1},
             {"id": ids["L"], "qualifies": True, "entry_ts": "t", "entry": 10, "cover": 12, "cost_rt": 0.01, "gross": -0.2, "net": -0.215},
             {"id": ids["V"], "qualifies": False, "why": "outside research filters", "net": None}])  # LATE: no bars yet
     assert fade.settle(db, official, now=T10 + timedelta(minutes=10)) == []        # not due before 80 min
@@ -137,6 +138,9 @@ def test_settle_books_official_results_and_nav(db):
     assert got == ["W +8.50%", "L -21.50%", "V void"]
     assert {r["symbol"]: r["status"] for r in rows(db)} == {"W": "settled", "L": "settled", "V": "void", "LATE": "open"}
     assert fade.nav(db) == pytest.approx(fade.NAV0 * (1 + 0.05 * 0.085) * (1 - 0.05 * 0.215))
+    w = next(r for r in rows(db) if r["symbol"] == "W")
+    assert (w["rule_entry"], w["rule_net"]) == (10.2, 0.1)
+    assert next(r for r in rows(db) if r["symbol"] == "L")["rule_net"] is None   # older scorer output: left empty
     assert fade.digest_lines(db, DAY, T10 + timedelta(hours=2))[0].startswith("fade: $")
 
 
@@ -265,6 +269,26 @@ def test_official_shifts_approved_trades_to_their_entry_time(tmp_path, monkeypat
     late = fl.official(pd.DataFrame([{**base, "entry_after": (T10 + timedelta(minutes=4, seconds=5)).isoformat()}]),
                        now=T10 + timedelta(hours=10)).iloc[0]
     assert auto.entry == pytest.approx(10.0) and late.entry == pytest.approx(9.0)
+    # plan W5: the delayed trade is also scored at the tested timing, so the cost of waiting is measured
+    assert auto.rule_entry == pytest.approx(10.0) and auto.rule_net == pytest.approx(auto.net)
+    assert late.rule_entry == pytest.approx(10.0) and late.rule_net == pytest.approx(auto.net)
+    assert late.net - late.rule_net == pytest.approx(-0.10, abs=0.005)      # entered after the 10% drop
+
+
+def test_late_entry_exits_at_the_close_like_the_research_window(db):
+    ap.arm(db, T10)
+    t = datetime(2026, 11, 2, 15, 30, tzinfo=ET).astimezone(timezone.utc)
+    fade.on_alert(db, alert("EOD", at=t), now=t)
+    out = Outbox()
+    fade.monitor(db, out, lambda s: 10.0, now=t + timedelta(seconds=20))
+    assert "out 16:00 ET" in out[-1]
+    fade.monitor(db, out, lambda s: 9.5, now=t + timedelta(minutes=29))
+    assert rows(db)[0]["status"] == "open"
+    fade.monitor(db, out, lambda s: 9.5, now=t + timedelta(minutes=30, seconds=5))
+    r = rows(db)[0]
+    assert r["status"] == "est_closed" and r["reason"] == "close" and "(close)" in out[-1]
+    friday = datetime(2026, 11, 27, 12, 30, tzinfo=ET)                     # early close 13:00 on Black Friday
+    assert fade._exit_at("2026-11-27", friday) == (datetime(2026, 11, 27, 13, 0, tzinfo=ET), "close")
 
 
 def test_live_client_source_reads_oldest_first_from_the_listener_connection():
