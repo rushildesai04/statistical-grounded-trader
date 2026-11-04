@@ -1,34 +1,74 @@
-"""Send one operational alert (job failure) to the owner's phone.
+"""Text the owner once when a scheduled job fails, in plain English (no stack traces).
+
+The message says which job, whether money/positions are affected, and a likely cause class (provider did
+not respond vs internal error). Technical detail stays in the job log on the volume. At most one text
+per job per ET day (marker files in reports/ops/alerts/), so a repeating failure cannot flood the phone.
 
 Uses Twilio SMS when its secrets exist (twilio_account_sid / twilio_auth_token / twilio_from_number /
 owner_phone, keychain or SGT_SECRET_*). Without them it says so on stderr and exits 0: the failure is
 still recorded in the job log ("!!! exit N"), so nothing is hidden; alerting is simply not configured.
 
 Usage:
-    python scripts/ops_notify.py "megacap job failed (exit 1)" [--log reports/megacap_forward/run.log]
+    python scripts/ops_notify.py digest --log reports/ops/run.log
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 from collections import deque
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sgt.core.secrets import MissingSecretError
 from sgt.signals_live.notify import TwilioSms
 
-TAIL_LINES = 3
+ET = ZoneInfo("America/New_York")
+TAIL_LINES = 30
+ALERTS = Path("reports/ops/alerts")
+# job -> (what it is, what the failure means for money/positions). 2026-11-03: owner asked for no raw errors.
+JOBS = {
+    "megacap": ("megacap model update", "No new megacap trade is proposed until it runs again; open positions are unchanged."),
+    "etf": ("ETF research record update", "Nothing was traded."),
+    "etfbook": ("ETF book proposal", "No ETF change is proposed until it runs again; holdings are unchanged."),
+    "rebalance": ("60/40 rebalance", "Reply STATUS before approving anything else."),
+    "tom": ("turn-of-month check", "No turn-of-month trade is proposed until it runs again."),
+    "digest": ("nightly digest", "Trades and positions are unaffected; only tonight's summary is missing."),
+    "fadesettle": ("fade official results", "They are retried on the next run; positions are unaffected."),
+}
+_NETWORK = re.compile(r"HTTPError|HTTPStatusError|ConnectError|ConnectTimeout|ReadTimeout|TimeoutException|"
+                      r"RemoteProtocolError|\b(429|5\d\d)\b|Temporary failure|Name or service not known", re.I)
 
 
-def build_message(title: str, log: Path | None) -> str:
-    text = f"[sgt-runner] {title}"
-    if log and log.exists():
-        with log.open(errors="replace") as fh:
-            tail = [ln.strip() for ln in deque(fh, maxlen=TAIL_LINES) if ln.strip()]
-        if tail:
-            text += "\n" + "\n".join(t[:150] for t in tail)
-    return text
+def cause(log: Path | None) -> str:
+    if not (log and log.exists()):
+        return "the cause is in the job log"
+    with log.open(errors="replace") as fh:
+        tail = "\n".join(deque(fh, maxlen=TAIL_LINES))
+    if _NETWORK.search(tail):
+        return "a data or SMS provider did not respond (usually clears on the next run)"
+    return "an internal error (logged for a fix)"
+
+
+def build_message(job: str, log: Path | None, now: datetime | None = None) -> str:
+    now = (now or datetime.now(ET)).astimezone(ET)
+    what, impact = JOBS.get(job, ("a scheduled job", "Reply STATUS to check the books."))
+    return (f"[SGT] Heads-up: the {what} did not finish ({now:%a %H:%M} ET): {cause(log)}. {impact} "
+            "No action needed; text PAUSE if you want to stop all trading.")
+
+
+def first_today(job: str, now: datetime | None = None, root: Path = ALERTS) -> bool:
+    """True once per job per ET day (creates the marker); later failures that day are log-only."""
+    now = (now or datetime.now(ET)).astimezone(ET)
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / f"{re.sub(r'[^a-z0-9_-]', '', job.lower())[:32] or 'job'}-{now:%Y%m%d}"
+    try:
+        marker.touch(exist_ok=False)
+    except FileExistsError:
+        return False
+    return True
 
 
 async def _send(text: str) -> None:
@@ -41,14 +81,17 @@ async def _send(text: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("title")
+    ap.add_argument("job")
     ap.add_argument("--log", type=Path, default=None)
     args = ap.parse_args(argv)
-    text = build_message(args.title, args.log)
+    text = build_message(args.job, args.log)
+    if not first_today(args.job):
+        print(f"ops_notify: {args.job} already alerted today; not texting again")
+        return 0
     try:
         asyncio.run(_send(text))
     except MissingSecretError:
-        print("ops_notify: Twilio not configured; alert not sent: " + text.splitlines()[0], file=sys.stderr)
+        print("ops_notify: Twilio not configured; alert not sent: " + text, file=sys.stderr)
         return 0
     print("ops_notify: sent")
     return 0

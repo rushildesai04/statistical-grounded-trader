@@ -16,13 +16,14 @@ run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   if "$@" >> "$log" 2>&1; then rc=0; else rc=$?; fi
   if [ "$rc" -ne 0 ]; then
     echo "!!! exit $rc" >> "$log"
-    python /app/scripts/ops_notify.py "$(basename "$(dirname "$log")") job failed (exit $rc)" --log "$log" \
+    python /app/scripts/ops_notify.py "${JOB:-job}" --log "$log" \
       >> "$log" 2>&1 || echo "!!! alert failed" >> "$log"
   fi
   return "$rc"
 }
 
 if [ "${1:-}" = "job" ]; then
+  JOB="${2:-}"                                  # names the job in plain-English failure texts (ops_notify)
   case "${2:-}" in
     megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto
                run reports/ops/run.log python /app/scripts/sms_control.py megacap ;;
