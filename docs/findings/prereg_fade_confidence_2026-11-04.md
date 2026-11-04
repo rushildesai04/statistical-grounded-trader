@@ -36,3 +36,21 @@ net per band.
 The frozen model scores every live event; the score, expected net and the decision (asked / auto-approved /
 floored) are stored per trade. Forward calibration is re-checked at n >= 300 (same G1 test); a failure turns
 the score off. Trial ledger run ids `fade-confidence-2026-11-04-dev` and `fade-confidence-v1`.
+
+## Result (2026-11-04, dev run once, trial ledger `fade-confidence-2026-11-04-dev`) — G1 OFF, G2 OFF, G3 OFF
+Calibrated out-of-sample 2025-10-01 .. 2026-06-30, 1,333 trades, base win rate 55.2%. Brier 0.2478 vs 0.2473
+for always predicting the base rate (skill -0.21%); ECE 0.006 (calibrated, but flat).
+
+| score | trades | share | mean score | actual win | mean net |
+|---|---|---|---|---|---|
+| < 30 | 0 | 0% | - | - | - |
+| 30-50 | 12 | 1% | 48 | 67% | +2.50% |
+| 50-70 | 1,317 | 99% | 55 | 55% | +0.95% |
+| >= 70 | 4 | 0.3% | 84 | 100% | +9.21% |
+
+Reading: the score is honest (55 predicted, 55% realized) but nearly constant: with the features available at
+the alert, every fade looks like the same bet, about a 55% win with about +0.95% expected net. No score is
+shown, no floor, no score-based auto-approval. Mathematically, with a constant positive expectation the
+expected-value rule is "take every qualifying trade" (what ARM does). A useful per-trade score needs new
+information: borrow availability/fee at the alert (collected from 2026-11-04), share float and short interest,
+the news text, and tape features (trade/quote imbalance), each to be tested the same way.
