@@ -82,8 +82,7 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     px = {"UP": 10.0, "DN": 10.0, "BIG": 75.0}
     fade.monitor(db, out, px.get, now=T10 + timedelta(seconds=20))
     assert [r["status"] for r in rows(db)] == ["open", "open", "filtered"]
-    assert out[0].startswith("[SGT] fade SHORT UP ~$10.00") and "stop $12.00" in out[0]
-    assert "$5,000 short" in out[0]                           # 5% of the $100,000 book, in dollars
+    assert out[0] == "[SGT] FADE IN: short UP $10.00, $5,000\nStop $12.00 | out 11:00 ET"   # 5% of $100k
     px.update(UP=12.5, DN=9.0)
     fade.monitor(db, out, px.get, now=T10 + timedelta(minutes=30))
     up, dn = rows(db)[:2]
@@ -92,7 +91,7 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     fade.monitor(db, out, lambda s: None, now=T10 + timedelta(minutes=61))   # no quote: last mark is used
     dn = rows(db)[1]
     assert dn["status"] == "est_closed" and dn["est_exit"] == 9.0 and dn["reason"] == "60 min"
-    assert "COVER DN ~$9.00 est (60 min): +10.0% = +$500 before costs" in out[-1]
+    assert out[-1].startswith("[SGT] FADE OUT: DN $9.00 (60 min) +10.0% = +$500\nToday: -$750 (2 trades)")
     assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10))
 
 
@@ -209,13 +208,13 @@ def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db):
     assert fade.on_alert(db, alert("APR"), now=T10) == "ask #1"
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=25))      # no duplicate request
-    assert len(out) == 1 and "fade SHORT APR ~$10.00" in out[0] and "unless you reply NO" in out[0]
+    assert len(out) == 1 and out[0].startswith("[SGT] FADE: SHORT APR $10.00") and "unless NO" in out[0]
     msg, row = ap.answer(db, ap.Command("OK", code_in(out[0])), "SM1", now=T10 + timedelta(minutes=2))
     assert row["status"] == "approved"
     fade.monitor(db, out, lambda s: 10.5, now=T10 + timedelta(minutes=2, seconds=10))
     r = rows(db)[0]
     assert r["status"] == "open" and r["reason"] == "approved" and r["est_entry"] == 10.5
-    assert out[-1].startswith("[SGT] fade SHORT APR ~$10.50")
+    assert out[-1].startswith("[SGT] FADE IN: short APR $10.50")
     assert ap.get(db, row["id"])["status"] == "executed"
     fade.monitor(db, out, lambda s: 9.0, now=T10 + timedelta(minutes=63))
     d = fade.due(db, T10 + timedelta(hours=3))
@@ -304,3 +303,30 @@ def test_request_expired_by_pause_never_auto_enters_after_resume(db):
     db.set_flag("paused", "0")                                   # RESUME seconds later
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=4, seconds=30))
     assert rows(db)[0]["status"] == "skipped"
+
+
+def test_approval_text_has_trade_reason_risk_odds_and_borrow():
+    # owner request 2026-11-04: everything needed to decide, simplest format, plain SMS (no emoji)
+    body = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {"chg_day": 0.85, "chg_open": 0.12},
+                         fade.borrow_note({"ib_avail": 75000, "ib_fee": 44.2}))
+    assert body == ("FADE: SHORT XYZ $4.20\n"
+                    "Why: halt resumed, up 85% today, +12% since open\n"
+                    "Size $5,000 | stop $5.04 (-$1,000) | holds 60 min\n"
+                    "Odds: 55% win, avg +$48/trade (tested)\n"
+                    "Borrow: IBKR 75k sh @ 44%/yr")
+    assert body.isascii()
+    bare = fade.ask_text("XYZ", "news", None, 5000.0, {}, "")
+    assert "Why: news\n" in bare and "Borrow: unknown" in bare and "stop +20%" in bare
+
+
+def test_iex_context_computes_moves_and_tolerates_bad_payloads():
+    import httpx
+
+    def handler(req):
+        if "BAD" in req.url.path:
+            return httpx.Response(200, json=["not", "a", "dict"])
+        return httpx.Response(200, json={"latestTrade": {"p": 3.7}, "dailyBar": {"o": 3.3}, "prevDailyBar": {"c": 2.0}})
+    ctx = fl.iex_context(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)))
+    got = ctx("XYZ")
+    assert got["chg_day"] == pytest.approx(0.85) and got["chg_open"] == pytest.approx(3.7 / 3.3 - 1)
+    assert ctx("BAD") == {} and ctx("not a symbol") == {}

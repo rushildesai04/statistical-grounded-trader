@@ -48,6 +48,12 @@ WEIGHT = 0.05                                   # short notional per trade, shar
 MAX_TRADES_DAY, MAX_OPEN = 15, 8
 DAY_LOSS_STOP = -0.03                           # NAV fraction (estimates) that stops new entries for the day
 HEARTBEAT_STALE = timedelta(minutes=15)
+# What the tested rule has done on unseen data (dev walk-forward 2025-07..2026-06, prereg_fade_confidence):
+# shown on every request so each decision is made against the real base rate. Update at the F1 decision point.
+BASE_WIN, BASE_EV = 0.55, 0.0095
+PLAIN = {"volume_increasing": "volume rising", "volume_spike": "volume spike", "gaining_volume": "volume rising",
+         "gaining_momentum": "momentum", "new_high": "new high", "intraday_high": "high of day",
+         "testing_high": "testing high", "price_level": "price level", "resumed": "halt resumed", "news": "news"}
 ASK_MARGIN = timedelta(seconds=40)              # approval must land this long before the entry deadline
 
 Quote = Callable[[str], "float | None"]
@@ -143,7 +149,8 @@ def _fmt(px: float | None) -> str:
     return "n/a" if px is None else (f"{px:.2f}" if px >= 1 else f"{px:.4f}")
 
 
-def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None) -> None:
+def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None,
+            context: Callable[[str], dict] | None = None) -> None:
     """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
     open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event."""
     now = now or utcnow()
@@ -154,7 +161,7 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borro
         try:
             if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
                 r = _stamp(db, r, borrow(r["symbol"], now))
-            _advance(db, send, quote, r, now)
+            _advance(db, send, quote, r, now, context)
         except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
             log.exception("fade row %s failed", r["id"])
 
@@ -169,20 +176,43 @@ def _stamp(db: OpsStore, r, facts: dict) -> dict:
     return {**dict(r), **cols}
 
 
+def _qty(n: int) -> str:
+    return f"{n / 1e6:.0f}M" if n >= 1e6 else (f"{n / 1e3:.0f}k" if n >= 1e3 else str(n))
+
+
 def borrow_note(r) -> str:
-    """'IBKR 12,000 sh @ 45.0%/yr' / 'IBKR: none to borrow' / '' (unknown); Alpaca easy-to-borrow flag."""
+    """'IBKR 75k sh @ 44%/yr' / 'none at IBKR (real short unlikely)' / '' (unknown); Alpaca easy-to-borrow."""
     r, parts = dict(r), []
     if r.get("ib_avail") is not None:
-        fee = "fee n/a" if r.get("ib_fee") is None else f"@ {r['ib_fee']:.1f}%/yr"
-        parts.append("IBKR: none to borrow" if r["ib_avail"] <= 0 else f"IBKR {r['ib_avail']:,} sh {fee}")
+        fee = "fee n/a" if r.get("ib_fee") is None else f"@ {r['ib_fee']:.0f}%/yr"
+        parts.append("none at IBKR (real short unlikely)" if r["ib_avail"] <= 0 else
+                     f"IBKR {_qty(r['ib_avail'])} sh {fee}")
     if r.get("alp_etb") == 1:
-        parts.append("Alpaca easy-to-borrow")
+        parts.append("Alpaca easy")
     return "; ".join(parts)
 
 
-def _advance(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+def _usd(x: float) -> str:
+    return f"{'+' if x >= 0 else '-'}${abs(x):,.0f}"
+
+
+def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str) -> str:
+    """Approval request body: trade, why, risk, odds, borrow (plain SMS, no emoji: keeps 160-char segments)."""
+    why = [PLAIN.get(alert_type, alert_type)]
+    if ctx.get("chg_day") is not None:
+        why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")
+    if ctx.get("chg_open") is not None:
+        why.append(f"{ctx['chg_open']:+.0%} since open")
+    stop = f"${_fmt(px * (1 + STOP))}" if px else "+20%"
+    return "\n".join([f"FADE: SHORT {symbol} ${_fmt(px)}", "Why: " + ", ".join(why),
+                      f"Size ${size:,.0f} | stop {stop} ({_usd(-size * STOP)}) | holds 60 min",
+                      f"Odds: {BASE_WIN:.0%} win, avg {_usd(size * BASE_EV)}/trade (tested)",
+                      f"Borrow: {borrow or 'unknown'}"])
+
+
+def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
     if r["status"] == "ask":
-        _ask(db, send, quote, r, now)
+        _ask(db, send, quote, r, now, context)
     elif r["status"] == "pending":
         _enter(db, send, quote, r, now)
     else:
@@ -195,7 +225,7 @@ def _approval(db: OpsStore, rid: int):
                          (f"fade:{rid}",)).fetchone()
 
 
-def _ask(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
     """Text one approval request per event; an approved request becomes a pending entry (same tick)."""
     posted = datetime.fromisoformat(r["posted_at"])
     deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
@@ -208,9 +238,13 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         if px is not None and px > 0 and not PRICE_MIN <= px <= PRICE_MAX:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
-        note = borrow_note(r)
-        summary = (f"fade SHORT {r['symbol']} ~${_fmt(px)} ({r['alert_type']}): ${notional(db):,.0f} short, "
-                   "20% stop, auto-exit in 60 min." + (f" Borrow: {note}." if note else ""))
+        ctx = {}
+        if context is not None:
+            try:
+                ctx = context(r["symbol"]) or {}
+            except Exception:  # noqa: BLE001 - context is informational; the request still goes out
+                log.warning("context %s failed", r["symbol"])
+        summary = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r))
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -271,8 +305,8 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         return
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
         out = (now + HOLD).astimezone(ET)
-        send(f"[SGT] fade SHORT {r['symbol']} ~${_fmt(px)} est ({r['alert_type']}): ${notional(db):,.0f} short; "
-             f"stop ${_fmt(px * (1 + STOP))}, out by {out:%H:%M} ET.")
+        send(f"[SGT] FADE IN: short {r['symbol']} ${_fmt(px)}, ${notional(db):,.0f}\n"
+             f"Stop ${_fmt(px * (1 + STOP))} | out {out:%H:%M} ET")
 
 
 def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
@@ -287,9 +321,13 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
     if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why):
         g = (entry - exit_px) / entry
-        usd = g * (r["weight"] or WEIGHT) * nav(db)
-        send(f"[SGT] fade COVER {r['symbol']} ~${_fmt(exit_px)} est ({why}): {g:+.1%} = {'+' if usd >= 0 else '-'}"
-             f"${abs(usd):,.0f} before costs. Official result in tonight's digest.")
+        v = nav(db)
+        usd = g * (r["weight"] or WEIGHT) * v
+        with db.tx() as c:
+            n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='est_closed'",
+                              (r["session"],)).fetchone()[0]
+        send(f"[SGT] FADE OUT: {r['symbol']} ${_fmt(exit_px)} ({why}) {g:+.1%} = {_usd(usd)}\n"
+             f"Today: {_usd(day_est_pnl(db, r['session']) * v)} ({n_day} trades). Before costs; official tonight.")
 
 
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:

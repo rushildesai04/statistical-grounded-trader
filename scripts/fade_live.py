@@ -110,6 +110,27 @@ def alpaca_asset(client: httpx.Client):
     return get
 
 
+def iex_context(client: httpx.Client):
+    """Move so far for the request text: % vs prior close and vs today's open (IEX snapshot; approximate)."""
+    def ctx(symbol: str) -> dict:
+        if not _SYMBOL.match(symbol):
+            return {}
+        r = client.get(f"/v2/stocks/{symbol}/snapshot", params={"feed": "iex"})
+        if r.status_code != 200:
+            return {}
+        j = r.json() if isinstance(r.json(), dict) else {}
+        px = float((j.get("latestTrade") or {}).get("p") or 0)
+        o = float((j.get("dailyBar") or {}).get("o") or 0)
+        pc = float((j.get("prevDailyBar") or {}).get("c") or 0)
+        out = {}
+        if px > 0 and pc > 0:
+            out["chg_day"] = px / pc - 1
+        if px > 0 and o > 0:
+            out["chg_open"] = px / o - 1
+        return out
+    return ctx
+
+
 def data_client() -> httpx.Client:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
     return httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=5)
@@ -152,7 +173,7 @@ async def run() -> int:
     db = OpsStore()
     send = CappedSms(db)
     dc, ac = data_client(), asset_client()
-    quote = iex_quote(dc)
+    quote, context = iex_quote(dc), iex_context(dc)
     book = borrow_mod.BorrowBook(alpaca_asset=alpaca_asset(ac))
     init_db()
     client = TelegramClient(StringSession(get_secret(SESSION_SECRET)), int(get_secret("telegram_api_id")),
@@ -190,7 +211,7 @@ async def run() -> int:
     async def loop():
         while True:
             try:
-                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup)
+                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             await asyncio.sleep(TICK)
