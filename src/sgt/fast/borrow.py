@@ -43,6 +43,10 @@ def fetch_ibkr(timeout: float = 60.0) -> bytes:
     return buf.getvalue()
 
 
+def _rate(x: str) -> float:
+    return float("nan") if x.strip() == "NA" else float(x)
+
+
 def parse_ibkr(payload: bytes) -> tuple[pd.DataFrame, datetime | None]:
     """-> (symbol, fee, rebate, avail) for US common-style symbols, and the file's own timestamp (ET->UTC)."""
     text = payload.decode("latin-1")
@@ -60,8 +64,8 @@ def parse_ibkr(payload: bytes) -> tuple[pd.DataFrame, datetime | None]:
         f = line.split("|")
         if len(f) < 8 or f[1] != "USD" or not _SYM.match(f[0]):
             continue
-        try:
-            rows.append((f[0].replace(" ", "."), float(f[6]), float(f[5]), int(f[7].lstrip(">") or 0)))
+        try:                                   # "NA" fee/rebate = lendable, fee not published (kept, fee NaN)
+            rows.append((f[0].replace(" ", "."), _rate(f[6]), _rate(f[5]), int(f[7].lstrip(">") or 0)))
         except ValueError:
             bad += 1
     if bad:
@@ -112,7 +116,8 @@ class BorrowBook:
                 out["ib_snap"] = snap.isoformat()
                 if symbol in df.index:
                     r = df.loc[symbol]
-                    out["ib_avail"], out["ib_fee"] = int(r.avail), float(r.fee)
+                    out["ib_avail"] = int(r.avail)
+                    out["ib_fee"] = None if pd.isna(r.fee) else float(r.fee)
                 else:
                     out["ib_avail"] = 0                 # not in IBKR's lendable list = not shortable there
         if self._alpaca is not None:

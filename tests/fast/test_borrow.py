@@ -18,14 +18,15 @@ HEAD = "#BOF|2026.11.02|09:45:13\n#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAI
 
 def payload() -> bytes:
     rows = ["ABC|USD|ABC CORP|1|X|-40.1|45.0|12000|F|", "BRK B|USD|BERKSHIRE|2|X|3.6|0.25|>10000000|F|",
-            "EUR1|EUR|EURO|3|X|1|1|5|F|", "049323AB4|USD|BOND|4|X|3.6|0.25|2800000|F|", "BAD|USD|BAD|5|X|x|y|z|F|"]
+            "EUR1|EUR|EURO|3|X|1|1|5|F|", "NAF|USD|NA FEE|6|X|NA|NA|900|F|", "049323AB4|USD|BOND|4|X|3.6|0.25|2800000|F|", "BAD|USD|BAD|5|X|x|y|z|F|"]
     return (HEAD + "\n".join(rows) + "\n#EOF\n").encode()
 
 
 def test_parse_keeps_us_symbols_lower_bounds_and_file_time():
     df, stamp = borrow.parse_ibkr(payload())
     got = df.set_index("symbol")
-    assert set(got.index) == {"ABC", "BRK.B"}                   # non-USD, bond CUSIP, malformed dropped
+    assert set(got.index) == {"ABC", "BRK.B", "NAF"}            # non-USD, bond CUSIP, malformed dropped
+    assert got.loc["NAF"].avail == 900 and pd.isna(got.loc["NAF"].fee)
     assert got.loc["ABC"].fee == 45.0 and got.loc["ABC"].avail == 12000 and got.loc["BRK.B"].avail == 10_000_000
     assert stamp == datetime(2026, 11, 2, 9, 45, 13, tzinfo=ET).astimezone(timezone.utc)
 
@@ -48,6 +49,8 @@ def test_snapshot_refuses_a_truncated_file_and_lookup_rules(tmp_path):
     assert book.lookup("ABC", T10) == {"ib_avail": 12000, "ib_fee": 45.0, "ib_snap": T10.isoformat(),
                                        "alp_etb": 1, "alp_shortable": 1}
     assert book.lookup("NOPE", T10)["ib_avail"] == 0                       # not lendable at IBKR
+    assert book.lookup("NAF", T10 - timedelta(minutes=1))["ib_fee"] is None  # lendable, fee unpublished
+    assert fade.borrow_note({"ib_avail": 900, "ib_fee": None}) == "IBKR 900 sh fee n/a"
     assert book.lookup("ABC", T10 + timedelta(hours=4))["ib_snap"] is None  # stale snapshot not used
     book.lookup("ABC", T10)
     assert calls.count("ABC") == 1                                          # Alpaca flags cached per day

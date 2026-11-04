@@ -172,8 +172,8 @@ def borrow_note(r) -> str:
     """'IBKR 12,000 sh @ 45.0%/yr' / 'IBKR: none to borrow' / '' (unknown); Alpaca easy-to-borrow flag."""
     r, parts = dict(r), []
     if r.get("ib_avail") is not None:
-        parts.append("IBKR: none to borrow" if r["ib_avail"] <= 0 else
-                     f"IBKR {r['ib_avail']:,} sh @ {r['ib_fee']:.1f}%/yr")
+        fee = "fee n/a" if r.get("ib_fee") is None else f"@ {r['ib_fee']:.1f}%/yr"
+        parts.append("IBKR: none to borrow" if r["ib_avail"] <= 0 else f"IBKR {r['ib_avail']:,} sh {fee}")
     if r.get("alp_etb") == 1:
         parts.append("Alpaca easy-to-borrow")
     return "; ".join(parts)
