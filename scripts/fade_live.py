@@ -1,12 +1,14 @@
 """Live alert-fade book on the runner (2026-11-03; rule: docs/findings/prereg_alert_fade_2026-11-01.md).
 
-    python scripts/fade_live.py login     # on the Mac, once: dedicated Telegram account -> keychain sgt/tg_fade_session
+    python scripts/fade_live.py login     # on the Mac, once: new Telegram session -> keychain sgt/tg_fade_session
     python scripts/fade_live.py push-secret   # keychain -> Fly secret over stdin (never printed)
     python scripts/fade_live.py run       # Fly: listen to the alert channel, enter/exit estimates, texts
     python scripts/fade_live.py settle    # Fly cron 20:40 ET: official results from SIP bars (research code)
 
-The listener uses a DEDICATED Telegram account (user decision 2026-11-03) whose session string lives only in
-the keychain and the Fly secret SGT_SECRET_TG_FADE_SESSION. Entries need ARM for the day (SMS), see
+The listener uses the owner's existing Telegram account (user decision 2026-11-04, replacing a dedicated account)
+through its OWN session (a separate authorized device, revocable in Telegram > Settings > Devices without touching
+the laptop session). The session string lives only in the keychain and the Fly secret SGT_SECRET_TG_FADE_SESSION,
+and the listener subscribes to the alert channel only. Entries need ARM for the day (SMS), see
 sgt.fast.fade for gates and caps. Official results reuse telegram_alert_test.attach_trades/primary_events and
 alert_fade_test.score, so the book is scored exactly like the held-out test.
 """
@@ -40,6 +42,7 @@ log = logging.getLogger("fade_live")
 ET = ZoneInfo("America/New_York")
 CHANNEL = -1001254273411                       # MetaTradings alerts (same as alert_fade_forward.CHANNEL)
 SESSION_SECRET = "tg_fade_session"
+DEVICE = "SGT fade listener (Fly)"              # how the session shows in Telegram > Settings > Devices
 BARS = Path("data/fast")                       # own store: never mixes with research bar stores
 TICK = 10                                      # seconds between monitor passes (approval -> entry latency)
 MAX_FADE_TEXTS_DAY = 40
@@ -105,7 +108,7 @@ async def run() -> int:
     dc = data_client()
     quote = iex_quote(dc)
     client = TelegramClient(StringSession(get_secret(SESSION_SECRET)), int(get_secret("telegram_api_id")),
-                            get_secret("telegram_api_hash"))
+                            get_secret("telegram_api_hash"), device_model=DEVICE)
 
     @client.on(events.NewMessage(chats=CHANNEL))
     async def on_new(ev):
@@ -183,12 +186,15 @@ def cmd_settle() -> int:
 
 
 def cmd_login() -> int:
-    """Interactive, on the Mac: log in the dedicated account and store the session in the keychain only."""
+    """Interactive, on the Mac: authorize a NEW session for the owner's account (phone, login code, 2FA password
+    if set) and store it in the keychain only. Never reuses data/telegram.session: one auth key on two hosts at once
+    risks Telegram revoking both."""
     import keyring
     from telethon.sessions import StringSession
     from telethon.sync import TelegramClient
 
-    with TelegramClient(StringSession(), int(get_secret("telegram_api_id")), get_secret("telegram_api_hash")) as c:
+    with TelegramClient(StringSession(), int(get_secret("telegram_api_id")), get_secret("telegram_api_hash"),
+                        device_model=DEVICE) as c:
         me = c.get_me()
         c.get_entity(CHANNEL)                  # fails unless this account has joined the alert channel
         keyring.set_password("sgt", SESSION_SECRET, c.session.save())

@@ -117,3 +117,6 @@ tick 10 s) and is scored officially by the same research code with the entry mov
 stay automatic (20% stop or 60 minutes) because the edge was measured with those exits. Owner texts are
 read once a minute, so a reply needs to arrive within about 3 minutes. The forward research record
 (Amendment F1) is unchanged.
+
+Operational note (2026-11-04, no rule change): the listener runs on the owner's existing Telegram account via a
+separate session (its own authorized device, revocable in Telegram > Settings > Devices), not a dedicated account.

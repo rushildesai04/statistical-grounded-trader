@@ -48,7 +48,7 @@ fi
 
 # Boot: catch up anything missed while the machine was down, then hand over to cron.
 "$0" job megacap || true
-# Fast alert-fade listener (2026-11-03): only with its dedicated Telegram session secret; restarted on exit.
+# Fast alert-fade listener (2026-11-03): only with its own Telegram session secret; restarted on exit.
 # Health shows in the digest (heartbeat), not pages, so a Telegram outage cannot flood SMS.
 if [ -n "${SGT_SECRET_TG_FADE_SESSION:-}" ]; then
   ( while true; do
