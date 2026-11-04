@@ -30,6 +30,10 @@ def test_provider_outage_is_named_as_such(tmp_path):
     log.write_text("httpx.ReadTimeout: timed out\n!!! exit 1\n")
     assert "provider did not respond" in ops_notify.build_message("megacap", log, NOW)
     assert "a scheduled job" in ops_notify.build_message("unknown-job", tmp_path / "nope.log", NOW)
+    log.write_text("Fills: megacap MSFT -> +19% @ 520.99\n" + TRACEBACK)     # a price is not an HTTP 5xx
+    assert "internal error" in ops_notify.build_message("digest", log, NOW)
+    log.write_text("httpx.HTTPStatusError: Server error '503 Service Unavailable'\n")
+    assert "provider did not respond" in ops_notify.build_message("digest", log, NOW)
 
 
 def test_one_text_per_job_per_day(tmp_path):

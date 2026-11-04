@@ -39,7 +39,8 @@ JOBS = {
     "fadesettle": ("fade official results", "They are retried on the next run; positions are unaffected."),
 }
 _NETWORK = re.compile(r"HTTPError|HTTPStatusError|ConnectError|ConnectTimeout|ReadTimeout|TimeoutException|"
-                      r"RemoteProtocolError|\b(429|5\d\d)\b|Temporary failure|Name or service not known", re.I)
+                      r"RemoteProtocolError|HTTP[ /]?(429|5\d\d)\b|Too Many Requests|Server Error|Service Unavailable|"
+                      r"Temporary failure|Name or service not known", re.I)
 
 
 def cause(log: Path | None) -> str:
