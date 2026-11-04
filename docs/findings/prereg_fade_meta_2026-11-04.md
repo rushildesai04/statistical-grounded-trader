@@ -43,3 +43,19 @@ bound of the paired difference > 0. Otherwise it stays in shadow (or is retired 
 ## Secondary (reported only)
 Held-out 2026-07..10 result of the frozen model; feature importance; win rate and worst trade for each q.
 Trial ledger run ids `fade-meta-2026-11-04-dev` and `fade-meta-v1-forward`.
+
+## Result (2026-11-04, dev walk-forward run once, trial ledger `fade-meta-2026-11-04-dev`) — VERDICT: FAIL (development)
+Walk-forward 2025-07-01 .. 2026-06-30, 1,658 events, 234 sessions, rank IC +0.051.
+
+| q (skip below) | trades | net per session | mean per trade | win | lower95 of gain vs take-all |
+|---|---|---|---|---|---|
+| 0 (take all) | 1,658 | +6.54% | +0.92% | 55% | - |
+| 0.20 | 1,339 | +6.75% | +1.18% | 55% | -1.66% |
+| 0.35 | 1,062 | +6.36% | +1.40% | 56% | -2.65% |
+| 0.50 | 779 | +6.36% | +1.91% | 56% | -3.13% |
+
+Reading: the model ranks alerts a little (per-trade mean doubles when the lower half is skipped) but the
+skipped alerts were still profitable on average, so total profit does not rise; the gate fails and nothing is
+deployed. The fade's edge is broad, not concentrated in a findable subset. A per-trade filter is only useful if
+the number of trades must be limited (approval fatigue, capital), which is not the case now. v2 waits for
+borrow availability/fee at alert time (collected forward from 2026-11-04; plan W1).
