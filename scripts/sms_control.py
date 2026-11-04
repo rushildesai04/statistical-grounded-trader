@@ -176,7 +176,8 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
                 + ". Exits still apply. RESUME to restart.")
     if cmd.verb == "DISARM":
         approvals.disarm(db)
-        return "DISARMED: no new fast trades today. Open fast trades still exit on their rules."
+        return ("DISARMED: no new fast trades today, including auto-entries at expiry. Open fast trades still "
+                "exit on their rules.")
     if cmd.verb in ("RESUME", "FLATTEN", "ARM") and cmd.code is None:
         if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
             return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."

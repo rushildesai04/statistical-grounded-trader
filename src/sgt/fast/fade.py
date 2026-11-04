@@ -9,9 +9,10 @@ Two layers, so the live book can never drift from the tested rule:
   every trade with the research code itself (telegram_alert_test.attach_trades/primary_events +
   alert_fade_test.score). Only official nets move the book's NAV; estimates are display-only.
 
-Entry permission (2026-11-03, amendment F3): ARMed day -> automatic; otherwise each event texts an approval
-request ("OK <code>") that expires in time for the entry to stay inside the tested 5-minute window; an approved
-trade enters at the next quote and is officially scored from its real entry time. Exits are always automatic.
+Entry permission (amendments F3/F4): ARMed day -> automatic; otherwise each event texts a request that enters
+automatically at its deadline unless the owner replies NO (OK enters at once); the deadline keeps the entry inside
+the tested 5-minute window; PAUSE / DISARM block it. Approved and auto-entered trades are officially scored from
+their real entry time. Exits are always automatic.
 
 Status: filtered (a research rule excluded it; does not block a later alert) | skipped (an ops gate
 blocked the research event) | ask (approval texted, waiting) | pending (waiting for a first quote) | open |
@@ -227,15 +228,36 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         if _set(db, r["id"], "ask", status="pending", reason="approved"):
             _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now)
         return
-    if a["status"] in ("rejected", "expired", "failed", "superseded") or now >= deadline:
-        _set(db, r["id"], "ask", status="skipped", reason="declined" if a["status"] == "rejected" else "not approved in time")
+    if a["status"] == "rejected":
+        _set(db, r["id"], "ask", status="skipped", reason="declined")
+        return
+    if a["status"] in ("failed", "superseded") or (a["status"] == "expired" and a["result"] in ("paused", "lockout")):
+        _set(db, r["id"], "ask", status="skipped", reason=f"approval {a['result'] or a['status']}")
+        return
+    if now < deadline:
+        return                                        # still waiting for a reply
+    # Opt-out (owner decision 2026-11-04): silence at the deadline = enter, unless PAUSE / DISARM.
+    if approvals.disarmed(db, now):
+        _set(db, r["id"], "ask", status="skipped", reason="paused or disarmed before auto-entry")
+        return
+    if now > deadline + ASK_MARGIN:                    # listener was down past the tested entry window
+        _set(db, r["id"], "ask", status="skipped", reason="auto-entry window missed")
+        return
+    with db.tx() as c:                                 # claim the silent request exactly once
+        won = c.execute("UPDATE approvals SET status='executed', decided_at=?, result='auto-entered at expiry "
+                        "(no reply)' WHERE id=? AND (status='pending' OR (status='expired' AND result IS NULL))",
+                        (iso(now), a["id"])).rowcount
+    if not won:                                        # someone else decided it (e.g. PAUSE): never enter
+        _set(db, r["id"], "ask", status="skipped", reason="approval no longer open")
+    elif _set(db, r["id"], "ask", status="pending", reason="auto"):
+        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now)
 
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
     if now < posted + REACTION:
         return
-    allowed = approvals.armed(db, now) or (r["reason"] == "approved" and not db.paused())
+    allowed = approvals.armed(db, now) or (r["reason"] in ("approved", "auto") and not approvals.disarmed(db, now))
     if not allowed:                                   # DISARM / PAUSE after the alert cancels the entry
         _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
         return

@@ -93,6 +93,8 @@ def request(db: OpsStore, send, *, strategy: str, kind: str, period: str, summar
                          iso(now), iso(expires_at))).lastrowid
     verb = payload.get("action", "").upper() if kind == "control" else "OK"
     tail = (f"\nReply {verb} {code} to confirm (expires {fmt_et(expires_at)})." if kind == "control" else
+            f"\nEnters automatically at {expires_at.astimezone(ET):%H:%M:%S} ET unless you reply NO {code}. "
+            f"OK {code} enters now." if kind == "fade" else
             f"\nReply OK {code} to approve, NO {code} to skip. Expires {fmt_et(expires_at)}.")
     try:
         send(f"[SGT] {summary}{tail}")
@@ -147,6 +149,10 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
         with db.tx() as c:                          # a real code that simply expired: "too late", not an attack
             late = c.execute("SELECT * FROM approvals WHERE code=? AND status!='pending' AND created_at>=? "
                              "ORDER BY id DESC LIMIT 1", (cmd.code, iso(now - REUSE_WINDOW))).fetchone()
+        if late is not None and late["status"] in ("executed", "executing", "approved", "rejected"):
+            db.audit("late_code", id=late["id"], sid=sid)
+            done = "already entered; it exits automatically" if late["status"] != "rejected" else "already skipped"
+            return f"No change: {late['summary'][:120]} {done}.", None
         if late is not None and late["status"] in ("expired", "superseded", "failed"):
             db.audit("late_code", id=late["id"], sid=sid)
             hint = " Text ARM in the morning to auto-enter fast trades." if late["kind"] == "fade" else ""
@@ -169,7 +175,8 @@ def pause(db: OpsStore, now: datetime | None = None, reason: str = "pause") -> i
     db.set_flag("paused", "1")
     db.set_flag("fast_armed", "")             # fast trades need a fresh ARM after any pause / lockout
     with db.tx() as c:
-        c.execute("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending' AND kind!='control'",
+        c.execute("UPDATE approvals SET status='expired', decided_at=?, result='paused' WHERE status='pending' "
+                  "AND kind!='control'",
                   (iso(now),))
         voided = c.execute("UPDATE book_orders SET status='void' WHERE status='scheduled' AND source='approved'"
                            ).rowcount
@@ -180,7 +187,8 @@ def pause(db: OpsStore, now: datetime | None = None, reason: str = "pause") -> i
 def lockout(db: OpsStore, now: datetime) -> None:
     pause(db, now, reason="lockout")
     with db.tx() as c:
-        c.execute("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending'", (iso(now),))
+        c.execute("UPDATE approvals SET status='expired', decided_at=?, result='lockout' WHERE status='pending'",
+                  (iso(now),))
 
 
 def challenge(db: OpsStore, send, action: str, now: datetime | None = None) -> int | None:
@@ -246,9 +254,17 @@ def arm(db: OpsStore, now: datetime | None = None) -> str:
     return day
 
 
-def disarm(db: OpsStore, reason: str = "disarm") -> None:
-    db.set_flag("fast_armed", "")
+def disarm(db: OpsStore, reason: str = "disarm", now: datetime | None = None) -> None:
+    """No new fast trades today: clears ARM and also blocks auto-entry at expiry for the rest of the ET day."""
+    day = (now or utcnow()).astimezone(ET).date().isoformat()
+    db.set_flag("fast_armed", f"off:{day}")
     db.audit(reason)
+
+
+def disarmed(db: OpsStore, now: datetime | None = None) -> bool:
+    """DISARM was sent today (ET) or trading is paused: no fast entries of any kind."""
+    day = (now or utcnow()).astimezone(ET).date().isoformat()
+    return db.flag("fast_armed") == f"off:{day}" or db.paused()
 
 
 def armed(db: OpsStore, now: datetime | None = None) -> bool:

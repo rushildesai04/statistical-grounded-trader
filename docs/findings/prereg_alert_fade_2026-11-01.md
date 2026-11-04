@@ -120,3 +120,11 @@ read once a minute, so a reply needs to arrive within about 3 minutes. The forwa
 
 Operational note (2026-11-04, no rule change): the listener runs on the owner's existing Telegram account via a
 separate session (its own authorized device, revocable in Telegram > Settings > Devices), not a dedicated account.
+
+## Amendment F4 — opt-out entries at the approval deadline (2026-11-04, owner decision; no research-rule change)
+The calibrated confidence study (prereg_fade_confidence_2026-11-04) found every qualifying fade is
+statistically the same bet (about 55% win, +0.95% expected net); a score cannot separate them yet. With a
+constant positive expectation, the owner chose opt-out: an unanswered approval request enters automatically at
+its deadline (4 min 20 s after the alert, inside the tested 5-minute window); `NO <code>` skips, `OK <code>`
+enters at once. PAUSE (and requests it expired), DISARM (for the rest of the ET day) and the wrong-code
+lockout block automatic entries. Auto-entered trades are scored from their real entry time (as F3).
