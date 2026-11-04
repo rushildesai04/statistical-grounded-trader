@@ -83,6 +83,7 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     fade.monitor(db, out, px.get, now=T10 + timedelta(seconds=20))
     assert [r["status"] for r in rows(db)] == ["open", "open", "filtered"]
     assert out[0].startswith("[SGT] fade SHORT UP ~$10.00") and "stop $12.00" in out[0]
+    assert "$5,000 short" in out[0]                           # 5% of the $100,000 book, in dollars
     px.update(UP=12.5, DN=9.0)
     fade.monitor(db, out, px.get, now=T10 + timedelta(minutes=30))
     up, dn = rows(db)[:2]
@@ -91,7 +92,7 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     fade.monitor(db, out, lambda s: None, now=T10 + timedelta(minutes=61))   # no quote: last mark is used
     dn = rows(db)[1]
     assert dn["status"] == "est_closed" and dn["est_exit"] == 9.0 and dn["reason"] == "60 min"
-    assert "COVER DN ~$9.00 est (60 min): +10.0%" in out[-1]
+    assert "COVER DN ~$9.00 est (60 min): +10.0% = +$500 before costs" in out[-1]
     assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10))
 
 
@@ -199,7 +200,7 @@ def test_one_failing_row_does_not_stall_the_others(db):
 
 
 def code_in(text: str) -> str:
-    return re.search(r"OK (\d{6})", text).group(1)
+    return re.search(r"OK (\d{6}|\d{2})\b", text).group(1)
 
 
 def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db):

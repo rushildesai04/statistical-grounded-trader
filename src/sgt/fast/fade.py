@@ -208,8 +208,8 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
         note = borrow_note(r)
-        summary = (f"fade SHORT {r['symbol']} ~${_fmt(px)} ({r['alert_type']}): 20% stop, auto-exit in 60 min, "
-                   f"{WEIGHT:.0%} of fade book." + (f" Borrow: {note}." if note else ""))
+        summary = (f"fade SHORT {r['symbol']} ~${_fmt(px)} ({r['alert_type']}): ${notional(db):,.0f} short, "
+                   "20% stop, auto-exit in 60 min." + (f" Borrow: {note}." if note else ""))
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -249,8 +249,8 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         return
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
         out = (now + HOLD).astimezone(ET)
-        send(f"[SGT] fade SHORT {r['symbol']} ~${_fmt(px)} est ({r['alert_type']}); stop ${_fmt(px * (1 + STOP))},"
-             f" out by {out:%H:%M} ET. {WEIGHT:.0%} of fade book.")
+        send(f"[SGT] fade SHORT {r['symbol']} ~${_fmt(px)} est ({r['alert_type']}): ${notional(db):,.0f} short; "
+             f"stop ${_fmt(px * (1 + STOP))}, out by {out:%H:%M} ET.")
 
 
 def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
@@ -265,8 +265,9 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
     if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why):
         g = (entry - exit_px) / entry
-        send(f"[SGT] fade COVER {r['symbol']} ~${_fmt(exit_px)} est ({why}): {g:+.1%} before costs. "
-             "Official result in tonight's digest.")
+        usd = g * (r["weight"] or WEIGHT) * nav(db)
+        send(f"[SGT] fade COVER {r['symbol']} ~${_fmt(exit_px)} est ({why}): {g:+.1%} = {'+' if usd >= 0 else '-'}"
+             f"${abs(usd):,.0f} before costs. Official result in tonight's digest.")
 
 
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
@@ -309,6 +310,11 @@ def settle(db: OpsStore, official: Official, now: datetime | None = None) -> lis
                 settled_at=iso(now)):
             lines.append(f"{r.symbol} {float(o['net']):+.2%}")
     return lines
+
+
+def notional(db: OpsStore) -> float:
+    """Dollar size of one new fade trade: WEIGHT x current official book value."""
+    return WEIGHT * nav(db)
 
 
 def nav(db: OpsStore, through: date | None = None) -> float:

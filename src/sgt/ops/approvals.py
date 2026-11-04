@@ -1,8 +1,11 @@
 """Trade approvals over SMS (2026-11-02; user: approval scope = everything).
 
 Every entry or increase (broker order or approved-book position) is sent as a request with a fresh
-6-digit code; only ``OK <code>`` from the owner's number before expiry approves it, ``NO <code>``
-rejects it, silence lets it expire (fail closed). Codes are single-use; a newer request for the
+code; only ``OK <code>`` from the owner's number before expiry approves it, ``NO <code>``
+rejects it, silence lets it expire (fail closed). Trade requests use 2-digit codes (owner request 2026-11-04:
+fast replies); a code is never reissued within 24 h, so a late reply can never approve a different trade.
+Control actions (RESUME / FLATTEN / ARM) keep 6-digit codes. A reply to an expired request is answered
+"too late" and does not count as a wrong code. Codes are single-use; a newer request for the
 same strategy supersedes the pending one. Five wrong codes within an hour pause trading and expire
 everything pending (a spoofed sender cannot see the codes, which only go to the owner's phone).
 Control: PAUSE / DISARM (no code, fail-closed direction), RESUME / FLATTEN / ARM (challenge code first),
@@ -21,16 +24,18 @@ from zoneinfo import ZoneInfo
 from sgt.ops.store import OpsStore, iso, utcnow
 
 ET = ZoneInfo("America/New_York")
-CODE_DIGITS = 6
+CODE_DIGITS = 6                                 # control actions
+TRADE_DIGITS = 2                                # trade approvals: "OK 42"
+REUSE_WINDOW = timedelta(hours=24)              # no code is reissued within this window
 MAX_BAD_CODES = 5
 BAD_WINDOW = timedelta(hours=1)
 CONTROL_TTL = timedelta(minutes=10)
 STALE_EXECUTING = timedelta(minutes=30)
-_CODED = re.compile(rf"^(OK|NO|RESUME|FLATTEN|ARM)\s+(\d{{{CODE_DIGITS}}})$")
+_CODED = re.compile(rf"^(?:(OK|NO)\s+(\d{{{TRADE_DIGITS}}}|\d{{{CODE_DIGITS}}})|(RESUME|FLATTEN|ARM)\s+(\d{{{CODE_DIGITS}}}))$")
 _WORD = re.compile(r"^(STATUS|PENDING|PAUSE|RESUME|FLATTEN|ARM|DISARM|CMDS|\?)$")
 
 HELP = ("SGT commands: STATUS, PENDING, PAUSE, RESUME (sends a code), FLATTEN (sends a code), "
-        "ARM (sends a code; fast trades for today) / DISARM, OK <code> / NO <code> to answer a trade request.")
+        "ARM (sends a code; fast trades for today) / DISARM, OK 42 / NO 42 to answer a trade request.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,15 +47,23 @@ class Command:
 def parse(body: str) -> Command | None:
     text = " ".join((body or "").strip().upper().split())[:40]
     if m := _CODED.match(text):
-        return Command(m.group(1), m.group(2))
+        return Command(m.group(1), m.group(2)) if m.group(1) else Command(m.group(3), m.group(4))
     if m := _WORD.match(text):
         return Command("CMDS" if m.group(1) == "?" else m.group(1))
     return None
 
 
-def _new_code(c: sqlite3.Connection) -> str:
-    live = {r[0] for r in c.execute("SELECT code FROM approvals WHERE status='pending'")}
-    while (code := f"{secrets.randbelow(10 ** CODE_DIGITS):0{CODE_DIGITS}d}") in live:
+def _new_code(c: sqlite3.Connection, digits: int, now: datetime) -> str:
+    """Unused code: not pending and not issued within REUSE_WINDOW. 2-digit codes are 10-99 (no leading zero);
+    if all 90 are taken the request falls back to 6 digits rather than ever reusing one."""
+    used = {r[0] for r in c.execute("SELECT code FROM approvals WHERE status='pending' OR created_at>=?",
+                                    (iso(now - REUSE_WINDOW),))}
+    if digits == TRADE_DIGITS:
+        free = [str(x) for x in range(10, 100) if str(x) not in used]
+        if free:
+            return free[secrets.randbelow(len(free))]
+        digits = CODE_DIGITS
+    while (code := f"{secrets.randbelow(10 ** digits):0{digits}d}") in used:
         pass
     return code
 
@@ -73,7 +86,7 @@ def request(db: OpsStore, send, *, strategy: str, kind: str, period: str, summar
     with db.tx() as c:
         c.execute("UPDATE approvals SET status='superseded', decided_at=? WHERE status='pending' AND strategy=? "
                   "AND kind=?", (iso(now), strategy, kind))
-        code = _new_code(c)
+        code = _new_code(c, CODE_DIGITS if kind == "control" else TRADE_DIGITS, now)
         aid = c.execute("INSERT INTO approvals(code, strategy, kind, period, summary, payload, created_at, expires_at,"
                         " status) VALUES (?,?,?,?,?,?,?,?,'pending')",
                         (code, strategy, kind, period, summary, json.dumps(payload, default=str),
@@ -131,6 +144,15 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
                       (status, iso(now), sid, row["id"]))
             row = c.execute("SELECT * FROM approvals WHERE id=?", (row["id"],)).fetchone()
     if not ok:
+        with db.tx() as c:                          # a real code that simply expired: "too late", not an attack
+            late = c.execute("SELECT * FROM approvals WHERE code=? AND status!='pending' AND created_at>=? "
+                             "ORDER BY id DESC LIMIT 1", (cmd.code, iso(now - REUSE_WINDOW))).fetchone()
+        if late is not None and late["status"] in ("expired", "superseded", "failed"):
+            db.audit("late_code", id=late["id"], sid=sid)
+            hint = " Text ARM in the morning to auto-enter fast trades." if late["kind"] == "fade" else ""
+            why = {"expired": f"expired at {fmt_et(datetime.fromisoformat(late['expires_at']))}",
+                   "superseded": "was replaced by a newer request", "failed": "could not be completed"}[late["status"]]
+            return f"Too late, not approved: {late['summary'][:120]} {why}." + hint, None
         db.audit("bad_code", verb=cmd.verb, sid=sid)
         if db.count_events("bad_code", now - BAD_WINDOW) >= MAX_BAD_CODES:
             lockout(db, now)

@@ -33,7 +33,7 @@ class FakeSms:
         pass
 
     def code(self):
-        return re.findall(r"(?:OK|RESUME|FLATTEN|ARM) (\d{6})", self.sent[-1])[0]
+        return re.findall(r"(?:OK|RESUME|FLATTEN|ARM) (\d{6}|\d{2})\b", self.sent[-1])[0]
 
 
 @pytest.fixture()
@@ -190,7 +190,7 @@ def test_pause_blocks_pending_and_scheduled_entries(db):
                     deadline=datetime.now(timezone.utc) + timedelta(hours=1), label="tom")
     code = sms.code()
     sc.handle(db, sms, ap.parse("pause"), "SM1")
-    assert "No pending" in sc.handle(db, sms, ap.parse(f"OK {code}"), "SM2")      # PAUSE expired it
+    assert "Too late, not approved" in sc.handle(db, sms, ap.parse(f"OK {code}"), "SM2")   # PAUSE expired it
     assert sc.book.projected(db, "tom") == {}
     # an entry approved before PAUSE is cancelled by it
     db.set_flag("paused", "0")
