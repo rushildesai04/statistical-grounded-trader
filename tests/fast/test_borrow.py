@@ -70,7 +70,7 @@ def test_fade_stamps_borrow_once_and_shows_it_in_the_approval_text(tmp_path):
     fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(seconds=15), borrow=lookup)
     fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(seconds=25), borrow=lookup)
     assert seen == ["ABC"]
-    assert "Borrow: IBKR 12k sh @ 45%/yr" in out[0]
+    assert "🏦 IBKR 12k sh @ 45%/yr" in out[0]
     with db.tx() as c:
         r = dict(c.execute("SELECT * FROM fade_trades").fetchone())
     assert (r["ib_avail"], r["ib_fee"], r["alp_etb"]) == (12000, 45.0, 0)

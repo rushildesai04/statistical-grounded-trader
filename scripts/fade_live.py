@@ -111,7 +111,8 @@ def alpaca_asset(client: httpx.Client):
 
 
 def iex_context(client: httpx.Client):
-    """Move so far for the request text: % vs prior close and vs today's open (IEX snapshot; approximate)."""
+    """Tape for the request text from the IEX snapshot (IEX trades only, so approximate): % vs prior close and
+    today's open, distance below today's high, today's VWAP, and today's volume so far vs all of yesterday's."""
     def ctx(symbol: str) -> dict:
         if not _SYMBOL.match(symbol):
             return {}
@@ -119,14 +120,21 @@ def iex_context(client: httpx.Client):
         if r.status_code != 200:
             return {}
         j = r.json() if isinstance(r.json(), dict) else {}
+        day, prev = j.get("dailyBar") or {}, j.get("prevDailyBar") or {}
         px = float((j.get("latestTrade") or {}).get("p") or 0)
-        o = float((j.get("dailyBar") or {}).get("o") or 0)
-        pc = float((j.get("prevDailyBar") or {}).get("c") or 0)
+        o, h, vw, v = (float(day.get(k) or 0) for k in ("o", "h", "vw", "v"))
+        pc, pv = float(prev.get("c") or 0), float(prev.get("v") or 0)
         out = {}
         if px > 0 and pc > 0:
             out["chg_day"] = px / pc - 1
         if px > 0 and o > 0:
             out["chg_open"] = px / o - 1
+        if px > 0 and h >= px:
+            out["off_high"] = px / h - 1
+        if vw > 0:
+            out["vwap"] = vw
+        if v > 0 and pv > 0:
+            out["rvol"] = v / pv
         return out
     return ctx
 

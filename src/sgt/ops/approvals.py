@@ -93,7 +93,7 @@ def request(db: OpsStore, send, *, strategy: str, kind: str, period: str, summar
                          iso(now), iso(expires_at))).lastrowid
     verb = payload.get("action", "").upper() if kind == "control" else "OK"
     tail = (f"\nReply {verb} {code} to confirm (expires {fmt_et(expires_at)})." if kind == "control" else
-            f"\nAuto-enters {expires_at.astimezone(ET):%H:%M:%S} unless NO {code} (OK {code} = now)"
+            f"\n⏱ Auto-enters {expires_at.astimezone(ET):%H:%M:%S}\n👉 NO {code} = skip · OK {code} = enter now"
             if kind == "fade" else
             f"\nReply OK {code} to approve, NO {code} to skip. Expires {fmt_et(expires_at)}.")
     try:

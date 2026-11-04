@@ -16,6 +16,7 @@ import fade_live as fl  # noqa: E402
 import telegram_alert_test as tat  # noqa: E402
 from alert_fade_test import LOCATE  # noqa: E402
 from sgt.fast import fade  # noqa: E402
+from sgt.ops.sms_style import bold, italic  # noqa: E402
 from sgt.intraday.calendar import default_calendar  # noqa: E402
 from sgt.intraday.store import ParquetBarStore  # noqa: E402
 from sgt.ops import approvals as ap  # noqa: E402
@@ -82,7 +83,8 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     px = {"UP": 10.0, "DN": 10.0, "BIG": 75.0}
     fade.monitor(db, out, px.get, now=T10 + timedelta(seconds=20))
     assert [r["status"] for r in rows(db)] == ["open", "open", "filtered"]
-    assert out[0] == "[SGT] FADE IN: short UP $10.00, $5,000\nStop $12.00 | out 11:00 ET"   # 5% of $100k
+    assert out[0] == (f"[SGT] ✅ {bold('FADE IN')} · short {bold('UP')} @ $10.00 · $5,000\n"   # 5% of $100k
+                      "🛑 stop $12.00 · ⏰ out 11:00 ET")
     px.update(UP=12.5, DN=9.0)
     fade.monitor(db, out, px.get, now=T10 + timedelta(minutes=30))
     up, dn = rows(db)[:2]
@@ -91,7 +93,10 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     fade.monitor(db, out, lambda s: None, now=T10 + timedelta(minutes=61))   # no quote: last mark is used
     dn = rows(db)[1]
     assert dn["status"] == "est_closed" and dn["est_exit"] == 9.0 and dn["reason"] == "60 min"
-    assert out[-1].startswith("[SGT] FADE OUT: DN $9.00 (60 min) +10.0% = +$500\nToday: -$750 (2 trades)")
+    assert out[-1] == (f"[SGT] 🟢 {bold('FADE OUT')} · {bold('DN')} @ $9.00 (60 min)\n"
+                       f"P&L {bold('+10.0% = +$500')}\n📅 Today: -$750 · 2 trades\n"
+                       + italic("Before costs; official tonight."))
+    assert out[-2].startswith(f"[SGT] 🛑 {bold('FADE OUT')} · {bold('UP')} @ $12.50 (stop)")
     assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10))
 
 
@@ -208,13 +213,13 @@ def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db):
     assert fade.on_alert(db, alert("APR"), now=T10) == "ask #1"
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=25))      # no duplicate request
-    assert len(out) == 1 and out[0].startswith("[SGT] FADE: SHORT APR $10.00") and "unless NO" in out[0]
+    assert len(out) == 1 and out[0].startswith(f"[SGT] 🔻 {bold('SHORT APR')} @ {bold('$10.00')}") and "👉 NO " in out[0]
     msg, row = ap.answer(db, ap.Command("OK", code_in(out[0])), "SM1", now=T10 + timedelta(minutes=2))
     assert row["status"] == "approved"
     fade.monitor(db, out, lambda s: 10.5, now=T10 + timedelta(minutes=2, seconds=10))
     r = rows(db)[0]
     assert r["status"] == "open" and r["reason"] == "approved" and r["est_entry"] == 10.5
-    assert out[-1].startswith("[SGT] FADE IN: short APR $10.50")
+    assert out[-1].startswith(f"[SGT] ✅ {bold('FADE IN')} · short {bold('APR')} @ $10.50")
     assert ap.get(db, row["id"])["status"] == "executed"
     fade.monitor(db, out, lambda s: 9.0, now=T10 + timedelta(minutes=63))
     d = fade.due(db, T10 + timedelta(hours=3))
@@ -227,12 +232,12 @@ def test_declined_skips_and_silence_auto_enters_at_the_deadline(db):
     fade.on_alert(db, alert("NO1"), now=T10)
     fade.on_alert(db, alert("LATE", mid=2), now=T10)
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
-    no1 = next(t for t in out if "NO1" in t)
+    no1 = next(t for t in out if bold("NO1") in t)
     ap.answer(db, ap.Command("NO", code_in(no1)), "SM2", now=T10 + timedelta(minutes=1))
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=5))
     got = {r["symbol"]: (r["status"], r["reason"]) for r in rows(db)}
     assert got == {"NO1": ("skipped", "declined"), "LATE": ("open", "auto")}
-    late_code = code_in(next(t for t in out if "LATE" in t))
+    late_code = code_in(next(t for t in out if bold("LATE") in t))
     reply, row = ap.answer(db, ap.Command("NO", late_code), "SM3", now=T10 + timedelta(minutes=6))
     assert row is None and "already entered" in reply and db.count_events("bad_code", T10) == 0
     assert fade.due(db, T10 + timedelta(hours=3)).set_index("symbol").entry_after.notna()["LATE"]
@@ -305,18 +310,37 @@ def test_request_expired_by_pause_never_auto_enters_after_resume(db):
     assert rows(db)[0]["status"] == "skipped"
 
 
-def test_approval_text_has_trade_reason_risk_odds_and_borrow():
-    # owner request 2026-11-04: everything needed to decide, simplest format, plain SMS (no emoji)
-    body = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {"chg_day": 0.85, "chg_open": 0.12},
-                         fade.borrow_note({"ib_avail": 75000, "ib_fee": 44.2}))
-    assert body == ("FADE: SHORT XYZ $4.20\n"
-                    "Why: halt resumed, up 85% today, +12% since open\n"
-                    "Size $5,000 | stop $5.04 (-$1,000) | holds 60 min\n"
-                    "Odds: 55% win, avg +$48/trade (tested)\n"
-                    "Borrow: IBKR 75k sh @ 44%/yr")
-    assert body.isascii()
+def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow():
+    # owner requests 2026-11-04: everything needed to decide; bold/italic/emoji for a phone; confidence score
+    body = fade.ask_text("XYZ", "resumed", 4.2, 5000.0,
+                         {"chg_day": 0.85, "chg_open": 0.12, "off_high": -0.09, "vwap": 3.78, "rvol": 3.24},
+                         fade.borrow_note({"ib_avail": 75000, "ib_fee": 44.2}), (21, -0.0198))
+    assert body.split("\n") == [
+        f"🔻 {bold('SHORT XYZ')} @ {bold('$4.20')}",
+        f"🧠 Confidence {bold('57')}/100 (54-61) · {italic('same for every fade')}",
+        "📣 halt resumed · up 85% today · +12% from open",
+        f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
+        "💵 $5,000 · 🛑 stop $5.04 ≈ -$1,120 · ⏳ 60 min",
+        f"🎯 Tested (764 unseen): win 57%, avg {bold('+$56')}",
+        "    wins +$670 · losses -$765 · 16% stopped",
+        f"📈 Live: 21 trades, avg -2.0% {italic('(too few to judge)')}",
+        "🏦 IBKR 75k sh @ 44%/yr"]
     bare = fade.ask_text("XYZ", "news", None, 5000.0, {}, "")
-    assert "Why: news\n" in bare and "Borrow: unknown" in bare and "stop +20%" in bare
+    assert "📣 news\n" in bare and "🏦 borrow unknown" in bare and "stop +20%" in bare
+    assert "📊" not in bare and "📈" not in bare and "@ market" in bare
+    none = fade.ask_text("XYZ", "news", 4.2, 5000.0, {}, fade.borrow_note({"ib_avail": 0}))
+    assert none.endswith("🏦 ⚠️ none at IBKR (real short unlikely)")
+    assert "too few" not in fade.ask_text("XYZ", "news", 4.2, 5000.0, {}, "", (300, 0.01))
+
+
+def test_record_counts_only_settled_trades(db):
+    assert fade.record(db) == (0, None)
+    with db.tx() as c:
+        for i, (st, net) in enumerate([("settled", 0.10), ("settled", -0.04), ("est_closed", None)]):
+            c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                      "net, created_at) VALUES (?,?,?,?,?,?,?,?,?)", (f"S{i}", "2026-11-04", "news", "x", "c", i, st,
+                                                                     net, "x"))
+    assert fade.record(db) == (2, pytest.approx(0.03))
 
 
 def test_iex_context_computes_moves_and_tolerates_bad_payloads():
@@ -325,8 +349,10 @@ def test_iex_context_computes_moves_and_tolerates_bad_payloads():
     def handler(req):
         if "BAD" in req.url.path:
             return httpx.Response(200, json=["not", "a", "dict"])
-        return httpx.Response(200, json={"latestTrade": {"p": 3.7}, "dailyBar": {"o": 3.3}, "prevDailyBar": {"c": 2.0}})
+        return httpx.Response(200, json={"latestTrade": {"p": 3.7}, "dailyBar": {"o": 3.3, "h": 4.0, "vw": 3.5, "v": 9e5},
+                                         "prevDailyBar": {"c": 2.0, "v": 3e5}})
     ctx = fl.iex_context(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)))
     got = ctx("XYZ")
     assert got["chg_day"] == pytest.approx(0.85) and got["chg_open"] == pytest.approx(3.7 / 3.3 - 1)
+    assert got["off_high"] == pytest.approx(3.7 / 4.0 - 1) and got["vwap"] == 3.5 and got["rvol"] == pytest.approx(3.0)
     assert ctx("BAD") == {} and ctx("not a symbol") == {}
