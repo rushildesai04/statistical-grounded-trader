@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from sgt.fast import fade
+from sgt.fast import fade, realism
 from sgt.ops import approvals
 from sgt.ops.book import fmt_targets
 from sgt.ops.store import OpsStore
@@ -70,6 +70,7 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     lines = [f"[SGT] {now_et:%a %m-%d} digest" + ("  ** PAUSED **" if db.paused() else "")]
     lines += ["Your book:"] + (book_lines(db, now_et.date()) or ["  (no approved positions yet)"])
     lines += fade.digest_lines(db, now_et.date(), now_et)
+    lines += realism.lines(db)
     if fills:
         lines.append("Fills: " + "; ".join(f"{f['strategy']} {f['symbol']} -> {f['target']:+.0%} @ {f['price']:.2f}"
                                            for f in fills))

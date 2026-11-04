@@ -337,10 +337,17 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
         return
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
-        out = (now + HOLD).astimezone(ET)
+        out = _exit_at(r["session"], now)[0].astimezone(ET)
         how = " (auto)" if r["reason"] == "auto" else ""
         send(f"[SGT] ✅ {bold('FADE IN')}{how} · short {bold(r['symbol'])} @ ${_fmt(px)} · ${notional(db):,.0f}\n"
              f"🛑 stop ${_fmt(px * (1 + STOP))} · ⏰ out {out:%H:%M} ET")
+
+
+def _exit_at(session: str, started: datetime) -> tuple[datetime, str]:
+    """Time-exit of a live trade: 60 minutes, or the regular-session close if earlier (the research window holds
+    only RTH bars, so a late entry is covered at the last RTH bar; plan W5 2026-11-04)."""
+    close = default_calendar().bounds(date.fromisoformat(session)).rth_close
+    return (started + HOLD, "60 min") if started + HOLD <= close else (close, "close")
 
 
 def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
@@ -349,7 +356,8 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     if px is not None and px > 0:
         _set(db, r["id"], "open", est_last=px)
     last = px if px is not None and px > 0 else r["est_last"]
-    why = "stop" if last and last >= entry * (1 + STOP) else ("60 min" if now >= started + HOLD else None)
+    end, why_end = _exit_at(r["session"], started)
+    why = "stop" if last and last >= entry * (1 + STOP) else (why_end if now >= end else None)
     if why is None:
         return
     exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
@@ -402,9 +410,10 @@ def settle(db: OpsStore, official: Official, now: datetime | None = None) -> lis
             _set(db, r.id, r.status, status="void", reason=str(o.get("why", "not a research event")), settled_at=iso(now))
             lines.append(f"{r.symbol} void")
             continue
+        rule = {k: float(o[k]) for k in ("rule_entry", "rule_net") if k in o and pd.notna(o[k])}
         if _set(db, r.id, r.status, status="settled", entry_ts=str(o["entry_ts"]), entry=float(o["entry"]),
                 cover=float(o["cover"]), cost_rt=float(o["cost_rt"]), gross=float(o["gross"]), net=float(o["net"]),
-                settled_at=iso(now)):
+                settled_at=iso(now), **rule):
             lines.append(f"{r.symbol} {float(o['net']):+.2%}")
     return lines
 
