@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS fade_trades(
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fade_event ON fade_trades(symbol, session) WHERE status != 'filtered';
 CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
 """
+# Additive column migrations for tables that already exist on the runner's volume (CREATE IF NOT EXISTS
+# never adds columns). Only ADD COLUMN with NULL defaults: old rows stay valid, old code ignores them.
+COLUMNS = {
+    "fade_trades": {                         # 2026-11-04 plan W1: borrow reality at alert time
+        "ib_avail": "INTEGER", "ib_fee": "REAL", "ib_snap": "TEXT", "alp_etb": "INTEGER", "alp_shortable": "INTEGER",
+    },
+}
 
 
 def utcnow() -> datetime:
@@ -62,6 +69,12 @@ class OpsStore:
         try:
             c.execute("PRAGMA journal_mode=WAL")
             c.executescript(SCHEMA)             # executescript manages its own COMMIT
+            for table, cols in COLUMNS.items():
+                have = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}  # noqa: S608 - fixed names
+                for name, typ in cols.items():
+                    if name not in have:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")  # noqa: S608 - fixed names
+            c.commit()
         finally:
             c.close()
 

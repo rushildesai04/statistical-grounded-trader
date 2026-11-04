@@ -4,6 +4,7 @@
     python scripts/fade_live.py push-secret   # keychain -> Fly secret over stdin (never printed)
     python scripts/fade_live.py run       # Fly: listen to the alert channel, enter/exit estimates, texts
     python scripts/fade_live.py settle    # Fly cron 20:40 ET: official results from SIP bars (research code)
+    python scripts/fade_live.py borrow    # Fly cron every 15 min in market hours: IBKR borrow snapshot
 
 The listener uses the owner's existing Telegram account (user decision 2026-11-04, replacing a dedicated account)
 through its OWN session (a separate authorized device, revocable in Telegram > Settings > Devices without touching
@@ -31,6 +32,8 @@ from alert_fade_test import score
 from backfill_alpaca import backfill
 from sgt.core.secrets import get_secret
 from sgt.crowd.telegram_parser import ParsedAlert, ParsedNews, parse_message
+from sgt.crowd.telegram_collector import SourceMessage, TelegramCollector
+from sgt.fast import borrow as borrow_mod
 from sgt.fast import fade
 from sgt.intraday.sources import AlpacaHistoricalBars
 from sgt.intraday.store import ParquetBarStore
@@ -45,6 +48,8 @@ SESSION_SECRET = "tg_fade_session"
 DEVICE = "SGT fade listener (Fly)"              # how the session shows in Telegram > Settings > Devices
 BARS = Path("data/fast")                       # own store: never mixes with research bar stores
 TICK = 10                                      # seconds between monitor passes (approval -> entry latency)
+POLL_EVERY = 3600                              # seconds between gap-filling channel polls (research record)
+FORWARD_START = datetime(2026, 10, 30, tzinfo=timezone.utc)   # alert_fade_forward.FORWARD_START (amendment F1)
 MAX_FADE_TEXTS_DAY = 40
 VOID_AFTER = timedelta(days=3)                 # SIP bars still missing after this -> void
 _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
@@ -64,6 +69,45 @@ def iex_quote(client: httpx.Client):
             log.warning("quote %s failed: %s", symbol, type(exc).__name__)
             return None
     return quote
+
+
+class LiveClientSource:
+    """MessageSource over the listener's own connected client (plan 2026-11-04 W2): the research record is
+    filled on the runner without a second Telegram login (one auth key, one process)."""
+
+    def __init__(self, client) -> None:
+        self.client = client
+
+    async def iter_messages(self, channel: str, *, min_id: int, limit: int, since: datetime | None = None):
+        kwargs = {"reverse": True, "limit": limit, "min_id": min_id}
+        if since is not None and min_id == 0:
+            kwargs["offset_date"] = since
+        async for msg in self.client.iter_messages(int(channel), **kwargs):
+            if msg is not None:
+                yield to_source(msg)
+
+
+def to_source(msg) -> SourceMessage:
+    return SourceMessage(id=int(msg.id), date=msg.date.astimezone(timezone.utc), text=msg.message or "",
+                         edited_at=msg.edit_date.astimezone(timezone.utc) if msg.edit_date else None)
+
+
+def asset_client() -> httpx.Client:
+    from sgt.config import get_settings
+
+    h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
+    return httpx.Client(base_url=get_settings().alpaca_paper_url.rstrip("/"), headers=h, timeout=5)
+
+
+def alpaca_asset(client: httpx.Client):
+    def get(symbol: str) -> dict:
+        if not _SYMBOL.match(symbol):
+            return {}
+        r = client.get(f"/v2/assets/{symbol}")
+        r.raise_for_status()
+        j = r.json()
+        return j if isinstance(j, dict) else {}
+    return get
 
 
 def data_client() -> httpx.Client:
@@ -103,28 +147,50 @@ async def run() -> int:
     from telethon import TelegramClient, events
     from telethon.sessions import StringSession
 
+    from sgt.db.session import init_db
+
     db = OpsStore()
     send = CappedSms(db)
-    dc = data_client()
+    dc, ac = data_client(), asset_client()
     quote = iex_quote(dc)
+    book = borrow_mod.BorrowBook(alpaca_asset=alpaca_asset(ac))
+    init_db()
     client = TelegramClient(StringSession(get_secret(SESSION_SECRET)), int(get_secret("telegram_api_id")),
                             get_secret("telegram_api_hash"), device_model=DEVICE)
+
+    collector = TelegramCollector([str(CHANNEL)], "", source=LiveClientSource(client))
+
+    def record(msg) -> None:                   # research tables (forward record); never blocks the book
+        try:
+            collector.store(str(CHANNEL), to_source(msg))
+        except Exception:  # noqa: BLE001 - logged; the hourly poll re-fetches anything missed
+            log.exception("storing message %s failed", msg.id)
 
     @client.on(events.NewMessage(chats=CHANNEL))
     async def on_new(ev):
         posted = ev.message.date.astimezone(timezone.utc)
         for a in to_alerts(ev.message.message or "", posted, ev.message.id):
             log.info("alert %s %s -> %s", a.symbol, a.alert_type, fade.on_alert(db, a))
+        record(ev.message)
 
     @client.on(events.MessageEdited(chats=CHANNEL))
     async def on_edit(ev):                     # research excludes edited alerts; the book keeps the trade, flagged
         with db.tx() as c:
             c.execute("UPDATE fade_trades SET edited=1 WHERE channel=? AND message_id=?", (str(CHANNEL), ev.message.id))
+        record(ev.message)
+
+    async def catch_up():
+        while True:
+            try:
+                log.info("channel catch-up stored %d messages", await collector.backfill(FORWARD_START))
+            except Exception:  # noqa: BLE001 - keep listening; retried next hour
+                log.exception("channel catch-up failed")
+            await asyncio.sleep(POLL_EVERY)
 
     async def loop():
         while True:
             try:
-                await asyncio.to_thread(fade.monitor, db, send, quote)
+                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             await asyncio.sleep(TICK)
@@ -133,12 +199,14 @@ async def run() -> int:
     if not await client.is_user_authorized():
         raise SystemExit("fade session not authorized; run `fade_live.py login` on the Mac")
     log.info("listening on %s", CHANNEL)
-    task = asyncio.create_task(loop())
+    tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up())]
     try:
         await client.run_until_disconnected()
     finally:
-        task.cancel()
+        for t in tasks:
+            t.cancel()
         dc.close()
+        ac.close()
     return 1                                   # disconnected: exit non-zero so the supervisor restarts us
 
 
@@ -185,6 +253,12 @@ def cmd_settle() -> int:
     return 0
 
 
+def cmd_borrow() -> int:
+    out = borrow_mod.snapshot(datetime.now(timezone.utc))
+    print(f"borrow snapshot {out}")
+    return 0
+
+
 def cmd_login() -> int:
     """Interactive, on the Mac: authorize a NEW session for the owner's account (phone, login code, 2FA password
     if set) and store it in the keychain only. Never reuses data/telegram.session: one auth key on two hosts at once
@@ -214,13 +288,13 @@ def cmd_push_secret() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("cmd", choices=["login", "push-secret", "run", "settle"])
+    ap.add_argument("cmd", choices=["login", "push-secret", "run", "settle", "borrow"])
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s",
                         stream=sys.stdout)
     if args.cmd == "run":
         return asyncio.run(run())
-    return {"login": cmd_login, "push-secret": cmd_push_secret, "settle": cmd_settle}[args.cmd]()
+    return {"login": cmd_login, "push-secret": cmd_push_secret, "settle": cmd_settle, "borrow": cmd_borrow}[args.cmd]()
 
 
 if __name__ == "__main__":

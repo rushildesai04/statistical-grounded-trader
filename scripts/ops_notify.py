@@ -37,6 +37,8 @@ JOBS = {
     "tom": ("turn-of-month check", "No turn-of-month trade is proposed until it runs again."),
     "digest": ("nightly digest", "Trades and positions are unaffected; only tonight's summary is missing."),
     "fadesettle": ("fade official results", "They are retried on the next run; positions are unaffected."),
+    "borrow": ("borrow-fee snapshot", "Trades are unaffected; borrow details may be missing from trade texts."),
+    "fadeforward": ("fade forward research record", "Nothing was traded; it catches up on the next run."),
 }
 _NETWORK = re.compile(r"HTTPError|HTTPStatusError|ConnectError|ConnectTimeout|ReadTimeout|TimeoutException|"
                       r"RemoteProtocolError|HTTP[ /]?(429|5\d\d)\b|Too Many Requests|Server Error|Service Unavailable|"

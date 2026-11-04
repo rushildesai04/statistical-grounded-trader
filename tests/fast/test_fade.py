@@ -255,3 +255,25 @@ def test_official_shifts_approved_trades_to_their_entry_time(tmp_path, monkeypat
     late = fl.official(pd.DataFrame([{**base, "entry_after": (T10 + timedelta(minutes=4, seconds=5)).isoformat()}]),
                        now=T10 + timedelta(hours=10)).iloc[0]
     assert auto.entry == pytest.approx(10.0) and late.entry == pytest.approx(9.0)
+
+
+def test_live_client_source_reads_oldest_first_from_the_listener_connection():
+    # plan 2026-11-04 W2: the research record is filled over the listener's own client (no second login)
+    import asyncio
+    from types import SimpleNamespace
+
+    msgs = [SimpleNamespace(id=7, date=T10, message="$ABC volume spike", edit_date=None), None]
+    seen = {}
+
+    class Client:
+        async def iter_messages(self, entity, **kw):
+            seen.update(entity=entity, **kw)
+            for m in msgs:
+                yield m
+
+    async def collect():
+        src = fl.LiveClientSource(Client())
+        return [m async for m in src.iter_messages("-1001254273411", min_id=0, limit=50, since=T10)]
+    got = asyncio.run(collect())
+    assert [m.id for m in got] == [7] and got[0].text == "$ABC volume spike" and got[0].edited_at is None
+    assert seen == {"entity": -1001254273411, "reverse": True, "limit": 50, "min_id": 0, "offset_date": T10}

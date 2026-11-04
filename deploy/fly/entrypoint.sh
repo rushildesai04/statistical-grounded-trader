@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops reports/fast data/alpaca data/etf_yf
+mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade data/alpaca data/etf_yf data/borrow
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -41,6 +41,9 @@ if [ "${1:-}" = "job" ]; then
     digest)    run reports/ops/run.log python /app/scripts/sms_control.py digest ;;
     # Fast alert-fade book (2026-11-03): official results from SIP bars before the digest.
     fadesettle) run reports/fast/run.log python /app/scripts/fade_live.py settle ;;
+    # Plan 2026-11-04: IBKR borrow snapshots (W1) and the decisive forward research record on the runner (W2).
+    borrow)    run reports/fast/borrow.log python /app/scripts/fade_live.py borrow ;;
+    fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?

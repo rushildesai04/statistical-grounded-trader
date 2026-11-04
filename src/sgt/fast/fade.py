@@ -50,6 +50,8 @@ HEARTBEAT_STALE = timedelta(minutes=15)
 ASK_MARGIN = timedelta(seconds=40)              # approval must land this long before the entry deadline
 
 Quote = Callable[[str], "float | None"]
+Borrow = Callable[[str, datetime], dict]
+BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable")
 Official = Callable[[pd.DataFrame], pd.DataFrame]
 
 
@@ -140,18 +142,41 @@ def _fmt(px: float | None) -> str:
     return "n/a" if px is None else (f"{px:.2f}" if px >= 1 else f"{px:.4f}")
 
 
-def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None) -> None:
+def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None) -> None:
     """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
-    open -> est_closed (stop / 60 min)."""
+    open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event."""
     now = now or utcnow()
     db.set_flag("fade_heartbeat", iso(now))
     with db.tx() as c:
         rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('ask','pending','open') ORDER BY id").fetchall()
     for r in rows:
         try:
+            if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
+                r = _stamp(db, r, borrow(r["symbol"], now))
             _advance(db, send, quote, r, now)
         except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
             log.exception("fade row %s failed", r["id"])
+
+
+def _stamp(db: OpsStore, r, facts: dict) -> dict:
+    """Record borrow facts at alert time (plan 2026-11-04 W1). Only known fields are written."""
+    cols = {k: v for k, v in facts.items() if k in BORROW_COLS and v is not None}
+    if cols:
+        keys = ", ".join(f"{k}=?" for k in cols)
+        with db.tx() as c:
+            c.execute(f"UPDATE fade_trades SET {keys} WHERE id=?", (*cols.values(), r["id"]))  # noqa: S608 - fixed names
+    return {**dict(r), **cols}
+
+
+def borrow_note(r) -> str:
+    """'IBKR 12,000 sh @ 45.0%/yr' / 'IBKR: none to borrow' / '' (unknown); Alpaca easy-to-borrow flag."""
+    r, parts = dict(r), []
+    if r.get("ib_avail") is not None:
+        parts.append("IBKR: none to borrow" if r["ib_avail"] <= 0 else
+                     f"IBKR {r['ib_avail']:,} sh @ {r['ib_fee']:.1f}%/yr")
+    if r.get("alp_etb") == 1:
+        parts.append("Alpaca easy-to-borrow")
+    return "; ".join(parts)
 
 
 def _advance(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
@@ -182,8 +207,9 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         if px is not None and px > 0 and not PRICE_MIN <= px <= PRICE_MAX:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
+        note = borrow_note(r)
         summary = (f"fade SHORT {r['symbol']} ~${_fmt(px)} ({r['alert_type']}): 20% stop, auto-exit in 60 min, "
-                   f"{WEIGHT:.0%} of fade book.")
+                   f"{WEIGHT:.0%} of fade book." + (f" Borrow: {note}." if note else ""))
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -304,6 +330,7 @@ def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[s
     with db.tx() as c:
         rows = c.execute("SELECT status, net FROM fade_trades WHERE session=?", (s,)).fetchall()
         n_all = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status='settled'").fetchone()[0]
+        ib = c.execute("SELECT COUNT(*), AVG(net) FROM fade_trades WHERE status='settled' AND ib_avail > 0").fetchone()
     if not rows and not n_all:
         return warn
     st = [r for r in rows if r["status"] == "settled"]
@@ -314,4 +341,6 @@ def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[s
     line = f"fade: ${v:,.0f} ({v / NAV0 - 1:+.2%} since start, {n_all} trades)"
     line += f"; today {len(st)} settled" + (f" avg {day_net:+.2%}/trade" if st else "")
     line += (f", {sk} skipped" if sk else "") + (f", {wait} unsettled" if wait else "")
+    if n_all:                                 # the subset that could really be shorted (IBKR had shares)
+        line += f"; IBKR-borrowable {ib[0]} trades" + (f" avg {ib[1]:+.2%}" if ib[0] else "")
     return [line] + warn

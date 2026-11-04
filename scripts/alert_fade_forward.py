@@ -7,6 +7,7 @@ test's own code and scores them with the held-out scorer. Re-running is idempote
 Usage:
     python scripts/alert_fade_forward.py              # pull channel + bars, score, print
     python scripts/alert_fade_forward.py --no-pull    # score what is already stored
+    python scripts/alert_fade_forward.py --no-telegram   # Fly: the listener stores the channel; refresh bars, score
 """
 from __future__ import annotations
 
@@ -98,11 +99,13 @@ def record(months: dict[str, dict]) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--no-pull", action="store_true", help="skip Telegram and bar refresh")
+    ap.add_argument("--no-telegram", action="store_true",
+                    help="skip only the Telegram pull (runner: fade_live.py run stores messages, plan 2026-11-04 W2)")
     args = ap.parse_args()
     now = datetime.now(ET)
     end = last_complete_session(now)
     print(f"--- {now:%Y-%m-%d %H:%M} ET alert-fade forward, sessions {FORWARD_START} .. {end}")
-    if not args.no_pull:
+    if not (args.no_pull or args.no_telegram):
         pull_channel()
     store = ParquetBarStore("data/alpaca")
     ev = forward_events(load_alerts(DB, CHANNEL), store, end, fill_bars=not args.no_pull)
