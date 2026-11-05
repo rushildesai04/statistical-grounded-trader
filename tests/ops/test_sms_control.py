@@ -298,3 +298,50 @@ def test_exit_offer_replies_keep_or_exit_and_executes_nothing(db):
     assert sc.handle(db, sms, ap.parse(f"ok {keep}"), "SM1") == "KEEP: KEP stays short and exits by itself."
     assert sc.handle(db, sms, ap.parse(f"no {out}"), "SM2") == "EXIT: closing OUT at the next price (about 10 s)."
     assert sc.handle(db, sms, ap.parse(f"no {out}"), "SM3") == "No change: OUT is already exiting on your NO."
+
+
+def _real_code(sms):
+    return re.findall(r"REAL (\d{6})\b", sms.sent[-1])[0]
+
+
+def test_real_needs_code_server_switch_and_paper_is_immediate(db, monkeypatch):
+    """Live pilot 2026-11-05: REAL turns on real-money fade shorts only with a code and only when the server has
+    the Schwab pilot enabled; PAPER switches it off at once; RESUME clears the pilot kill flag."""
+    sms = FakeSms()
+    monkeypatch.delenv("SGT_PILOT_SCHWAB", raising=False)
+    assert sc.handle(db, sms, ap.parse("real"), "SM1") == ""
+    assert "not enabled" in sc.handle(db, sms, ap.parse(f"REAL {_real_code(sms)}"), "SM2")
+    assert db.flag("pilot_fade_live") != "1"
+    monkeypatch.setenv("SGT_PILOT_SCHWAB", "1")
+    sc.handle(db, sms, ap.parse("real"), "SM3")
+    assert "REAL ON" in sc.handle(db, sms, ap.parse(f"REAL {_real_code(sms)}"), "SM4")
+    assert db.flag("pilot_fade_live") == "1"
+    assert "PAPER" in sc.handle(db, sms, ap.parse("paper"), "SM5") and db.flag("pilot_fade_live") == "0"
+    sc.handle(db, sms, ap.parse("pause"), "SM6")
+    sc.handle(db, sms, ap.parse("real"), "SM7")
+    assert "PAUSED" in sc.handle(db, sms, ap.parse(f"REAL {_real_code(sms)}"), "SM8")
+    db.set_flag("pilot_kill", "1")
+    sc.handle(db, sms, ap.parse("resume"), "SM9")
+    sc.handle(db, sms, ap.parse(f"RESUME {sms.code()}"), "SM10")
+    assert db.flag("pilot_kill") == "0"
+
+
+def test_flatten_also_closes_schwab_pilot_and_reports_failure(db, monkeypatch):
+    sms = FakeSms()
+    monkeypatch.setenv("SGT_PILOT_SCHWAB", "1")
+    calls = []
+
+    async def fake_flatten(d, send):
+        calls.append(d)
+        return ["Schwab: ABCD: BUY_TO_COVER 100 @ 10.05 sent"]
+    monkeypatch.setattr(sc.pilot_runtime, "flatten", fake_flatten)
+    sc.handle(db, sms, ap.parse("flatten"), "SM1")
+    reply = sc.handle(db, sms, ap.parse(f"FLATTEN {sms.code()}"), "SM2")
+    assert calls and "Schwab: ABCD: BUY_TO_COVER 100" in reply and db.paused()
+
+    async def failed(d, send):
+        return ["Schwab: NOT connected, pilot positions NOT closed; close them in the Schwab app"]
+    monkeypatch.setattr(sc.pilot_runtime, "flatten", failed)
+    sc.handle(db, sms, ap.parse("flatten"), "SM3")
+    reply = sc.handle(db, sms, ap.parse(f"FLATTEN {sms.code()}"), "SM4")
+    assert "INCOMPLETE" in reply and "pilot positions NOT closed" in reply

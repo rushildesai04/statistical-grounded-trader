@@ -53,6 +53,7 @@ TICK = 10                                      # seconds between monitor passes 
 POLL_EVERY = 3600                              # seconds between gap-filling channel polls (research record)
 FORWARD_START = datetime(2026, 10, 30, tzinfo=timezone.utc)   # alert_fade_forward.FORWARD_START (amendment F1)
 MAX_FADE_TEXTS_DAY = 40
+MAX_PILOT_TEXTS_DAY = 150                       # real-money texts: own counter, never crowded out by paper
 VOID_AFTER = timedelta(days=3)                 # SIP bars still missing after this -> void
 _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
 
@@ -149,17 +150,17 @@ def data_client() -> httpx.Client:
 class CappedSms:
     """Fade texts are best-effort and capped per ET day; a failed text never stops the book."""
 
-    def __init__(self, db: OpsStore) -> None:
-        self.db, self.sms = db, Sms()
+    def __init__(self, db: OpsStore, event: str = "fade_text", cap: int = MAX_FADE_TEXTS_DAY) -> None:
+        self.db, self.sms, self.event, self.cap = db, Sms(), event, cap
 
     def __call__(self, text: str) -> None:
         day = datetime.now(ET).date()
         since = datetime.combine(day, datetime.min.time(), tzinfo=ET)
-        if self.db.count_events("fade_text", since) >= MAX_FADE_TEXTS_DAY:
+        if self.db.count_events(self.event, since) >= self.cap:
             return
         try:
             self.sms.send(text)
-            self.db.audit("fade_text", n=len(text))
+            self.db.audit(self.event, n=len(text))
         except Exception as exc:  # noqa: BLE001 - notification only, logged
             log.error("fade text failed: %s", type(exc).__name__)
 
@@ -218,7 +219,8 @@ async def run() -> int:
                 log.exception("channel catch-up failed")
             await asyncio.sleep(POLL_EVERY)
 
-    real = PilotHandle(db, send)               # Schwab real-money pilot; None unless SGT_PILOT_SCHWAB=1
+    real_send = CappedSms(db, "pilot_text", MAX_PILOT_TEXTS_DAY)
+    real = PilotHandle(db, real_send)          # Schwab real-money pilot; None unless SGT_PILOT_SCHWAB=1
 
     async def loop():
         n = 0
@@ -230,7 +232,7 @@ async def run() -> int:
             try:
                 pilot = await real.get()
                 if pilot is not None:
-                    await fade_real.step(pilot, db, quote, send, pilot.broker.account_flags)
+                    await fade_real.step(pilot, db, quote, real_send, pilot.broker.account_flags)
                     if n % 360 == 0:            # hourly
                         await real.login_check()
             except Exception:  # noqa: BLE001 - real-money step must never stop the paper book; logged

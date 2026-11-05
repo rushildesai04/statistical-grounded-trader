@@ -31,11 +31,12 @@ MAX_BAD_CODES = 5
 BAD_WINDOW = timedelta(hours=1)
 CONTROL_TTL = timedelta(minutes=10)
 STALE_EXECUTING = timedelta(minutes=30)
-_CODED = re.compile(rf"^(?:(OK|NO)\s+(\d{{{TRADE_DIGITS}}}|\d{{{CODE_DIGITS}}})|(RESUME|FLATTEN|ARM)\s+(\d{{{CODE_DIGITS}}}))$")
-_WORD = re.compile(r"^(STATUS|PENDING|PAUSE|RESUME|FLATTEN|ARM|DISARM|CMDS|\?)$")
+_CODED = re.compile(rf"^(?:(OK|NO)\s+(\d{{{TRADE_DIGITS}}}|\d{{{CODE_DIGITS}}})|(RESUME|FLATTEN|ARM|REAL)\s+(\d{{{CODE_DIGITS}}}))$")
+_WORD = re.compile(r"^(STATUS|PENDING|PAUSE|RESUME|FLATTEN|ARM|DISARM|REAL|PAPER|CMDS|\?)$")
 
 HELP = ("SGT commands: STATUS, PENDING, PAUSE, RESUME (sends a code), FLATTEN (sends a code), "
-        "ARM (sends a code; fast trades for today) / DISARM, OK 42 / NO 42 to answer a trade request.")
+        "ARM (sends a code; fast trades for today) / DISARM, REAL (sends a code; real-money fade shorts at "
+        "Schwab, still needs ARM each day) / PAPER (real off now), OK 42 / NO 42 to answer a trade request.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +131,7 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
     """Apply an OK/NO/RESUME/FLATTEN code. Returns (reply text, the decided row or None)."""
     now = now or utcnow()
     expire(db, now)
-    want_kind = "control" if cmd.verb in ("RESUME", "FLATTEN", "ARM") else None
+    want_kind = "control" if cmd.verb in ("RESUME", "FLATTEN", "ARM", "REAL") else None
     with db.tx() as c:
         row = c.execute("SELECT * FROM approvals WHERE status='pending' AND code=?", (cmd.code,)).fetchone()
         ok = row is not None and ((row["kind"] == "control") == (want_kind == "control"))
@@ -209,7 +210,8 @@ def challenge(db: OpsStore, send, action: str, now: datetime | None = None) -> i
         if c.execute("SELECT 1 FROM approvals WHERE status='pending' AND strategy=?", (f"control:{action}",)).fetchone():
             return None                       # one live challenge per action: a spoofed repeat cannot replace it
     what = {"resume": "Resume trading", "flatten": "FLATTEN: close every broker position and zero the approved book",
-            "arm": f"ARM fast alert-fade trades for {now.astimezone(ET):%a %m-%d} (auto-entry, capped)"}
+            "arm": f"ARM fast alert-fade trades for {now.astimezone(ET):%a %m-%d} (auto-entry, capped)",
+            "real": "REAL: real-money fade shorts at Schwab on ARMed days ($10k cap, stop held at Schwab)"}
     return request(db, send, strategy=f"control:{action}", kind="control", period=now.date().isoformat(),
                    summary=what[action], payload={"action": action}, expires_at=now + CONTROL_TTL, now=now)
 

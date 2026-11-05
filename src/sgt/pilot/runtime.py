@@ -83,3 +83,50 @@ class PilotHandle:
         if self.pilot is not None:
             await self.pilot.broker.close()          # type: ignore[attr-defined]
             self.pilot = None
+
+
+def iex_marks(symbols: list[str]) -> dict[str, float]:
+    """Last IEX trade per symbol from Alpaca market data (the pilot's quote source); missing = absent."""
+    import re
+
+    import httpx
+
+    from sgt.core.secrets import get_secret
+    ok = [s for s in symbols if re.fullmatch(r"[A-Z][A-Z0-9.]{0,9}", s)]
+    if not ok:
+        return {}
+    h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
+    out: dict[str, float] = {}
+    with httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=5) as c:
+        r = c.get("/v2/stocks/trades/latest", params={"symbols": ",".join(ok), "feed": "iex"})
+        if r.status_code != 200:
+            return {}
+        for sym, t in (r.json().get("trades") or {}).items():
+            try:
+                px = float(t.get("p", 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if sym in ok and px > 0:
+                out[sym] = px
+    return out
+
+
+async def flatten(db: OpsStore, send) -> list[str]:
+    """FLATTEN for the Schwab pilot: real fades off, kill flag, close the pilot's own positions only."""
+    from sgt.pilot import ledger
+    from sgt.pilot.fade_real import LIVE_FLAG
+    db.set_flag(LIVE_FLAG, "0")
+    ledger.init(db)
+    ledger.kill(db)
+    if not ledger.positions(db) and not ledger.open_orders(db):
+        return ["Schwab: no pilot positions"]
+    handle = PilotHandle(db, send)
+    handle._next_try = None
+    pilot = await handle.get()
+    if pilot is None:
+        return ["Schwab: NOT connected, pilot positions NOT closed; close them in the Schwab app"]
+    try:
+        marks = iex_marks(sorted({p.symbol for p in ledger.positions(db)}))
+        return ["Schwab: " + line for line in await pilot.flatten(marks)]
+    finally:
+        await handle.close()

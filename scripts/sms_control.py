@@ -14,6 +14,7 @@ Alpaca PAPER only.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -30,6 +31,7 @@ from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals, book, digest
 from sgt.ops.sms import Sms
 from sgt.ops.store import OpsStore, iso
+from sgt.pilot import runtime as pilot_runtime
 
 ET = ZoneInfo("America/New_York")
 SCRIPTS = Path(__file__).resolve().parent
@@ -145,9 +147,18 @@ def flatten(db: OpsStore, send) -> tuple[bool, str]:
         if cur:
             book.propose(db, send, strategy=strat, targets={k: 0.0 for k in cur}, fill_session=fill,
                          deadline=deadline(fill), label=f"{strat} FLATTEN")
+    real = ""
+    if pilot_runtime.enabled() or db.flag("pilot_fade_live") == "1":
+        try:
+            lines = asyncio.run(pilot_runtime.flatten(db, send))
+        except Exception:  # noqa: BLE001 - reported in plain words; entries are already off (kill flag)
+            log.exception("schwab pilot flatten failed")
+            lines = ["Schwab: pilot close did NOT finish; check the Schwab app"]
+        ok = ok and not any("NOT" in x or "FAILED" in x for x in lines)
+        real = "\n" + "\n".join(lines)
     db.audit("flatten", broker=broker, ok=ok)
     return ok, (f"FLATTEN {'done' if ok else 'INCOMPLETE'}: {broker}; book zeroed at {fill:%m-%d} close; "
-                "trading PAUSED (RESUME to restart).")
+                "trading PAUSED (RESUME to restart)." + real)
 
 
 # ------------------------------------------------------------------ commands
@@ -174,11 +185,15 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         voided = approvals.pause(db)
         return ("PAUSED: pending requests expired" + (f", {voided} approved entries cancelled" if voided else "")
                 + ". Exits still apply. RESUME to restart.")
+    if cmd.verb == "PAPER":
+        db.set_flag("pilot_fade_live", "0")
+        db.audit("paper", sid=sid)
+        return "PAPER: no new REAL fade shorts. Open real shorts still exit on their rules (stop held at Schwab)."
     if cmd.verb == "DISARM":
         approvals.disarm(db)
         return ("DISARMED: no new fast trades today, including auto-entries at expiry. Open fast trades still "
                 "exit on their rules.")
-    if cmd.verb in ("RESUME", "FLATTEN", "ARM") and cmd.code is None:
+    if cmd.verb in ("RESUME", "FLATTEN", "ARM", "REAL") and cmd.code is None:
         if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
             return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."
         return ""                                  # the challenge text is the reply
@@ -196,8 +211,20 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
             day = approvals.arm(db)
             approvals.finish(db, row["id"], True, f"armed {day}")
             return f"ARMED for {day}: fast alert-fade trades enter automatically (capped); each one is texted. DISARM or PAUSE stops new ones."
+        if action == "real":
+            if db.paused():
+                approvals.finish(db, row["id"], False, "paused")
+                return "Trading is PAUSED: RESUME first, then REAL."
+            if not pilot_runtime.enabled():
+                approvals.finish(db, row["id"], False, "pilot off on server")
+                return "REAL not switched on: the Schwab pilot is not enabled on the server yet."
+            db.set_flag("pilot_fade_live", "1")
+            approvals.finish(db, row["id"], True, "real on")
+            return ("REAL ON: on ARMed days each fade is also shorted at Schwab ($500/trade, stop held at Schwab). "
+                    "PAPER turns it off; FLATTEN closes the real positions.")
         if action == "resume":
             db.set_flag("paused", "0")
+            db.set_flag("pilot_kill", "0")         # RESUME is the owner's deliberate restart of the real pilot too
             db.audit("resume", sid=sid)
             approvals.finish(db, row["id"], True, "resumed")
             return "RESUMED: trading enabled."
