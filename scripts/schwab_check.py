@@ -22,6 +22,8 @@ async def check(last4: str) -> int:
         await b.connect()
         st = await b.account_state()
         h = await b.health()
+        flags = await b.account_flags()
+        signed = await b.signed_positions()
     finally:
         await b.close()
     print("Schwab read-only check: connected, account resolved (number not shown)")
@@ -29,6 +31,11 @@ async def check(last4: str) -> int:
     print(f"  positions held: {len(st.positions)} (the pilot will never sell these)")
     print(f"  margin hint: {'buying power above cash, likely a MARGIN account (shorts possible)' if st.buying_power > st.cash + 1 else 'buying power equals cash, likely a CASH account (no shorts)'}")
     print(f"  adapter health: {h}")
+    # 2026-11-05 F-2 [VERIFY]: these must all be present (not None) or the pilot's PDT guard blocks real fades.
+    print("  day-trade fields: " + ", ".join(f"{k}={'MISSING' if v is None else v}" for k, v in flags.items()
+                                             if k != "equity") + f", equity {'MISSING' if flags['equity'] is None else 'present'}")
+    shorts = sum(1 for q in signed.values() if q < 0)
+    print(f"  signed positions read: {len(signed)} symbols, {shorts} short")
     return 0
 
 

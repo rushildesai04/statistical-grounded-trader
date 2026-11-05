@@ -31,6 +31,7 @@ from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals, book, digest
 from sgt.ops.sms import Sms
 from sgt.ops.store import OpsStore, iso
+from sgt.pilot import book_real
 from sgt.pilot import runtime as pilot_runtime
 
 ET = ZoneInfo("America/New_York")
@@ -237,6 +238,8 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         return out
     if row["kind"] == "book":
         return f"{reply}\n{book.apply_approved(db, row)}"
+    if row["kind"] == "pilot":                     # real 60/40 / turn-of-month: the pilotbook job sends it
+        return book_real.ask_reply(row)
     if row["kind"] == "fadeexit":                  # OK on an F5 exit offer = keep the trade; nothing to execute
         return reply
     if row["kind"] == "fade":                      # the fade listener claims it within ~10 s and texts the entry
@@ -439,14 +442,38 @@ def cmd_etf(db: OpsStore) -> int:
     return 0
 
 
+def cmd_pilot(db: OpsStore) -> int:
+    """Real-money 60/40 + turn-of-month at Schwab (sgt.pilot.book_real); off unless SGT_PILOT_SCHWAB=1."""
+    if not pilot_runtime.enabled():
+        return 0
+
+    async def go() -> list[str]:
+        sms = Sms()
+        handle = pilot_runtime.PilotHandle(db, sms.send)
+        try:
+            pilot = await handle.get()
+            if pilot is None:
+                return ["schwab not connected"]
+            await handle.login_check()
+            return await book_real.run(pilot, db, sms.send, pilot_runtime.iex_marks)
+        finally:
+            await handle.close()
+            sms.close()
+    out = asyncio.run(go())
+    if out:
+        print("pilot:", "; ".join(out))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf"])
+    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
-    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf}[args.cmd](db)
+    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf,
+            "pilot": cmd_pilot}[args.cmd](db)
 
 
 if __name__ == "__main__":
