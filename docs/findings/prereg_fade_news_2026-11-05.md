@@ -45,3 +45,11 @@ make the confidence number honest, below).
   really differ.
 
 Trial ledger run ids `fade-news-2026-11-05-dev`, `fade-news-2026-11-05-holdout`.
+
+## Amendment A1 (2026-11-05, after the dev result, before the held-out run finished): what the confidence number means
+Display only; changes no trade. Owner request: the number must move and say how sure we are. A per-trade win
+chance cannot move much for this strategy (many small wins, few large losses: groups win 52-57%), so the headline
+number becomes: confidence = round(100 x P(mean net of trades like this one > 0)), from a session bootstrap
+(10,000 draws, seed 20261105) over ALL tested events (development + held-out) in the trade's news group
+(`news_earn`, else `news_own`, else no company news). Shown next to it: that group's win rate, average net per trade
+and n. Unknown news (feed down) = the all-events number. Recomputed only by re-running this study, never live.
