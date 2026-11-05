@@ -34,3 +34,24 @@ events) -> 24/7 paper texts on the runner, forward n >= 300 before any money. FA
 Hold 1, 3, 10 minutes; per-alt mean; 99th / 99.9th percentile thresholds; gross (no cost); hit rate; share of
 events in the US session vs overnight.
 Trial ledger run ids `crypto-leadlag-2026-11-04-dev`, `crypto-leadlag-2026-11-04-holdout`.
+
+## Result (development gate, run once 2026-11-05) — FAIL
+Training 2024-01-01 .. 2026-04-30, 20 products x 28 months (560 product-months, Coinbase 1-min), 3,784 BTC events.
+
+| measure | value |
+|---|---|
+| primary mean net (5 min, 0.10% cost) | -0.096% per event |
+| gross (no cost) | +0.004% |
+| hit rate | 38% |
+| bootstrap lower 95% | -0.113% |
+| halves | -0.085% / -0.107% |
+| hold 1 / 3 / 10 min gross | +0.005% / +0.008% / -0.003% |
+| 99th pct threshold (n 6,854) gross | +0.007% |
+| 99.9th pct threshold (n 898) gross | -0.007% |
+| net at 0.02% / 0.30% / 1.20% cost | -0.016% / -0.296% / -1.196% |
+| US-session share of events | 54% |
+
+Reading: gross is zero at every hold and threshold, so no fee level makes it pay. On Coinbase 1-minute bars the
+alts have already moved with BTC within the same minute; there is no next-minute lag to trade. Verdict FAIL, nothing
+deployed, vault stays sealed (held-out months were never downloaded). Next crypto idea: C2 alt pump fade (the
+alert-fade mechanism on crypto), its own prereg.
