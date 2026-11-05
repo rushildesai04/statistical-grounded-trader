@@ -49,6 +49,18 @@ def megacap_research(root: Path = Path("reports/megacap_forward")) -> str | None
     return f"megacap research {len(port)}d: last {port.iloc[-1]:+.2%}, cum {float((1 + port).prod() - 1):+.2%}"
 
 
+def challenger_research(root: Path = Path("reports/fade_challengers")) -> str | None:
+    """Last night's shadow line (prereg_fade_challengers_2026-11-04); None until the first shadow run."""
+    p = root / "shadow_summary.json"
+    if not p.exists():
+        return None
+    try:
+        line = json.loads(p.read_text()).get("line")
+    except (OSError, ValueError):
+        return None
+    return line if isinstance(line, str) and len(line) <= 300 else None
+
+
 def book_lines(db: OpsStore, today: date) -> list[str]:
     out = []
     with db.tx() as c:

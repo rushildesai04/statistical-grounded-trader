@@ -39,6 +39,7 @@ JOBS = {
     "fadesettle": ("fade official results", "They are retried on the next run; positions are unaffected."),
     "borrow": ("borrow-fee snapshot", "Trades are unaffected; borrow details may be missing from trade texts."),
     "fadeforward": ("fade forward research record", "Nothing was traded; it catches up on the next run."),
+    "fadechallengers": ("fade challenger shadow scoring", "Nothing was traded; it catches up on the next run."),
 }
 _NETWORK = re.compile(r"HTTPError|HTTPStatusError|ConnectError|ConnectTimeout|ReadTimeout|TimeoutException|"
                       r"RemoteProtocolError|HTTP[ /]?(429|5\d\d)\b|Too Many Requests|Server Error|Service Unavailable|"

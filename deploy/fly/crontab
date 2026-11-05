@@ -23,3 +23,5 @@
 */15 8-16 * * 1-5 /app/deploy/entrypoint.sh job borrow
 # Plan 2026-11-04 W2: alert-fade forward research record (amendment F1) on the runner, after official bars.
 5 21 * * 1-5   /app/deploy/entrypoint.sh job fadeforward
+# Fade challengers in shadow (prereg_fade_challengers_2026-11-04), after the forward record's bars are stored.
+20 21 * * 1-5  /app/deploy/entrypoint.sh job fadechallengers
