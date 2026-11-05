@@ -294,6 +294,14 @@ class SchwabBroker(BrokerAdapter):
         self._raise_for_status(resp, "positions")
         return mapping.signed_positions(resp.json())
 
+    async def order_snapshot(self, broker_order_id: str, cid: str) -> tuple[OrderAck, int, float | None]:
+        """One order read: (ack, cumulative filled shares, average fill price). Live pilot sync (2026-11-05)."""
+        resp = await self._request("GET", self._accounts_path(f"/orders/{broker_order_id}"), retry=True)
+        self._raise_for_status(resp, "order")
+        order = resp.json()
+        qty, avg = mapping.filled(order)
+        return mapping.ack_from_order(cid, order, self._now()), qty, avg
+
     async def _enforce_short_rules(self, intent: OrderIntent) -> None:
         """Pilot shorts only (2026-11-05, F-4/F-8). SELL_SHORT is refused on a symbol the account holds long, so the
         owner's shares are never involved. BUY_TO_COVER may not exceed the broker short quantity minus covers

@@ -228,6 +228,18 @@ def account_state_from(account_id: str, payload: dict[str, Any]) -> AccountState
     )
 
 
+def filled(order: dict[str, Any]) -> tuple[int, float | None]:
+    """(cumulative filled shares, average fill price) from an order's execution legs (live pilot, 2026-11-05)."""
+    legs = execution_legs(order)
+    qty = sum(int(float(leg["quantity"])) for leg in legs)
+    if qty <= 0:
+        return 0, None
+    avg = sum(float(leg["quantity"]) * float(leg["price"]) for leg in legs) / qty
+    if not math.isfinite(avg) or avg <= 0:
+        raise ValueError(f"unreadable fill price on order {order.get('orderId')}")
+    return qty, avg
+
+
 def signed_positions(payload: dict[str, Any]) -> dict[str, int]:
     """Net shares per symbol, short < 0 (F-4: ``account_state_from`` is long-only and drops shortQuantity).
 

@@ -33,7 +33,8 @@ _ID_PART = re.compile(r"[A-Za-z0-9_.-]{1,24}")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pilot_orders(
   client_order_id TEXT PRIMARY KEY, strategy TEXT NOT NULL, symbol TEXT NOT NULL, side TEXT NOT NULL,
-  qty INTEGER NOT NULL, limit_price REAL NOT NULL, opening INTEGER NOT NULL, status TEXT NOT NULL,
+  qty INTEGER NOT NULL, limit_price REAL NOT NULL, order_type TEXT NOT NULL, opening INTEGER NOT NULL,
+  status TEXT NOT NULL,
   filled_qty INTEGER NOT NULL DEFAULT 0, avg_price REAL, broker_order_id TEXT, reason TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_pilot_orders_status ON pilot_orders(status, strategy);
@@ -90,12 +91,14 @@ def _exposure(c: sqlite3.Connection, marks: dict[str, float], strategy: str | No
 
 
 def reserve(db: OpsStore, *, client_order_id: str, strategy: str, symbol: str, side: str, qty: int,
-            limit_price: float, marks: dict[str, float], now: datetime | None = None) -> None:
+            limit_price: float, marks: dict[str, float], order_type: str = "limit",
+            now: datetime | None = None) -> None:
     """Atomically check every cap and record the order as ``reserved``. Raises CapRefused; never sends anything.
 
     Opening orders (BUY, SELL_SHORT) must fit the hard cap, the per-order cap and the strategy sub-cap. Closing
     orders (SELL, BUY_TO_COVER) are never cap-limited but must not exceed the pilot's own open quantity, so an exit
-    can never touch shares the pilot does not own or flip a position."""
+    can never touch shares the pilot does not own or flip a position. ``limit_price`` is the limit, the stop
+    trigger (``order_type="stop"``) or the reference mark (``"market"``, closing orders only)."""
     now = now or utcnow()
     if side not in SIDES:
         raise CapRefused(f"side {side!r} not allowed")
@@ -104,6 +107,8 @@ def reserve(db: OpsStore, *, client_order_id: str, strategy: str, symbol: str, s
     if not isinstance(qty, int) or qty <= 0 or not math.isfinite(limit_price) or limit_price <= 0:
         raise CapRefused("bad quantity or price")
     direction, opening = SIDES[side]
+    if order_type not in ("limit", "stop", "market") or (opening and order_type != "limit"):
+        raise CapRefused(f"{order_type} orders cannot open a position")
     with db.tx() as c:
         if c.execute("SELECT 1 FROM pilot_orders WHERE client_order_id=?", (client_order_id,)).fetchone():
             raise CapRefused(f"order {client_order_id} already exists")
@@ -133,9 +138,10 @@ def reserve(db: OpsStore, *, client_order_id: str, strategy: str, symbol: str, s
             own = -held * direction                # shares the pilot holds on the side this order closes
             if qty + pending > own:
                 raise CapRefused(f"{side} {qty} {symbol} exceeds the pilot's own {own} (minus {pending} working)")
-        c.execute("INSERT INTO pilot_orders(client_order_id, strategy, symbol, side, qty, limit_price, opening, status, "
-                  "created_at, updated_at) VALUES (?,?,?,?,?,?,?,'reserved',?,?)",
-                  (client_order_id, strategy, symbol, side, qty, limit_price, int(opening), iso(now), iso(now)))
+        c.execute("INSERT INTO pilot_orders(client_order_id, strategy, symbol, side, qty, limit_price, order_type, "
+                  "opening, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,'reserved',?,?)",
+                  (client_order_id, strategy, symbol, side, qty, limit_price, order_type, int(opening), iso(now),
+                   iso(now)))
 
 
 def working(db: OpsStore, client_order_id: str, broker_order_id: str, now: datetime | None = None) -> None:
@@ -185,6 +191,11 @@ def close(db: OpsStore, client_order_id: str, status: str, reason: str = "", now
     with db.tx() as c:
         c.execute("UPDATE pilot_orders SET status=?, reason=?, updated_at=? WHERE client_order_id=? AND status IN "
                   "('reserved','working')", (status, reason[:500], iso(now), client_order_id))
+
+
+def get(db: OpsStore, client_order_id: str) -> sqlite3.Row | None:
+    with db.tx() as c:
+        return c.execute("SELECT * FROM pilot_orders WHERE client_order_id=?", (client_order_id,)).fetchone()
 
 
 def positions(db: OpsStore, strategy: str | None = None) -> list[Position]:
