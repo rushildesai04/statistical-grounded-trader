@@ -53,3 +53,27 @@ number becomes: confidence = round(100 x P(mean net of trades like this one > 0)
 (10,000 draws, seed 20261105) over ALL tested events (development + held-out) in the trade's news group
 (`news_earn`, else `news_own`, else no company news). Shown next to it: that group's win rate, average net per trade
 and n. Unknown news (feed down) = the all-events number. Recomputed only by re-running this study, never live.
+
+## Result (2026-11-05, dev run once then held-out run once) — filter OFF, confidence by news group ON (A1)
+
+| events | n | mean net | win |
+|---|---|---|---|
+| dev, no company news | 1,335 | +1.70% | 57% |
+| dev, company news (`news_own`) | 1,010 | +0.02% | 52% |
+| dev, earnings news | 211 | -0.27% | 53% |
+| held-out, no company news | 504 | +1.53% | 58% |
+| held-out, company news | 260 | +0.34% | 56% |
+| held-out, earnings news | 55 | +1.72% | 51% |
+
+Dev gate H1 FAIL: news fades break even rather than lose (upper bound +0.84% > 0), and dropping them does not raise
+net per session (paired lower bound -2.3%), so the frozen rule keeps trading them. The split replicates on held-out
+data never joined to news: the fade's edge is concentrated in alerts with no company news; with news it is about
+zero. The earnings subset is noisy (sign flips between periods, n 55 held-out) and is not treated as its own signal.
+
+Confidence (A1, all 3,109 events, `reports/fade_news/confidence.json`): no company news 100 (shown as 99; win 58%,
+avg +1.65%, n 1,839), company news 55 (win 53%, +0.07%, n 1,004), earnings news 55 (win 52%, +0.14%, n 266), news
+unknown = all events 100 (shown 99). Live texts show the number, the group, the latest headline and a chart link;
+the news flags and the number shown are stored per trade (`fade_trades.news_own/news_earn/news_head/conf`) so the
+split is re-checked on forward trades at n >= 300 alongside F1.
+
+DNUT 2026-11-05 was an earnings-news fade (confidence 55 under A1).
