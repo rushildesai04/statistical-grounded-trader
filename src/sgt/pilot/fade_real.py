@@ -114,9 +114,8 @@ async def step(pilot: Pilot, db: OpsStore, quote: Quote, send, account_flags: Fl
 
 
 def _marks(db: OpsStore, quote: Quote, symbol: str, px: float) -> dict[str, float]:
-    """Live marks for every pilot position (the total cap values them all) plus this symbol. A missing quote is
-    left out, so the cap check refuses the entry (fail closed). Review 2026-11-05 L2: passing only the new
-    symbol refused every real fade while 60/40 was held."""
+    """Live marks for every pilot position (the total cap values them all) plus this symbol. A holding without a
+    quote is left out and the ledger counts it at cost x UNPRICED (review 2026-11-05 L2/F-A)."""
     out = {symbol: px}
     for sym in {p.symbol for p in ledger.positions(db)} - {symbol}:
         q = quote(sym)
@@ -177,8 +176,8 @@ async def _maybe_enter(pilot: Pilot, db: OpsStore, quote: Quote, send, account_f
     if now - datetime.fromisoformat(r["est_entry_at"]) > MAX_LATE:
         return
     close = default_calendar().bounds(date.fromisoformat(r["session"])).rth_close
-    if now >= close - 2 * CLOSE_GUARD:                    # tested rule enters until 15:44 and covers at the close;
-        return                                            # the last minutes leave no room to work a cover
+    if now >= close - 2 * CLOSE_GUARD:                    # the paper book enters until 15:44; this only stops
+        return                                            # entries inside 6 min of the close (no room to cover)
     loss = _f(db, DAY_LOSS_FLAG, DEFAULT_DAY_LOSS)
     if realized(db, r["session"]) <= -loss:
         _once(db, f"pilot_fade_daystop:{r['session']}", send,

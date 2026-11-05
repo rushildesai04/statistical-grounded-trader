@@ -3,7 +3,8 @@
 One transaction (``BEGIN IMMEDIATE``) checks every cap and inserts the opening order row, so the fade listener and
 the cron jobs share one budget and two processes can never both pass the check (F-6). Exposure = the pilot's own
 positions at live marks + the unfilled part of every working opening order at its limit + this order. A missing or
-bad mark, a kill/pause flag or any cap breach refuses the order (fail closed).
+bad mark for the symbol being opened, a kill/pause flag or any cap breach refuses the order (fail closed); other
+holdings without a live mark count at cost x UNPRICED.
 
 Positions are signed (short < 0) and hold only what the pilot itself traded, so FLATTEN and covers can never touch
 the owner's other holdings (F-5); closing orders are capped at the pilot's own quantity (F-8; the executor also caps
@@ -24,6 +25,7 @@ HARD_CAP = 10_000.0
 PER_ORDER = 2_000.0
 SUBCAPS = {"fade": 4_000.0, "6040": 4_000.0, "tom": 2_000.0}
 KILL_FLAG = "pilot_kill"
+UNPRICED = 1.2                        # held position with no live mark is valued at cost x this
 # side -> (signed share direction, opens exposure)
 SIDES = {"BUY": (1, True), "SELL_SHORT": (-1, True), "SELL": (-1, False), "BUY_TO_COVER": (1, False)}
 OPEN_STATES = ("reserved", "working")
@@ -80,10 +82,18 @@ def _mark(marks: dict[str, float], symbol: str) -> float:
     return float(m)
 
 
+def _held_value(r: sqlite3.Row, marks: dict[str, float]) -> float:
+    """Live mark when there is one; otherwise cost x UNPRICED (the fade stop level, a buffer for longs), so a quote
+    outage on one holding never blocks every other strategy (review 2026-11-05 F-A) and never under-counts."""
+    m = marks.get(r["symbol"])
+    px = m if m is not None and math.isfinite(m) and m > 0 else r["cost"] * UNPRICED
+    return abs(r["qty"]) * px
+
+
 def _exposure(c: sqlite3.Connection, marks: dict[str, float], strategy: str | None = None) -> float:
     where, args = ("WHERE strategy=?", (strategy,)) if strategy else ("", ())
-    held = sum(abs(r["qty"]) * _mark(marks, r["symbol"])
-               for r in c.execute(f"SELECT symbol, qty FROM pilot_positions {where}", args))  # noqa: S608
+    held = sum(_held_value(r, marks)
+               for r in c.execute(f"SELECT symbol, qty, cost FROM pilot_positions {where}", args))  # noqa: S608
     q = "SELECT qty, filled_qty, limit_price FROM pilot_orders WHERE opening=1 AND status IN ('reserved','working')"
     working = sum((r["qty"] - r["filled_qty"]) * r["limit_price"]
                   for r in c.execute(q + (" AND strategy=?" if strategy else ""), args))
@@ -121,6 +131,7 @@ def reserve(db: OpsStore, *, client_order_id: str, strategy: str, symbol: str, s
                 raise CapRefused("trading is paused")
             if held * direction < 0:
                 raise CapRefused(f"{side} would trade against the pilot's own {symbol} position")
+            _mark(marks, symbol)               # the symbol being opened always needs a live price
             notional = qty * limit_price
             if notional > PER_ORDER + 1e-9:
                 raise CapRefused(f"${notional:,.0f} is over the ${PER_ORDER:,.0f} per-order cap")

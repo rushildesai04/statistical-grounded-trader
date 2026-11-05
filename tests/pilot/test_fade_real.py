@@ -205,8 +205,8 @@ async def test_real_fade_still_trades_while_6040_is_held(env):
     env.trade()
     await env.step(10)
     assert env.sent("entry").qty == 50
-    env.px.pop("SPY")                                            # an unpriced holding: refuse, never guess
+    env.px.pop("SPY")                                            # quote outage on a holding: valued at cost x 1.2
     env.trade(symbol="WXYZ")
     env.px["WXYZ"] = 5.0
     await env.step(10)
-    assert not any(i.symbol == "WXYZ" for i in env.b.sent)
+    assert any(i.symbol == "WXYZ" for i in env.b.sent)

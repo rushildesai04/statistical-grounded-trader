@@ -98,12 +98,28 @@ def test_exits_allowed_while_killed_entries_refused(db):
         _res(db, "b3", qty=1)
 
 
-def test_fail_closed_on_missing_or_bad_mark(db):
+def test_missing_mark_opened_symbol_refuses_other_holdings_count_conservatively(db):
+    """Review 2026-11-05 F-A: a holding without a live mark counts at cost x 1.2 instead of blocking every entry;
+    the symbol being opened always needs a valid live price."""
     _res(db, "b", qty=2)
     ledger.fill(db, "b", 2, 500.0)
-    for marks in ({"IEF": 100.0}, {**MARKS, "SPY": 0.0}, {**MARKS, "SPY": float("nan")}):
-        with pytest.raises(CapRefused, match="no valid price"):
+    for marks in ({"SPY": 500.0}, {**MARKS, "IEF": 0.0}, {**MARKS, "IEF": float("nan")}):
+        with pytest.raises(CapRefused, match="no valid price for IEF"):
             _res(db, "n", symbol="IEF", qty=1, px=100.0, marks=marks)
+    assert ledger.exposure(db, {}, "6040") == pytest.approx(2 * 500 * 1.2)
+    _res(db, "n", symbol="IEF", qty=1, px=100.0, marks={"IEF": 100.0})    # SPY unpriced: still trades
+    _res(db, "k", symbol="IEF", qty=20, px=100.0, marks={"IEF": 100.0})     # 1,200 + 100 + 2,000 = 3,300
+    with pytest.raises(CapRefused, match="6040 budget"):                    # + 800 > 4,000
+        _res(db, "m", symbol="IEF", qty=8, px=100.0, marks={"IEF": 100.0})
+
+
+def test_cross_strategy_entries_with_own_symbol_marks_only(db):
+    """Review 2026-11-05 F-A repro, both directions: callers pass only their own symbol's mark."""
+    _res(db, "s", qty=3, px=500.0, marks={"SPY": 500.0})
+    ledger.fill(db, "s", 3, 500.0)
+    _res(db, "f", strategy="fade", symbol="ABCD", side="SELL_SHORT", qty=50, px=10.0, marks={"ABCD": 10.0})
+    ledger.fill(db, "f", 50, 10.0)
+    _res(db, "i", symbol="IEF", qty=10, px=100.0, marks={"IEF": 100.0})
 
 
 def test_rejects_bad_inputs_and_duplicates(db):
