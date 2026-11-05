@@ -28,3 +28,5 @@
 # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab. Asks for OK, then trades in the last 15 min before
 # the close (half-days included); a no-op unless SGT_PILOT_SCHWAB=1.
 */5 10-15 * * 1-5 /app/deploy/entrypoint.sh job pilotbook
+# Midnight day summary (owner request 2026-11-05) for the session that just ended; once per session.
+5 0 * * 2-6    /app/deploy/entrypoint.sh job summary
