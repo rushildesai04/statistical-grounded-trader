@@ -63,6 +63,9 @@ CONF = {"none": (100, 0.58, 0.0165, 1839), "own": (55, 0.53, 0.0007, 1004), "ear
 CONF_MAX = 99                                   # never show certainty
 CONF_LABEL = {"none": "no company news", "own": "company news today", "earn": "earnings news today",
               "all": "news check failed"}
+# History by SEC filing at the alert (prereg_fade_filings_2026-11-05, dev 2025-01..2026-06; both gates FAIL, so
+# display only): (win rate, avg net, n). Offering in 30 days vs not; 8-K/6-K since yesterday's close vs not.
+FILING_HIST = {"dil": (0.57, 0.0108, 511), "no_dil": (0.54, 0.0095, 1481), "8k": (0.52, 0.0079, 401)}
 JUDGE_N = 300                                   # forward decision point (amendment F1)
 PLAIN = {"volume_increasing": "volume rising", "volume_spike": "volume spike", "gaining_volume": "volume rising",
          "gaining_momentum": "momentum", "new_high": "new high", "intraday_high": "high of day",
@@ -247,6 +250,13 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     head_line = (ctx.get("news") or {}).get("headline")
     if head_line:
         lines.append(f"📰 “{head_line}”")
+    fl = ctx.get("filings")
+    if fl:                                       # None = EDGAR unknown: say nothing rather than "no filings"
+        sec = (f"⚠️ offering filed ({fl['dilution_form']}, {fl['dilution_days']:.0f}d ago): company selling shares"
+               if fl.get("dilution_30d") else "no offering filed in 30 days")
+        hw, ha, _ = FILING_HIST["8k" if fl.get("eightk_today") else ("dil" if fl.get("dilution_30d") else "no_dil")]
+        lines.append(f"📄 SEC: {sec}" + (" · 8-K today" if fl.get("eightk_today") else "")
+                     + " " + italic(f"(past fades like this: win {hw:.0%}, avg {ha:+.1%})"))
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:
         why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")
@@ -392,6 +402,10 @@ def _context(db: OpsStore, r, context) -> dict:
     if n:
         cols.update(news_own=int(bool(n.get("news_own"))), news_earn=int(bool(n.get("news_earn"))),
                     news_head=n.get("headline"))
+    fl = ctx.get("filings")
+    if fl:
+        cols.update(filing_dilution=int(bool(fl.get("dilution_30d"))), filing_form=fl.get("dilution_form"),
+                    filing_8k=int(bool(fl.get("eightk_today"))))
     keys = ", ".join(f"{k}=?" for k in cols)
     with db.tx() as c:
         c.execute(f"UPDATE fade_trades SET {keys} WHERE id=?", (*cols.values(), r["id"]))  # noqa: S608 - fixed names
@@ -462,6 +476,8 @@ def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: flo
     if r.get("news_own"):
         because += " · it had company news (" + ("earnings" if r.get("news_earn") else "news") + \
                    "), where fades only break even on average"
+    if r.get("filing_dilution"):
+        because += f" · an offering was filed ({r.get('filing_form') or 'S-1/424B'}) in the last 30 days"
     lines += [f"💡 Why: {because}", f"📅 Today: {n_day} trades, {bold(_usd(day_usd))}"]
     chart = news.chart_url(r["symbol"])
     if chart:

@@ -38,3 +38,21 @@ history, like the news groups.
 Same table for: any filing in the prior 24 h; 10-Q/10-K in the prior 3 days; `f_8k` and `f_dil` together; the
 news x filings cross (news_own from prereg_fade_news); coverage (share of events with a CIK).
 Trial ledger run id `fade-filings-2026-11-05-dev`.
+
+## Result (2026-11-05, dev run once, trial ledger `fade-filings-2026-11-05-dev`) — both gates FAIL
+EDGAR submissions fetched for 1,077 of 1,280 event symbols (203 have no CIK under today's ticker map: renamed or
+delisted). Coverage: dev 85%, held-out 98%. (A first `dev` run crashed on a dtype error inside the secondary table
+before anything was printed or recorded; fixed and re-run.)
+
+| dev 2025-01..2026-06 (known CIK) | n | mean net | win | rest mean | difference [bound] | gate |
+|---|---|---|---|---|---|---|
+| H1 8-K/6-K since yesterday 16:00 ET | 401 | +0.79% | 52% | +1.03% | -0.23% [upper +1.63%]; skipping them: -0.94%/session [lower -2.76%] | fail |
+| H2 offering form in 30 days | 511 | +1.08% | 57% | +0.95% | +0.13% [lower -1.60%] | fail |
+
+Held-out (secondary, already seen): 8-K -0.16% vs rest +1.36%; offering -1.80% vs rest +2.04% (opposite sign to
+dev). News x 8-K (dev): no news & no 8-K +1.51% (n 1,054); no news & 8-K +3.92% (n 89); news & no 8-K +0.10%
+(n 537); news & 8-K -0.10% (n 312).
+
+Reading: filings add nothing reliable beyond the company-news split the fade already reports. The offering effect
+flips sign between periods (noise); same-day 8-Ks look worse but not distinguishably, and skipping them would cost
+money on dev. Nothing changes live. The trade text shows the filing line with this history, labelled, as context.
