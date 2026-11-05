@@ -28,3 +28,23 @@ held-out split 2026-08-01); no single month > 50% of the total)
 ## Secondary (reported only)
 Hold 15 / 30 / 120 min; costs 0.02% / 0.30% / 1.20%; hit rate; per coin.
 Trial ledger run ids `crypto-momentum-2026-11-05-dev`, `crypto-momentum-2026-11-05-holdout`.
+
+## Result (run once 2026-11-05; vault unlocked at 4bc5e6e) — FAIL
+
+| measure | development 2024-01..2026-04 (not independent) | held-out 2026-05..10 (decisive) |
+|---|---|---|
+| trades | 1,416 | 241 |
+| primary mean net (60 min, 10% stop, 0.10% cost) | +0.155% | +0.013% |
+| gross | +0.255% | +0.113% |
+| hit rate | 50% | 43% |
+| bootstrap lower 95% | -0.138% | -0.294% |
+| halves | +0.19% / +0.10% | +0.36% / -0.16% |
+| largest month share of total | 49% | 464% (total near zero) |
+| hold 15 / 30 / 120 min, net | -0.01% / -0.04% / +0.26% | -0.00% / +0.01% / +0.03% |
+| cost 0.02% / 0.30% / 1.20%, net | +0.24% / -0.04% / -0.94% | +0.09% / -0.19% / -1.09% |
+| coins positive | — | 10 of 19 |
+
+Reading: the held-out period shows no edge after a 0.10% cost: the mean is indistinguishable from zero, the second
+half is negative and any retail cost turns it clearly negative. Buying coin-specific bursts does not pay, just as
+shorting them (C2) does not. Verdict FAIL; nothing deployed; the vault study is spent. No Robinhood or other crypto
+connector is built for this line.
