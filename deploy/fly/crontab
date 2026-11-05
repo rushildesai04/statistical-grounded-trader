@@ -27,6 +27,8 @@
 20 21 * * 1-5  /app/deploy/entrypoint.sh job fadechallengers
 # Fade exits in shadow (prereg_fade_exits_2026-11-05): trail / VWAP / EMA 9-21 / target vs the 60-min champion.
 30 21 * * 1-5  /app/deploy/entrypoint.sh job fadeexits
+# Fade longer holds in shadow (prereg_fade_hold_2026-11-05): 2 hours and to the close vs 60 min.
+40 21 * * 1-5  /app/deploy/entrypoint.sh job fadehold
 # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab. Asks for OK, then trades in the last 15 min before
 # the close (half-days included); a no-op unless SGT_PILOT_SCHWAB=1.
 */5 10-15 * * 1-5 /app/deploy/entrypoint.sh job pilotbook

@@ -35,3 +35,28 @@ hold needs the owner's OK and a prereg amendment; never automatic.
 ## Secondary (reported only)
 Mean / win / 1st percentile; stop share; median minutes held; per entry hour (09:30-11, 11-14, 14-16 ET).
 Trial ledger run id `fade-hold-2026-11-05-dev`.
+
+## Result (2026-11-05, dev run once, trial ledger `fade-hold-2026-11-05-dev`) — no hold passes
+Champion reproduced `alert_fade_test.score` exactly on all 2,349 training events (guard in `cmd_dev`).
+
+| training 2025-01..2026-06 | mean/trade | win | 1st pct | median held | stopped | daily diff vs champion [97.5% bounds] | gate |
+|---|---|---|---|---|---|---|---|
+| champion (60 min) | +0.97% | 55% | -23.7% | 60 m | 25% | - | - |
+| H120 | +1.05% | 54% | -23.9% | 112 m | 29% | +0.52% [-1.55%, +2.57%] | fail |
+| H-CLOSE | +0.75% | 52% | -24.8% | 205 m | 34% | -1.51% [-4.74%, +1.69%] | fail |
+
+Secondary held-out 2026-07..10 (n 764, already seen once): champion +1.12%, H120 +0.98%, H-CLOSE +0.63%.
+
+By entry time (secondary), mean net per trade, training / held-out:
+
+| entry ET | n (train / held-out) | champion | H120 | H-CLOSE |
+|---|---|---|---|---|
+| 09:30-11:00 | 1,588 / 492 | +0.58% / +0.39% | +0.74% / +0.41% | +0.43% / -0.01% |
+| 11:00-14:00 | 587 / 200 | +1.63% / +1.89% | +1.51% / +1.43% | +1.14% / +1.11% |
+| 14:00-16:00 | 174 / 72 | +2.33% / +4.04% | +2.32% / +3.65% | +2.32% / +3.65% |
+
+Reading: the drift peaks around 60-120 minutes. Holding longer, the 20% stop catches more names (25% -> 34% to the
+close) and the extra squeezes outweigh the extra drift, so holding to the close earns less. The 60-minute rule is
+near the best simple hold; nothing changes live. Both holds keep running in shadow (`fadehold` job).
+Not a test, only a pattern for a future pre-registration: in both periods, alerts after 11:00 earned three to ten
+times more per trade than morning alerts, which are two thirds of all trades and the weakest (still positive).

@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits data/alpaca data/etf_yf data/borrow
+mkdir -p reports/megacap_forward reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold data/alpaca data/etf_yf data/borrow
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -46,6 +46,7 @@ if [ "${1:-}" = "job" ]; then
     fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram ;;
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
     fadeexits) run reports/fade_exits/run.log python /app/scripts/fade_exits.py shadow ;;
+    fadehold)  run reports/fade_hold/run.log python /app/scripts/fade_exits.py shadow --study hold ;;
     # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab; a no-op unless SGT_PILOT_SCHWAB=1.
     pilotbook) run reports/ops/pilot.log python /app/scripts/sms_control.py pilot ;;
     # Fade Tape chart page (2026-11-05): rebuilt from the ops DB + SIP bars; served by sgt.ops.chartserver.

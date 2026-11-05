@@ -332,7 +332,8 @@ def cmd_digest(db: OpsStore) -> int:
     fills, problems = book.settle(db, daily_closes, last_final_session(now))
     text = digest.build(db, now, fills=fills, problems=problems, broker=broker_line(),
                         research=[digest.megacap_research(), digest.challenger_research(),
-                                  digest.challenger_research(Path("reports/fade_exits"))])
+                                  digest.challenger_research(Path("reports/fade_exits")),
+                                  digest.challenger_research(Path("reports/fade_hold"))])
     sms = Sms()
     try:
         sms.send(text)
