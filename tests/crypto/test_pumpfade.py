@@ -46,3 +46,15 @@ def test_trade_short_returns_stop_and_gap():
     assert s.stopped.iloc[0] and s.cover.iloc[0] == pytest.approx(110.0)       # bar opened 101 < stop: fill at stop
     g = pumpfade.trade(frame([100.0] * 5 + [100.0, 130.0]), ev, hold=4)
     assert g.cover.iloc[0] == 130.0                                         # gapped through the stop: its open
+
+
+def test_long_side_mirrors_returns_and_stops_on_lows():
+    ev = pd.DataFrame({"ts": [pd.Timestamp("2024-01-01 00:04", tz="UTC")], "run": [0.05]})
+    up = pumpfade.trade(frame([100.0] * 5 + [100.0, 104.0]), ev, hold=4, side=1)
+    assert up.gross.iloc[0] == pytest.approx(0.04) and not up.stopped.iloc[0]
+    lows = frame([100.0] * 5 + [100.0, 95.0])
+    lows.loc[6, "low"] = 85.0                                              # wick through the 10% stop
+    s = pumpfade.trade(lows, ev, hold=4, side=1)
+    assert s.stopped.iloc[0] and s.cover.iloc[0] == pytest.approx(90.0)
+    with pytest.raises(ValueError):
+        pumpfade.trade(lows, ev, side=0)

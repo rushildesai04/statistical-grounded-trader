@@ -50,9 +50,12 @@ def events(f: pd.DataFrame, btc: pd.DataFrame, q: float = Q, min_run: float = MI
 
 
 def trade(f: pd.DataFrame, ev: pd.DataFrame, hold: int = HOLD_MIN, stop: float | None = STOP,
-          cost: float = COST) -> pd.DataFrame:
-    """Short at the open of bar t+1; stop at entry x (1 + stop) on a bar high (gap: that bar's open); else the
-    close of the last candle in t+1 .. t+hold. Events without a candle at t+1 are skipped."""
+          cost: float = COST, side: int = -1) -> pd.DataFrame:
+    """Enter at the open of bar t+1 (side -1 short, C2; +1 long, C2M prereg_crypto_momentum); stop at entry x
+    (1 -/+ stop) on a bar high/low (gap: that bar's open); else the close of the last candle in t+1 .. t+hold.
+    Events without a candle at t+1 are skipped."""
+    if side not in (-1, 1):
+        raise ValueError("side must be -1 or +1")
     x = f.set_index("ts").sort_index()
     rows = []
     for e in ev.itertuples(index=False):
@@ -63,11 +66,12 @@ def trade(f: pd.DataFrame, ev: pd.DataFrame, hold: int = HOLD_MIN, stop: float |
         entry = float(w.open.iloc[0])
         cover, stopped = float(w.close.iloc[-1]), False
         if stop is not None:
-            lvl = entry * (1 + stop)
-            hits = w[w.high >= lvl]
+            lvl = entry * (1 - side * stop)
+            hits = w[w.high >= lvl] if side < 0 else w[w.low <= lvl]
             if len(hits):
-                cover, stopped = max(lvl, float(hits.open.iloc[0])), True
-        g = (entry - cover) / entry
+                gap = float(hits.open.iloc[0])
+                cover, stopped = (max(lvl, gap) if side < 0 else min(lvl, gap)), True
+        g = side * (cover - entry) / entry
         rows.append({"ts": e.ts, "run": e.run, "entry": entry, "cover": cover, "stopped": stopped,
                      "gross": g, "net": g - cost})
     return pd.DataFrame(rows, columns=["ts", "run", "entry", "cover", "stopped", "gross", "net"])
