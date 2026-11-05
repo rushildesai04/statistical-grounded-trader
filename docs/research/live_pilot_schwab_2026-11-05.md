@@ -71,3 +71,26 @@ the cost of finding out; size rises only if Schwab's shortable subset tracks the
 Fade at $2,000 x ~9 trades/day x +1.1% (held-out) ~= $200/day before borrow fees, on the names Schwab can short.
 60/40 and turn-of-month add a steady few hundred dollars a year on $6,000. The first weeks at $500 per fade trade
 measure real fills and borrow coverage; size goes up as soon as real results track the paper record.
+
+## Build status (2026-11-05)
+| piece | where | red-team |
+|---|---|---|
+| rotating login on the Fly volume | `sgt.brokers.schwab_token_store` | F-1 |
+| caps, pilot-only positions, deterministic ids | `sgt.pilot.ledger` | F-5 (part), F-6, F-8, F-11 |
+| short sides, signed positions, cover cap, no short on a held long | `sgt.brokers.schwab` / `schwab_mapping` | F-4, F-8 |
+| ledger-first orders, sync, reconcile (kill on mismatch), pilot-only FLATTEN | `sgt.pilot.executor` | F-5 |
+| real fade shorts: entry, broker stop, escalating cover, PDT guard, real day stop | `sgt.pilot.fade_real` | F-2, F-3, F-9 |
+| real 60/40 + turn-of-month (own OK per entry, close window, half-days) | `sgt.pilot.book_real`, cron `pilotbook` | F-7 |
+| REAL / PAPER / FLATTEN / RESUME texts, login reminder | `scripts/sms_control.py`, `sgt.pilot.runtime` | - |
+
+## Go-live runbook (owner, in order)
+1. developer.schwab.com: app "Trader API - Individual", callback `https://127.0.0.1`; wait for "Ready For Use".
+2. Mac: store the app key/secret in the keychain (prompted by `scripts/schwab_auth.py`, never pasted in chat), log in,
+   then `python scripts/schwab_auth.py --push-fly` (also every ~7 days; the server texts a reminder on day 6).
+3. `fly secrets set SGT_SECRET_SCHWAB_ACCOUNT_LAST4=<last 4 digits> -a sgt-runner` (margin account).
+4. Mac: `python scripts/schwab_check.py --last4 <digits>`: must show the day-trade fields present and the margin hint.
+5. `fly secrets set SGT_PILOT_SCHWAB=1 -a sgt-runner`, then during market hours on the runner:
+   `python /app/scripts/schwab_smoke.py --real-money` (1 IEF in and out). PASS = the path works end to end.
+6. 60/40 and turn-of-month start by themselves: each entry is texted, reply OK. First TOM entry 2026-11-27.
+7. Fade shorts: text REAL (code) once, then ARM each trading morning. PAPER stops real fades; FLATTEN closes all
+   pilot positions; PAUSE stops every entry.
