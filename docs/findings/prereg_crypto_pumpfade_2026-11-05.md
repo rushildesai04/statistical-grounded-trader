@@ -33,3 +33,24 @@ texts on the runner, forward n >= 300 before any money. FAIL -> written up, noth
 Hold 15 / 30 / 120 min; stop 5% / 20% / none; threshold 2% / 5%; no BTC-relative condition; gross; hit rate; per-coin
 mean; US-session share; costs 0.02% / 0.30% / 1.20%.
 Trial ledger run ids `crypto-pumpfade-2026-11-05-dev`, `crypto-pumpfade-2026-11-05-holdout`.
+
+## Result (development gate, run once 2026-11-05) — FAIL
+Training 2024-01-01 .. 2026-04-30, 19 alts, 1,416 trades (stop rate 2%, US-session share 40%).
+
+| measure | value |
+|---|---|
+| primary mean net (60 min, 10% stop, 0.10% cost) | -0.42% per trade |
+| gross | -0.32% |
+| hit rate | 46% |
+| bootstrap lower 95% | -0.68% |
+| halves | -0.49% / -0.32% |
+| hold 15 / 30 / 120 min, net | -0.21% / -0.21% / -0.59% |
+| stop 5% / 20% / none, net | -0.40% / -0.40% / -0.40% |
+| floor 2% / 5%, net | -0.39% (n 1,578) / -0.58% (n 729) |
+| no BTC-excess condition, net | -0.41% (n 1,775) |
+| per coin | 16 of 19 negative |
+
+Reading: coin-specific bursts on liquid Coinbase alts keep running for the next hour rather than fading; every
+variant loses before and after costs, larger bursts lose more. The stock fade's mechanism does not transfer to these
+coins. Verdict FAIL; nothing deployed; vault stays sealed. The opposite direction (buy after the burst) is a new
+hypothesis formed from this result, so it gets its own prereg whose decisive test is the sealed held-out period.
