@@ -44,12 +44,27 @@ the cost of finding out; size rises only if Schwab's shortable subset tracks the
 7. **Audit.** Every intent, approval, broker ack, fill, reject and cap decision is stored in the ops DB; the nightly
    digest shows real P&L per strategy next to its paper record.
 
+## Red-team fixes (2026-11-05, .claude/work FINDINGS F-1..F-11; all built and tested before the phase that needs them)
+- Login: the rotating refresh token lives in the ops DB on the Fly volume (read first), not keychain/env.
+- Shorts: every fade short gets a broker-held BUY STOP at +20% immediately after the fill, so the position is
+  protected even if the server or login fails; the 60-minute / close exit cancels it and covers with an escalating
+  marketable limit, then a market order before the close as last resort. Positions are signed (short quantities
+  read from Schwab); a cover never exceeds the broker short quantity.
+- Day trades: the executor reads Schwab's day-trade status; while the old PDT limit applies to the account and
+  equity is under $25k, an entry that would be the 4th day trade in 5 days is skipped (FINRA removed the PDT
+  minimum effective 2026-06-04; brokers may phase in until 2027-10-20).
+- Caps: one atomic reservation of notional in the ops DB before every POST (listener and cron share it).
+- FLATTEN: pilot ledger quantities only; never a bulk close.
+- Calendar: session bounds (incl. 13:00 early closes) from the exchange calendar.
+- Client order ids are deterministic per (strategy, decision, leg), so a restart can never duplicate an order.
+
 ## Rollout (each phase verified before the next)
 0. Owner: Schwab developer approval, app (callback https://127.0.0.1), keys in keychain, `scripts/schwab_auth.py`.
 1. Read-only connect: account hash, balances, positions (no orders). Confirms every [VERIFY] fact in
    `sgt.brokers.schwab`.
 2. One approved $100 SPY limit buy, then sell: confirms order, fill, ledger, reconciliation end to end.
-3. Enable: 60/40 -> fade shorts at $500 -> turn-of-month (2026-11-27). Fade size rises to $2,000 after 20 real
+3. Enable: 60/40 (needs login store, caps, FLATTEN, calendar) -> fade shorts at $500 (also needs broker
+   stop, signed positions, day-trade guard) -> turn-of-month (2026-11-27). Fade size rises to $2,000 after 20 real
    fills; large-cap book / AAOI join when their forward gates pass.
 
 ## Expectations
