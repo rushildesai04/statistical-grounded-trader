@@ -92,6 +92,11 @@ def cmd_holdout() -> int:
             for m in months:
                 coinbase.fetch_month(c, ROOT, prod, m)
     use = [WARMUP, *months]
+    missing = [(p, m) for p in (coinbase.LEADER, *coinbase.ALTS) for m in use
+               if not coinbase.month_path(ROOT, p, m).exists()]
+    if missing:                                          # fail closed BEFORE any held-out return is computed
+        raise SystemExit(f"{len(missing)} product-months missing (e.g. {missing[0]}); nothing scored. Re-run with "
+                         "the vault's rescore_reason='download incomplete, nothing scored'.")
     btc = coinbase.load(ROOT, coinbase.LEADER, use)
     coins = {p: coinbase.load(ROOT, p, use) for p in coinbase.ALTS}
     since = pd.Timestamp(months[0] + "-01", tz="UTC")
