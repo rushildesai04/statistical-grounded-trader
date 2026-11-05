@@ -109,7 +109,7 @@ SIG_KEYS = ("ema9_21_gap_pct", "ema_cross_state", "minutes_since_cross", "vwap_d
             "minutes_since_open")
 BRAIN_FEATURES = FEATURES + [f"s_{k}" for k in SIG_KEYS] + ["n_own", "n_earn", "f_8k", "f_dil"]
 WEIGHTS = (0.5, 1.0, 1.5)                      # bottom / middle / top third of in-sample predictions
-BRAIN_PATH = Path("config/models/fade_brain_v2.txt")
+BRAIN_PATH = Path(__file__).resolve().parents[3] / "config" / "models" / "fade_brain_v2.txt"   # /app/config on Fly
 
 
 def signal_features(ev: pd.DataFrame, store) -> pd.DataFrame:

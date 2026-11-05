@@ -18,6 +18,7 @@ COPY deploy/fly/requirements.lock /app/requirements.lock
 RUN pip install --no-cache-dir -r /app/requirements.lock
 COPY src /app/src
 COPY scripts /app/scripts
+COPY config/models /app/config/models
 COPY deploy/fly/crontab deploy/fly/entrypoint.sh /app/deploy/
 RUN chmod +x /app/deploy/entrypoint.sh
 
