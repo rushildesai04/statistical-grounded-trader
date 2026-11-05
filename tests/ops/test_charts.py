@@ -69,3 +69,9 @@ def test_runner_page_is_a_full_document_and_the_artifact_copy_is_a_fragment():
     assert full.startswith("<!doctype html>") and '<meta charset="utf-8">' in full and "viewport-fit=cover" in full
     assert frag.startswith("<title>SGT Fade Tape</title>") and full.endswith(frag)
     assert "Rushil's Agent" in frag
+
+
+def test_ema_9_21_lines_ride_along_for_display():
+    v = charts.trade_view(TRADE, bars())
+    assert len(v["ema9"]) == len(v["ema21"]) == len(v["candles"])
+    assert all(x["value"] == pytest.approx(4.0) for x in v["ema9"] + v["ema21"])    # flat bars: flat EMAs
