@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import httpx
