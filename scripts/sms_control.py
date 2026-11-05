@@ -28,7 +28,7 @@ import httpx
 import pandas as pd
 
 from sgt.intraday.calendar import default_calendar
-from sgt.ops import approvals, book, digest
+from sgt.ops import approvals, book, digest, summary
 from sgt.ops.sms import Sms
 from sgt.ops.store import OpsStore, iso
 from sgt.pilot import book_real
@@ -341,6 +341,23 @@ def cmd_digest(db: OpsStore) -> int:
     return 0
 
 
+def cmd_summary(db: OpsStore) -> int:
+    """Midnight day summary (owner request 2026-11-05): trades, count, $ made/lost, $ traded. Once per session."""
+    day = last_final_session(datetime.now(ET))
+    if done(db, f"summary:{day}"):
+        print(f"summary {day}: already sent")
+        return 0
+    text = summary.build(db, day)
+    sms = Sms()
+    try:
+        sms.send(text)
+    finally:
+        sms.close()
+    mark_done(db, f"summary:{day}")
+    print(text)
+    return 0
+
+
 def megacap_targets(positions: dict[str, int]) -> dict[str, float]:
     from sgt.risk.sizing import SizingConfig, asset_risk, size_book
 
@@ -467,13 +484,13 @@ def cmd_pilot(db: OpsStore) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot"])
+    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot", "summary"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
     return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf,
-            "pilot": cmd_pilot}[args.cmd](db)
+            "pilot": cmd_pilot, "summary": cmd_summary}[args.cmd](db)
 
 
 if __name__ == "__main__":

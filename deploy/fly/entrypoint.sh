@@ -47,6 +47,8 @@ if [ "${1:-}" = "job" ]; then
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
     # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab; a no-op unless SGT_PILOT_SCHWAB=1.
     pilotbook) run reports/ops/pilot.log python /app/scripts/sms_control.py pilot ;;
+    # Midnight day summary (owner request 2026-11-05): trades, count, $ made/lost, $ traded.
+    summary)   run reports/ops/run.log python /app/scripts/sms_control.py summary ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?

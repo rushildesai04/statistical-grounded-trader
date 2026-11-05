@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from sgt.fast import news
 from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals
 from sgt.ops.sms_style import bold, italic
@@ -50,11 +51,18 @@ MAX_TRADES_DAY, MAX_OPEN = 15, 8
 DAY_LOSS_STOP = -0.03                           # NAV fraction (estimates) that stops new entries for the day
 HEARTBEAT_STALE = timedelta(minutes=15)
 # The frozen rule on held-out data it never saw (2026-07..10, 764 trades, reports/alert_fade/trades.csv), shown on
-# every request so each decision is made against the real record. Confidence = P(net > 0) = BASE_WIN (95% range
-# BASE_WIN_CI): the calibrated per-trade score was flat at the base rate (prereg_fade_confidence, G1 OFF), so every
-# fade carries the same number until a ranker passes its gate. Update at the F1 decision point.
+# every request so each decision is made against the real record. Update at the F1 decision point.
 BASE_N, BASE_WIN, BASE_WIN_CI, BASE_EV = 764, 0.573, (0.54, 0.61), 0.0112
 AVG_WIN, AVG_LOSS, STOP_RATE, STOPPED_NET = 0.134, -0.153, 0.16, -0.224
+# Confidence (prereg_fade_news_2026-11-05 A1, reports/fade_news/confidence.json): 100 x P(mean net of trades like
+# this one > 0), session bootstrap over all 3,109 tested events in the trade's news group. Display only. The
+# alert-time price/volume features carry no per-trade signal (prereg_fade_confidence); company news does.
+# group: (confidence, win rate, avg net, n)
+CONF = {"none": (100, 0.58, 0.0165, 1839), "own": (55, 0.53, 0.0007, 1004), "earn": (55, 0.52, 0.0014, 266),
+        "all": (100, 0.56, 0.0101, 3109)}
+CONF_MAX = 99                                   # never show certainty
+CONF_LABEL = {"none": "no company news", "own": "company news today", "earn": "earnings news today",
+              "all": "news check failed"}
 JUDGE_N = 300                                   # forward decision point (amendment F1)
 PLAIN = {"volume_increasing": "volume rising", "volume_spike": "volume spike", "gaining_volume": "volume rising",
          "gaining_momentum": "momentum", "new_high": "new high", "intraday_high": "high of day",
@@ -216,15 +224,29 @@ def record(db: OpsStore) -> tuple[int, float | None]:
     return int(n), mean
 
 
+def news_group(ctx: dict) -> str:
+    """'none' / 'own' / 'earn' from the live news flags; 'all' when the news lookup failed (unknown)."""
+    n = ctx.get("news")
+    if not n:
+        return "all"
+    return "earn" if n.get("news_earn") else ("own" if n.get("news_own") else "none")
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None) -> str:
-    """Trade text body (owner request 2026-11-04): trade, confidence, why, tape, risk, tested payoff, live record,
-    borrow. ``out_at`` set = the F5 entry text (already short). Unicode bold + emoji = UCS-2 SMS; see sms_style."""
-    lo, hi = BASE_WIN_CI
+    """Trade text body (owner requests 2026-11-04/05): trade in plain words, confidence by news group, headline,
+    why, tape, risk, tested payoff, live record, borrow, chart. ``out_at`` set = the F5 entry text (already short).
+    Unicode bold + emoji = UCS-2 SMS; see sms_style."""
     head = f"{bold(f'SHORT {symbol}')} @ {bold('$' + _fmt(px)) if px else 'market'}"
-    lines = [f"✅ {bold('IN')} · {head}" if out_at else f"🔻 {head}",
-             f"🧠 Confidence {bold(f'{BASE_WIN * 100:.0f}')}/100 ({lo * 100:.0f}-{hi * 100:.0f}) · "
-             + italic("same for every fade")]
+    g = news_group(ctx)
+    conf, win, avg, _ = CONF[g]
+    lines = [f"✅ {bold('FADE IN')} · {head}" if out_at else f"🔻 {head}",
+             f"💬 {'Shorted' if out_at else 'Short'} ${size:,.0f} of {symbol}: we make money if it falls",
+             f"🧠 Confidence {bold(f'{min(conf, CONF_MAX)}')}/100 · {CONF_LABEL[g]}: "
+             + italic(f"trades like this win {win:.0%}, avg {avg:+.1%}")]
+    head_line = (ctx.get("news") or {}).get("headline")
+    if head_line:
+        lines.append(f"📰 “{head_line}”")
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:
         why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")
@@ -241,7 +263,7 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     if tape:
         lines.append("📊 " + " · ".join(tape) + " " + italic("(IEX)"))
     stop = f"${_fmt(px * (1 + STOP))}" if px else "+20%"
-    hold = f"⏰ out {out_at.astimezone(ET):%H:%M}" if out_at else "⏳ 60 min"
+    hold = f"⏰ out {out_at.astimezone(ET):%H:%M} ET" if out_at else "⏳ 60 min"
     lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} ≈ {_usd(size * STOPPED_NET)} · {hold}",
               f"🎯 Tested ({BASE_N} unseen): win {BASE_WIN:.0%}, avg {bold(_usd(size * BASE_EV))}",
               f"    wins {_usd(size * AVG_WIN)} · losses {_usd(size * AVG_LOSS)} · {STOP_RATE:.0%} stopped"]
@@ -250,6 +272,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         lines.append(f"📈 Live: {n} trades, avg {mean:+.1%}" + (" " + italic("(too few to judge)") if n < JUDGE_N else ""))
     none = borrow.startswith("none")
     lines.append(f"🏦 {'⚠️ ' if none else ''}{borrow or 'borrow unknown'}")
+    chart = news.chart_url(symbol)
+    if chart:
+        lines.append(f"🔗 {chart}")
     return "\n".join(lines)
 
 
@@ -281,12 +306,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
         if px is not None and px > 0 and not PRICE_MIN <= px <= PRICE_MAX:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
-        ctx = {}
-        if context is not None:
-            try:
-                ctx = context(r["symbol"]) or {}
-            except Exception:  # noqa: BLE001 - context is informational; the request still goes out
-                log.warning("context %s failed", r["symbol"])
+        ctx = _context(db, r, context)
         summary = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db))
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
@@ -303,7 +323,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
             return
         approvals.finish(db, a["id"], True, "entering")
         if _set(db, r["id"], "ask", status="pending", reason="approved"):
-            _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now)
+            _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now, context)
         return
     if a["status"] == "rejected":
         _set(db, r["id"], "ask", status="skipped", reason="declined")
@@ -327,7 +347,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
     if not won:                                        # someone else decided it (e.g. PAUSE): never enter
         _set(db, r["id"], "ask", status="skipped", reason="approval no longer open")
     elif _set(db, r["id"], "ask", status="pending", reason="auto"):
-        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now)
+        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context)
 
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
@@ -351,19 +371,36 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> 
         if r["reason"] == VETO:
             _veto_text(db, send, r, px, now, out, context)
             return
-        how = " (auto)" if r["reason"] == "auto" else ""
-        send(f"[SGT] ✅ {bold('FADE IN')}{how} · short {bold(r['symbol'])} @ ${_fmt(px)} · ${notional(db):,.0f}\n"
-             f"🛑 stop ${_fmt(px * (1 + STOP))} · ⏰ out {out:%H:%M} ET")
+        ctx = _context(db, r, context)
+        how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
+        send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db),
+                                 out_at=out) + how)
+
+
+def _context(db: OpsStore, r, context) -> dict:
+    """Tape + company news for the trade text (informational: a failure never blocks the text or the trade). The
+    news flags and the confidence shown are stored on the trade for the OUT text and the forward check."""
+    if context is None:
+        return {}
+    try:
+        ctx = context(r["symbol"]) or {}
+    except Exception:  # noqa: BLE001 - context is informational; the text still goes out
+        log.warning("context %s failed", r["symbol"])
+        ctx = {}
+    n = ctx.get("news")
+    cols = {"conf": min(CONF[news_group(ctx)][0], CONF_MAX)}
+    if n:
+        cols.update(news_own=int(bool(n.get("news_own"))), news_earn=int(bool(n.get("news_earn"))),
+                    news_head=n.get("headline"))
+    keys = ", ".join(f"{k}=?" for k in cols)
+    with db.tx() as c:
+        c.execute(f"UPDATE fade_trades SET {keys} WHERE id=?", (*cols.values(), r["id"]))  # noqa: S608 - fixed names
+    return ctx
 
 
 def _veto_text(db: OpsStore, send, r, px: float, now: datetime, out: datetime, context) -> None:
     """F5 entry text: the full trade card + "NO <code> = exit now" (approval kind 'fadeexit', open until the exit)."""
-    ctx = {}
-    if context is not None:
-        try:
-            ctx = context(r["symbol"]) or {}
-        except Exception:  # noqa: BLE001 - context is informational; the text still goes out
-            log.warning("context %s failed", r["symbol"])
+    ctx = _context(db, r, context)
     body = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), out_at=out)
     approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fadeexit", period=r["session"], summary=body,
                       payload={"fade_id": r["id"], "symbol": r["symbol"]}, expires_at=out, now=now)
@@ -404,11 +441,33 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         with db.tx() as c:
             n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='est_closed'",
                               (r["session"],)).fetchone()[0]
-        mark = "🛑" if why == "stop" else ("🟢" if g > 0 else "🔴")
-        send(f"[SGT] {mark} {bold('FADE OUT')} · {bold(r['symbol'])} @ ${_fmt(exit_px)} ({why})\n"
-             f"P&L {bold(f'{g:+.1%} = {_usd(usd)}')}\n"
-             f"📅 Today: {_usd(day_est_pnl(db, r['session']) * v)} · {n_day} trades\n"
-             + italic("Before costs; official tonight."))
+        send(out_text(r, entry, exit_px, why, usd, day_est_pnl(db, r["session"]) * v, n_day))
+
+
+EXIT_WHY = {"stop": "🛑 stop hit: price jumped 20% over our short, loss capped", "60 min": "⏰ 60 minutes up",
+            "close": "🔔 market close", VETO_EXIT: "👋 you texted NO"}
+
+
+def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: float, n_day: int) -> str:
+    """FADE OUT text (owner request 2026-11-05: plain words): result first, what happened, why, the day so far."""
+    r = dict(r)
+    g = (entry - exit_px) / entry
+    mark = "🛑" if why == "stop" else ("🟢" if g > 0 else "🔴")
+    verb = "made" if usd >= 0 else "lost"
+    lines = [f"[SGT] {mark} {bold('FADE OUT')} · {bold(r['symbol'])} · {verb} {bold(f'{_usd(usd)} ({g:+.1%})')}",
+             f"Shorted ${_fmt(entry)} → bought back ${_fmt(exit_px)} · {EXIT_WHY.get(why, why)}"]
+    move = exit_px / entry - 1
+    because = (f"price fell {abs(move):.1%} while we were short" if move < 0 else
+               f"price rose {move:.1%} while we were short" if move > 0 else "price did not move")
+    if r.get("news_own"):
+        because += " · it had company news (" + ("earnings" if r.get("news_earn") else "news") + \
+                   "), where fades only break even on average"
+    lines += [f"💡 Why: {because}", f"📅 Today: {n_day} trades, {bold(_usd(day_usd))}"]
+    chart = news.chart_url(r["symbol"])
+    if chart:
+        lines.append(f"📈 {chart}")
+    lines.append(italic("Estimate before costs; official numbers in the midnight summary."))
+    return "\n".join(lines)
 
 
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:

@@ -34,7 +34,7 @@ from sgt.core.secrets import get_secret
 from sgt.crowd.telegram_parser import ParsedAlert, ParsedNews, parse_message
 from sgt.crowd.telegram_collector import SourceMessage, TelegramCollector
 from sgt.fast import borrow as borrow_mod
-from sgt.fast import fade
+from sgt.fast import fade, news
 from sgt.intraday.sources import AlpacaHistoricalBars
 from sgt.intraday.store import ParquetBarStore
 from sgt.ops.sms import Sms
@@ -138,8 +138,25 @@ def iex_context(client: httpx.Client):
             out["vwap"] = vw
         if v > 0 and pv > 0:
             out["rvol"] = v / pv
+        out["news"] = live_news(client, symbol, datetime.now(timezone.utc))
         return out
     return ctx
+
+
+def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
+    """Company news before ``at`` from Alpaca's Benzinga feed, labelled exactly as prereg_fade_news measured it.
+    None = unknown (API down); the text then says so instead of implying 'no news'."""
+    try:
+        r = client.get("/v1beta1/news", params={"symbols": symbol, "start": news.window_start(at).isoformat(),
+                                                "end": at.isoformat(), "limit": 50, "sort": "desc"})
+        items = r.json().get("news") if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(items, list):
+        return None
+    rows = [{"created_at": a.get("created_at"), "symbols": ",".join(str(x) for x in (a.get("symbols") or [])[:20]),
+             "headline": news.clean(a.get("headline"))} for a in items[:50] if isinstance(a, dict)]
+    return news.flags(symbol, at, pd.DataFrame(rows, columns=["created_at", "symbols", "headline"]))
 
 
 def data_client() -> httpx.Client:

@@ -89,8 +89,9 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     px = {"UP": 10.0, "DN": 10.0, "BIG": 75.0}
     fade.monitor(db, out, px.get, now=T10 + timedelta(seconds=20))
     assert [r["status"] for r in rows(db)] == ["open", "open", "filtered"]
-    assert out[0] == (f"[SGT] ✅ {bold('FADE IN')} · short {bold('UP')} @ $10.00 · $5,000\n"   # 5% of $100k
-                      "🛑 stop $12.00 · ⏰ out 11:00 ET")
+    assert out[0].startswith(f"[SGT] ✅ {bold('FADE IN')} · {bold('SHORT UP')} @ {bold('$10.00')}\n"
+                             "💬 Shorted $5,000 of UP: we make money if it falls")             # 5% of $100k
+    assert "🛑 stop $12.00" in out[0] and "⏰ out 11:00 ET" in out[0]
     px.update(UP=12.5, DN=9.0)
     fade.monitor(db, out, px.get, now=T10 + timedelta(minutes=30))
     up, dn = rows(db)[:2]
@@ -99,10 +100,14 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     fade.monitor(db, out, lambda s: None, now=T10 + timedelta(minutes=61))   # no quote: last mark is used
     dn = rows(db)[1]
     assert dn["status"] == "est_closed" and dn["est_exit"] == 9.0 and dn["reason"] == "60 min"
-    assert out[-1] == (f"[SGT] 🟢 {bold('FADE OUT')} · {bold('DN')} @ $9.00 (60 min)\n"
-                       f"P&L {bold('+10.0% = +$500')}\n📅 Today: -$750 · 2 trades\n"
-                       + italic("Before costs; official tonight."))
-    assert out[-2].startswith(f"[SGT] 🛑 {bold('FADE OUT')} · {bold('UP')} @ $12.50 (stop)")
+    assert out[-1] == (f"[SGT] 🟢 {bold('FADE OUT')} · {bold('DN')} · made {bold('+$500 (+10.0%)')}\n"
+                       "Shorted $10.00 → bought back $9.00 · ⏰ 60 minutes up\n"
+                       "💡 Why: price fell 10.0% while we were short\n"
+                       f"📅 Today: 2 trades, {bold('-$750')}\n"
+                       "📈 https://www.tradingview.com/chart/?symbol=DN\n"
+                       + italic("Estimate before costs; official numbers in the midnight summary."))
+    assert out[-2].startswith(f"[SGT] 🛑 {bold('FADE OUT')} · {bold('UP')} · lost {bold('-$1,250 (-25.0%)')}\n"
+                              "Shorted $10.00 → bought back $12.50 · 🛑 stop hit")
     assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10))
 
 
@@ -229,7 +234,7 @@ def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db, as
     fade.monitor(db, out, lambda s: 10.5, now=T10 + timedelta(minutes=2, seconds=10))
     r = rows(db)[0]
     assert r["status"] == "open" and r["reason"] == "approved" and r["est_entry"] == 10.5
-    assert out[-1].startswith(f"[SGT] ✅ {bold('FADE IN')} · short {bold('APR')} @ $10.50")
+    assert out[-1].startswith(f"[SGT] ✅ {bold('FADE IN')} · {bold('SHORT APR')} @ {bold('$10.50')}")
     assert ap.get(db, row["id"])["status"] == "executed"
     fade.monitor(db, out, lambda s: 9.0, now=T10 + timedelta(minutes=63))
     d = fade.due(db, T10 + timedelta(hours=3))
@@ -292,7 +297,7 @@ def test_late_entry_exits_at_the_close_like_the_research_window(db):
     assert rows(db)[0]["status"] == "open"
     fade.monitor(db, out, lambda s: 9.5, now=t + timedelta(minutes=30, seconds=5))
     r = rows(db)[0]
-    assert r["status"] == "est_closed" and r["reason"] == "close" and "(close)" in out[-1]
+    assert r["status"] == "est_closed" and r["reason"] == "close" and "🔔 market close" in out[-1]
     friday = datetime(2026, 11, 27, 12, 30, tzinfo=ET)                     # early close 13:00 on Black Friday
     assert fade._exit_at("2026-11-27", friday) == (datetime(2026, 11, 27, 13, 0, tzinfo=ET), "close")
 
@@ -342,24 +347,33 @@ def test_request_expired_by_pause_never_auto_enters_after_resume(db, ask_first):
 
 def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow():
     # owner requests 2026-11-04: everything needed to decide; bold/italic/emoji for a phone; confidence score
+    # 2026-11-05: confidence moves with the one tested input that matters (company news, prereg_fade_news A1)
+    earn = {"news_any": True, "news_own": True, "news_earn": True, "news_n": 1, "headline": "XYZ raises guidance"}
     body = fade.ask_text("XYZ", "resumed", 4.2, 5000.0,
-                         {"chg_day": 0.85, "chg_open": 0.12, "off_high": -0.09, "vwap": 3.78, "rvol": 3.24},
+                         {"chg_day": 0.85, "chg_open": 0.12, "off_high": -0.09, "vwap": 3.78, "rvol": 3.24,
+                          "news": earn},
                          fade.borrow_note({"ib_avail": 75000, "ib_fee": 44.2}), (21, -0.0198))
     assert body.split("\n") == [
         f"🔻 {bold('SHORT XYZ')} @ {bold('$4.20')}",
-        f"🧠 Confidence {bold('57')}/100 (54-61) · {italic('same for every fade')}",
+        "💬 Short $5,000 of XYZ: we make money if it falls",
+        f"🧠 Confidence {bold('55')}/100 · earnings news today: {italic('trades like this win 52%, avg +0.1%')}",
+        "📰 “XYZ raises guidance”",
         "📣 halt resumed · up 85% today · +12% from open",
         f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
         "💵 $5,000 · 🛑 stop $5.04 ≈ -$1,120 · ⏳ 60 min",
         f"🎯 Tested (764 unseen): win 57%, avg {bold('+$56')}",
         "    wins +$670 · losses -$765 · 16% stopped",
         f"📈 Live: 21 trades, avg -2.0% {italic('(too few to judge)')}",
-        "🏦 IBKR 75k sh @ 44%/yr"]
+        "🏦 IBKR 75k sh @ 44%/yr",
+        "🔗 https://www.tradingview.com/chart/?symbol=XYZ"]
+    quiet = {"news_any": False, "news_own": False, "news_earn": False, "news_n": 0, "headline": None}
+    clean = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {"news": quiet}, "")
+    assert f"🧠 Confidence {bold('99')}/100 · no company news" in clean and "📰" not in clean
     bare = fade.ask_text("XYZ", "news", None, 5000.0, {}, "")
     assert "📣 news\n" in bare and "🏦 borrow unknown" in bare and "stop +20%" in bare
     assert "📊" not in bare and "📈" not in bare and "@ market" in bare
     none = fade.ask_text("XYZ", "news", 4.2, 5000.0, {}, fade.borrow_note({"ib_avail": 0}))
-    assert none.endswith("🏦 ⚠️ none at IBKR (real short unlikely)")
+    assert "\n🏦 ⚠️ none at IBKR (real short unlikely)\n" in none
     assert "too few" not in fade.ask_text("XYZ", "news", 4.2, 5000.0, {}, "", (300, 0.01))
 
 
@@ -377,6 +391,13 @@ def test_iex_context_computes_moves_and_tolerates_bad_payloads():
     import httpx
 
     def handler(req):
+        if req.url.path == "/v1beta1/news":                     # Benzinga feed: untrusted text, one bad item
+            if req.url.params["symbols"] == "BAD":
+                return httpx.Response(500)
+            created = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+            return httpx.Response(200, json={"news": [
+                {"created_at": created, "symbols": ["XYZ"], "headline": "XYZ Q3 EPS beats\nraises guidance"},
+                "junk"]})
         if "BAD" in req.url.path:
             return httpx.Response(200, json=["not", "a", "dict"])
         return httpx.Response(200, json={"latestTrade": {"p": 3.7}, "dailyBar": {"o": 3.3, "h": 4.0, "vw": 3.5, "v": 9e5},
@@ -385,7 +406,10 @@ def test_iex_context_computes_moves_and_tolerates_bad_payloads():
     got = ctx("XYZ")
     assert got["chg_day"] == pytest.approx(0.85) and got["chg_open"] == pytest.approx(3.7 / 3.3 - 1)
     assert got["off_high"] == pytest.approx(3.7 / 4.0 - 1) and got["vwap"] == 3.5 and got["rvol"] == pytest.approx(3.0)
-    assert ctx("BAD") == {} and ctx("not a symbol") == {}
+    assert got["news"]["news_earn"] and got["news"]["headline"] == "XYZ Q3 EPS beats raises guidance"
+    assert fade.news_group(got) == "earn"
+    assert ctx("BAD") == {"news": None} and ctx("not a symbol") == {}       # news unknown, never "no news"
+    assert fade.news_group(ctx("BAD")) == "all"
 
 
 def exit_code(text: str) -> str:
@@ -402,7 +426,7 @@ def test_unarmed_alert_enters_at_the_tested_time_and_texts_the_trade_with_an_exi
                  context=lambda s: {"chg_day": 0.5})
     r = rows(db)[0]
     assert r["status"] == "open" and r["reason"] == fade.VETO and r["est_entry"] == 10.0
-    assert len(out) == 1 and out[0].startswith(f"[SGT] ✅ {bold('IN')} · {bold('SHORT VTO')} @ {bold('$10.00')}")
+    assert len(out) == 1 and out[0].startswith(f"[SGT] ✅ {bold('FADE IN')} · {bold('SHORT VTO')} @ {bold('$10.00')}")
     assert "up 50% today" in out[0] and "⏰ out 11:00" in out[0] and out[0].endswith(f"👉 NO {exit_code(out[0])} = exit now")
     assert fade.due(db, T10 + timedelta(hours=3)).entry_after.isna().all()   # scored at the tested timing
 
@@ -422,7 +446,8 @@ def test_no_exits_at_the_next_quote_and_late_codes_say_closed(db):
     got = {r["symbol"]: r for r in rows(db)}
     assert got["NOX"]["status"] == "est_closed" and got["NOX"]["reason"] == fade.VETO_EXIT
     assert got["KEEP"]["status"] == "open"
-    assert out[-1].startswith(f"[SGT] 🟢 {bold('FADE OUT')} · {bold('NOX')} @ $9.50 (your NO)")
+    assert out[-1].startswith(f"[SGT] 🟢 {bold('FADE OUT')} · {bold('NOX')} · made")
+    assert "bought back $9.50 · 👋 you texted NO" in out[-1]
     fade.monitor(db, out, lambda s: 9.5, now=T10 + timedelta(minutes=61))
     assert {r["symbol"]: r["reason"] for r in rows(db)}["KEEP"] == "60 min"
     assert ap.answer(db, ap.Command("NO", keep), "SM3", now=T10 + timedelta(minutes=62))[0] == \

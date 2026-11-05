@@ -47,6 +47,8 @@ COLUMNS = {
     "fade_trades": {                         # 2026-11-04 plan W1: borrow reality at alert time
         "ib_avail": "INTEGER", "ib_fee": "REAL", "ib_snap": "TEXT", "alp_etb": "INTEGER", "alp_shortable": "INTEGER",
         "rule_entry": "REAL", "rule_net": "REAL",   # 2026-11-04 plan W5: official result at the tested timing
+        "news_own": "INTEGER", "news_earn": "INTEGER", "news_head": "TEXT",   # prereg_fade_news_2026-11-05
+        "conf": "INTEGER",                   # confidence shown in the entry text (0-100)
     },
 }
 

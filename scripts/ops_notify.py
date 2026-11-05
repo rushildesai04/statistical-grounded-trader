@@ -40,6 +40,7 @@ JOBS = {
     "borrow": ("borrow-fee snapshot", "Trades are unaffected; borrow details may be missing from trade texts."),
     "fadeforward": ("fade forward research record", "Nothing was traded; it catches up on the next run."),
     "fadechallengers": ("fade challenger shadow scoring", "Nothing was traded; it catches up on the next run."),
+    "summary": ("midnight day summary", "Trades and positions are unaffected; only tonight's summary is missing."),
     "pilotbook": ("real-money 60/40 / turn-of-month at Schwab",
                   "No real order went out in this run; the next run (5 min) retries. Exits held at Schwab are unaffected."),
 }
