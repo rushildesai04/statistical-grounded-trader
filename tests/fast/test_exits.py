@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
 from sgt.fast import exits
 from sgt.fast.exits import CHAMPION, Exit, indicators, simulate
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 T0 = pd.Timestamp("2026-11-05T14:30:00Z")
 
@@ -72,3 +77,13 @@ def test_challenger_set_is_the_preregistered_one():
     assert [(x.id, x.signal, x.cap_min, x.stop) for x in exits.EXITS] == [
         ("X-TRAIL", "trail", 120, 0.2), ("X-VWAP", "vwap", 120, 0.2), ("X-EMA", "ema", 120, 0.2),
         ("X-TGT", "target", 60, 0.2)]
+
+
+def test_paired_compares_only_events_both_legs_traded():
+    import numpy as np
+    import fade_exits
+
+    t = pd.DataFrame({"session": ["a", "a", "b"], "net_champion": [0.01, np.nan, -0.02],
+                      "net_X-EMA": [0.01, 0.30, -0.02], "how_X-EMA": ["cap"] * 3, "min_X-EMA": [60.0] * 3})
+    p = fade_exits.paired(t, "X-EMA", np.random.default_rng(0))
+    assert p["mean_daily_diff"] == 0.0 and p["sessions"] == 2      # the 0.30 the champion never traded is ignored
