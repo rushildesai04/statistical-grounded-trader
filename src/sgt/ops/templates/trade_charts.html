@@ -9,17 +9,17 @@
    are reserved for results and alerts. */
 :root {
   --bg: #eef1f5; --panel: #ffffff; --ink: #141a24; --muted: #5d6878; --rule: #d8dee7; --grid: #edf0f4;
-  --accent: #3346d3; --accent-soft: #3346d31a; --up: #12875a; --down: #cf3b2f; --alert: #c98500;
+  --accent: #3346d3; --accent-soft: #3346d31a; --ema9: #0e8fa8; --ema21: #b4579a; --up: #12875a; --down: #cf3b2f; --alert: #c98500;
   --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
   --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
-  --accent: #8a9bff; --accent-soft: #8a9bff1f; --up: #34c486; --down: #ff6a5c; --alert: #f0b43a; color-scheme: dark } }
+  --accent: #8a9bff; --accent-soft: #8a9bff1f; --ema9: #4cc6dc; --ema21: #e08ccb; --up: #34c486; --down: #ff6a5c; --alert: #f0b43a; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
-  --accent: #8a9bff; --accent-soft: #8a9bff1f; --up: #34c486; --down: #ff6a5c; --alert: #f0b43a; color-scheme: dark }
+  --accent: #8a9bff; --accent-soft: #8a9bff1f; --ema9: #4cc6dc; --ema21: #e08ccb; --up: #34c486; --down: #ff6a5c; --alert: #f0b43a; color-scheme: dark }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
 .wrap { max-width: 1160px; margin: 0 auto; padding-block: 18px 40px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -184,6 +184,8 @@ footer b { color: var(--ink); font-weight: 600; }
     <span><i style="background:var(--down)"></i>short entry</span>
     <span><i style="background:var(--up)"></i>cover (exit)</span>
     <span><i style="background:var(--accent)"></i>VWAP</span>
+    <span><i style="background:var(--ema9)"></i>EMA 9</span>
+    <span><i style="background:var(--ema21)"></i>EMA 21</span>
     <span>dashed = entry · dotted = 20% stop · times ET · 1-min bars</span>
   </div>
 
@@ -235,8 +237,12 @@ function draw(box, t) {
   const vol = chart.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
   const vwap = chart.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  const ema9 = chart.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  const ema21 = chart.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
   candles.setData(t.candles);
   vwap.setData(t.vwap);
+  ema9.setData(t.ema9 || []);
+  ema21.setData(t.ema21 || []);
   const lines = [];
   if (t.entry) lines.push(candles.createPriceLine({ price: t.entry, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "entry" }));
   if (t.stop) lines.push(candles.createPriceLine({ price: t.stop, lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "stop" }));
@@ -246,6 +252,8 @@ function draw(box, t) {
     candles.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
     vol.setData(t.volume.map(v => ({ time: v.time, value: v.value, color: (v.up ? up : down) + "55" })));
     vwap.applyOptions({ color: css("--accent") });
+    ema9.applyOptions({ color: css("--ema9") });
+    ema21.applyOptions({ color: css("--ema21") });
     lines[0] && lines[0].applyOptions({ color: css("--muted") });
     lines[1] && lines[1].applyOptions({ color: down });
     const win = t.ret != null && t.ret > 0;

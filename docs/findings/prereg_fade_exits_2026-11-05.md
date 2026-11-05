@@ -41,3 +41,23 @@ exits). Changing the live exit needs the owner's OK and a prereg amendment; neve
 Mean / win / 1st percentile per challenger; median minutes held; share of trades exited by the signal, the stop
 and the cap; per-challenger held-out (secondary).
 Trial ledger run id `fade-exits-2026-11-05-dev`.
+
+## Result (2026-11-05, dev run once, trial ledger `fade-exits-2026-11-05-dev`) — no exit passes
+Champion reproduced `alert_fade_test.score` exactly on all 2,349 training events (guard in `cmd_dev`).
+
+| training 2025-01..2026-06 | mean/trade | win | 1st pct | median held | ended by signal / stop / cap | daily diff vs champion [98.75% bounds] | gate |
+|---|---|---|---|---|---|---|---|
+| champion (60 min) | +0.97% | 55% | -23.7% | 60 m | - / 25% / 75% | - | - |
+| X-TRAIL | -0.18% | 56% | -21.8% | 9 m | 74% / 13% / 14% | -7.66% [-11.54%, -3.80%] | fail |
+| X-VWAP | +0.52% | 53% | -21.8% | 19 m | 58% / 17% / 25% | -2.99% [-6.18%, +0.13%] | fail |
+| X-EMA (9/21) | +0.68% | 53% | -23.8% | 36 m | 73% / 21% / 6% | -1.97% [-4.08%, +0.09%] | fail |
+| X-TGT (15%) | +0.23% | 59% | -22.1% | 31 m | 35% / 22% / 42% | -4.90% [-7.42%, -2.39%] | fail |
+
+Secondary held-out 2026-07..10 (n 764, already seen once): champion +1.12%, X-TRAIL -0.50%, X-VWAP +0.22%,
+X-EMA +0.99%, X-TGT +0.37%.
+
+Reading: these stocks chop on the way down. Every exit that reacts to a bounce covers winners early and keeps the
+losers (the 20% stop still takes them), so each one earns less than holding the full hour; the 5% trail is the worst
+(median 9 minutes, negative). The 9/21 EMA cross is the least bad and still trails the timer. The fade's money
+comes from the drift that plays out over the hour, not from timing the bottom. The live exit stays at 60 minutes.
+All four exits keep running in shadow on forward trades (`fadeexits` job); none can be promoted (no dev PASS).

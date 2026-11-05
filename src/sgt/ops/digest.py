@@ -50,7 +50,8 @@ def megacap_research(root: Path = Path("reports/megacap_forward")) -> str | None
 
 
 def challenger_research(root: Path = Path("reports/fade_challengers")) -> str | None:
-    """Last night's shadow line (prereg_fade_challengers_2026-11-04); None until the first shadow run."""
+    """Last night's shadow line (prereg_fade_challengers_2026-11-04, also prereg_fade_exits_2026-11-05 under
+    reports/fade_exits); None until the first shadow run."""
     p = root / "shadow_summary.json"
     if not p.exists():
         return None

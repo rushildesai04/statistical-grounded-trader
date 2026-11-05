@@ -59,6 +59,9 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     b = b.sort_values("ts").drop_duplicates("ts").tail(MAX_BARS)
     pv = (b.high + b.low + b.close) / 3 * b.volume
     b["vwap"] = pv.cumsum() / b.volume.cumsum().where(b.volume.cumsum() > 0)
+    # EMA 9/21 for display (owner request 2026-11-05); as an exit they lose to the 60-min hold (prereg_fade_exits)
+    b["ema9"] = b.close.ewm(span=9, adjust=False).mean()
+    b["ema21"] = b.close.ewm(span=21, adjust=False).mean()
     official = _num(t.get("net"))
     settled = official is not None and _num(t.get("entry")) is not None and t.get("entry_ts")
     alert = pd.Timestamp(t["posted_at"])
@@ -72,6 +75,8 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     volume = [{"time": tt, "value": _num(r.volume) or 0.0, "up": bool(r.close >= r.open)}
               for tt, r in zip(times, w.itertuples(index=False))]
     vwap = [{"time": tt, "value": _num(v)} for tt, v in zip(times, w.vwap) if _num(v) is not None]
+    ema = {k: [{"time": tt, "value": _num(v)} for tt, v in zip(times, w[k]) if _num(v) is not None]
+           for k in ("ema9", "ema21")}
     # settled = the official SIP result at the tested timing; otherwise the live IEX estimate
     entry, exit_px = ((_num(t.get("entry")), _num(t.get("cover"))) if settled else
                       (_num(t.get("est_entry")), _num(t.get("est_exit"))))
@@ -89,7 +94,7 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
         "entry": entry, "exit": exit_px, "stop": entry * (1 + STOP) if entry else None,
         "ret": ret, "official": official is not None, "usd": usd,
         "conf": t.get("conf"), "news": bool(t.get("news_own")), "headline": t.get("news_head"),
-        "candles": candles, "volume": volume, "vwap": vwap, "markers": [m for m in markers if m["time"] is not None],
+        "candles": candles, "volume": volume, "vwap": vwap, **ema, "markers": [m for m in markers if m["time"] is not None],
     }
 
 
