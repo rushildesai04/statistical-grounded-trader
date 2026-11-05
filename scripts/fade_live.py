@@ -34,7 +34,7 @@ from sgt.core.secrets import get_secret
 from sgt.crowd.telegram_parser import ParsedAlert, ParsedNews, parse_message
 from sgt.crowd.telegram_collector import SourceMessage, TelegramCollector
 from sgt.fast import borrow as borrow_mod
-from sgt.fast import fade, news
+from sgt.fast import fade, filings, news, signals
 from sgt.intraday.sources import AlpacaHistoricalBars
 from sgt.intraday.store import ParquetBarStore
 from sgt.ops.sms import Sms
@@ -138,9 +138,34 @@ def iex_context(client: httpx.Client):
             out["vwap"] = vw
         if v > 0 and pv > 0:
             out["rvol"] = v / pv
-        out["news"] = live_news(client, symbol, datetime.now(timezone.utc))
+        now = datetime.now(timezone.utc)
+        bars = live_bars(client, symbol, now)
+        if not bars.empty:
+            out["signals"] = signals.snapshot(bars, pd.Timestamp(now), prev_close=pc or None, prior_day_volume=pv or None)
+        out["news"] = live_news(client, symbol, now)
+        out["filings"] = filings.lookup(symbol, now, since_8k=news.window_start(now))   # None = unknown
         return out
     return ctx
+
+
+def live_bars(client: httpx.Client, symbol: str, at: datetime) -> pd.DataFrame:
+    """Today's IEX 1-minute bars up to ``at`` for the chart read in the text; empty on any failure."""
+    start = datetime.combine(at.astimezone(ET).date(), datetime.min.time(), ET).replace(hour=4)
+    try:
+        r = client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe": "1Min", "feed": "iex", "limit": 1000,
+                                                             "start": start.isoformat(), "end": at.isoformat()})
+        j = r.json() if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return pd.DataFrame()
+    rows = j.get("bars") if isinstance(j, dict) else None
+    if not isinstance(rows, list):
+        return pd.DataFrame()
+    ok = [x for x in rows[:1000] if isinstance(x, dict) and all(isinstance(x.get(k), (int, float)) for k in "ohlcv")]
+    if not ok:
+        return pd.DataFrame()
+    f = pd.DataFrame({"ts": pd.to_datetime([x.get("t") for x in ok], utc=True, errors="coerce"),
+                      **{n: [float(x[k]) for x in ok] for k, n in zip("ohlcv", ("open", "high", "low", "close", "volume"))}})
+    return f.dropna(subset=["ts"]).sort_values("ts").reset_index(drop=True)
 
 
 def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:

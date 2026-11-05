@@ -49,6 +49,7 @@ COLUMNS = {
         "rule_entry": "REAL", "rule_net": "REAL",   # 2026-11-04 plan W5: official result at the tested timing
         "news_own": "INTEGER", "news_earn": "INTEGER", "news_head": "TEXT",   # prereg_fade_news_2026-11-05
         "conf": "INTEGER",                   # confidence shown in the entry text (0-100)
+        "filing_dilution": "INTEGER", "filing_form": "TEXT", "filing_8k": "INTEGER",  # EDGAR at alert, 2026-11-05
     },
 }
 

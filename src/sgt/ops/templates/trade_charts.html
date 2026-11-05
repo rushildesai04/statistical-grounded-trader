@@ -118,6 +118,18 @@ h1 em { font-style: normal; color: var(--accent); }
 .conf b { color: var(--ink); font-weight: 500; }
 .news { font-size: 13px; border-left: 2px solid var(--alert); padding-left: 8px; overflow-wrap: anywhere; }
 .chart { height: 280px; min-width: 0; }
+.panes { display: grid; gap: 0; min-width: 0; }                 /* candles + synced RSI / MACD panes, left edges aligned */
+.sub { min-width: 0; }
+.sub.rsi { height: 84px; }
+.sub.macd { height: 96px; }
+/* signals-at-entry chips: coloured by whether the read backs the short (--up = supports the fade, --down = against) */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font: 500 11.5px var(--mono); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 7px;
+  display: inline-flex; gap: 5px; align-items: baseline; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip span { letter-spacing: .04em; text-transform: uppercase; font-size: 9.5px; opacity: .85; }
+.chip b { font-weight: 600; color: inherit; }
+.chip.up { color: var(--up); border-color: color-mix(in srgb, var(--up) 45%, var(--rule)); }
+.chip.down { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, var(--rule)); }
 .links { display: flex; gap: 14px; font-size: 12.5px; }
 .links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
@@ -186,6 +198,8 @@ footer b { color: var(--ink); font-weight: 600; }
     <span><i style="background:var(--accent)"></i>VWAP</span>
     <span><i style="background:var(--ema9)"></i>EMA 9</span>
     <span><i style="background:var(--ema21)"></i>EMA 21</span>
+    <span><i style="background:var(--muted)"></i>RSI 14 (30 / 70)</span>
+    <span><i style="background:var(--accent)"></i>MACD 12/26/9</span>
     <span>dashed = entry · dotted = 20% stop · times ET · 1-min bars</span>
   </div>
 
@@ -230,9 +244,25 @@ function theme() {
            rightPriceScale: { borderColor: css("--rule") }, timeScale: { borderColor: css("--rule"), timeVisible: true, secondsVisible: false } };
 }
 
-function draw(box, t) {
-  const chart = LightweightCharts.createChart(box, { ...theme(), autoSize: true, crosshair: { mode: 0 },
-    handleScroll: { vertTouchDrag: false } });
+// Keep several charts' time scales locked together (Lightweight Charts 4.2 has no multi-pane); by logical range so
+// the panes stay aligned even though RSI/MACD use whitespace points for warm-up bars. A flag breaks the feedback loop.
+function linkTimeScales(all) {
+  let syncing = false;
+  all.forEach(src => src.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (syncing || !r) return;
+    syncing = true;
+    all.forEach(dst => { if (dst !== src) dst.timeScale().setVisibleLogicalRange(r); });
+    syncing = false;
+  }));
+}
+
+const ws = (arr, key) => (arr || []).map(p => p[key] == null ? { time: p.time } : { time: p.time, value: p[key] });
+
+function draw(boxes, t) {
+  const base = () => ({ ...theme(), autoSize: true, crosshair: { mode: 0 }, handleScroll: { vertTouchDrag: false },
+    rightPriceScale: { borderColor: css("--rule"), minimumWidth: 56 } });
+  const noAxis = () => ({ ...base(), timeScale: { ...theme().timeScale, visible: false } });
+  const chart = LightweightCharts.createChart(boxes.main, noAxis());
   const candles = chart.addCandlestickSeries({ borderVisible: false });
   const vol = chart.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
@@ -246,9 +276,25 @@ function draw(box, t) {
   const lines = [];
   if (t.entry) lines.push(candles.createPriceLine({ price: t.entry, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "entry" }));
   if (t.stop) lines.push(candles.createPriceLine({ price: t.stop, lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "stop" }));
+
+  const rc = LightweightCharts.createChart(boxes.rsi, noAxis());
+  const rsi = rc.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  rc.priceScale("right").applyOptions({ scaleMargins: { top: 0.14, bottom: 0.14 } });
+  rsi.setData(ws(t.rsi, "value"));
+  const r30 = rsi.createPriceLine({ price: 30, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "30" });
+  const r70 = rsi.createPriceLine({ price: 70, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "70" });
+
+  const mc = LightweightCharts.createChart(boxes.macd, base());    // last pane keeps its time axis
+  const mhist = mc.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
+  const mline = mc.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  const msig = mc.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  mc.priceScale("right").applyOptions({ scaleMargins: { top: 0.16, bottom: 0.16 } });
+  mline.setData(ws(t.macd, "line"));
+  msig.setData(ws(t.macd, "signal"));
+
   const paint = () => {
     const up = css("--up"), down = css("--down");
-    chart.applyOptions(theme());
+    chart.applyOptions(noAxis());
     candles.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
     vol.setData(t.volume.map(v => ({ time: v.time, value: v.value, color: (v.up ? up : down) + "55" })));
     vwap.applyOptions({ color: css("--accent") });
@@ -262,10 +308,39 @@ function draw(box, t) {
       position: m.kind === "cover" ? "belowBar" : "aboveBar",
       shape: m.kind === "alert" ? "circle" : (m.kind === "short" ? "arrowDown" : "arrowUp"),
       color: m.kind === "alert" ? css("--alert") : (m.kind === "short" ? down : (win ? up : down)) })));
+    rc.applyOptions(noAxis());
+    rsi.applyOptions({ color: css("--muted") });
+    r30.applyOptions({ color: css("--rule") });
+    r70.applyOptions({ color: css("--rule") });
+    mc.applyOptions(base());
+    mline.applyOptions({ color: css("--accent") });
+    msig.applyOptions({ color: css("--ema21") });
+    mhist.setData((t.macd || []).map(p => p.hist == null ? { time: p.time }
+      : { time: p.time, value: p.hist, color: (p.hist >= 0 ? up : down) + "88" }));
   };
   paint();
   chart.timeScale().fitContent();
+  const lr = chart.timeScale().getVisibleLogicalRange();
+  if (lr) { rc.timeScale().setVisibleLogicalRange(lr); mc.timeScale().setVisibleLogicalRange(lr); }
+  linkTimeScales([chart, rc, mc]);
   charts.push(paint);
+}
+
+function chips(s) {
+  const row = el("div", "chips");
+  const add = (k, v, cls) => { const c = el("div", "chip" + (cls ? " " + cls : "")); c.append(el("span", null, k), el("b", null, v)); row.append(c); };
+  const f = (x, d) => (x >= 0 ? "+" : "") + (x * 100).toFixed(d == null ? 1 : d) + "%";
+  if (s.ema_cross_state != null) add("9/21", s.ema_cross_state < 0 ? "9<21" : "9>21", s.ema_cross_state < 0 ? "up" : "down");
+  if (s.ema9_21_gap_pct != null) add("gap", f(s.ema9_21_gap_pct, 2), s.ema9_21_gap_pct < 0 ? "up" : "down");
+  if (s.vwap_dist_pct != null) add("vwap", f(s.vwap_dist_pct), s.vwap_dist_pct > 0 ? "up" : "down");
+  if (s.rsi14 != null) add("rsi", s.rsi14.toFixed(0), s.rsi14 >= 70 ? "up" : (s.rsi14 <= 30 ? "down" : ""));
+  if (s.macd_hist_pct != null) add("macd h", s.macd_hist_pct < 0 ? "−" : "+", s.macd_hist_pct < 0 ? "up" : "down");
+  if (s.rvol_5m != null) add("rvol", s.rvol_5m.toFixed(1) + "×", s.rvol_5m >= 1.5 ? "up" : "");
+  if (s.off_hod_pct != null) add("off hod", f(s.off_hod_pct), s.off_hod_pct >= -0.01 ? "up" : "");
+  if (s.pvt_trend != null) add("pvt", s.pvt_trend < 0 ? "below" : "above", s.pvt_trend < 0 ? "up" : "down");
+  if (s.psar_side != null) add("psar", s.psar_side < 0 ? "↓" : "↑", s.psar_side < 0 ? "up" : "down");
+  if (s.minutes_since_open != null) add("since open", Math.round(s.minutes_since_open) + "m", "");
+  return row;
 }
 
 function card(t, i) {
@@ -291,15 +366,18 @@ function card(t, i) {
     c.append(conf);
   }
   if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
-  const box = el("div", "chart");
-  c.append(box);
+  if (t.signals) c.append(chips(t.signals));
+  const box = el("div", "chart"), rbox = el("div", "sub rsi"), mbox = el("div", "sub macd");
+  const panes = el("div", "panes");
+  panes.append(box, rbox, mbox);
+  c.append(panes);
   const links = el("div", "links");
   const a = el("a", null, "Open " + t.symbol + " in TradingView ↗");
   a.href = "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(t.symbol);
   a.target = "_blank"; a.rel = "noopener";
   links.append(a);
   c.append(links);
-  return [c, box];
+  return [c, { main: box, rsi: rbox, macd: mbox }];
 }
 
 function tape(ts) {
@@ -390,7 +468,7 @@ function show(day) {
   const ts = DATA.trades.filter(t => t.session === day);
   tape(ts); summary(ts); curve(day, ts);
   if (!ts.length) { list.append(el("div", "empty", "No trades on this day.")); return; }
-  ts.forEach((t, i) => { const [c, box] = card(t, i); list.append(c); draw(box, t); });
+  ts.forEach((t, i) => { const [c, boxes] = card(t, i); list.append(c); draw(boxes, t); });
 }
 
 function boot() {
