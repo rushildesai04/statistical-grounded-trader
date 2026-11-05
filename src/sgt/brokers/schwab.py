@@ -257,7 +257,9 @@ class SchwabBroker(BrokerAdapter):
             return await self._reconcile_after_failure(
                 intent, mapping.anchor_from_stored(stored, intent.created_at))
 
-        if intent.side is Side.SELL:
+        if intent.short:
+            await self._enforce_short_rules(intent)
+        elif intent.side is Side.SELL:
             await self._enforce_long_only(intent)
         if not claim_ledger_row(intent, _SUBMITTING, mapping.intent_to_json(intent), self._now()):
             # Another writer claimed this client_order_id after our lookup: take the
@@ -285,6 +287,40 @@ class SchwabBroker(BrokerAdapter):
                 f"long-only: SELL {intent.qty} {intent.symbol} exceeds available long "
                 f"position {available} (held={held}, working_sells={working}); "
                 "refusing to open or increase a short")
+
+    async def signed_positions(self) -> dict[str, int]:
+        """Net shares per symbol at the broker, short < 0 (live pilot, F-4)."""
+        resp = await self._request("GET", self._accounts_path(), retry=True, params={"fields": "positions"})
+        self._raise_for_status(resp, "positions")
+        return mapping.signed_positions(resp.json())
+
+    async def _enforce_short_rules(self, intent: OrderIntent) -> None:
+        """Pilot shorts only (2026-11-05, F-4/F-8). SELL_SHORT is refused on a symbol the account holds long, so the
+        owner's shares are never involved. BUY_TO_COVER may not exceed the broker short quantity minus covers
+        already working (including the protective stop), so a stop that fills while a timed cover is in flight
+        can never leave the account long."""
+        if intent.order_type is OrderType.MARKET and intent.side is Side.SELL:
+            raise BrokerRejectedError("SELL_SHORT must be a limit order")
+        net = (await self.signed_positions()).get(intent.symbol, 0)
+        if intent.side is Side.SELL:
+            if net > 0:
+                raise BrokerRejectedError(f"SELL_SHORT {intent.symbol}: account holds {net} long; refusing")
+            return
+        resp = await self._request("GET", self._accounts_path("/orders"), retry=True,
+                                   params=self._orders_window(24 * 60))
+        self._raise_for_status(resp, "working-covers")
+        working = 0
+        for o in resp.json():
+            legs = o.get("orderLegCollection") or []
+            ack = mapping.ack_from_order("", o, self._now())
+            if (ack.status in mapping.OPEN_STATUSES and ack.symbol == intent.symbol and legs
+                    and str(legs[0].get("instruction", "")).upper() == "BUY_TO_COVER"):
+                working += int(ack.remaining_qty or 0)
+        available = -net - working
+        if intent.qty > available:
+            raise BrokerRejectedError(
+                f"cover cap: BUY_TO_COVER {intent.qty} {intent.symbol} exceeds broker short {-net} minus "
+                f"{working} working covers")
 
     async def _working_sell_qty(self, symbol: str, exclude_cid: str) -> int:
         resp = await self._request("GET", self._accounts_path("/orders"), retry=True,
