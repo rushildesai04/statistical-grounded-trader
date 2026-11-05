@@ -24,6 +24,7 @@ class Exit:
 CHAMPION = Exit("champion")
 EXITS = (Exit("X-TRAIL", "trail", 120), Exit("X-VWAP", "vwap", 120), Exit("X-EMA", "ema", 120),
          Exit("X-TGT", "target", 60))
+HOLDS = (Exit("H120", None, 120), Exit("H-CLOSE", None, 480))     # prereg_fade_hold_2026-11-05; RTH bars end at 16:00
 TRAIL_ARM, TRAIL_GIVE, TARGET = 0.05, 0.05, 0.15
 
 

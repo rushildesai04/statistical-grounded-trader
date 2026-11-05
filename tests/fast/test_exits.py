@@ -73,6 +73,13 @@ def test_no_bars_after_entry_is_no_trade():
     assert simulate(frame([10.0] * 3), T0 + pd.Timedelta(hours=1), 10.0, CHAMPION) is None
 
 
+def test_hold_set_is_the_preregistered_one_and_close_ends_at_the_last_bar():
+    assert [(x.id, x.signal, x.cap_min, x.stop) for x in exits.HOLDS] == [("H120", None, 120, 0.2),
+                                                                            ("H-CLOSE", None, 480, 0.2)]
+    s = simulate(frame([10.0] * 50 + [9.0] * 20), T0, 10.0, exits.HOLDS[1])
+    assert s == {"gross": pytest.approx(0.1), "how": "cap", "minutes": 70}
+
+
 def test_challenger_set_is_the_preregistered_one():
     assert [(x.id, x.signal, x.cap_min, x.stop) for x in exits.EXITS] == [
         ("X-TRAIL", "trail", 120, 0.2), ("X-VWAP", "vwap", 120, 0.2), ("X-EMA", "ema", 120, 0.2),
