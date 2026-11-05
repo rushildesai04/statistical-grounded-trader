@@ -45,8 +45,10 @@ def score(ev: pd.DataFrame, store: ParquetBarStore) -> pd.DataFrame:
 
 
 def paired(t: pd.DataFrame, xid: str, rng) -> dict:
-    """Paired per-session difference (exit - champion) of total net; bootstrap over sessions."""
-    daily = t.groupby("session")[[f"net_{CHAMPION.id}", f"net_{xid}"]].sum(min_count=0)
+    """Paired per-session difference (exit - champion) of total net; bootstrap over sessions. Only events both
+    legs traded are compared (review 2026-11-05 F-6: a NaN leg summed as 0 would credit the other leg)."""
+    both = t.dropna(subset=[f"net_{CHAMPION.id}", f"net_{xid}"])
+    daily = both.groupby("session")[[f"net_{CHAMPION.id}", f"net_{xid}"]].sum()
     diff = (daily[f"net_{xid}"] - daily[f"net_{CHAMPION.id}"]).to_numpy(float)
     means = diff[rng.integers(0, len(diff), size=(N_BOOT, len(diff)))].mean(axis=1)
     x, c = t[f"net_{xid}"].dropna(), t[f"net_{CHAMPION.id}"].dropna()
