@@ -18,3 +18,16 @@ primary_region = "iad"
 [[vm]]
   size = "shared-cpu-2x"
   memory = "2gb"
+
+# Fade Tape page (owner decision 2026-11-05, option A): sgt.ops.chartserver serves ONE read-only file at a secret
+# path. The machine must never be stopped by the proxy: cron and the fade listener run on it.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 10
+    hard_limit = 25

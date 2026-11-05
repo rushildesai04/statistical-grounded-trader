@@ -1,0 +1,181 @@
+<title>Fade Tape</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;700&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single trading-desk column of trade cards, each a full-width chart under a one-line verdict. */
+:root {
+  --bg: #f3f4f2; --panel: #ffffff; --ink: #1b1f1d; --muted: #66706b; --rule: #dde1de;
+  --grid: #eceeec; --up: #138a55; --down: #c8402f; --alert: #c78a00; --line: #3b5bdb;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111413; --panel: #181c1a; --ink: #e6ebe8; --muted: #93a09a; --rule: #2a302d;
+  --grid: #1f2422; --up: #35c27f; --down: #ff6b57; --alert: #f2b632; --line: #7c96ff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111413; --panel: #181c1a; --ink: #e6ebe8; --muted: #93a09a; --rule: #2a302d;
+  --grid: #1f2422; --up: #35c27f; --down: #ff6b57; --alert: #f2b632; --line: #7c96ff; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 18px; }
+header { display: grid; gap: 10px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); font-size: 13px; }
+.days { display: flex; flex-wrap: wrap; gap: 8px; }
+.days button { font: 500 13px var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--rule);
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+.days button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.days button:focus-visible, a:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+.stats b { font-weight: 500; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.list { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 980px) { .list { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 14px 10px; display: grid; gap: 8px; min-width: 0; }
+.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sym { font-family: var(--display); font-weight: 700; font-size: 24px; letter-spacing: .02em; }
+.kind { color: var(--muted); font-size: 13px; }
+.pill { margin-left: auto; font: 500 13px var(--mono); padding: 3px 9px; border-radius: 4px; font-variant-numeric: tabular-nums; border: 1px solid currentColor; }
+.pill.win { color: var(--up); } .pill.loss { color: var(--down); } .pill.open { color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.facts span b { color: var(--ink); font-weight: 500; }
+.news { font-size: 13px; border-left: 2px solid var(--alert); padding-left: 8px; overflow-wrap: anywhere; }
+.chart { height: 280px; min-width: 0; }
+.links { display: flex; gap: 14px; font-size: 12.5px; }
+.links a { color: var(--line); text-decoration: none; }
+.links a:hover { text-decoration: underline; }
+.empty { color: var(--muted); padding: 24px 0; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="title">Fade Tape</h1>
+    <div class="sub" id="generated"></div>
+    <div class="days" id="days" role="group" aria-label="Trading day"></div>
+    <div class="stats" id="stats"></div>
+    <div class="legend">
+      <span><i style="background:var(--alert)"></i>alert posted</span>
+      <span><i style="background:var(--down)"></i>short entry</span>
+      <span><i style="background:var(--up)"></i>cover (exit)</span>
+      <span><i style="background:var(--line)"></i>VWAP</span>
+      <span>dashed = entry · dotted = 20% stop · times ET · 1-min SIP bars</span>
+    </div>
+  </header>
+  <main class="list" id="list"></main>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const DATA = /*TRADES*/null;
+const charts = [];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const money = x => (x >= 0 ? "+" : "-") + "$" + Math.abs(x).toLocaleString("en-US", {maximumFractionDigits: 0});
+const pct = x => (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
+const hhmm = s => { const d = new Date(s * 1000); return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0"); };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const KIND = {volume_increasing: "volume rising", volume_spike: "volume spike", gaining_volume: "volume rising",
+  gaining_momentum: "momentum", new_high: "new high", intraday_high: "high of day", testing_high: "testing high",
+  price_level: "price level", resumed: "halt resumed", news: "news"};
+
+function theme() {
+  return { layout: { background: { color: css("--panel") }, textColor: css("--muted"), fontFamily: css("--mono") },
+           grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } },
+           rightPriceScale: { borderColor: css("--rule") }, timeScale: { borderColor: css("--rule"), timeVisible: true, secondsVisible: false } };
+}
+
+function draw(box, t) {
+  const chart = LightweightCharts.createChart(box, { ...theme(), autoSize: true, crosshair: { mode: 0 },
+    handleScroll: { vertTouchDrag: false } });
+  const candles = chart.addCandlestickSeries({ borderVisible: false });
+  const vol = chart.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  const vwap = chart.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  candles.setData(t.candles);
+  vwap.setData(t.vwap);
+  const lines = [];
+  if (t.entry) lines.push(candles.createPriceLine({ price: t.entry, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "entry" }));
+  if (t.stop) lines.push(candles.createPriceLine({ price: t.stop, lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "stop" }));
+  const paint = () => {
+    const up = css("--up"), down = css("--down");
+    chart.applyOptions(theme());
+    candles.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
+    vol.setData(t.volume.map(v => ({ time: v.time, value: v.value, color: (v.up ? up : down) + "55" })));
+    vwap.applyOptions({ color: css("--line") });
+    lines[0] && lines[0].applyOptions({ color: css("--muted") });
+    lines[1] && lines[1].applyOptions({ color: down });
+    const win = t.ret != null && t.ret > 0;
+    candles.setMarkers(t.markers.slice().sort((a, b) => a.time - b.time).map(m => ({
+      time: m.time, text: m.text,
+      position: m.kind === "cover" ? "belowBar" : "aboveBar",
+      shape: m.kind === "alert" ? "circle" : (m.kind === "short" ? "arrowDown" : "arrowUp"),
+      color: m.kind === "alert" ? css("--alert") : (m.kind === "short" ? down : (win ? up : down)) })));
+  };
+  paint();
+  chart.timeScale().fitContent();
+  charts.push(paint);
+}
+
+function card(t) {
+  const c = el("article", "card");
+  const top = el("div", "top");
+  top.append(el("span", "sym", t.symbol), el("span", "kind", (KIND[t.alert_type] || t.alert_type) + " · alert " + hhmm(t.alert_at) + " ET"));
+  const state = t.ret == null ? "open" : (t.ret > 0 ? "win" : "loss");
+  const label = t.ret == null ? "open" : (t.usd != null ? money(t.usd) + " · " : "") + pct(t.ret) + (t.official ? "" : " est");
+  top.append(el("span", "pill " + state, label));
+  const facts = el("div", "facts");
+  const fact = (k, v) => { const s = el("span", null, k + " "); s.append(el("b", null, v)); facts.append(s); };
+  if (t.entry) fact("short", "$" + t.entry.toFixed(2));
+  if (t.exit) fact("cover", "$" + t.exit.toFixed(2));
+  if (t.reason) fact("exit", t.reason);
+  if (t.conf != null) fact("confidence", t.conf + "/100");
+  fact("news", t.news ? "yes" : "none found");
+  c.append(top, facts);
+  if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
+  const box = el("div", "chart");
+  c.append(box);
+  const links = el("div", "links");
+  const a = el("a", null, "Open " + t.symbol + " in TradingView ↗");
+  a.href = "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(t.symbol);
+  a.target = "_blank"; a.rel = "noopener";
+  links.append(a);
+  c.append(links);
+  return [c, box];
+}
+
+function show(day) {
+  const list = document.getElementById("list");
+  list.replaceChildren(); charts.length = 0;
+  document.querySelectorAll("#days button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.day === day)));
+  const ts = DATA.trades.filter(t => t.session === day);
+  const done = ts.filter(t => t.ret != null);
+  const won = done.filter(t => t.ret > 0).length;
+  const usd = done.reduce((s, t) => s + (t.usd || 0), 0);
+  const stats = document.getElementById("stats");
+  stats.replaceChildren();
+  [["trades", ts.length], ["won", won], ["lost", done.length - won], ["paper result", money(usd)]].forEach(([k, v]) => {
+    const s = el("span", null, k + " "); s.append(el("b", null, String(v))); stats.append(s); });
+  if (!ts.length) { list.append(el("div", "empty", "No trades on this day.")); return; }
+  ts.forEach(t => { const [c, box] = card(t); list.append(c); draw(box, t); });
+}
+
+function boot() {
+  document.getElementById("title").textContent = DATA.title;
+  document.getElementById("generated").textContent = "Updated " + DATA.generated + " · paper fade book";
+  const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
+  const bar = document.getElementById("days");
+  days.forEach(d => { const b = el("button", null, new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }));
+    b.type = "button"; b.dataset.day = d; b.addEventListener("click", () => show(d)); bar.append(b); });
+  if (days.length) show(days[0]); else document.getElementById("list").append(el("div", "empty", "No trades yet."));
+  const repaint = () => charts.forEach(p => p());
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
+  new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+if (window.LightweightCharts && DATA) boot();
+else document.getElementById("list").append(el("div", "empty", "The chart library did not load. Reload the page."));
+</script>

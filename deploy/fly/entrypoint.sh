@@ -47,6 +47,8 @@ if [ "${1:-}" = "job" ]; then
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
     # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab; a no-op unless SGT_PILOT_SCHWAB=1.
     pilotbook) run reports/ops/pilot.log python /app/scripts/sms_control.py pilot ;;
+    # Fade Tape chart page (2026-11-05): rebuilt from the ops DB + SIP bars; served by sgt.ops.chartserver.
+    charts)    run reports/charts/run.log python /app/scripts/trade_charts.py --out reports/charts/fade_tape.html ;;
     # Midnight day summary (owner request 2026-11-05): trades, count, $ made/lost, $ traded.
     summary)   run reports/ops/run.log python /app/scripts/sms_control.py summary ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
@@ -64,5 +66,20 @@ if [ -n "${SGT_SECRET_TG_FADE_SESSION:-}" ]; then
       echo "=== $(date '+%F %T %Z') listener exited; restart in 30s" >> reports/fast/listener.log
       sleep 30
     done ) &
+fi
+# Fade Tape server (2026-11-05): only with a valid secret link token (>= 32 chars); restarted on exit. It runs with
+# a clean environment holding ONLY its token, never the trading secrets (security review L2/L4).
+mkdir -p reports/charts
+CHARTS_TOKEN="${SGT_SECRET_CHARTS_TOKEN:-}"
+if [ "${#CHARTS_TOKEN}" -ge 32 ]; then
+  ( while true; do
+      env -i PATH="$PATH" PYTHONPATH="${PYTHONPATH:-}" HOME="${HOME:-/tmp}" LANG=C.UTF-8 \
+        PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring \
+        SGT_SECRET_CHARTS_TOKEN="$CHARTS_TOKEN" \
+        python -m sgt.ops.chartserver >> reports/charts/server.log 2>&1 || true
+      echo "=== $(date '+%F %T %Z') chart server exited; restart in 10s" >> reports/charts/server.log
+      sleep 10
+    done ) &
+  "$0" job charts || true
 fi
 exec supercronic -passthrough-logs /app/deploy/crontab
