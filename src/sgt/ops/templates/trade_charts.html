@@ -1,87 +1,226 @@
-<title>Fade Tape</title>
+<title>SGT Fade Tape</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;700&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
-/* Layout: a single trading-desk column of trade cards, each a full-width chart under a one-line verdict. */
+/* Layout: an agent's trading desk. Brand bar, a moving tape of the day's fades, the day's numbers and P&L curve,
+   then one card per trade (verdict line over its 1-minute chart). Cobalt is the agent's colour; green/red/amber
+   are reserved for results and alerts. */
 :root {
-  --bg: #f3f4f2; --panel: #ffffff; --ink: #1b1f1d; --muted: #66706b; --rule: #dde1de;
-  --grid: #eceeec; --up: #138a55; --down: #c8402f; --alert: #c78a00; --line: #3b5bdb;
+  --bg: #eef1f5; --panel: #ffffff; --ink: #141a24; --muted: #5d6878; --rule: #d8dee7; --grid: #edf0f4;
+  --accent: #3346d3; --accent-soft: #3346d31a; --up: #12875a; --down: #cf3b2f; --alert: #c98500;
   --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
   --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #111413; --panel: #181c1a; --ink: #e6ebe8; --muted: #93a09a; --rule: #2a302d;
-  --grid: #1f2422; --up: #35c27f; --down: #ff6b57; --alert: #f2b632; --line: #7c96ff; color-scheme: dark } }
+  --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
+  --accent: #8a9bff; --accent-soft: #8a9bff1f; --up: #34c486; --down: #ff6a5c; --alert: #f0b43a; color-scheme: dark } }
 :root[data-theme="dark"] {
-  --bg: #111413; --panel: #181c1a; --ink: #e6ebe8; --muted: #93a09a; --rule: #2a302d;
-  --grid: #1f2422; --up: #35c27f; --down: #ff6b57; --alert: #f2b632; --line: #7c96ff; color-scheme: dark }
-body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
-.wrap { max-width: 1100px; margin: 0 auto; padding-block: 20px 48px;
+  --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
+  --accent: #8a9bff; --accent-soft: #8a9bff1f; --up: #34c486; --down: #ff6a5c; --alert: #f0b43a; color-scheme: dark }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1160px; margin: 0 auto; padding-block: 18px 40px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
-  display: grid; gap: 18px; }
-header { display: grid; gap: 10px; }
-h1 { font-family: var(--display); font-weight: 700; font-size: 30px; letter-spacing: .01em; margin: 0; text-wrap: balance; }
-.sub { color: var(--muted); font-size: 13px; }
+  display: grid; gap: 20px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* brand bar */
+.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mark { width: 42px; height: 42px; flex: none; }
+.mark rect { fill: var(--accent); }
+.mark path { fill: none; stroke: var(--panel); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.1s .15s ease-out forwards; }
+.mark circle { fill: var(--panel); }
+.who { display: grid; line-height: 1.05; }
+.who b { font: 800 24px var(--display); letter-spacing: .01em; }
+.who span { font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.status { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font: 500 12px var(--mono);
+  color: var(--muted); border: 1px solid var(--rule); background: var(--panel); border-radius: 999px; padding: 6px 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--up); position: relative; }
+.dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--up);
+  animation: ping 2.2s ease-out infinite; }
+
+/* moving tape */
+.tape { overflow: hidden; border-block: 1px solid var(--rule); background: var(--panel);
+  margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); }
+.tape-track { display: flex; width: max-content; animation: tape var(--tape-s, 40s) linear infinite; }
+.tape:hover .tape-track { animation-play-state: paused; }
+.tape-item { display: inline-flex; gap: 8px; align-items: baseline; padding: 9px 22px; white-space: nowrap;
+  font: 500 13px var(--mono); font-variant-numeric: tabular-nums; border-right: 1px solid var(--rule); }
+.tape-item b { font: 700 15px var(--display); letter-spacing: .04em; color: var(--ink); }
+.tape-item .win { color: var(--up); } .tape-item .loss { color: var(--down); } .tape-item .open { color: var(--muted); }
+
+/* page head */
+.head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+h1 { font: 800 clamp(34px, 6vw, 52px)/1 var(--display); letter-spacing: -.005em; margin: 0; text-wrap: balance; }
+h1 em { font-style: normal; color: var(--accent); }
+.lede { color: var(--muted); margin: 6px 0 0; max-width: 60ch; }
 .days { display: flex; flex-wrap: wrap; gap: 8px; }
 .days button { font: 500 13px var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--rule);
-  border-radius: 999px; padding: 6px 12px; cursor: pointer; }
-.days button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
-.days button:focus-visible, a:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
-.stats { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; }
-.stats b { font-weight: 500; }
+  border-radius: 999px; padding: 7px 13px; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+.days button:hover { border-color: var(--accent); }
+.days button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--panel); }
+
+/* day summary */
+.summary { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .summary { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px;
+  display: grid; gap: 4px; align-content: start; min-width: 0; }
+.label { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.big { font: 700 34px/1.05 var(--display); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.big.win { color: var(--up); } .big.loss { color: var(--down); }
+.small { font: 400 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ringrow { display: flex; align-items: center; gap: 12px; }
+.ring { width: 52px; height: 52px; transform: rotate(-90deg); flex: none; }
+.ring circle { fill: none; stroke-width: 6; }
+.ring .track { stroke: var(--grid); }
+.ring .fill { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 1 1; stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1s cubic-bezier(.2, .7, .2, 1); }
+.curve { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px 8px;
+  display: grid; gap: 6px; min-width: 0; }
+.curve svg { width: 100%; height: auto; display: block; overflow: visible; }
+.curve .axis { font: 400 10px var(--mono); fill: var(--muted); }
+.curve .zero { stroke: var(--rule); stroke-dasharray: 3 3; }
+.curve .hour { stroke: var(--grid); }
+.curve .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.4s .2s ease-out forwards; }
+.curve .area { fill: var(--accent-soft); stroke: none; opacity: 0; animation: fade .8s .9s ease-out forwards; }
+.curve .end { stroke: var(--panel); stroke-width: 2; }
+.curve .tick { stroke-width: 1.5; }
+
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+
+/* trade cards */
 .list { display: grid; gap: 14px; grid-template-columns: 1fr; }
 @media (min-width: 980px) { .list { grid-template-columns: 1fr 1fr; } }
-.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 14px 10px; display: grid; gap: 8px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 14px 10px;
+  display: grid; gap: 8px; min-width: 0; position: relative; overflow: hidden;
+  animation: rise .5s cubic-bezier(.2, .7, .2, 1) backwards; animation-delay: calc(var(--i, 0) * 70ms);
+  transition: border-color .2s, transform .2s, box-shadow .2s; }
+.card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--state, var(--muted)); }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 10px 24px -18px var(--ink); }
+.card.win { --state: var(--up); } .card.loss { --state: var(--down); }
 .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.sym { font-family: var(--display); font-weight: 700; font-size: 24px; letter-spacing: .02em; }
+.sym { font: 800 26px/1 var(--display); letter-spacing: .03em; }
 .kind { color: var(--muted); font-size: 13px; }
-.pill { margin-left: auto; font: 500 13px var(--mono); padding: 3px 9px; border-radius: 4px; font-variant-numeric: tabular-nums; border: 1px solid currentColor; }
-.pill.win { color: var(--up); } .pill.loss { color: var(--down); } .pill.open { color: var(--muted); }
-.facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.facts span b { color: var(--ink); font-weight: 500; }
+.pill { margin-left: auto; font: 600 13px var(--mono); padding: 3px 9px; border-radius: 6px; font-variant-numeric: tabular-nums;
+  color: var(--state, var(--muted)); background: color-mix(in srgb, var(--state, var(--muted)) 12%, transparent); }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font: 400 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.facts b { color: var(--ink); font-weight: 500; }
+.conf { display: flex; align-items: center; gap: 10px; font: 400 12px var(--mono); color: var(--muted); }
+.meter { flex: 1; max-width: 220px; height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; }
+.meter i { display: block; height: 100%; width: var(--w, 0%); background: var(--accent); border-radius: 3px;
+  transform-origin: left; animation: grow .9s .3s cubic-bezier(.2, .7, .2, 1) both; }
+.conf b { color: var(--ink); font-weight: 500; }
 .news { font-size: 13px; border-left: 2px solid var(--alert); padding-left: 8px; overflow-wrap: anywhere; }
 .chart { height: 280px; min-width: 0; }
 .links { display: flex; gap: 14px; font-size: 12.5px; }
-.links a { color: var(--line); text-decoration: none; }
+.links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
 .empty { color: var(--muted); padding: 24px 0; }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; border-top: 1px solid var(--rule); padding-top: 14px; }
+footer b { color: var(--ink); font-weight: 600; }
+
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes fade { to { opacity: 1; } }
+@keyframes ping { 0% { transform: scale(1); opacity: .6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes tape { to { transform: translateX(-50%); } }
+@keyframes rise { from { opacity: .3; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .mark path, .curve .line { stroke-dashoffset: 0; } .curve .area { opacity: 1; }
+  .tape { overflow-x: auto; }
+}
 </style>
 
 <div class="wrap">
-  <header>
-    <h1 id="title">Fade Tape</h1>
-    <div class="sub" id="generated"></div>
-    <div class="days" id="days" role="group" aria-label="Trading day"></div>
-    <div class="stats" id="stats"></div>
-    <div class="legend">
-      <span><i style="background:var(--alert)"></i>alert posted</span>
-      <span><i style="background:var(--down)"></i>short entry</span>
-      <span><i style="background:var(--up)"></i>cover (exit)</span>
-      <span><i style="background:var(--line)"></i>VWAP</span>
-      <span>dashed = entry · dotted = 20% stop · times ET · 1-min SIP bars</span>
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 42 42" aria-hidden="true">
+      <rect width="42" height="42" rx="10"></rect>
+      <path pathLength="1" d="M8 30 L15 24 L19 26 L24 11 L28 22 L34 31"></path>
+      <circle cx="24" cy="11" r="2.4"></circle>
+    </svg>
+    <div class="who"><b>Rushil's Agent</b><span>SGT · statistically grounded trader</span></div>
+    <div class="status"><span class="dot"></span><span id="generated">paper book</span></div>
+  </div>
+
+  <div class="tape" aria-label="Trades on this day"><div class="tape-track" id="tape"></div></div>
+
+  <div class="head">
+    <div>
+      <h1>Fade <em>Tape</em></h1>
+      <p class="lede">Every short the agent took after a momentum alert, shown on its 1-minute chart with the alert,
+        the entry, the cover and the result.</p>
     </div>
-  </header>
+    <div class="days" id="days" role="group" aria-label="Trading day"></div>
+  </div>
+
+  <section class="summary" aria-label="Day summary">
+    <div class="tiles">
+      <div class="tile"><span class="label">Paper result</span><span class="big" id="s-usd">$0</span><span class="small" id="s-usd-sub"></span></div>
+      <div class="tile"><span class="label">Trades</span><span class="big" id="s-n">0</span><span class="small" id="s-n-sub"></span></div>
+      <div class="tile"><span class="label">Win rate</span>
+        <div class="ringrow">
+          <svg class="ring" viewBox="0 0 52 52" aria-hidden="true"><circle class="track" cx="26" cy="26" r="22"></circle>
+            <circle class="fill" id="s-ring" cx="26" cy="26" r="22" pathLength="1"></circle></svg>
+          <span class="big" id="s-win">–</span>
+        </div>
+      </div>
+      <div class="tile"><span class="label">Average trade</span><span class="big" id="s-avg">–</span><span class="small">tested record +1.12%</span></div>
+    </div>
+    <div class="curve">
+      <span class="label">P&amp;L through the day</span>
+      <svg id="curve" viewBox="0 0 600 170" role="img" aria-label="Cumulative paper result through the session"></svg>
+    </div>
+  </section>
+
+  <div class="legend">
+    <span><i style="background:var(--alert)"></i>alert posted</span>
+    <span><i style="background:var(--down)"></i>short entry</span>
+    <span><i style="background:var(--up)"></i>cover (exit)</span>
+    <span><i style="background:var(--accent)"></i>VWAP</span>
+    <span>dashed = entry · dotted = 20% stop · times ET · 1-min bars</span>
+  </div>
+
   <main class="list" id="list"></main>
+
+  <footer>
+    <span><b>Rushil's Agent · SGT</b> · paper trading record, not advice.</span>
+    <span>Rule: short at the first 1-minute bar at least 10 seconds after the alert, 20% stop, cover after 60 minutes
+      or at the close. Tested on 764 held-out trades: +1.12% average, 57% winners.</span>
+  </footer>
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const DATA = /*TRADES*/null;
 const charts = [];
+const SVGNS = "http://www.w3.org/2000/svg";
+const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const money = x => (x >= 0 ? "+" : "-") + "$" + Math.abs(x).toLocaleString("en-US", {maximumFractionDigits: 0});
 const pct = x => (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
 const hhmm = s => { const d = new Date(s * 1000); return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0"); };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const svg = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const state = t => t.ret == null ? "open" : (t.ret > 0 ? "win" : "loss");
+const exitAt = t => { const m = t.markers.find(x => x.kind === "cover"); return m ? m.time : t.alert_at; };
 const KIND = {volume_increasing: "volume rising", volume_spike: "volume spike", gaining_volume: "volume rising",
   gaining_momentum: "momentum", new_high: "new high", intraday_high: "high of day", testing_high: "testing high",
   price_level: "price level", resumed: "halt resumed", news: "news"};
+
+function countUp(node, to, fmt) {
+  if (calm || !isFinite(to)) { node.textContent = fmt(to); return; }
+  const t0 = performance.now(), dur = 900;
+  const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    node.textContent = fmt(to * e); if (k < 1) requestAnimationFrame(step); else node.textContent = fmt(to); };
+  requestAnimationFrame(step);
+}
 
 function theme() {
   return { layout: { background: { color: css("--panel") }, textColor: css("--muted"), fontFamily: css("--mono") },
@@ -106,7 +245,7 @@ function draw(box, t) {
     chart.applyOptions(theme());
     candles.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
     vol.setData(t.volume.map(v => ({ time: v.time, value: v.value, color: (v.up ? up : down) + "55" })));
-    vwap.applyOptions({ color: css("--line") });
+    vwap.applyOptions({ color: css("--accent") });
     lines[0] && lines[0].applyOptions({ color: css("--muted") });
     lines[1] && lines[1].applyOptions({ color: down });
     const win = t.ret != null && t.ret > 0;
@@ -121,21 +260,28 @@ function draw(box, t) {
   charts.push(paint);
 }
 
-function card(t) {
-  const c = el("article", "card");
+function card(t, i) {
+  const c = el("article", "card " + state(t));
+  c.style.setProperty("--i", i);
   const top = el("div", "top");
   top.append(el("span", "sym", t.symbol), el("span", "kind", (KIND[t.alert_type] || t.alert_type) + " · alert " + hhmm(t.alert_at) + " ET"));
-  const state = t.ret == null ? "open" : (t.ret > 0 ? "win" : "loss");
   const label = t.ret == null ? "open" : (t.usd != null ? money(t.usd) + " · " : "") + pct(t.ret) + (t.official ? "" : " est");
-  top.append(el("span", "pill " + state, label));
+  top.append(el("span", "pill", label));
   const facts = el("div", "facts");
   const fact = (k, v) => { const s = el("span", null, k + " "); s.append(el("b", null, v)); facts.append(s); };
   if (t.entry) fact("short", "$" + t.entry.toFixed(2));
   if (t.exit) fact("cover", "$" + t.exit.toFixed(2));
   if (t.reason) fact("exit", t.reason);
-  if (t.conf != null) fact("confidence", t.conf + "/100");
   fact("news", t.news ? "yes" : "none found");
   c.append(top, facts);
+  if (t.conf != null) {
+    const conf = el("div", "conf", "confidence ");
+    const meter = el("span", "meter"), fill = el("i");
+    fill.style.setProperty("--w", Math.max(0, Math.min(100, t.conf)) + "%");
+    meter.append(fill);
+    conf.append(meter, el("b", null, t.conf + "/100"));
+    c.append(conf);
+  }
   if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
   const box = el("div", "chart");
   c.append(box);
@@ -148,31 +294,107 @@ function card(t) {
   return [c, box];
 }
 
+function tape(ts) {
+  const track = document.getElementById("tape");
+  track.replaceChildren();
+  const items = ts.length ? ts : [{ symbol: "SGT", ret: null, usd: null }];
+  const one = () => items.map(t => {
+    const s = el("span", "tape-item");
+    s.append(el("b", null, t.symbol));
+    s.append(el("span", state(t), t.ret == null ? (ts.length ? "open" : "no trades") :
+      (t.ret > 0 ? "▼ " : "▲ ") + (t.usd != null ? money(t.usd) + " " : "") + pct(t.ret)));
+    return s;
+  });
+  // two copies side by side, shifted by half, so the loop is seamless; repeat short lists so the tape fills wide screens
+  const reps = Math.max(1, Math.ceil(8 / items.length));
+  for (let k = 0; k < 2 * reps; k++) track.append(...one());
+  track.style.setProperty("--tape-s", Math.max(20, items.length * reps * 4) + "s");
+}
+
+function curve(day, ts) {
+  const box = document.getElementById("curve");
+  box.replaceChildren();
+  const W = 600, H = 170, L = 8, R = 64, T = 12, B = 22;
+  const [y, m, d] = day.split("-").map(Number);
+  const open = Date.UTC(y, m - 1, d, 9, 30) / 1000, close = Date.UTC(y, m - 1, d, 16, 0) / 1000;
+  const done = ts.filter(t => t.ret != null && t.usd != null).map(t => ({ at: exitAt(t), usd: t.usd })).sort((a, b) => a.at - b.at);
+  const pts = [{ at: open, v: 0 }];
+  let run = 0;
+  done.forEach(p => { run += p.usd; pts.push({ at: Math.min(close, Math.max(open, p.at)), v: run }); });
+  const last = pts[pts.length - 1];
+  const vals = pts.map(p => p.v), lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  const span = hi - lo || 1, pad = span * 0.12;
+  const x = at => L + (at - open) / (close - open) * (W - L - R);
+  const yv = v => T + (hi + pad - v) / (span + 2 * pad) * (H - T - B);
+  [10, 12, 14, 16].forEach(h => {
+    const at = Date.UTC(y, m - 1, d, h, 0) / 1000, xx = x(at);
+    box.append(svg("line", { class: "hour", x1: xx, x2: xx, y1: T, y2: H - B }));
+    const lab = svg("text", { class: "axis", x: xx, y: H - 6, "text-anchor": "middle" }); lab.textContent = (h > 12 ? h - 12 : h) + (h >= 12 ? " pm" : " am"); box.append(lab);
+  });
+  box.append(svg("line", { class: "zero", x1: L, x2: W - R, y1: yv(0), y2: yv(0) }));
+  const zl = svg("text", { class: "axis", x: W - R + 6, y: yv(0) + 3 }); zl.textContent = "$0"; box.append(zl);
+  if (done.length) {
+    let dpath = `M${x(pts[0].at)},${yv(0)}`;
+    for (let k = 1; k < pts.length; k++) dpath += ` H${x(pts[k].at)} V${yv(pts[k].v)}`;   // steps: P&L lands at each cover
+    box.append(svg("path", { class: "area", d: dpath + ` V${yv(0)} Z` }));
+    box.append(svg("path", { class: "line", d: dpath, pathLength: 1 }));
+    done.forEach(p => {
+      const k = pts.findIndex(q => q.at === Math.min(close, Math.max(open, p.at)));
+      box.append(svg("circle", { class: "tick", cx: x(pts[k].at), cy: yv(pts[k].v), r: 2.5, fill: p.usd >= 0 ? css("--up") : css("--down") }));
+    });
+    const ex = x(last.at), ey = yv(last.v);
+    box.append(svg("circle", { class: "end", cx: ex, cy: ey, r: 5, fill: last.v >= 0 ? css("--up") : css("--down") }));
+    const vl = svg("text", { class: "axis", x: W - R + 6, y: Math.abs(ey - yv(0)) < 12 ? ey - 8 : ey + 3 });
+    vl.textContent = money(last.v); vl.style.fill = last.v >= 0 ? css("--up") : css("--down"); vl.style.fontWeight = "600";
+    box.append(vl);
+  } else {
+    const t = svg("text", { class: "axis", x: (W - R) / 2, y: H / 2, "text-anchor": "middle" });
+    t.textContent = ts.length ? "results land when trades cover" : "no trades this day"; box.append(t);
+  }
+}
+
+function summary(ts) {
+  const done = ts.filter(t => t.ret != null);
+  const won = done.filter(t => t.ret > 0).length;
+  const usd = done.reduce((s, t) => s + (t.usd || 0), 0);
+  const avg = done.length ? done.reduce((s, t) => s + t.ret, 0) / done.length : null;
+  const usdNode = document.getElementById("s-usd");
+  usdNode.className = "big " + (usd > 0 ? "win" : usd < 0 ? "loss" : "");
+  countUp(usdNode, usd, money);
+  document.getElementById("s-usd-sub").textContent = done.length ? "on " + done.length + " closed trade" + (done.length === 1 ? "" : "s") : "no closed trades yet";
+  countUp(document.getElementById("s-n"), ts.length, v => String(Math.round(v)));
+  document.getElementById("s-n-sub").textContent = won + " won · " + (done.length - won) + " lost" + (ts.length > done.length ? " · " + (ts.length - done.length) + " open" : "");
+  const rate = done.length ? won / done.length : null;
+  const ring = document.getElementById("s-ring");
+  ring.style.strokeDashoffset = 1;
+  requestAnimationFrame(() => requestAnimationFrame(() => { ring.style.strokeDashoffset = rate == null ? 1 : 1 - rate; }));
+  const winNode = document.getElementById("s-win");
+  if (rate == null) winNode.textContent = "–"; else countUp(winNode, rate * 100, v => Math.round(v) + "%");
+  const avgNode = document.getElementById("s-avg");
+  avgNode.className = "big " + (avg == null ? "" : avg > 0 ? "win" : "loss");
+  avgNode.textContent = avg == null ? "–" : pct(avg);
+}
+
 function show(day) {
   const list = document.getElementById("list");
   list.replaceChildren(); charts.length = 0;
   document.querySelectorAll("#days button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.day === day)));
   const ts = DATA.trades.filter(t => t.session === day);
-  const done = ts.filter(t => t.ret != null);
-  const won = done.filter(t => t.ret > 0).length;
-  const usd = done.reduce((s, t) => s + (t.usd || 0), 0);
-  const stats = document.getElementById("stats");
-  stats.replaceChildren();
-  [["trades", ts.length], ["won", won], ["lost", done.length - won], ["paper result", money(usd)]].forEach(([k, v]) => {
-    const s = el("span", null, k + " "); s.append(el("b", null, String(v))); stats.append(s); });
+  tape(ts); summary(ts); curve(day, ts);
   if (!ts.length) { list.append(el("div", "empty", "No trades on this day.")); return; }
-  ts.forEach(t => { const [c, box] = card(t); list.append(c); draw(box, t); });
+  ts.forEach((t, i) => { const [c, box] = card(t, i); list.append(c); draw(box, t); });
 }
 
 function boot() {
-  document.getElementById("title").textContent = DATA.title;
-  document.getElementById("generated").textContent = "Updated " + DATA.generated + " · paper fade book";
+  document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
   const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
   const bar = document.getElementById("days");
   days.forEach(d => { const b = el("button", null, new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }));
     b.type = "button"; b.dataset.day = d; b.addEventListener("click", () => show(d)); bar.append(b); });
-  if (days.length) show(days[0]); else document.getElementById("list").append(el("div", "empty", "No trades yet."));
-  const repaint = () => charts.forEach(p => p());
+  if (days.length) show(days[0]); else { tape([]); document.getElementById("list").append(el("div", "empty", "No trades yet.")); }
+  let current = days[0];
+  bar.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.day) current = e.target.dataset.day; });
+  const repaint = () => { charts.forEach(p => p()); if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
   new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }

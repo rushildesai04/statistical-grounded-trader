@@ -80,7 +80,7 @@ def dollars(t: dict, db: OpsStore | None) -> float | None:
     return ret * (t.get("weight") or fade.WEIGHT) * base
 
 
-def build(trades: list[dict], db: OpsStore | None, now: datetime) -> str:
+def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bool = True) -> str:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
     views, cache = [], {}
     with httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=10) as client:
@@ -91,17 +91,18 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime) -> str:
             if cache[key].empty:
                 continue
             views.append(charts.trade_view(t, cache[key], dollars(t, db)))
-    return charts.render(views, now)
+    return charts.render(views, now, standalone=standalone)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--trades", type=Path, help="JSON-lines export of fade_trades rows (default: ops database)")
     ap.add_argument("--out", type=Path, default=Path("reports/charts/fade_tape.html"))
+    ap.add_argument("--fragment", action="store_true", help="omit the document head (for an Artifact publish)")
     a = ap.parse_args()
     db = None if a.trades else OpsStore()
     trades = [json.loads(x) for x in a.trades.read_text().splitlines() if x.strip()] if a.trades else from_db(db)
-    html = build(trades, db, utcnow())
+    html = build(trades, db, utcnow(), standalone=not a.fragment)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     tmp = a.out.with_suffix(".tmp")
     tmp.write_text(html)
