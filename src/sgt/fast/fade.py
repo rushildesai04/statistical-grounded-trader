@@ -30,7 +30,7 @@ import pandas as pd
 
 from sgt.fast import news
 from sgt.intraday.calendar import default_calendar
-from sgt.ops import approvals
+from sgt.ops import approvals, chartserver
 from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore, iso, utcnow
 
@@ -466,6 +466,9 @@ def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: flo
     chart = news.chart_url(r["symbol"])
     if chart:
         lines.append(f"📈 {chart}")
+    page = chartserver.link()
+    if page:
+        lines.append(f"🖼 All trades: {page}")
     lines.append(italic("Estimate before costs; official numbers in the midnight summary."))
     return "\n".join(lines)
 

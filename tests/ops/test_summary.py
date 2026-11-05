@@ -50,3 +50,9 @@ def test_quiet_day_says_so_and_books_are_included(db):
     text = plain(summary.build(db, DAY))
     assert "Fades (paper): no trades" in text and "6040 +$1,000" in text and "Paper total: +$1,000" in text
     assert "REAL" not in text                                           # pilot never ran: no real line
+
+
+def test_chart_link_appears_only_when_configured(db, monkeypatch):
+    assert "Charts" not in summary.build(db, DAY)
+    monkeypatch.setenv("SGT_SECRET_CHARTS_TOKEN", "k" * 43)
+    assert f"📈 Charts: https://sgt-runner.fly.dev/{'k' * 43}/" in summary.build(db, DAY)

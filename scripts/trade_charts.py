@@ -25,12 +25,29 @@ from sgt.ops.store import OpsStore, utcnow
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.]{0,9}")
 SIP_DELAY = timedelta(minutes=16)
 MAX_TRADES = 200
+MAX_SESSIONS = 10                                        # the page shows the last 10 trading days
+CACHE = Path("reports/charts/bars")
 
 
-def session_bars(client: httpx.Client, symbol: str, session: str, now: datetime) -> pd.DataFrame:
+def session_bars(client: httpx.Client, symbol: str, session: str, now: datetime,
+                 cache: Path | None = CACHE) -> pd.DataFrame:
+    """RTH 1-minute bars; a finished session is cached on disk (it never changes), so the 10-minute rebuild only
+    downloads today's symbols."""
     if not SYMBOL.fullmatch(symbol):
         return pd.DataFrame()
     b = default_calendar().bounds(date.fromisoformat(session))
+    final = now - SIP_DELAY >= b.rth_close
+    path = cache / session / f"{symbol}.parquet" if cache else None
+    if final and path and path.exists():
+        return pd.read_parquet(path)
+    df = _download(client, symbol, b, now)
+    if final and path and len(df):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(path, index=False)
+    return df
+
+
+def _download(client: httpx.Client, symbol: str, b, now: datetime) -> pd.DataFrame:
     end = min(b.rth_close, now - SIP_DELAY)
     if end <= b.rth_open:
         return pd.DataFrame()
@@ -46,9 +63,11 @@ def session_bars(client: httpx.Client, symbol: str, session: str, now: datetime)
 
 def from_db(db: OpsStore) -> list[dict]:
     with db.tx() as c:
-        return [dict(r) for r in c.execute(
+        rows = [dict(r) for r in c.execute(
             "SELECT * FROM fade_trades WHERE est_entry IS NOT NULL AND status IN ('open','est_closed','settled') "
             "ORDER BY id DESC LIMIT ?", (MAX_TRADES,))]
+    keep = sorted({r["session"] for r in rows}, reverse=True)[:MAX_SESSIONS]
+    return [r for r in rows if r["session"] in keep]
 
 
 def dollars(t: dict, db: OpsStore | None) -> float | None:
@@ -84,7 +103,9 @@ def main() -> int:
     trades = [json.loads(x) for x in a.trades.read_text().splitlines() if x.strip()] if a.trades else from_db(db)
     html = build(trades, db, utcnow())
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(html)
+    tmp = a.out.with_suffix(".tmp")
+    tmp.write_text(html)
+    tmp.replace(a.out)                                   # atomic: the chart server never serves a partial page
     print(f"wrote {a.out} ({len(trades)} trades)")
     return 0
 

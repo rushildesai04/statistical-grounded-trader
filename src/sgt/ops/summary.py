@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 from sgt.fast import fade
+from sgt.ops import chartserver
 from sgt.ops.sms_style import bold
 from sgt.ops.store import OpsStore
 
@@ -79,4 +80,7 @@ def build(db: OpsStore, day: date) -> str:
                      f"fades {bold(_usd(real['usd']))}")
     total = f["usd"] + sum(v for _, v in books)
     lines.append(f"🧾 Paper total: {bold(_usd(total))}")
+    page = chartserver.link()
+    if page:
+        lines.append(f"📈 Charts: {page}")
     return "\n".join(lines)

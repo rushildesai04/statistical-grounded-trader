@@ -30,3 +30,6 @@
 */5 10-15 * * 1-5 /app/deploy/entrypoint.sh job pilotbook
 # Midnight day summary (owner request 2026-11-05) for the session that just ended; once per session.
 5 0 * * 2-6    /app/deploy/entrypoint.sh job summary
+# Fade Tape chart page (2026-11-05): every 10 min in market hours, and after the official settlement.
+*/10 9-16 * * 1-5 /app/deploy/entrypoint.sh job charts
+50 20 * * 1-5  /app/deploy/entrypoint.sh job charts
