@@ -285,3 +285,16 @@ def test_digest_job_runs_end_to_end_without_network(db, monkeypatch, when):
     (text,) = sent.sent
     assert text.startswith("[SGT]") and "could not reach Alpaca" in text
     assert "Error" not in text and "Traceback" not in text
+
+
+def test_exit_offer_replies_keep_or_exit_and_executes_nothing(db):
+    # amendment F5: OK on an exit offer keeps the trade, NO exits it (the fade listener acts on the NO)
+    sms = FakeSms()
+    exp = datetime.now(timezone.utc) + timedelta(minutes=30)
+    for sym in ("KEP", "OUT"):
+        ap.request(db, sms.send, strategy=f"fade:{sym}", kind="fadeexit", period="2026-11-05", summary=f"IN {sym}",
+                   payload={"fade_id": 1, "symbol": sym}, expires_at=exp)
+    keep, out = (re.search(r"NO (\d{2}) = exit now", t).group(1) for t in sms.sent)
+    assert sc.handle(db, sms, ap.parse(f"ok {keep}"), "SM1") == "KEEP: KEP stays short and exits by itself."
+    assert sc.handle(db, sms, ap.parse(f"no {out}"), "SM2") == "EXIT: closing OUT at the next price (about 10 s)."
+    assert sc.handle(db, sms, ap.parse(f"no {out}"), "SM3") == "No change: OUT is already exiting on your NO."

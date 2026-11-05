@@ -37,6 +37,12 @@ class Outbox(list):
         self.append(text)
 
 
+@pytest.fixture
+def ask_first(monkeypatch):
+    """Legacy F3/F4 ask-first approvals (kept behind fade.ASK_FIRST since amendment F5)."""
+    monkeypatch.setattr(fade, "ASK_FIRST", True)
+
+
 def alert(sym="ABC", typ="volume_spike", at=T10, mid=1, news=None):
     return fade.LiveAlert(sym, typ, at, "-1", mid, news)
 
@@ -51,7 +57,7 @@ def test_cells_match_the_research_definition():
     assert (fade.REACTION, fade.MAX_ENTRY_DELAY) == (tat.REACTION.to_pytimedelta(), tat.MAX_ENTRY_DELAY.to_pytimedelta())
 
 
-def test_unarmed_event_asks_and_blocks_later_alerts_window_filter_does_not(db):
+def test_unarmed_event_asks_and_blocks_later_alerts_window_filter_does_not(db, ask_first):
     early = alert(at=datetime(2026, 11, 2, 9, 0, tzinfo=ET).astimezone(timezone.utc))
     assert fade.on_alert(db, early, now=early.posted_at) == "filtered: window"
     assert fade.on_alert(db, alert(), now=T10) == "ask #2"
@@ -211,7 +217,7 @@ def code_in(text: str) -> str:
     return re.search(r"OK (\d{6}|\d{2})\b", text).group(1)
 
 
-def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db):
+def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db, ask_first):
     # amendment F3: not ARMed -> one approval text per event; OK -> entry at the next quote
     out = Outbox()
     assert fade.on_alert(db, alert("APR"), now=T10) == "ask #1"
@@ -230,7 +236,7 @@ def test_per_trade_approval_enters_and_is_scored_from_the_real_entry_time(db):
     assert d.entry_after.iloc[0] == r["est_entry_at"]                          # official entry = real entry
 
 
-def test_declined_skips_and_silence_auto_enters_at_the_deadline(db):
+def test_declined_skips_and_silence_auto_enters_at_the_deadline(db, ask_first):
     # owner decision 2026-11-04: opt-out; silence at the deadline enters (inside the tested 5-minute window)
     out = Outbox()
     fade.on_alert(db, alert("NO1"), now=T10)
@@ -247,7 +253,7 @@ def test_declined_skips_and_silence_auto_enters_at_the_deadline(db):
     assert fade.due(db, T10 + timedelta(hours=3)).set_index("symbol").entry_after.notna()["LATE"]
 
 
-def test_approval_request_is_not_sent_after_the_deadline_or_outside_price(db):
+def test_approval_request_is_not_sent_after_the_deadline_or_outside_price(db, ask_first):
     out = Outbox()
     fade.on_alert(db, alert("SLOW"), now=T10)
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=4, seconds=30))
@@ -313,7 +319,7 @@ def test_live_client_source_reads_oldest_first_from_the_listener_connection():
     assert seen == {"entity": -1001254273411, "reverse": True, "limit": 50, "min_id": 0, "offset_date": T10}
 
 
-def test_disarm_and_pause_block_auto_entry(db):
+def test_disarm_and_pause_block_auto_entry(db, ask_first):
     out = Outbox()
     fade.on_alert(db, alert("DIS"), now=T10)
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
@@ -324,7 +330,7 @@ def test_disarm_and_pause_block_auto_entry(db):
     assert not ap.disarmed(db, T10 + timedelta(minutes=5))
 
 
-def test_request_expired_by_pause_never_auto_enters_after_resume(db):
+def test_request_expired_by_pause_never_auto_enters_after_resume(db, ask_first):
     out = Outbox()
     fade.on_alert(db, alert("PZ"), now=T10)
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
@@ -380,3 +386,70 @@ def test_iex_context_computes_moves_and_tolerates_bad_payloads():
     assert got["chg_day"] == pytest.approx(0.85) and got["chg_open"] == pytest.approx(3.7 / 3.3 - 1)
     assert got["off_high"] == pytest.approx(3.7 / 4.0 - 1) and got["vwap"] == 3.5 and got["rvol"] == pytest.approx(3.0)
     assert ctx("BAD") == {} and ctx("not a symbol") == {}
+
+
+def exit_code(text: str) -> str:
+    return re.search(r"NO (\d{2}) = exit now", text).group(1)
+
+
+def test_unarmed_alert_enters_at_the_tested_time_and_texts_the_trade_with_an_exit_code(db):
+    # amendment F5 (owner decision 2026-11-04): no waiting; the entry text carries the card and NO = exit now
+    out = Outbox()
+    assert fade.on_alert(db, alert("VTO"), now=T10) == "pending #1"
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=5))
+    assert out == [] and rows(db)[0]["status"] == "pending"               # not before alert + 10 s
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=12),
+                 context=lambda s: {"chg_day": 0.5})
+    r = rows(db)[0]
+    assert r["status"] == "open" and r["reason"] == fade.VETO and r["est_entry"] == 10.0
+    assert len(out) == 1 and out[0].startswith(f"[SGT] ✅ {bold('IN')} · {bold('SHORT VTO')} @ {bold('$10.00')}")
+    assert "up 50% today" in out[0] and "⏰ out 11:00" in out[0] and out[0].endswith(f"👉 NO {exit_code(out[0])} = exit now")
+    assert fade.due(db, T10 + timedelta(hours=3)).entry_after.isna().all()   # scored at the tested timing
+
+
+def test_no_exits_at_the_next_quote_and_late_codes_say_closed(db):
+    out = Outbox()
+    for i, s in enumerate(["NOX", "KEEP"]):
+        fade.on_alert(db, alert(s, mid=i), now=T10)
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=12))
+    nox, keep = (exit_code(next(t for t in out if bold(s) in t)) for s in ("NOX", "KEEP"))
+    ap.pause(db, T10 + timedelta(minutes=5))                               # PAUSE keeps exit offers open
+    db.set_flag("paused", "0")
+    reply, _ = ap.answer(db, ap.Command("NO", nox), "SM1", now=T10 + timedelta(minutes=10))
+    assert reply == "EXIT: closing NOX at the next price (about 10 s)."
+    assert ap.answer(db, ap.Command("OK", keep), "SM2", now=T10 + timedelta(minutes=10))[0].startswith("KEEP: KEEP")
+    fade.monitor(db, out, lambda s: 9.5, now=T10 + timedelta(minutes=10, seconds=10))
+    got = {r["symbol"]: r for r in rows(db)}
+    assert got["NOX"]["status"] == "est_closed" and got["NOX"]["reason"] == fade.VETO_EXIT
+    assert got["KEEP"]["status"] == "open"
+    assert out[-1].startswith(f"[SGT] 🟢 {bold('FADE OUT')} · {bold('NOX')} @ $9.50 (your NO)")
+    fade.monitor(db, out, lambda s: 9.5, now=T10 + timedelta(minutes=61))
+    assert {r["symbol"]: r["reason"] for r in rows(db)}["KEEP"] == "60 min"
+    assert ap.answer(db, ap.Command("NO", keep), "SM3", now=T10 + timedelta(minutes=62))[0] == \
+        "No change: KEEP already closed."
+    assert db.count_events("bad_code", T10) == 0
+
+
+def test_disarm_or_pause_before_entry_blocks_an_f5_trade(db):
+    out = Outbox()
+    fade.on_alert(db, alert("DIS"), now=T10)
+    ap.disarm(db, "test", T10 + timedelta(seconds=2))
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=12))
+    assert rows(db)[0]["status"] == "skipped" and out == []
+    ap.pause(db, T10)
+    assert fade.on_alert(db, alert("PSD", mid=2), now=T10) == "skipped: paused"
+
+
+def test_official_covers_a_no_exit_at_the_last_close_before_it(tmp_path, monkeypatch):
+    store = ParquetBarStore(tmp_path / "bars")
+    write_bars(store, "NOX", {m: (9.0, 9.0) for m in range(35, 120)})       # 9.00 from 10:05
+    monkeypatch.setattr(fl, "BARS", tmp_path / "bars")
+    monkeypatch.setattr(fl, "backfill", lambda *a, **k: {})
+    base = {"id": 1, "symbol": "NOX", "alert_type": "volume_spike", "posted_at": T10.isoformat(),
+            "session": "2026-11-02", "entry_after": None}
+    no = {**base, "reason": fade.VETO_EXIT, "est_exit_at": (T10 + timedelta(minutes=3, seconds=30)).isoformat()}
+    full = fl.official(pd.DataFrame([{**base, "reason": "60 min", "est_exit_at": None}]),
+                       now=T10 + timedelta(hours=10)).iloc[0]
+    cut = fl.official(pd.DataFrame([no]), now=T10 + timedelta(hours=10)).iloc[0]
+    assert full.gross == pytest.approx(0.10) and cut.cover == pytest.approx(10.0) and cut.gross == pytest.approx(0.0)
+    assert cut.rule_net == pytest.approx(full.net) and cut.net - cut.rule_net == pytest.approx(-0.10)

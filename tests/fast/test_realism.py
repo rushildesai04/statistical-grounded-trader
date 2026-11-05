@@ -14,7 +14,8 @@ from sgt.ops import approvals as ap  # noqa: E402
 from sgt.ops.sms_style import bold  # noqa: E402
 
 
-def test_realism_measures_gap_latency_mode_and_waiting_cost(db):  # noqa: F811
+def test_realism_measures_gap_latency_mode_and_waiting_cost(db, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(fade, "ASK_FIRST", True)                     # legacy F3/F4 modes
     assert realism.lines(db) == [] and realism.summary(realism.frame(db)) == {"n": 0}
     out = Outbox()
     fade.on_alert(db, alert("OKD"), now=T10)
@@ -43,4 +44,4 @@ def test_realism_measures_gap_latency_mode_and_waiting_cost(db):  # noqa: F811
     assert s["n"] == 2 and s["modes"] == {"approved": 1, "auto": 1} and s["wait_cost_mean"] == pytest.approx(-0.0175)
     line = realism.lines(db)[0]
     assert line.startswith("fade exec: 2 trades (1 approved, 1 auto); texted vs official +1.00%/trade")
-    assert "alert->entry median 2m45s" in line and "waiting cost -1.75%/trade" in line
+    assert "alert->entry median 2m45s" in line and "approval cost -1.75%/trade" in line

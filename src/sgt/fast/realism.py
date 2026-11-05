@@ -3,9 +3,10 @@
 Per settled trade:
 - gap: live estimate (IEX price at the moment of entry / exit) minus the official gross (SIP bars, research code).
   Tells how far the texted P&L can be trusted.
-- latency: alert -> live entry. Entry mode from the approval: auto (no reply), approved (OK), armed (no request).
-- wait cost: official net at the real entry minus official net at the tested timing (``rule_net``, alert + 10 s).
-  Negative = waiting for an approval cost money. Feeds the cost model at the fade decision point (amendment F1).
+- latency: alert -> live entry. Entry mode: auto / approved (F3/F4 ask-first), at alert (F5), NO exit (F5 trade
+  the owner exited early), armed (no request).
+- decision cost: official net as traded minus official net under the tested rule (``rule_net``): the cost of
+  waiting for an approval (F3/F4) or of a NO exit (F5). Feeds the cost model at the fade decision point (F1).
 """
 from __future__ import annotations
 
@@ -18,13 +19,15 @@ AUTO = "auto-entered at expiry (no reply)"            # sgt.fast.fade._ask, the 
 
 def frame(db: OpsStore) -> pd.DataFrame:
     with db.tx() as c:
-        rows = c.execute("SELECT f.*, a.result AS approval FROM fade_trades f LEFT JOIN approvals a "
-                         "ON a.strategy = 'fade:' || f.id AND a.kind='fade' AND a.status='executed' "
+        rows = c.execute("SELECT f.*, a.result AS approval, e.status AS exit_offer FROM fade_trades f "
+                         "LEFT JOIN approvals a ON a.strategy = 'fade:' || f.id AND a.kind='fade' AND a.status='executed' "
+                         "LEFT JOIN approvals e ON e.strategy = 'fade:' || f.id AND e.kind='fadeexit' "
                          "WHERE f.status='settled' ORDER BY f.id").fetchall()
     df = pd.DataFrame([dict(r) for r in rows])
     if df.empty:
         return df
-    df["mode"] = df.approval.map(lambda a: "armed" if a is None else ("auto" if a == AUTO else "approved"))
+    ask = df.approval.map(lambda a: "armed" if a is None else ("auto" if a == AUTO else "approved"))
+    df["mode"] = ask.where(df.exit_offer.isna(), df.exit_offer.map(lambda e: "NO exit" if e == "rejected" else "at alert"))
     df["est_gross"] = (df.est_entry - df.est_exit) / df.est_entry
     df["gap"] = df.est_gross - df.gross
     df["latency_s"] = (pd.to_datetime(df.est_entry_at, utc=True, format="ISO8601")
@@ -57,5 +60,5 @@ def lines(db: OpsStore) -> list[str]:
     line = (f"fade exec: {s['n']} trades ({modes}); texted vs official {s['gap_mean']:+.2%}/trade "
             f"(typical miss {s['gap_abs_median']:.2%}); alert->entry median {_dur(s['latency_median_s'])}")
     if s["wait_cost_mean"] is not None:
-        line += f"; waiting cost {s['wait_cost_mean']:+.2%}/trade"
+        line += f"; approval cost {s['wait_cost_mean']:+.2%}/trade"
     return [line]

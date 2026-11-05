@@ -60,6 +60,12 @@ PLAIN = {"volume_increasing": "volume rising", "volume_spike": "volume spike", "
          "gaining_momentum": "momentum", "new_high": "new high", "intraday_high": "high of day",
          "testing_high": "testing high", "price_level": "price level", "resumed": "halt resumed", "news": "news"}
 ASK_MARGIN = timedelta(seconds=40)              # approval must land this long before the entry deadline
+# Amendment F5 (owner decision 2026-11-04, prereg_fade_challengers: entering 2-4 min late loses most of the edge):
+# not ARMed -> enter at the tested timing and text the trade with "NO <code> = exit now". True restores the
+# F3/F4 ask-first flow (_ask), kept intact for rows created before F5 and for a reversal.
+ASK_FIRST = False
+VETO = "veto"                                   # reason of an F5 trade while it can still be exited by NO
+VETO_EXIT = "your NO"                           # exit reason after the owner's NO
 
 Quote = Callable[[str], "float | None"]
 Borrow = Callable[[str, datetime], dict]
@@ -141,10 +147,12 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     elif (reason := caps(db, session)) is not None:
         status = "skipped"
     elif approvals.armed(db, now):
-        status = "pending"
-    else:
+        status, reason = "pending", ""
+    elif ASK_FIRST:
         status, reason = "ask", "awaiting approval"
-    rid = _insert(db, a, session, status, "" if status == "pending" else reason, now)
+    else:
+        status, reason = "pending", VETO
+    rid = _insert(db, a, session, status, reason, now)
     if rid is None:
         return "duplicate symbol-session"
     return f"skipped: {reason}" if status == "skipped" else f"{status} #{rid}"
@@ -209,11 +217,12 @@ def record(db: OpsStore) -> tuple[int, float | None]:
 
 
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
-             live: tuple[int, float | None] = (0, None)) -> str:
-    """Approval request body (owner request 2026-11-04): trade, confidence, why, tape, risk, tested payoff, live
-    record, borrow. Unicode bold + emoji make it UCS-2 SMS (~7 segments); see sgt.ops.sms_style."""
+             live: tuple[int, float | None] = (0, None), out_at: datetime | None = None) -> str:
+    """Trade text body (owner request 2026-11-04): trade, confidence, why, tape, risk, tested payoff, live record,
+    borrow. ``out_at`` set = the F5 entry text (already short). Unicode bold + emoji = UCS-2 SMS; see sms_style."""
     lo, hi = BASE_WIN_CI
-    lines = [f"🔻 {bold(f'SHORT {symbol}')} @ {bold('$' + _fmt(px)) if px else 'market'}",
+    head = f"{bold(f'SHORT {symbol}')} @ {bold('$' + _fmt(px)) if px else 'market'}"
+    lines = [f"✅ {bold('IN')} · {head}" if out_at else f"🔻 {head}",
              f"🧠 Confidence {bold(f'{BASE_WIN * 100:.0f}')}/100 ({lo * 100:.0f}-{hi * 100:.0f}) · "
              + italic("same for every fade")]
     why = [PLAIN.get(alert_type, alert_type)]
@@ -232,7 +241,8 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     if tape:
         lines.append("📊 " + " · ".join(tape) + " " + italic("(IEX)"))
     stop = f"${_fmt(px * (1 + STOP))}" if px else "+20%"
-    lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} ≈ {_usd(size * STOPPED_NET)} · ⏳ 60 min",
+    hold = f"⏰ out {out_at.astimezone(ET):%H:%M}" if out_at else "⏳ 60 min"
+    lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} ≈ {_usd(size * STOPPED_NET)} · {hold}",
               f"🎯 Tested ({BASE_N} unseen): win {BASE_WIN:.0%}, avg {bold(_usd(size * BASE_EV))}",
               f"    wins {_usd(size * AVG_WIN)} · losses {_usd(size * AVG_LOSS)} · {STOP_RATE:.0%} stopped"]
     n, mean = live
@@ -247,7 +257,7 @@ def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -
     if r["status"] == "ask":
         _ask(db, send, quote, r, now, context)
     elif r["status"] == "pending":
-        _enter(db, send, quote, r, now)
+        _enter(db, send, quote, r, now, context)
     else:
         _exit(db, send, quote, r, now)
 
@@ -320,11 +330,11 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
         _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now)
 
 
-def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
+def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
     if now < posted + REACTION:
         return
-    allowed = approvals.armed(db, now) or (r["reason"] in ("approved", "auto") and not approvals.disarmed(db, now))
+    allowed = approvals.armed(db, now) or (r["reason"] in ("approved", "auto", VETO) and not approvals.disarmed(db, now))
     if not allowed:                                   # DISARM / PAUSE after the alert cancels the entry
         _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
         return
@@ -338,9 +348,31 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         return
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
         out = _exit_at(r["session"], now)[0].astimezone(ET)
+        if r["reason"] == VETO:
+            _veto_text(db, send, r, px, now, out, context)
+            return
         how = " (auto)" if r["reason"] == "auto" else ""
         send(f"[SGT] ✅ {bold('FADE IN')}{how} · short {bold(r['symbol'])} @ ${_fmt(px)} · ${notional(db):,.0f}\n"
              f"🛑 stop ${_fmt(px * (1 + STOP))} · ⏰ out {out:%H:%M} ET")
+
+
+def _veto_text(db: OpsStore, send, r, px: float, now: datetime, out: datetime, context) -> None:
+    """F5 entry text: the full trade card + "NO <code> = exit now" (approval kind 'fadeexit', open until the exit)."""
+    ctx = {}
+    if context is not None:
+        try:
+            ctx = context(r["symbol"]) or {}
+        except Exception:  # noqa: BLE001 - context is informational; the text still goes out
+            log.warning("context %s failed", r["symbol"])
+    body = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), out_at=out)
+    approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fadeexit", period=r["session"], summary=body,
+                      payload={"fade_id": r["id"], "symbol": r["symbol"]}, expires_at=out, now=now)
+
+
+def _vetoed(db: OpsStore, rid: int) -> bool:
+    with db.tx() as c:
+        return c.execute("SELECT 1 FROM approvals WHERE strategy=? AND kind='fadeexit' AND status='rejected'",
+                         (f"fade:{rid}",)).fetchone() is not None
 
 
 def _exit_at(session: str, started: datetime) -> tuple[datetime, str]:
@@ -357,11 +389,15 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         _set(db, r["id"], "open", est_last=px)
     last = px if px is not None and px > 0 else r["est_last"]
     end, why_end = _exit_at(r["session"], started)
-    why = "stop" if last and last >= entry * (1 + STOP) else (why_end if now >= end else None)
+    vetoed = r["reason"] == VETO and _vetoed(db, r["id"])
+    why = "stop" if last and last >= entry * (1 + STOP) else (VETO_EXIT if vetoed else (why_end if now >= end else None))
     if why is None:
         return
     exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
     if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why):
+        with db.tx() as c:                    # a NO after the exit is answered "already closed", never acted on
+            c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE strategy=? "
+                      "AND kind='fadeexit' AND status='pending'", (iso(now), f"fade:{r['id']}"))
         g = (entry - exit_px) / entry
         v = nav(db)
         usd = g * (r["weight"] or WEIGHT) * v

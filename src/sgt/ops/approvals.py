@@ -95,6 +95,7 @@ def request(db: OpsStore, send, *, strategy: str, kind: str, period: str, summar
     tail = (f"\nReply {verb} {code} to confirm (expires {fmt_et(expires_at)})." if kind == "control" else
             f"\n⏱ Auto-enters {expires_at.astimezone(ET):%H:%M:%S}\n👉 NO {code} = skip · OK {code} = enter now"
             if kind == "fade" else
+            f"\n👉 NO {code} = exit now" if kind == "fadeexit" else
             f"\nReply OK {code} to approve, NO {code} to skip. Expires {fmt_et(expires_at)}.")
     try:
         send(f"[SGT] {summary}{tail}")
@@ -136,7 +137,7 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
         if ok and want_kind == "control":
             ok = json.loads(row["payload"]).get("action", "").upper() == cmd.verb
         paused = c.execute("SELECT value FROM flags WHERE key='paused'").fetchone()
-        if ok and row["kind"] != "control" and cmd.verb == "OK" and paused is not None and paused[0] == "1":
+        if ok and row["kind"] not in ("control", "fadeexit") and cmd.verb == "OK" and paused is not None and paused[0] == "1":
             c.execute("UPDATE approvals SET status='expired', decided_at=?, decided_sid=? WHERE id=?",
                       (iso(now), sid, row["id"]))
             return "Trading is PAUSED: request not approved (expired). RESUME first, then wait for a new request.", None
@@ -149,6 +150,11 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
         with db.tx() as c:                          # a real code that simply expired: "too late", not an attack
             late = c.execute("SELECT * FROM approvals WHERE code=? AND status!='pending' AND created_at>=? "
                              "ORDER BY id DESC LIMIT 1", (cmd.code, iso(now - REUSE_WINDOW))).fetchone()
+        if late is not None and late["kind"] == "fadeexit":
+            db.audit("late_code", id=late["id"], sid=sid)
+            sym = json.loads(late["payload"]).get("symbol", "that trade")
+            done = "is already exiting on your NO" if late["status"] == "rejected" else "already closed"
+            return f"No change: {sym} {done}.", None
         if late is not None and late["status"] in ("executed", "executing", "approved", "rejected"):
             db.audit("late_code", id=late["id"], sid=sid)
             done = "already entered; it exits automatically" if late["status"] != "rejected" else "already skipped"
@@ -165,6 +171,10 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
             return "Too many wrong codes: trading PAUSED and all requests expired. Text RESUME to unlock.", None
         return f"No pending request with code {cmd.code} (it may have expired). Text PENDING to list.", None
     db.audit("decided", id=row["id"], status=row["status"], sid=sid)
+    if row["kind"] == "fadeexit":
+        sym = json.loads(row["payload"]).get("symbol", "the trade")
+        return (f"EXIT: closing {sym} at the next price (about 10 s)." if row["status"] == "rejected" else
+                f"KEEP: {sym} stays short and exits by itself."), row
     return f"{row['status'].upper()}: {row['summary'][:200]}", row
 
 
@@ -176,7 +186,7 @@ def pause(db: OpsStore, now: datetime | None = None, reason: str = "pause") -> i
     db.set_flag("fast_armed", "")             # fast trades need a fresh ARM after any pause / lockout
     with db.tx() as c:
         c.execute("UPDATE approvals SET status='expired', decided_at=?, result='paused' WHERE status='pending' "
-                  "AND kind!='control'",
+                  "AND kind NOT IN ('control', 'fadeexit')",      # an exit offer only reduces exposure: kept
                   (iso(now),))
         voided = c.execute("UPDATE book_orders SET status='void' WHERE status='scheduled' AND source='approved'"
                            ).rowcount
