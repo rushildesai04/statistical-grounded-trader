@@ -25,3 +25,6 @@
 5 21 * * 1-5   /app/deploy/entrypoint.sh job fadeforward
 # Fade challengers in shadow (prereg_fade_challengers_2026-11-04), after the forward record's bars are stored.
 20 21 * * 1-5  /app/deploy/entrypoint.sh job fadechallengers
+# Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab. Asks for OK, then trades in the last 15 min before
+# the close (half-days included); a no-op unless SGT_PILOT_SCHWAB=1.
+*/5 10-15 * * 1-5 /app/deploy/entrypoint.sh job pilotbook

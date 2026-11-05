@@ -45,6 +45,8 @@ if [ "${1:-}" = "job" ]; then
     borrow)    run reports/fast/borrow.log python /app/scripts/fade_live.py borrow ;;
     fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram ;;
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
+    # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab; a no-op unless SGT_PILOT_SCHWAB=1.
+    pilotbook) run reports/ops/pilot.log python /app/scripts/sms_control.py pilot ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?

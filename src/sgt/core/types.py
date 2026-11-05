@@ -137,6 +137,9 @@ class OrderIntent:
     reason: str                      # e.g. "entry", "exit:macd_fade", "exit:stop"
     created_at: datetime
     stop_price: float | None = None
+    # 2026-11-05 live pilot (F-4): SELL + short = SELL_SHORT, BUY + short = BUY_TO_COVER. Only the Schwab
+    # pilot sets it; every other path stays long-only.
+    short: bool = False
 
     def __post_init__(self) -> None:
         _require_utc("OrderIntent.created_at", self.created_at)

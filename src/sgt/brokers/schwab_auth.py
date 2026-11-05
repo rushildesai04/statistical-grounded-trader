@@ -75,6 +75,17 @@ def _parse_iso(value: str) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _secret_io(get: SecretGetter | None, put: SecretSetter | None) -> tuple[SecretGetter, SecretSetter]:
+    """Explicit getters win; otherwise the writable token store on headless hosts (red-team F-1), else keychain."""
+    if get is None and put is None:
+        from sgt.brokers.schwab_token_store import secret_io
+
+        io = secret_io()
+        if io is not None:
+            return io
+    return get or get_secret, put or set_secret
+
+
 class SchwabTokenManager:
     """Caches the access token in memory; refreshes it with the keychain refresh token.
 
@@ -100,10 +111,11 @@ class SchwabTokenManager:
         client: httpx.AsyncClient | None = None,
         clock: Clock | None = None,
         timeout: float | None = None,
-        secret_get: SecretGetter = get_secret,
-        secret_set: SecretSetter = set_secret,
+        secret_get: SecretGetter | None = None,
+        secret_set: SecretSetter | None = None,
     ) -> "SchwabTokenManager":
         """One manager per app key in this process (single-writer for token rotation)."""
+        secret_get, secret_set = _secret_io(secret_get, secret_set)
         app_key = secret_get("schwab_app_key")
         if not app_key:
             raise BrokerAuthError(f"no Schwab app key stored; {_RE_AUTH}")
@@ -126,11 +138,10 @@ class SchwabTokenManager:
         client: httpx.AsyncClient | None = None,
         clock: Clock | None = None,
         timeout: float | None = None,
-        secret_get: SecretGetter = get_secret,
-        secret_set: SecretSetter = set_secret,
+        secret_get: SecretGetter | None = None,
+        secret_set: SecretSetter | None = None,
     ) -> None:
-        self._get = secret_get
-        self._set = secret_set
+        self._get, self._set = _secret_io(secret_get, secret_set)
         self._app_key = self._get("schwab_app_key")
         self._app_secret = self._get("schwab_app_secret")
         assert self._app_key is not None and self._app_secret is not None

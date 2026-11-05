@@ -14,12 +14,17 @@ Prerequisites (in the keychain, service ``sgt``, or ``SGT_SECRET_*`` env):
 Usage:
     python scripts/schwab_auth.py
     python scripts/schwab_auth.py --redirect-uri https://127.0.0.1
+    python scripts/schwab_auth.py --push-fly      # also send the login to the Fly runner (weekly)
+
+``--push-fly`` sends the app credentials and the new login to the runner's secrets through stdin (never argv,
+logs or the terminal); the runner adopts it because its ``schwab_login_at`` is newer (red-team F-1).
 
 The redirect URI MUST exactly match one registered on the Schwab developer app.
 """
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -54,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--redirect-uri", default=_DEFAULT_REDIRECT,
                         help="redirect URI registered on the Schwab app "
                              f"(default {_DEFAULT_REDIRECT})")
+    parser.add_argument("--push-fly", action="store_true",
+                        help="after storing, send the login to the Fly runner (app sgt-runner)")
     args = parser.parse_args(argv)
 
     app_key = get_secret("schwab_app_key")
@@ -93,11 +100,25 @@ def main(argv: list[str] | None = None) -> int:
     issued = datetime.now(timezone.utc)
     set_secret("schwab_refresh_token", refresh_token)
     set_secret("schwab_refresh_issued_at", issued.isoformat())
+    set_secret("schwab_login_at", issued.isoformat())     # human login time: drives the day-6 reminder
 
     print("\nStored a new Schwab refresh token in the keychain (not printed).")
+    if args.push_fly:
+        push_fly()
     print(f"Re-authorization is required again within ~{REFRESH_TTL_DAYS} days "
           f"(by {(issued).date().isoformat()} + {REFRESH_TTL_DAYS}d).")
     return 0
+
+
+PUSHED = ("schwab_app_key", "schwab_app_secret", "schwab_refresh_token", "schwab_refresh_issued_at",
+          "schwab_login_at")
+
+
+def push_fly(app: str = "sgt-runner") -> None:
+    """Keychain -> Fly secrets via stdin (values never in argv, logs or the terminal); one release."""
+    body = "".join(f"SGT_SECRET_{n.upper()}={get_secret(n)}\n" for n in PUSHED)
+    subprocess.run(["fly", "secrets", "import", "-a", app], input=body, text=True, check=True, timeout=300)
+    print("Sent to the Fly runner (values not shown): " + ", ".join(PUSHED))
 
 
 if __name__ == "__main__":
