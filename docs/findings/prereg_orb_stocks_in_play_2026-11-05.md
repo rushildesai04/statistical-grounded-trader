@@ -58,3 +58,12 @@ Trial ledger run ids `orb-sip-2026-11-05-dev`, `orb-sip-2026-11-05-holdout`.
 ## Known limits (stated now)
 Survivorship: Alpaca's inactive-asset list may miss some delisted names. ETFs are not excluded by asset type
 (Alpaca has no such flag); leveraged/sector ETFs rarely top RVOL at the open but may appear. Both are reported.
+
+## Amendment A1 (2026-11-05, during implementation review; before the full training run, held-out sealed)
+- Code review found the stop measured from the trigger price instead of the executed entry (this file says
+  "entry -/+ 0.10 x ATR14"). Fixed to match the text, with a regression test. No rule change.
+- The worst-case check inside the entry bar (a 1-minute bar's range often exceeds 0.10 x daily ATR) may by itself
+  decide the replication. Added as SECONDARY (reported, never gating): the same trades with the entry-bar stop check
+  skipped, commission only, to bound the intrabar ambiguity. The primary stays worst case.
+- During implementation the `dev` command was run on a 19-session slice (2021-02) to validate the pipeline; it is not
+  the training result and is superseded by the full 2021-2023 run.
