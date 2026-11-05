@@ -478,3 +478,25 @@ def test_official_covers_a_no_exit_at_the_last_close_before_it(tmp_path, monkeyp
     cut = fl.official(pd.DataFrame([no]), now=T10 + timedelta(hours=10)).iloc[0]
     assert full.gross == pytest.approx(0.10) and cut.cover == pytest.approx(10.0) and cut.gross == pytest.approx(0.0)
     assert cut.rule_net == pytest.approx(full.net) and cut.net - cut.rule_net == pytest.approx(-0.10)
+
+
+def test_live_bars_feed_the_chart_read_and_tolerate_junk():
+    import httpx
+
+    t0 = datetime(2026, 11, 5, 14, 30, tzinfo=timezone.utc)
+    good = [{"t": (t0 + timedelta(minutes=i)).isoformat(), "o": 3 + i / 100, "h": 3.02 + i / 100, "l": 2.99 + i / 100,
+             "c": 3.01 + i / 100, "v": 1000 + i} for i in range(40)] + [{"t": "x", "o": "bad"}, "junk"]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/bars"):
+            return httpx.Response(200, json={"bars": good} if "XYZ" in req.url.path else ["no"])
+        return httpx.Response(500)
+
+    c = httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler))
+    b = fl.live_bars(c, "XYZ", t0 + timedelta(minutes=45))
+    assert len(b) == 40 and b.ts.is_monotonic_increasing
+    assert fl.live_bars(c, "BAD", t0).empty
+    line = fade.signals_line({"rsi14": 91.2, "ema_cross_state": 1.0, "ema9_21_gap_pct": 0.021, "macd_hist_pct": -0.001,
+                              "psar_side": 1.0, "pvt_trend": -1.0, "off_hod_pct": 0.0})
+    assert line.startswith("📈 RSI 91 · EMA9 above 21 (+2.1%) · MACD fading · 4/6 reads favor the short")
+    assert fade.signals_line(None) is None and fade.signals_line({}) is None

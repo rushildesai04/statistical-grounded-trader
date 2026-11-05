@@ -235,6 +235,35 @@ def news_group(ctx: dict) -> str:
     return "earn" if n.get("news_earn") else ("own" if n.get("news_own") else "none")
 
 
+def signals_line(sig: dict | None) -> str | None:
+    """Chart read at entry (owner request 2026-11-05): RSI, EMA 9/21, MACD, PSAR, PVT and how many say 'stretched'.
+    Display only: these reads were tested and carry no edge on their own (docs/research/signals_research_2026-11-05)."""
+    if not sig:
+        return None
+    parts, votes = [], []
+    if sig.get("rsi14") is not None:
+        parts.append(f"RSI {sig['rsi14']:.0f}")
+        votes.append(sig["rsi14"] >= 70)
+    if sig.get("ema_cross_state") is not None:
+        gap = sig.get("ema9_21_gap_pct")
+        parts.append(f"EMA9 {'above' if sig['ema_cross_state'] > 0 else 'below'} 21"
+                     + (f" ({gap:+.1%})" if gap is not None else ""))
+        votes.append(sig["ema_cross_state"] < 0)
+    if sig.get("macd_hist_pct") is not None:
+        parts.append("MACD " + ("fading" if sig["macd_hist_pct"] < 0 else "rising"))
+        votes.append(sig["macd_hist_pct"] < 0)
+    if sig.get("psar_side") is not None:
+        votes.append(sig["psar_side"] < 0)
+    if sig.get("pvt_trend") is not None:
+        votes.append(sig["pvt_trend"] < 0)
+    if sig.get("off_hod_pct") is not None:
+        votes.append(sig["off_hod_pct"] >= -0.02)
+    if not parts and not votes:
+        return None
+    tail = f" · {sum(votes)}/{len(votes)} reads favor the short" if votes else ""
+    return "📈 " + " · ".join(parts) + tail + " " + italic("(chart read, not a tested filter)")
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None) -> str:
     """Trade text body (owner requests 2026-11-04/05): trade in plain words, confidence by news group, headline,
@@ -272,6 +301,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         tape.append(f"vol {ctx['rvol']:.1f}x yday")
     if tape:
         lines.append("📊 " + " · ".join(tape) + " " + italic("(IEX)"))
+    sig_line = signals_line(ctx.get("signals"))
+    if sig_line:
+        lines.append(sig_line)
     stop = f"${_fmt(px * (1 + STOP))}" if px else "+20%"
     hold = f"⏰ out {out_at.astimezone(ET):%H:%M} ET" if out_at else "⏳ 60 min"
     lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} ≈ {_usd(size * STOPPED_NET)} · {hold}",
