@@ -31,9 +31,10 @@ def test_only_the_secret_path_serves_the_page_with_strict_headers(server):
     assert r.headers["referrer-policy"] == "no-referrer" and r.headers["cache-control"] == "no-store"
     assert "frame-ancestors 'none'" in r.headers["content-security-policy"] and "noindex" in r.headers["x-robots-tag"]
     assert c.head(f"/{TOKEN}/").status_code == 200
+    assert c.get(f"/{TOKEN}").text == r.text                       # link pasted without the trailing slash
 
 
-@pytest.mark.parametrize("path", ["/", f"/{TOKEN}", f"/{TOKEN}/x", f"/{TOKEN}/?a=1", f"/{TOKEN[:-1]}/",
+@pytest.mark.parametrize("path", ["/", f"/{TOKEN}//", f"/{TOKEN}/x", f"/{TOKEN}/?a=1", f"/{TOKEN[:-1]}/",
                                   "/../reports/charts/fade_tape.html"])
 def test_everything_else_is_not_found(server, path):
     c, page = server

@@ -1,6 +1,6 @@
 """Read-only web server for the Fade Tape page on the runner (owner decision 2026-11-05: secret link, option A).
 
-The runner's only public surface. It serves exactly one file at exactly one path, ``/<token>/``, where the token is
+The runner's only public surface. It serves exactly one file at ``/<token>/`` (or ``/<token>``), where the token is
 the secret ``charts_token`` (>= 32 URL-safe characters). Everything else is 404, including wrong tokens (compared in
 constant time), other methods are 405, and nothing is ever written. No directory listing, no query handling, no
 cookies. Responses carry no-store / no-referrer (the token is in the path and must not leak to the chart links on
@@ -43,6 +43,7 @@ def make_handler(token: str, page: Path = PAGE):
     if not valid_token(token):
         raise ValueError(f"charts_token must be >= {MIN_TOKEN} URL-safe characters")
     want = f"/{token}/".encode()
+    bare = want[:-1]                                   # 2026-11-05: owner's pasted link dropped the trailing slash
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "sgt"
@@ -60,7 +61,8 @@ def make_handler(token: str, page: Path = PAGE):
                 self.wfile.write(body)
 
         def _page(self) -> None:
-            if not hmac.compare_digest(self.path.encode(), want):
+            path = self.path.encode()
+            if not (hmac.compare_digest(path, want) | hmac.compare_digest(path, bare)):
                 self._send(404, b"not found")
                 return
             try:
