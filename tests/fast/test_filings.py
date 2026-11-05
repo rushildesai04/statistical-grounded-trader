@@ -63,7 +63,7 @@ def test_entry_text_shows_offering_and_omits_unknown():
     assert "SEC" not in base                                             # unknown: no claim either way
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, {**ctx, "filings": {
         "dilution_30d": 1, "dilution_form": "424B5", "dilution_days": 2.7, "eightk_today": 1}}, "")
-    assert "offering filed (424B5, 3d ago)" in t and "8-K today" in t
+    assert "offering filed (424B5, 3d ago)" in t and "8-K/6-K today" in t
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, {**ctx, "filings": {
         "dilution_30d": 0, "dilution_form": None, "dilution_days": None, "eightk_today": 0}}, "")
     assert "no offering filed in 30 days" in t
@@ -71,3 +71,7 @@ def test_entry_text_shows_offering_and_omits_unknown():
 
 def test_lookback_is_thirty_days():
     assert filings.LOOKBACK == timedelta(days=30)
+
+
+def test_six_k_counts_as_a_fresh_company_report():
+    assert filings.flags(sub([("6-K", "2026-11-05T13:00:00.000Z")]), AT)["eightk_today"] == 1

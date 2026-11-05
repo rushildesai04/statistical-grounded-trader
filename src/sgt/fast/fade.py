@@ -284,7 +284,7 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         sec = (f"⚠️ offering filed ({fl['dilution_form']}, {fl['dilution_days']:.0f}d ago): company selling shares"
                if fl.get("dilution_30d") else "no offering filed in 30 days")
         hw, ha, _ = FILING_HIST["8k" if fl.get("eightk_today") else ("dil" if fl.get("dilution_30d") else "no_dil")]
-        lines.append(f"📄 SEC: {sec}" + (" · 8-K today" if fl.get("eightk_today") else "")
+        lines.append(f"📄 SEC: {sec}" + (" · 8-K/6-K today" if fl.get("eightk_today") else "")
                      + " " + italic(f"(past fades like this: win {hw:.0%}, avg {ha:+.1%})"))
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:

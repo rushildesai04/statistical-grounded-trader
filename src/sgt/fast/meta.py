@@ -101,3 +101,48 @@ def take(pred: np.ndarray, insample: np.ndarray, q: float) -> np.ndarray:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# Fade brain v2 (prereg_fade_brain_2026-11-05): v1 features + tape signals + news + SEC filings, used for SIZING.
+SIG_KEYS = ("ema9_21_gap_pct", "ema_cross_state", "minutes_since_cross", "vwap_dist_pct", "rsi14", "macd_hist_pct",
+            "rvol_5m", "atr14_1m_pct", "off_hod_pct", "above_premarket_high", "pvt_trend", "psar_side",
+            "minutes_since_open")
+BRAIN_FEATURES = FEATURES + [f"s_{k}" for k in SIG_KEYS] + ["n_own", "n_earn", "f_8k", "f_dil"]
+WEIGHTS = (0.5, 1.0, 1.5)                      # bottom / middle / top third of in-sample predictions
+BRAIN_PATH = Path(__file__).resolve().parents[3] / "config" / "models" / "fade_brain_v2.txt"   # /app/config on Fly
+
+
+def signal_features(ev: pd.DataFrame, store) -> pd.DataFrame:
+    """``s_*`` tape signals at each alert from the session's bars that ended before it (sgt.fast.signals)."""
+    from sgt.fast import signals
+
+    rows = []
+    for r in ev.itertuples():
+        d = date.fromisoformat(str(r.session))
+        f = store.read_frame(r.symbol, d, d)
+        snap = signals.snapshot(f, pd.Timestamp(r.posted_at)) if len(f) else {}
+        rows.append({f"s_{k}": (np.nan if snap.get(k) is None else float(snap[k])) for k in SIG_KEYS})
+    return pd.DataFrame(rows, index=ev.index)
+
+
+def news_features(ev: pd.DataFrame) -> pd.DataFrame:
+    """News and SEC flags already computed point in time (prereg_fade_news / prereg_fade_filings event files)."""
+    flag = lambda s: s.astype(str).str.lower().isin(["true", "1", "1.0"]).astype(float)  # noqa: E731
+    out = pd.DataFrame({"n_own": flag(ev.news_own), "n_earn": flag(ev.news_earn)}, index=ev.index)
+    known = ev.get("known", pd.Series(1, index=ev.index)).fillna(0).astype(int) == 1
+    for c in ("f_8k", "f_dil"):
+        out[c] = ev[c].astype(float).where(known) if c in ev else np.nan
+    return out
+
+
+def fit_cols(x: pd.DataFrame, y: np.ndarray, cols: list[str]):
+    import lightgbm as lgb
+
+    lo, hi = np.quantile(y, [0.01, 0.99])
+    return lgb.LGBMRegressor(**PARAMS).fit(x[cols], np.clip(y, lo, hi))
+
+
+def size_weight(pred: np.ndarray, insample: np.ndarray) -> np.ndarray:
+    """0.5x / 1.0x / 1.5x by the prediction's tercile among the model's in-sample predictions."""
+    lo, hi = np.quantile(insample, [1 / 3, 2 / 3])
+    return np.where(pred < lo, WEIGHTS[0], np.where(pred < hi, WEIGHTS[1], WEIGHTS[2]))

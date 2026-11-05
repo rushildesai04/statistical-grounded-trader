@@ -106,7 +106,7 @@ def flags(sub: dict, at: datetime, since_8k: datetime | None = None) -> dict:
     dil = [(t, f) for t, f in rows if f in DILUTION_FORMS]
     out = {"dilution_30d": int(bool(dil)), "dilution_form": dil[0][1] if dil else None,
            "dilution_days": round((at - dil[0][0]).total_seconds() / 86400, 1) if dil else None,
-           "eightk_today": int(any(f.startswith("8-K") and t > lo8k for t, f in rows)),
+           "eightk_today": int(any(f.startswith(("8-K", "6-K")) and t > lo8k for t, f in rows)),   # 6-K: foreign issuers
            "forms_30d": ",".join(dict.fromkeys(f for _, f in rows))[:120] or None}
     out["forms_30d"] = ",".join(out["forms_30d"].split(",")[:MAX_FORMS]) if out["forms_30d"] else None
     return out
