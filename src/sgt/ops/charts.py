@@ -17,6 +17,9 @@ import pandas as pd
 
 ET = ZoneInfo("America/New_York")
 TEMPLATE = Path(__file__).with_name("templates") / "trade_charts.html"
+# The runner's chart server sends the page as is, so it needs its own document head (an Artifact publish adds one).
+DOC_HEAD = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n')
 STOP = 0.20
 PAD_BEFORE, PAD_AFTER = pd.Timedelta(minutes=45), pd.Timedelta(minutes=30)
 MAX_BARS = 400                                       # one RTH session is 390 bars
@@ -90,8 +93,9 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     }
 
 
-def render(views: list[dict], generated: datetime, title: str = "Fade Tape") -> str:
+def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True) -> str:
     data = {"title": title, "generated": generated.astimezone(ET).strftime("%a %b %-d, %-I:%M %p ET"),
             "trades": views}
     payload = json.dumps(data, allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
-    return TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
+    page = TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
+    return DOC_HEAD + page if standalone else page

@@ -60,3 +60,12 @@ def test_untrusted_text_cannot_break_out_of_the_page():
     assert "<" not in data and "</script><script>" not in html
     assert json.loads(data)["trades"][0]["headline"] == evil["news_head"]
     assert "/*TRADES*/null" not in html and "lightweight-charts@4.2.0" in html
+
+
+def test_runner_page_is_a_full_document_and_the_artifact_copy_is_a_fragment():
+    v = [charts.trade_view(TRADE, bars())]
+    now = datetime(2026, 11, 5, 17, tzinfo=timezone.utc)
+    full, frag = charts.render(v, now), charts.render(v, now, standalone=False)
+    assert full.startswith("<!doctype html>") and '<meta charset="utf-8">' in full and "viewport-fit=cover" in full
+    assert frag.startswith("<title>SGT Fade Tape</title>") and full.endswith(frag)
+    assert "Rushil's Agent" in frag
