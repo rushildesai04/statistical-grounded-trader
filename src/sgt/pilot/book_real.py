@@ -106,7 +106,7 @@ async def run(pilot: Pilot, db: OpsStore, send, marks_fn: Marks, now: datetime |
     if notes:
         send(f"[SGT] 🚨 {bold('REAL positions differ from Schwab')}: " + "; ".join(notes)
              + ". New real entries stopped. Check the app, then RESUME.")
-    marks = marks_fn(["SPY", "IEF"])
+    marks = marks_fn(sorted({"SPY", "IEF"} | {p.symbol for p in ledger.positions(db)}))   # total cap values all
     out: list[str] = []
     for strategy, fn in TARGETS.items():
         try:

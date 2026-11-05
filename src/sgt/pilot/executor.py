@@ -112,6 +112,10 @@ class Pilot:
 
     async def _submit(self, row: Any) -> None:
         cid = row["client_order_id"]
+        if row["opening"] and (self.db.flag(ledger.KILL_FLAG) == "1" or self.db.paused()):
+            # review L3: a FLATTEN/PAUSE from another process between reserve and POST still wins
+            ledger.close(self.db, cid, "canceled", "paused before send", now=self.clock())
+            raise CapRefused("trading is paused")
         try:
             ack = await self.broker.submit(self._intent(row))
         except BrokerRejectedError as e:
@@ -205,8 +209,8 @@ class Pilot:
                 await self.place(strategy=p.strategy, decision=stamp, leg=str(i), symbol=p.symbol, side=side,
                                  qty=abs(p.qty), marks=marks, limit_price=px)
                 out.append(f"{p.symbol}: {side} {abs(p.qty)} @ {px} sent")
-            except Exception as e:  # noqa: BLE001 - one failed close must not stop the others; reported verbatim
-                log.exception("flatten %s failed", p.symbol)
-                out.append(f"{p.symbol}: close FAILED ({e}); close it in the Schwab app")
+            except Exception as e:  # noqa: BLE001 - one failed close must not stop the others; detail logged only
+                log.exception("flatten %s failed", p.symbol)        # review L4: broker bodies never go into texts
+                out.append(f"{p.symbol}: close FAILED ({type(e).__name__}); close it in the Schwab app")
         self.db.audit("pilot_flatten", lines=out)
         return out

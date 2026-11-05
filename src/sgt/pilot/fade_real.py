@@ -113,6 +113,18 @@ async def step(pilot: Pilot, db: OpsStore, quote: Quote, send, account_flags: Fl
             log.exception("fade %s real step failed", r["id"])
 
 
+def _marks(db: OpsStore, quote: Quote, symbol: str, px: float) -> dict[str, float]:
+    """Live marks for every pilot position (the total cap values them all) plus this symbol. A missing quote is
+    left out, so the cap check refuses the entry (fail closed). Review 2026-11-05 L2: passing only the new
+    symbol refused every real fade while 60/40 was held."""
+    out = {symbol: px}
+    for sym in {p.symbol for p in ledger.positions(db)} - {symbol}:
+        q = quote(sym)
+        if q is not None and math.isfinite(q) and q > 0:
+            out[sym] = q
+    return out
+
+
 def _oid(rid: int, leg: str) -> str:
     return ledger.order_id("fade", str(rid), leg)
 
@@ -187,7 +199,7 @@ async def _maybe_enter(pilot: Pilot, db: OpsStore, quote: Quote, send, account_f
         return
     try:
         await pilot.place(strategy="fade", decision=str(r["id"]), leg="entry", symbol=r["symbol"], side="SELL_SHORT",
-                          qty=qty, marks={r["symbol"]: px}, limit_price=limit)
+                          qty=qty, marks=_marks(db, quote, r["symbol"], px), limit_price=limit)
     except CapRefused as e:                               # no ledger row: text once, never retry this trade
         _once(db, f"pilot_fade_skip:{r['id']}", send,
               f"[SGT] ⚠️ {bold('REAL short not placed')} {bold(r['symbol'])}: {str(e)[:120]}. Paper book continues.")

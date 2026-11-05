@@ -192,3 +192,21 @@ async def test_rejected_short_reports_not_borrowable(env):
     env.b.fail = None
     await env.step(10)
     assert sum("not borrowable" in t for t in env.texts) == 1 and len(env.b.sent) == 0
+
+
+async def test_real_fade_still_trades_while_6040_is_held(env):
+    """Review 2026-11-05 L2: the total cap values every pilot position; the entry must quote them all."""
+    env.live()
+    ledger.init(env.db)
+    with env.db.tx() as c:
+        c.execute("INSERT INTO pilot_positions VALUES ('6040','SPY',3,600,?), ('6040','IEF',16,95,?)",
+                  (iso(T0), iso(T0)))
+    env.px.update({"SPY": 600.0, "IEF": 95.0})
+    env.trade()
+    await env.step(10)
+    assert env.sent("entry").qty == 50
+    env.px.pop("SPY")                                            # an unpriced holding: refuse, never guess
+    env.trade(symbol="WXYZ")
+    env.px["WXYZ"] = 5.0
+    await env.step(10)
+    assert not any(i.symbol == "WXYZ" for i in env.b.sent)

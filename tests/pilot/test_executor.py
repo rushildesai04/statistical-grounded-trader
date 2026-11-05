@@ -205,3 +205,14 @@ def test_tick_rounds_toward_marketable():
     assert tick(0.12345, up=True) == 0.1235 and tick(10.05, up=True) == 10.05
     with pytest.raises(ValueError):
         tick(float("nan"), up=True)
+
+
+async def test_pause_between_reserve_and_post_wins(env):
+    """Review 2026-11-05 L3: a FLATTEN/PAUSE from another process after reserve() still stops the POST."""
+    db, b, p, _ = env
+    ledger.reserve(db, client_order_id="pilot:tom:z:entry", strategy="tom", symbol="SPY", side="BUY", qty=1,
+                   limit_price=500.0, marks=MARKS, now=T0)
+    db.set_flag("paused", "1")
+    with pytest.raises(CapRefused, match="paused"):
+        await p._submit(ledger.get(db, "pilot:tom:z:entry"))
+    assert b.sent == [] and ledger.get(db, "pilot:tom:z:entry")["status"] == "canceled"
