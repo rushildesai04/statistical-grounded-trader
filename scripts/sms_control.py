@@ -14,6 +14,7 @@ Alpaca PAPER only.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -30,6 +31,8 @@ from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals, book, digest
 from sgt.ops.sms import Sms
 from sgt.ops.store import OpsStore, iso
+from sgt.pilot import book_real
+from sgt.pilot import runtime as pilot_runtime
 
 ET = ZoneInfo("America/New_York")
 SCRIPTS = Path(__file__).resolve().parent
@@ -145,9 +148,18 @@ def flatten(db: OpsStore, send) -> tuple[bool, str]:
         if cur:
             book.propose(db, send, strategy=strat, targets={k: 0.0 for k in cur}, fill_session=fill,
                          deadline=deadline(fill), label=f"{strat} FLATTEN")
+    real = ""
+    if pilot_runtime.enabled() or db.flag("pilot_fade_live") == "1":
+        try:
+            lines = asyncio.run(pilot_runtime.flatten(db, send))
+        except Exception:  # noqa: BLE001 - reported in plain words; entries are already off (kill flag)
+            log.exception("schwab pilot flatten failed")
+            lines = ["Schwab: pilot close did NOT finish; check the Schwab app"]
+        ok = ok and not any("NOT" in x or "FAILED" in x for x in lines)
+        real = "\n" + "\n".join(lines)
     db.audit("flatten", broker=broker, ok=ok)
     return ok, (f"FLATTEN {'done' if ok else 'INCOMPLETE'}: {broker}; book zeroed at {fill:%m-%d} close; "
-                "trading PAUSED (RESUME to restart).")
+                "trading PAUSED (RESUME to restart)." + real)
 
 
 # ------------------------------------------------------------------ commands
@@ -174,11 +186,15 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         voided = approvals.pause(db)
         return ("PAUSED: pending requests expired" + (f", {voided} approved entries cancelled" if voided else "")
                 + ". Exits still apply. RESUME to restart.")
+    if cmd.verb == "PAPER":
+        db.set_flag("pilot_fade_live", "0")
+        db.audit("paper", sid=sid)
+        return "PAPER: no new REAL fade shorts. Open real shorts still exit on their rules (stop held at Schwab)."
     if cmd.verb == "DISARM":
         approvals.disarm(db)
         return ("DISARMED: no new fast trades today, including auto-entries at expiry. Open fast trades still "
                 "exit on their rules.")
-    if cmd.verb in ("RESUME", "FLATTEN", "ARM") and cmd.code is None:
+    if cmd.verb in ("RESUME", "FLATTEN", "ARM", "REAL") and cmd.code is None:
         if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
             return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."
         return ""                                  # the challenge text is the reply
@@ -196,8 +212,20 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
             day = approvals.arm(db)
             approvals.finish(db, row["id"], True, f"armed {day}")
             return f"ARMED for {day}: fast alert-fade trades enter automatically (capped); each one is texted. DISARM or PAUSE stops new ones."
+        if action == "real":
+            if db.paused():
+                approvals.finish(db, row["id"], False, "paused")
+                return "Trading is PAUSED: RESUME first, then REAL."
+            if not pilot_runtime.enabled():
+                approvals.finish(db, row["id"], False, "pilot off on server")
+                return "REAL not switched on: the Schwab pilot is not enabled on the server yet."
+            db.set_flag("pilot_fade_live", "1")
+            approvals.finish(db, row["id"], True, "real on")
+            return ("REAL ON: on ARMed days each fade is also shorted at Schwab ($500/trade, stop held at Schwab). "
+                    "PAPER turns it off; FLATTEN closes the real positions.")
         if action == "resume":
             db.set_flag("paused", "0")
+            db.set_flag("pilot_kill", "0")         # RESUME is the owner's deliberate restart of the real pilot too
             db.audit("resume", sid=sid)
             approvals.finish(db, row["id"], True, "resumed")
             return "RESUMED: trading enabled."
@@ -210,6 +238,8 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         return out
     if row["kind"] == "book":
         return f"{reply}\n{book.apply_approved(db, row)}"
+    if row["kind"] == "pilot":                     # real 60/40 / turn-of-month: the pilotbook job sends it
+        return book_real.ask_reply(row)
     if row["kind"] == "fadeexit":                  # OK on an F5 exit offer = keep the trade; nothing to execute
         return reply
     if row["kind"] == "fade":                      # the fade listener claims it within ~10 s and texts the entry
@@ -412,14 +442,38 @@ def cmd_etf(db: OpsStore) -> int:
     return 0
 
 
+def cmd_pilot(db: OpsStore) -> int:
+    """Real-money 60/40 + turn-of-month at Schwab (sgt.pilot.book_real); off unless SGT_PILOT_SCHWAB=1."""
+    if not pilot_runtime.enabled():
+        return 0
+
+    async def go() -> list[str]:
+        sms = Sms()
+        handle = pilot_runtime.PilotHandle(db, sms.send)
+        try:
+            pilot = await handle.get()
+            if pilot is None:
+                return ["schwab not connected"]
+            await handle.login_check()
+            return await book_real.run(pilot, db, sms.send, pilot_runtime.iex_marks)
+        finally:
+            await handle.close()
+            sms.close()
+    out = asyncio.run(go())
+    if out:
+        print("pilot:", "; ".join(out))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf"])
+    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
-    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf}[args.cmd](db)
+    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf,
+            "pilot": cmd_pilot}[args.cmd](db)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ developer docs before trading live (see ``sgt.brokers.schwab`` for the full list
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -101,7 +102,15 @@ def intent_to_json(intent: OrderIntent) -> dict[str, Any]:
         "strategy_id": intent.strategy_id,
         "reason": intent.reason,
         "created_at": intent.created_at.isoformat(),
+        **({"short": True} if intent.short else {}),
     }
+
+
+def instruction(intent: OrderIntent) -> str:
+    """Schwab leg instruction: BUY / SELL, or SELL_SHORT / BUY_TO_COVER for a pilot short (F-4)."""
+    if intent.short:
+        return "SELL_SHORT" if intent.side is Side.SELL else "BUY_TO_COVER"
+    return intent.side.value.upper()
 
 
 def session_for(intent: OrderIntent, now: datetime,
@@ -130,7 +139,7 @@ def order_body(intent: OrderIntent, session: str) -> dict[str, Any]:
         "duration": _DURATION[intent.tif],
         "orderStrategyType": "SINGLE",
         "orderLegCollection": [{
-            "instruction": intent.side.value.upper(),
+            "instruction": instruction(intent),
             "quantity": intent.qty,
             "instrument": {"symbol": intent.symbol, "assetType": "EQUITY"},
         }],
@@ -148,7 +157,7 @@ def order_matches(order: dict[str, Any], intent: OrderIntent) -> bool:
     if len(legs) != 1:
         return False
     leg = legs[0]
-    if str(leg.get("instruction", "")).upper() != intent.side.value.upper():
+    if str(leg.get("instruction", "")).upper() != instruction(intent):
         return False
     if str(leg.get("instrument", {}).get("symbol", "")) != intent.symbol:
         return False
@@ -217,6 +226,32 @@ def account_state_from(account_id: str, payload: dict[str, Any]) -> AccountState
         buying_power=float(balances.get("buyingPower", 0.0)),
         positions=positions,
     )
+
+
+def filled(order: dict[str, Any]) -> tuple[int, float | None]:
+    """(cumulative filled shares, average fill price) from an order's execution legs (live pilot, 2026-11-05)."""
+    legs = execution_legs(order)
+    qty = sum(int(float(leg["quantity"])) for leg in legs)
+    if qty <= 0:
+        return 0, None
+    avg = sum(float(leg["quantity"]) * float(leg["price"]) for leg in legs) / qty
+    if not math.isfinite(avg) or avg <= 0:
+        raise ValueError(f"unreadable fill price on order {order.get('orderId')}")
+    return qty, avg
+
+
+def signed_positions(payload: dict[str, Any]) -> dict[str, int]:
+    """Net shares per symbol, short < 0 (F-4: ``account_state_from`` is long-only and drops shortQuantity).
+
+    Fails closed: a position row with a missing symbol or a non-numeric / non-finite quantity raises."""
+    out: dict[str, int] = {}
+    for p in (payload.get("securitiesAccount", {}) or {}).get("positions", []) or []:
+        sym = str((p.get("instrument") or {}).get("symbol") or "")
+        long_q, short_q = float(p.get("longQuantity", 0) or 0), float(p.get("shortQuantity", 0) or 0)
+        if not sym or not (math.isfinite(long_q) and math.isfinite(short_q)) or long_q < 0 or short_q < 0:
+            raise ValueError(f"unreadable Schwab position row for {sym or '?'}")
+        out[sym] = out.get(sym, 0) + int(long_q) - int(short_q)
+    return {k: v for k, v in out.items() if v}
 
 
 def working_ack(intent: OrderIntent, broker_order_id: str, now: datetime,

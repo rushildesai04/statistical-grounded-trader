@@ -6,6 +6,7 @@ primary_region = "iad"
   dockerfile = "Dockerfile"
 
 [env]
+  SGT_SECRET_STORE_DIR = "/data/sgt/secrets"   # rotating Schwab login (red-team F-1); 0700, sgt-owned
   SGT_MAX_ORDER_NOTIONAL = "75000"
 
 [[mounts]]

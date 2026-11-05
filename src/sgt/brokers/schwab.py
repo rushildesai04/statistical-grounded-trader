@@ -257,7 +257,9 @@ class SchwabBroker(BrokerAdapter):
             return await self._reconcile_after_failure(
                 intent, mapping.anchor_from_stored(stored, intent.created_at))
 
-        if intent.side is Side.SELL:
+        if intent.short:
+            await self._enforce_short_rules(intent)
+        elif intent.side is Side.SELL:
             await self._enforce_long_only(intent)
         if not claim_ledger_row(intent, _SUBMITTING, mapping.intent_to_json(intent), self._now()):
             # Another writer claimed this client_order_id after our lookup: take the
@@ -285,6 +287,74 @@ class SchwabBroker(BrokerAdapter):
                 f"long-only: SELL {intent.qty} {intent.symbol} exceeds available long "
                 f"position {available} (held={held}, working_sells={working}); "
                 "refusing to open or increase a short")
+
+    async def signed_positions(self) -> dict[str, int]:
+        """Net shares per symbol at the broker, short < 0 (live pilot, F-4)."""
+        resp = await self._request("GET", self._accounts_path(), retry=True, params={"fields": "positions"})
+        self._raise_for_status(resp, "positions")
+        return mapping.signed_positions(resp.json())
+
+    async def order_snapshot(self, broker_order_id: str, cid: str) -> tuple[OrderAck, int, float | None]:
+        """One order read: (ack, cumulative filled shares, average fill price). Live pilot sync (2026-11-05)."""
+        resp = await self._request("GET", self._accounts_path(f"/orders/{broker_order_id}"), retry=True)
+        self._raise_for_status(resp, "order")
+        order = resp.json()
+        qty, avg = mapping.filled(order)
+        return mapping.ack_from_order(cid, order, self._now()), qty, avg
+
+    async def order_snapshots(self) -> dict[str, tuple[OrderAck, int, float | None]]:
+        """Every order of the last 24 h in ONE call: broker id -> (ack, filled shares, avg price). The pilot syncs
+        each 10 s tick from this instead of one GET per order (Schwab caps requests per minute)."""
+        resp = await self._request("GET", self._accounts_path("/orders"), retry=True,
+                                   params=self._orders_window(24 * 60))
+        self._raise_for_status(resp, "orders")
+        out: dict[str, tuple[OrderAck, int, float | None]] = {}
+        for o in resp.json():
+            bid = str(o.get("orderId", ""))
+            if bid:
+                qty, avg = mapping.filled(o)
+                out[bid] = (mapping.ack_from_order(ledger.cid_for_order(bid), o, self._now()), qty, avg)
+        return out
+
+    async def account_flags(self) -> dict[str, Any]:
+        """Day-trade facts for the pilot's PDT guard (F-2): roundTrips, isDayTrader, isClosingOnlyRestricted and
+        equity. Field names per the Trader API account schema [VERIFY at phase 1 with scripts/schwab_check.py];
+        a missing field comes back as None and the guard treats it as unknown (no entry)."""
+        resp = await self._request("GET", self._accounts_path(), retry=True)
+        self._raise_for_status(resp, "account flags")
+        acct = resp.json().get("securitiesAccount", {}) or {}
+        bal = acct.get("currentBalances", {}) or {}
+        return {"round_trips": acct.get("roundTrips"), "day_trader": acct.get("isDayTrader"),
+                "closing_only": acct.get("isClosingOnlyRestricted"),
+                "equity": bal.get("equity", bal.get("liquidationValue"))}
+
+    async def _enforce_short_rules(self, intent: OrderIntent) -> None:
+        """Pilot shorts only (2026-11-05, F-4/F-8). SELL_SHORT is refused on a symbol the account holds long, so the
+        owner's shares are never involved. BUY_TO_COVER may not exceed the broker short quantity minus covers
+        already working (including the protective stop), so a stop that fills while a timed cover is in flight
+        can never leave the account long."""
+        if intent.order_type is OrderType.MARKET and intent.side is Side.SELL:
+            raise BrokerRejectedError("SELL_SHORT must be a limit order")
+        net = (await self.signed_positions()).get(intent.symbol, 0)
+        if intent.side is Side.SELL:
+            if net > 0:
+                raise BrokerRejectedError(f"SELL_SHORT {intent.symbol}: account holds {net} long; refusing")
+            return
+        resp = await self._request("GET", self._accounts_path("/orders"), retry=True,
+                                   params=self._orders_window(24 * 60))
+        self._raise_for_status(resp, "working-covers")
+        working = 0
+        for o in resp.json():
+            legs = o.get("orderLegCollection") or []
+            ack = mapping.ack_from_order("", o, self._now())
+            if (ack.status in mapping.OPEN_STATUSES and ack.symbol == intent.symbol and legs
+                    and str(legs[0].get("instruction", "")).upper() == "BUY_TO_COVER"):
+                working += int(ack.remaining_qty or 0)
+        available = -net - working
+        if intent.qty > available:
+            raise BrokerRejectedError(
+                f"cover cap: BUY_TO_COVER {intent.qty} {intent.symbol} exceeds broker short {-net} minus "
+                f"{working} working covers")
 
     async def _working_sell_qty(self, symbol: str, exclude_cid: str) -> int:
         resp = await self._request("GET", self._accounts_path("/orders"), retry=True,
