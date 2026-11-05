@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from sgt.fast import signals
+
 ET = ZoneInfo("America/New_York")
 TEMPLATE = Path(__file__).with_name("templates") / "trade_charts.html"
 # The runner's chart server sends the page as is, so it needs its own document head (an Artifact publish adds one).
@@ -68,7 +70,8 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     entered = pd.Timestamp(t["entry_ts"] if settled else (t.get("est_entry_at") or t["posted_at"]))
     exited = pd.Timestamp(t["est_exit_at"]) if t.get("est_exit_at") else None
     lo, hi = alert - PAD_BEFORE, (exited or entered) + PAD_AFTER
-    w = b[(b.ts >= lo) & (b.ts <= hi)]
+    mask = (b.ts >= lo) & (b.ts <= hi)
+    w = b[mask]
     times = [et_epoch(x) for x in w.ts]
     candles = [{"time": tt, "open": _num(r.open), "high": _num(r.high), "low": _num(r.low), "close": _num(r.close)}
                for tt, r in zip(times, w.itertuples(index=False))]
@@ -77,6 +80,14 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     vwap = [{"time": tt, "value": _num(v)} for tt, v in zip(times, w.vwap) if _num(v) is not None]
     ema = {k: [{"time": tt, "value": _num(v)} for tt, v in zip(times, w[k]) if _num(v) is not None]
            for k in ("ema9", "ema21")}
+    # Tape oscillators (owner request 2026-11-05): causal RSI / MACD over the whole session, shown for the window.
+    ser = signals.series(b)
+    sel = {k: [v for v, keep in zip(ser[k], mask) if keep] for k in ser}
+    # One point per candle (value None = whitespace) so the panes' bar indices line up with the main chart for sync.
+    rsi = [{"time": tt, "value": v} for tt, v in zip(times, sel["rsi"])]
+    macd = [{"time": tt, "line": m, "signal": s, "hist": h}
+            for tt, m, s, h in zip(times, sel["macd"], sel["signal"], sel["hist"])]
+    sig = signals.snapshot(b, entered)       # the day-trader read of the tape at the short entry
     # settled = the official SIP result at the tested timing; otherwise the live IEX estimate
     entry, exit_px = ((_num(t.get("entry")), _num(t.get("cover"))) if settled else
                       (_num(t.get("est_entry")), _num(t.get("est_exit"))))
@@ -94,7 +105,8 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
         "entry": entry, "exit": exit_px, "stop": entry * (1 + STOP) if entry else None,
         "ret": ret, "official": official is not None, "usd": usd,
         "conf": t.get("conf"), "news": bool(t.get("news_own")), "headline": t.get("news_head"),
-        "candles": candles, "volume": volume, "vwap": vwap, **ema, "markers": [m for m in markers if m["time"] is not None],
+        "candles": candles, "volume": volume, "vwap": vwap, **ema, "rsi": rsi, "macd": macd, "signals": sig,
+        "markers": [m for m in markers if m["time"] is not None],
     }
 
 

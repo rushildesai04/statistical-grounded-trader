@@ -75,3 +75,22 @@ def test_ema_9_21_lines_ride_along_for_display():
     v = charts.trade_view(TRADE, bars())
     assert len(v["ema9"]) == len(v["ema21"]) == len(v["candles"])
     assert all(x["value"] == pytest.approx(4.0) for x in v["ema9"] + v["ema21"])    # flat bars: flat EMAs
+
+
+def test_tape_oscillators_align_to_candles_and_signals_at_entry():
+    v = charts.trade_view(TRADE, bars())
+    # one point per candle (whitespace carries None) so the synced panes keep bar indices aligned with the chart
+    assert len(v["rsi"]) == len(v["macd"]) == len(v["candles"])
+    assert {"time", "value"} == set(v["rsi"][0]) and {"time", "line", "signal", "hist"} == set(v["macd"][0])
+    assert all(x["value"] is None for x in v["rsi"])                 # flat closes: Wilder RSI undefined all day
+    sig = v["signals"]
+    assert sig["vwap_dist_pct"] == pytest.approx(0.0) and sig["ema9_21_gap_pct"] == pytest.approx(0.0)
+    assert sig["psar_side"] in (-1.0, 1.0) and sig["minutes_since_open"] is not None
+
+
+def test_signals_values_are_json_safe_and_cannot_break_out():
+    evil = {**TRADE, "symbol": "</script><x>"}
+    html = charts.render([charts.trade_view(evil, bars())], datetime(2026, 11, 5, 17, tzinfo=timezone.utc))
+    data = re.search(r"const DATA = (.*?);\n", html).group(1)
+    assert "<" not in data                                           # untrusted symbol + numeric signals stay inside
+    assert json.loads(data)["trades"][0]["symbol"] == evil["symbol"]
