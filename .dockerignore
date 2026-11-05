@@ -2,4 +2,5 @@
 !src
 !scripts
 !deploy/fly
+!config/models
 **/__pycache__
