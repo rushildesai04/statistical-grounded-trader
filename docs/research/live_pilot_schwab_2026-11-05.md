@@ -85,8 +85,9 @@ measure real fills and borrow coverage; size goes up as soon as real results tra
 
 ## Go-live runbook (owner, in order)
 1. developer.schwab.com: app "Trader API - Individual", callback `https://127.0.0.1`; wait for "Ready For Use".
-2. Mac: store the app key/secret in the keychain (prompted by `scripts/schwab_auth.py`, never pasted in chat), log in,
-   then `python scripts/schwab_auth.py --push-fly` (also every ~7 days; the server texts a reminder on day 6).
+2. Mac: store the app key and secret in the keychain (each command prompts for the value; never paste them in chat):
+   `security add-generic-password -s sgt -a schwab_app_key -w` and the same with `-a schwab_app_secret`.
+   Then log in: `python scripts/schwab_auth.py --push-fly` (repeat every ~7 days; the server texts a reminder on day 6).
 3. `fly secrets set SGT_SECRET_SCHWAB_ACCOUNT_LAST4=<last 4 digits> -a sgt-runner` (margin account).
 4. Mac: `python scripts/schwab_check.py --last4 <digits>`: must show the day-trade fields present and the margin hint.
 5. `fly secrets set SGT_PILOT_SCHWAB=1 -a sgt-runner`, then during market hours on the runner:
