@@ -48,6 +48,11 @@ class FakeBroker:
         o = self.orders[bid]
         return OrderAck(cid, bid, o["status"], T0), o["cum"], o["avg"]
 
+    async def order_snapshots(self):
+        self.list_calls = getattr(self, "list_calls", 0) + 1
+        return {bid: (OrderAck(o["intent"].client_order_id, bid, o["status"], T0), o["cum"], o["avg"])
+                for bid, o in self.orders.items()}
+
     async def signed_positions(self):
         return dict(self.positions)
 

@@ -302,6 +302,32 @@ class SchwabBroker(BrokerAdapter):
         qty, avg = mapping.filled(order)
         return mapping.ack_from_order(cid, order, self._now()), qty, avg
 
+    async def order_snapshots(self) -> dict[str, tuple[OrderAck, int, float | None]]:
+        """Every order of the last 24 h in ONE call: broker id -> (ack, filled shares, avg price). The pilot syncs
+        each 10 s tick from this instead of one GET per order (Schwab caps requests per minute)."""
+        resp = await self._request("GET", self._accounts_path("/orders"), retry=True,
+                                   params=self._orders_window(24 * 60))
+        self._raise_for_status(resp, "orders")
+        out: dict[str, tuple[OrderAck, int, float | None]] = {}
+        for o in resp.json():
+            bid = str(o.get("orderId", ""))
+            if bid:
+                qty, avg = mapping.filled(o)
+                out[bid] = (mapping.ack_from_order(ledger.cid_for_order(bid), o, self._now()), qty, avg)
+        return out
+
+    async def account_flags(self) -> dict[str, Any]:
+        """Day-trade facts for the pilot's PDT guard (F-2): roundTrips, isDayTrader, isClosingOnlyRestricted and
+        equity. Field names per the Trader API account schema [VERIFY at phase 1 with scripts/schwab_check.py];
+        a missing field comes back as None and the guard treats it as unknown (no entry)."""
+        resp = await self._request("GET", self._accounts_path(), retry=True)
+        self._raise_for_status(resp, "account flags")
+        acct = resp.json().get("securitiesAccount", {}) or {}
+        bal = acct.get("currentBalances", {}) or {}
+        return {"round_trips": acct.get("roundTrips"), "day_trader": acct.get("isDayTrader"),
+                "closing_only": acct.get("isClosingOnlyRestricted"),
+                "equity": bal.get("equity", bal.get("liquidationValue"))}
+
     async def _enforce_short_rules(self, intent: OrderIntent) -> None:
         """Pilot shorts only (2026-11-05, F-4/F-8). SELL_SHORT is refused on a symbol the account holds long, so the
         owner's shares are never involved. BUY_TO_COVER may not exceed the broker short quantity minus covers

@@ -35,6 +35,7 @@ class Broker(Protocol):
     async def submit(self, intent: OrderIntent) -> OrderAck: ...
     async def cancel(self, client_order_id: str) -> OrderAck: ...
     async def order_snapshot(self, broker_order_id: str, cid: str) -> tuple[OrderAck, int, float | None]: ...
+    async def order_snapshots(self) -> dict[str, tuple[OrderAck, int, float | None]]: ...
     async def signed_positions(self) -> dict[str, int]: ...
 
 
@@ -134,13 +135,15 @@ class Pilot:
     async def sync(self) -> list[str]:
         """Bring every open pilot order up to date from the broker; returns notes for the owner."""
         notes: list[str] = []
-        for row in ledger.open_orders(self.db):
-            note = await self._sync_one(row)
+        rows = ledger.open_orders(self.db)
+        snaps = await self.broker.order_snapshots() if any(r["broker_order_id"] for r in rows) else {}
+        for row in rows:
+            note = await self._sync_one(row, snaps)
             if note:
                 notes.append(note)
         return notes
 
-    async def _sync_one(self, row: Any) -> str | None:
+    async def _sync_one(self, row: Any, snaps: dict | None = None) -> str | None:
         cid, now = row["client_order_id"], self.clock()
         bid = row["broker_order_id"]
         if not bid:
@@ -155,7 +158,8 @@ class Pilot:
                 return None                                    # another process is sending it right now
             else:
                 return f"{row['symbol']} order {cid}: outcome unknown at Schwab; its budget stays held"
-        ack, cum, avg = await self.broker.order_snapshot(bid, cid)
+        snap = (snaps or {}).get(bid)
+        ack, cum, avg = snap if snap is not None else await self.broker.order_snapshot(bid, cid)
         if cum and avg:
             ledger.fill(self.db, cid, min(cum, int(row["qty"])), avg, now=now)
         if ack.status in _TERMINAL:

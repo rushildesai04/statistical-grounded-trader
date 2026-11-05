@@ -39,6 +39,8 @@ from sgt.intraday.sources import AlpacaHistoricalBars
 from sgt.intraday.store import ParquetBarStore
 from sgt.ops.sms import Sms
 from sgt.ops.store import OpsStore, utcnow
+from sgt.pilot import fade_real
+from sgt.pilot.runtime import PilotHandle
 from telegram_alert_test import attach_trades, primary_events
 
 log = logging.getLogger("fade_live")
@@ -216,12 +218,24 @@ async def run() -> int:
                 log.exception("channel catch-up failed")
             await asyncio.sleep(POLL_EVERY)
 
+    real = PilotHandle(db, send)               # Schwab real-money pilot; None unless SGT_PILOT_SCHWAB=1
+
     async def loop():
+        n = 0
         while True:
             try:
                 await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
+            try:
+                pilot = await real.get()
+                if pilot is not None:
+                    await fade_real.step(pilot, db, quote, send, pilot.broker.account_flags)
+                    if n % 360 == 0:            # hourly
+                        await real.login_check()
+            except Exception:  # noqa: BLE001 - real-money step must never stop the paper book; logged
+                log.exception("real fade step failed")
+            n += 1
             await asyncio.sleep(TICK)
 
     await client.start()
@@ -234,6 +248,7 @@ async def run() -> int:
     finally:
         for t in tasks:
             t.cancel()
+        await real.close()
         dc.close()
         ac.close()
     return 1                                   # disconnected: exit non-zero so the supervisor restarts us
