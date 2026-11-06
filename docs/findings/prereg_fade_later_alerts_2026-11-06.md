@@ -41,3 +41,9 @@ time + 10 s (the live reaction), unless the 20% stop was hit first. Otherwise th
 studies (paired per-session vs champion, session bootstrap 10,000, seed 20261106, one-sided lower bound > 0 at alpha
 0.05, 1st percentile no worse than champion - 5 pts); champion guard; held-out secondary. Secondary: share of trades
 re-alerted during the hold, their net held vs covered.
+
+## Addendum A result (2026-11-06, run once, trial ledger `fade-realert-2026-11-06-dev`) — FAIL
+Champion guard passed. X-REALERT +0.56%/trade vs champion +0.97% (train; diff/session -2.73%, lower 95% -4.68%);
+held-out (secondary) +0.75% vs +1.12%. A third of trades are re-alerted during the hold (32% / 37%); those lose
+-4.6% / -4.7% if held, and -5.9% / -5.7% if covered at the re-alert. Reading: the channel re-alerts on new highs, i.e.
+at the top of the squeeze; covering there buys back at the worst price before the fade resumes.
