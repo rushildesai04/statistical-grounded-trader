@@ -500,3 +500,12 @@ def test_live_bars_feed_the_chart_read_and_tolerate_junk():
                               "psar_side": 1.0, "pvt_trend": -1.0, "off_hod_pct": 0.0})
     assert line.startswith("📈 RSI 91 · EMA9 above 21 (+2.1%) · MACD fading · 4/6 reads favor the short")
     assert fade.signals_line(None) is None and fade.signals_line({}) is None
+
+
+def test_time_of_day_history_line_by_entry_window():
+    ctx = {"news": {"news_any": 0, "news_own": 0, "news_earn": 0}}
+    t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc))
+    assert "🕐 Before 11:00 ET" in t and fade.tod_hist(datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc))[1] == 0.0058
+    t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 19, 30, tzinfo=timezone.utc))
+    assert "🕐 After 14:00 ET" in t                                              # 14:30 ET
+    assert "🕐" not in fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "")
