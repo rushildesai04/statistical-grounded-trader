@@ -94,3 +94,15 @@ def test_signals_values_are_json_safe_and_cannot_break_out():
     data = re.search(r"const DATA = (.*?);\n", html).group(1)
     assert "<" not in data                                           # untrusted symbol + numeric signals stay inside
     assert json.loads(data)["trades"][0]["symbol"] == evil["symbol"]
+
+
+def test_learning_scoreboard_rows_are_sanitized_for_the_page():
+    rows = [{"challenger": "</script><b>X</b>", "prereg": "p", "n": 34, "champ": -0.0148, "chal": float("nan"),
+             "diff": 0.07, "lower": None, "status": "collecting 34/300", "extra": "dropped"}]
+    clean = charts.learning_rows(rows)
+    assert clean == [{"challenger": "</script><b>X</b>", "prereg": "p", "n": 34.0, "champ": -0.0148, "chal": None,
+                      "diff": 0.07, "lower": None, "status": "collecting 34/300"}]
+    html = charts.render([charts.trade_view(TRADE, bars())], datetime(2026, 11, 6, 17, tzinfo=timezone.utc),
+                         learning=rows)
+    assert "</script><b>" not in html and '"learning": [{"challenger": "\\u003c/script>' in html
+    assert charts.learning_rows(None) == []

@@ -91,7 +91,12 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
             if cache[key].empty:
                 continue
             views.append(charts.trade_view(t, cache[key], dollars(t, db)))
-    return charts.render(views, now, standalone=standalone)
+    board = Path("reports/learning/scoreboard.json")
+    try:
+        learning = json.loads(board.read_text()).get("rows") if board.exists() else None
+    except (OSError, ValueError):
+        learning = None                                  # the page still renders without the scoreboard
+    return charts.render(views, now, standalone=standalone, learning=learning)
 
 
 def main() -> int:
