@@ -101,7 +101,10 @@ At 15:50 ET each day it predicts the next close-to-close move per stock and goes
 each month predicted by a model trained on earlier months). Out of sample 2018-2026 on 20 large caps it beats simply
 holding on NONE of them: best GOOGL Sharpe 0.74 vs hold 0.76 (+12%/yr vs +24%/yr); NVDA +10%/yr vs +55%/yr; six
 names lose outright; hit rates 44-55%. AAOI (the trader's pick, `prereg_aaoi_daily_2026-11-06`): -6.7%/yr vs hold
-+54%/yr, FAIL. The live forward test on the original six (since 2026-10-30) took 11 calls in
++54%/yr, FAIL.
+As a TIMING OVERLAY (hold, but step aside on its short days; `prereg_megacap_overlay_2026-11-06`) it raises Sharpe on
+14 of 21 names and cuts drawdowns on all six development names (NVDA 1.11 -> 1.23), but only 7 of 12 unseen names:
+a nightly forward shadow decides at 300 symbol-days. The live forward test on the original six (since 2026-10-30) took 11 calls in
 5 sessions, 10 profitable (+1.6% average); far too few to judge. Kept as a forward test, not a money strategy.
 
 ## 7. Open questions and decision points
