@@ -46,3 +46,14 @@ def test_failed_pullback_without_a_pullback_keeps_the_champion():
     rows = [(10, 10.2, 9.9, 10.0)] * 70
     g, early = confirm.failpb_gross(ind(rows), T0, 10.0)
     assert not early and g == pytest.approx(0.0)
+
+
+def test_breakeven_exit_only_after_being_underwater():
+    rows = [(10, 10.3, 9.9, 10.2), (10.2, 10.7, 10.2, 10.6),     # close 10.6 >= 10.5: underwater
+            (10.6, 10.6, 10.0, 10.05),                           # back to <= 10.10: cover at next open
+            (10.08, 10.1, 9.0, 9.1)] + [(9.0, 9.1, 8.0, 8.0)] * 70
+    g, early = confirm.breakeven_gross(ind(rows), T0, 10.0)
+    assert early and g == pytest.approx((10.0 - 10.08) / 10.0)
+    rows2 = [(10, 10.2, 9.5, 9.6)] + [(9.6, 9.7, 9.0, 9.1)] * 70  # never underwater: champion
+    g, early = confirm.breakeven_gross(ind(rows2), T0, 10.0)
+    assert not early and g == pytest.approx(0.09)

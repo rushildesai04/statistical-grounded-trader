@@ -57,3 +57,10 @@ it back close to your entry (roughly breakeven)". X-BE (fixed): champion entry; 
 ABOVE the entry (the short is underwater), cover at the next bar's open the first time a close is back at or below
 entry x 1.01 (about breakeven). Otherwise the champion's exit. Same gate as above at alpha 0.05 (one new rule), same
 data, run once; held-out secondary. Secondary: share covered early and early-cover net vs if held.
+
+## Addendum B result (2026-11-06, run once, trial ledger `fade-breakeven-2026-11-06-dev`) — FAIL
+Champion guard passed. X-BE: training +0.38%/trade vs champion +0.97% (diff/session -3.93%, lower 95% -5.72%);
+held-out (secondary) +0.01% vs +1.12%. It exits 29% of trades early; those earned +0.28% at breakeven vs +2.30% if
+held (training) and +0.36% vs +4.21% (held-out). Reading: a fade that goes 5% against us and then comes back to the
+entry usually keeps falling; the breakeven exit gives away the best trades. With the trail, VWAP, EMA, target,
+learned and failed-pullback exits this is the eighth exit that loses to the 60-minute hold.

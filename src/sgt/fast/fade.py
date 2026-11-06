@@ -424,6 +424,10 @@ def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[s
         rows = c.execute("SELECT status, net FROM fade_trades WHERE session=?", (s,)).fetchall()
         n_all = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status='settled'").fetchone()[0]
         ib = c.execute("SELECT COUNT(*), AVG(net) FROM fade_trades WHERE status='settled' AND ib_avail > 0").fetchone()
+        # RAYA review 2026-11-06: news-type alerts or company news earned ~0 historically; owner kept trading them,
+        # so the live record shows the split nightly for the n >= 300 decision.
+        nw = c.execute("SELECT (alert_type='news' OR news_own=1) AS nw, COUNT(*), AVG(net) FROM fade_trades "
+                       "WHERE status='settled' GROUP BY nw").fetchall()
     if not rows and not n_all:
         return warn
     st = [r for r in rows if r["status"] == "settled"]
@@ -436,4 +440,7 @@ def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[s
     line += (f", {sk} skipped" if sk else "") + (f", {wait} unsettled" if wait else "")
     if n_all:                                 # the subset that could really be shorted (IBKR had shares)
         line += f"; IBKR-borrowable {ib[0]} trades" + (f" avg {ib[1]:+.2%}" if ib[0] else "")
+        split = {bool(r[0]): (r[1], r[2]) for r in nw}
+        line += "; " + ", ".join(f"{lab} {split[k][0]} avg {split[k][1]:+.2%}" for k, lab in
+                                 ((True, "news"), (False, "no-news")) if k in split)
     return [line] + warn

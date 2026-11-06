@@ -58,3 +58,23 @@ def failpb_gross(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float) -> tup
             return (entry - o[i + 1]) / entry, True
         hp, pulled = max(hp, h[i]), pulled or c[i] <= entry * (1 - PULLBACK)
     return champ["gross"], False
+
+
+UNDER, BE = 0.05, 0.01
+
+
+def breakeven_gross(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float) -> tuple[float, bool] | None:
+    """X-BE (owner's review 2026-11-06): once a close is >= 5% above the entry (underwater), cover at the next open the
+    first time a close is back at or below entry x 1.01. Returns (gross, covered_early); otherwise the champion's."""
+    champ = simulate(ind, entry_ts, entry, CHAMPION)
+    if champ is None:
+        return None
+    i0 = int(np.flatnonzero((ind.ts >= entry_ts).to_numpy())[0])
+    exit_i = i0 + champ["minutes"] - 1
+    o, c = ind.open.to_numpy(float), ind.close.to_numpy(float)
+    under = False
+    for i in range(i0, exit_i):
+        if under and c[i] <= entry * (1 + BE):
+            return (entry - o[i + 1]) / entry, True
+        under = under or c[i] >= entry * (1 + UNDER)
+    return champ["gross"], False
