@@ -37,3 +37,20 @@ Run-up 3% / 10%; volume burst 3x / 10x; without the new-high condition; by entry
 share of events that are within 5 minutes of a channel alert on the same symbol-day (overlap); mean net of overlapping
 vs non-overlapping events.
 Trial ledger run ids `self-fade-2026-11-06-dev`, `self-fade-2026-11-06-holdout`.
+
+## Result (2026-11-06, training run once, trial ledger `self-fade-2026-11-06-dev`) — FAIL; held-out stays sealed
+517 self-detected spikes, 2024-10-01 .. 2025-12-31 (peak memory 0.15 GB, streamed).
+
+| | n | mean net | note |
+|---|---|---|---|
+| primary (5% in 5 min, 5x volume, new high) | 517 | -1.23% (gross +0.11%, lower 95% -2.10%) | halves -1.02% / -1.44%; 19% stopped |
+| run-up 3% / 10% | 722 / 263 | -1.42% / -1.28% | |
+| volume 3x / 10x | 830 / 199 | -1.10% / -0.31% | |
+| no new-high condition | 895 | -1.21% | |
+| by entry: before 11 / 11-14 / after 14 | 303 / 179 / 35 | -1.08% / -1.29% / -2.25% | |
+| within 5 min of a channel alert (3.9%) | ~20 | +4.71% | small n |
+| not alerted by the channel | ~497 | -1.47% | |
+
+Reading: generic price/volume spikes in gappers barely drift down (gross +0.11%) and lose after the 0.9% spread and
+0.5% locate. The few spikes the channel also alerted fell hard. The fade's edge is the channel's SELECTION (whatever
+it sees beyond price and volume), not the spike pattern; the live book depends on that channel. Held-out sealed.
