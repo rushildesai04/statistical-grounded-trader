@@ -61,7 +61,8 @@ def evaluate(t: pd.DataFrame, mid: str, min_n: int) -> dict:
 def run(lo: str, hi: str) -> pd.DataFrame:
     store = ParquetBarStore("data/alpaca")
     prim = primary_events(attach_trades(load_alerts(DB, CHANNEL), store))
-    prim = prim[(prim.session.astype(str) >= lo) & (prim.session.astype(str) <= hi)]
+    prim = prim.assign(session=prim.session.astype(str))          # score() reads ISO strings
+    prim = prim[(prim.session >= lo) & (prim.session <= hi)]
     ev = later_events(prim).reset_index(drop=True)
     sc = score(ev, store)
     return ev.assign(net=sc.net.to_numpy(), gross=sc.gross.to_numpy())
