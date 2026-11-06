@@ -94,3 +94,12 @@ def test_paired_compares_only_events_both_legs_traded():
                       "net_X-EMA": [0.01, 0.30, -0.02], "how_X-EMA": ["cap"] * 3, "min_X-EMA": [60.0] * 3})
     p = fade_exits.paired(t, "X-EMA", np.random.default_rng(0))
     assert p["mean_daily_diff"] == 0.0 and p["sessions"] == 2      # the 0.30 the champion never traded is ignored
+
+
+def test_long_mirror_stops_below_and_exits_at_the_cap():
+    from sgt.fast.exits import simulate_long
+
+    s = simulate_long(frame([10.0] * 30 + [11.0] * 40), T0, 10.0)
+    assert s == {"gross": pytest.approx(0.1), "how": "cap", "minutes": 60}
+    s = simulate_long(frame([10.0] * 5 + [7.5] * 65, lows=[10.0] * 5 + [7.5] * 65, opens=[10.0] * 5 + [7.5] * 65), T0, 10.0)
+    assert s["how"] == "stop" and s["gross"] == pytest.approx(-0.25)          # gapped through 8.00: fills at the open
