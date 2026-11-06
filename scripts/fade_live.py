@@ -55,10 +55,15 @@ FORWARD_START = datetime(2026, 10, 30, tzinfo=timezone.utc)   # alert_fade_forwa
 MAX_FADE_TEXTS_DAY = 40
 MAX_PILOT_TEXTS_DAY = 150                       # real-money texts: own counter, never crowded out by paper
 VOID_AFTER = timedelta(days=3)                 # SIP bars still missing after this -> void
+STALE_QUOTE = timedelta(seconds=90)            # older IEX print = halted / no trading: not a price (RAYA 2026-11-06)
 _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
 
 
-def iex_quote(client: httpx.Client):
+def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
+    """Latest IEX trade price, or None when there is no FRESH trade. Review 2026-11-06 (RAYA): an alert arrived during a
+    LULD halt and the book 'entered' at the last pre-halt print ($1.425) while the stock reopened at $1.52. A trade
+    older than STALE_QUOTE (halted, or no IEX print) is not a price; entry then waits for real trading, exactly like
+    the research rule (first bar after the alert, within 5 minutes)."""
     def quote(symbol: str) -> float | None:
         if not _SYMBOL.match(symbol):
             return None
@@ -66,7 +71,12 @@ def iex_quote(client: httpx.Client):
             r = client.get(f"/v2/stocks/{symbol}/trades/latest", params={"feed": "iex"})
             if r.status_code != 200:
                 return None
-            p = float(r.json().get("trade", {}).get("p", 0))
+            t = r.json().get("trade", {})
+            p = float(t.get("p", 0))
+            at = pd.Timestamp(str(t.get("t", ""))).to_pydatetime(warn=False)   # nanosecond ISO from Alpaca
+            if at.tzinfo is None or now() - at > STALE_QUOTE:
+                log.info("quote %s stale (%s): treated as no price", symbol, at.isoformat())
+                return None
             return p if p > 0 else None
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             log.warning("quote %s failed: %s", symbol, type(exc).__name__)

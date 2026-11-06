@@ -510,3 +510,19 @@ def test_time_of_day_history_line_by_entry_window():
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 19, 30, tzinfo=timezone.utc))
     assert "🕐 After 14:00 ET" in t                                              # 14:30 ET
     assert "🕐" not in fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "")
+
+
+def test_quote_ignores_stale_prints_during_a_halt():
+    import httpx
+
+    now = datetime(2026, 11, 6, 14, 39, 54, tzinfo=timezone.utc)          # RAYA: alert during a LULD halt
+    prints = {"RAYA": "2026-11-06T14:37:41.123456789Z", "LIVE": "2026-11-06T14:39:50.5Z", "BAD": "not-a-time"}
+
+    def handler(req):
+        sym = req.url.path.split("/")[3]
+        return httpx.Response(200, json={"trade": {"p": 1.425, "t": prints[sym]}})
+
+    q = fl.iex_quote(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)), now=lambda: now)
+    assert q("RAYA") is None                    # last print 2+ minutes old: halted, not a price
+    assert q("LIVE") == 1.425
+    assert q("BAD") is None
