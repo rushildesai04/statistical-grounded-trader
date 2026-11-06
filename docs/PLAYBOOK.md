@@ -32,22 +32,25 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    90 min +1.14%, 2 h +1.05%, to the close +0.75% (train). Entering 2-4 minutes late loses most of the edge.
 4. **Squeeze-then-fade.** These stocks bounce hard inside the hour and then fall again. Any rule that reacts to a
    bounce (trail, VWAP, EMA cross, failed pullback, breakeven) covers right before the second leg down.
-5. **Hindsight always finds an exit.** 84% of fades show at least +3% profit at some point in the hour (75% show +5%).
+5. **Re-alerts mark the squeeze top.** A third of fades get re-alerted during the hold (on new highs); they lose
+   -4.6% if held but -5.9% if covered at the re-alert. A repeat alert an hour later means a sustained run: fading
+   it loses -3.19%/trade. Trade the first alert only.
+6. **Hindsight always finds an exit.** 84% of fades show at least +3% profit at some point in the hour (75% show +5%).
    A chart review of any loser will find a "best exit"; that is not a rule.
-6. **Underwater trades that come back usually keep falling.** Fades that went 5% against us and returned to the entry
+7. **Underwater trades that come back usually keep falling.** Fades that went 5% against us and returned to the entry
    then earned +2.30% (train) / +4.21% (held-out) more by holding.
-7. **The stop is a trade-off, not a free fix.** No stop +2.31%/trade on train but with -78% worst cases; 20% stop
+8. **The stop is a trade-off, not a free fix.** No stop +2.31%/trade on train but with -78% worst cases; 20% stop
    +1.47% (exploration on train). About 25% of fades lose more than 15%. RAYA (2026-11-06) was stopped at the top of
    its squeeze and fell back below our entry 15 minutes later.
-8. **Borrow is the real-money question.** Names Alpaca can short lost -0.55%/trade held-out; live stamps show the
+9. **Borrow is the real-money question.** Names Alpaca can short lost -0.55%/trade held-out; live stamps show the
    biggest winners (CRIS, AEHL) had zero IBKR shares. Decided at forward n >= 300 on the IBKR-borrowable subset.
-9. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
+10. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
    setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs (`ema_cross_check_2026-11-05`,
    `docs/research/signals_research_2026-11-05.md`). They are shown in texts as context, never as filters.
-10. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
+11. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
    volume, new high; 517 in training) fade only +0.11% before costs, -1.23% after; the 4% the channel also alerted
    earned +4.7% (`prereg_self_fade_2026-11-06`). The book depends on that channel staying as it is.
-11. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
+12. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
    far is negative (n 34). In shadow until n >= 300.
 
 ## 4. Rules tested and rejected (do not re-test without a new reason)
@@ -66,6 +69,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | enter 2 / 4 minutes late | +0.14% / -0.21% | +0.28% / +0.61% | prereg_fade_challengers_2026-11-04 |
 | skip-filter model v1 | total profit not higher | - | prereg_fade_meta_2026-11-04 |
 | SEC filings split (8-K today, offering 30 d) | no reliable split | flips sign | prereg_fade_filings_2026-11-05 |
+| fade the channel's later alerts (repeat after 60 min) | -3.19% (n 402) | not scored | prereg_fade_later_alerts_2026-11-06 |
+| cover when the channel re-alerts during the hold | +0.56% | +0.75% | same, addendum A |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
 | other strategies: trader rules, ORB stocks-in-play, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
 
@@ -87,7 +92,7 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
   a prereg amendment and becomes the live rule. A worse one is retired. Nothing is promoted automatically.
 - Live data feeds the next questions: borrow stamps, StockTwits buzz, signals at entry, news and filings per trade.
 - **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
-  receiving it is flagged the same night, because the edge is the channel's selection (finding 10).
+  receiving it is flagged the same night, because the edge is the channel's selection (finding 11).
 
 ## 7. Open questions and decision points
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
