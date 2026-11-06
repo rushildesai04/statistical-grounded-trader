@@ -109,6 +109,16 @@ def tod_hist(at: datetime) -> tuple[float, float, str]:
     return next(v for cut, v in TOD_HIST if m < cut)
 
 
+def social_line(st: dict | None) -> str | None:
+    """StockTwits attention at the alert (owner decision 2026-11-06). Recorded forward; not a tested filter."""
+    if not st or st.get("st_span_min") is None:
+        return None
+    watch = st.get("st_watch")
+    w = f" · {watch / 1e3:.0f}k watching" if watch and watch >= 1000 else (f" · {watch} watching" if watch else "")
+    return (f"🗣 StockTwits: {st['st_n60']} posts last hour ({st['st_bull']} bull / {st['st_bear']} bear); latest 30 "
+            f"span {st['st_span_min']:.0f} min{w} " + italic("(retail buzz, recorded, not a tested filter)"))
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None,
              at: datetime | None = None) -> str:
@@ -135,6 +145,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         hw, ha, _ = FILING_HIST["8k" if fl.get("eightk_today") else ("dil" if fl.get("dilution_30d") else "no_dil")]
         lines.append(f"📄 SEC: {sec}" + (" · 8-K/6-K today" if fl.get("eightk_today") else "")
                      + " " + italic(f"(past fades like this: win {hw:.0%}, avg {ha:+.1%})"))
+    line = social_line(ctx.get("social"))
+    if line:
+        lines.append(line)
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:
         why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")
