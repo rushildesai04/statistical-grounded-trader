@@ -1,0 +1,203 @@
+<title>SGT Model Tape</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: the same desk as the Fade Tape. A scoreboard of every ticker (model vs simply holding), then one card per
+   ticker: six months of daily candles with the model's calls, and its equity against buy-and-hold since 2018. */
+:root {
+  --bg: #eef1f5; --panel: #ffffff; --ink: #141a24; --muted: #5d6878; --rule: #d8dee7; --grid: #edf0f4;
+  --accent: #3346d3; --hold: #8a94a6; --up: #12875a; --down: #cf3b2f;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
+  --accent: #8a9bff; --hold: #6b7588; --up: #34c486; --down: #ff6a5c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
+  --accent: #8a9bff; --hold: #6b7588; --up: #34c486; --down: #ff6a5c; color-scheme: dark }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1160px; margin: 0 auto; padding-block: 18px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.who { display: grid; line-height: 1.05; }
+.who b { font: 800 24px var(--display); }
+.who span { font: 500 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.status { margin-left: auto; font: 500 12px var(--mono); color: var(--muted); border: 1px solid var(--rule);
+  background: var(--panel); border-radius: 999px; padding: 6px 12px; }
+h1 { font: 800 clamp(32px, 6vw, 48px)/1 var(--display); margin: 0; text-wrap: balance; }
+h1 em { font-style: normal; color: var(--accent); }
+.lede { color: var(--muted); margin: 6px 0 0; max-width: 70ch; }
+.label { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font: 400 12.5px var(--mono); font-variant-numeric: tabular-nums; }
+th { text-align: left; font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.pos { color: var(--up); } .neg { color: var(--down); }
+.list { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 980px) { .list { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px; display: grid;
+  gap: 8px; min-width: 0; scroll-margin-top: 12px; }
+.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sym { font: 800 26px/1 var(--display); letter-spacing: .03em; }
+.grp { color: var(--muted); font-size: 13px; }
+.pill { margin-left: auto; font: 600 12.5px var(--mono); padding: 3px 9px; border-radius: 6px;
+  color: var(--state, var(--muted)); background: color-mix(in srgb, var(--state, var(--muted)) 12%, transparent); }
+.card.beats { --state: var(--up); } .card.lags { --state: var(--down); }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 16px; font: 400 12.5px var(--mono); color: var(--muted); }
+.facts b { color: var(--ink); font-weight: 500; }
+.chart { height: 230px; min-width: 0; }
+.eq { height: 150px; min-width: 0; }
+.years { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 400 11.5px var(--mono); color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.empty { color: var(--muted); padding: 24px 0; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="brand">
+    <div class="who"><b>Rushil's Agent</b><span>SGT · statistically grounded trader</span></div>
+    <div class="status" id="generated">model tape</div>
+  </div>
+  <div>
+    <h1>Model <em>Tape</em></h1>
+    <p class="lede">The daily per-stock model: at 15:50 ET it predicts tomorrow's close-to-close move and goes long, short or
+      stays flat. Every call below is out of sample: each month was predicted by a model trained only on earlier months.
+      Costs 0.04% per round trip.</p>
+  </div>
+  <section class="panel" id="fwd" hidden aria-label="Live calls">
+    <span class="label">Live calls on the runner (forward test, paper)</span>
+    <p class="lede" id="fwd-sub" style="margin:4px 0 8px"></p>
+    <div class="tbl-wrap"><table><thead><tr><th>Day</th><th>Stock</th><th>Call</th><th>Next-day move</th><th>Result</th></tr></thead>
+      <tbody id="fwd-rows"></tbody></table></div>
+  </section>
+  <section class="panel" aria-label="Scoreboard">
+    <span class="label">Model vs simply holding the stock (2018 to today)</span>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Stock</th><th>Set</th><th>Model / yr</th><th>Hold / yr</th><th>Model Sharpe</th><th>Hold Sharpe</th>
+        <th>Hit</th><th>Per trade</th><th>Last 3 mo model</th><th>Last 3 mo hold</th></tr></thead>
+      <tbody id="board"></tbody></table></div>
+  </section>
+  <div class="legend">
+    <span><i style="background:var(--up)"></i>call that made money</span>
+    <span><i style="background:var(--down)"></i>call that lost</span>
+    <span>▲ long · ▼ short · no mark = flat</span>
+    <span><i style="background:var(--accent)"></i>model equity</span>
+    <span><i style="background:var(--hold)"></i>buy and hold</span>
+  </div>
+  <main class="list" id="list"></main>
+  <footer>Rushil's Agent · SGT · research record, not advice. Verdict for the original six (prereg_megacap_daily_2026-10-30):
+    FAIL on the Sharpe >= 1 bar; twelve unseen large caps (prereg_megacap_oos): FAIL. Kept as a forward test.</footer>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const DATA = /*MODELS*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const pc = (x, d = 1) => x == null ? "–" : (x >= 0 ? "+" : "") + (x * 100).toFixed(d) + "%";
+const num = (x, d = 2) => x == null ? "–" : x.toFixed(d);
+const sign = x => x == null ? null : (x > 0 ? "pos" : x < 0 ? "neg" : null);
+const paints = [];
+
+function theme() {
+  return { layout: { background: { color: css("--panel") }, textColor: css("--muted"), fontFamily: css("--mono") },
+           grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } },
+           rightPriceScale: { borderColor: css("--rule") }, timeScale: { borderColor: css("--rule") } };
+}
+
+function board(rows) {
+  const body = document.getElementById("board");
+  rows.forEach(v => {
+    const s = v.stats, tr = el("tr");
+    const a = el("a", null, v.symbol); a.href = "#t-" + v.symbol;
+    const td0 = el("td"); td0.append(a); tr.append(td0, el("td", null, v.group));
+    tr.append(el("td", sign(s.model_ann), pc(s.model_ann)), el("td", sign(s.hold_ann), pc(s.hold_ann)),
+              el("td", null, num(s.model_sharpe)), el("td", null, num(s.hold_sharpe)), el("td", null, pc(s.hit, 0)),
+              el("td", sign(s.per_trade_bp), s.per_trade_bp == null ? "–" : s.per_trade_bp.toFixed(1) + " bp"),
+              el("td", sign(s.last63_model), pc(s.last63_model)), el("td", sign(s.last63_hold), pc(s.last63_hold)));
+    body.append(tr);
+  });
+}
+
+function card(v) {
+  const s = v.stats, beats = (s.model_sharpe ?? -9) > (s.hold_sharpe ?? -9);
+  const c = el("article", "card " + (beats ? "beats" : "lags")); c.id = "t-" + v.symbol;
+  const top = el("div", "top");
+  top.append(el("span", "sym", v.symbol), el("span", "grp", v.group),
+             el("span", "pill", beats ? "beats holding (Sharpe)" : "does not beat holding"));
+  const f = el("div", "facts");
+  const fact = (k, val) => { const x = el("span", null, k + " "); x.append(el("b", null, val)); f.append(x); };
+  fact("model", pc(s.model_ann) + "/yr"); fact("hold", pc(s.hold_ann) + "/yr");
+  fact("Sharpe", num(s.model_sharpe) + " vs " + num(s.hold_sharpe)); fact("hit", pc(s.hit, 0));
+  fact("in market", pc(s.traded_share, 0)); fact("IC", num(s.ic, 3));
+  if (v.last) fact("latest call " + v.last.session, v.last.position > 0 ? "LONG" : v.last.position < 0 ? "SHORT" : "flat");
+  const box = el("div", "chart"), eq = el("div", "eq");
+  const yrs = el("div", "years");
+  Object.entries(s.by_year || {}).forEach(([y, r]) => yrs.append(el("span", null, y + " " + pc(r.model, 0) + " (hold " + pc(r.hold, 0) + ")")));
+  c.append(top, f, box, el("span", "label", "Equity since 2018: model vs hold"), eq, yrs);
+  return [c, box, eq];
+}
+
+function draw(box, eqBox, v) {
+  const ch = LightweightCharts.createChart(box, { ...theme(), autoSize: true, handleScroll: { vertTouchDrag: false } });
+  const candles = ch.addCandlestickSeries({ borderVisible: false });
+  candles.setData(v.candles);
+  const e = LightweightCharts.createChart(eqBox, { ...theme(), autoSize: true, handleScroll: { vertTouchDrag: false } });
+  const m = e.addLineSeries({ lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+  const h = e.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+  m.setData(v.equity.map(p => ({ time: p.time, value: p.model })));
+  h.setData(v.equity.map(p => ({ time: p.time, value: p.hold })));
+  const paint = () => {
+    ch.applyOptions(theme()); e.applyOptions(theme());
+    const up = css("--up"), down = css("--down");
+    candles.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
+    candles.setMarkers(v.marks.map(k => ({ time: k.time, position: k.pos > 0 ? "belowBar" : "aboveBar",
+      shape: k.pos > 0 ? "arrowUp" : "arrowDown", color: k.win ? up : down })));
+    m.applyOptions({ color: css("--accent") }); h.applyOptions({ color: css("--hold") });
+  };
+  paint(); ch.timeScale().fitContent(); e.timeScale().fitContent();
+  paints.push(paint);
+}
+
+function forward() {
+  const rows = (DATA.forward || []).filter(r => r.position !== 0);
+  if (!(DATA.forward || []).length) return;
+  const body = document.getElementById("fwd-rows");
+  const wins = rows.filter(r => r.net > 0).length, avg = rows.length ? rows.reduce((s, r) => s + r.net, 0) / rows.length : 0;
+  const days = new Set((DATA.forward || []).map(r => r.date)).size;
+  document.getElementById("fwd-sub").textContent = days + " sessions, " + rows.length + " calls taken (flat otherwise): " +
+    wins + " made money, average " + pc(avg, 2) + " per call. Too few to judge; the decision point is months away.";
+  rows.slice().reverse().forEach(r => {
+    const tr = el("tr");
+    tr.append(el("td", null, r.date), el("td", null, r.symbol), el("td", null, r.position > 0 ? "LONG" : "SHORT"),
+              el("td", sign(r.ret), pc(r.ret, 2)), el("td", sign(r.net), pc(r.net, 2)));
+    body.append(tr);
+  });
+  document.getElementById("fwd").hidden = false;
+}
+
+function boot() {
+  forward();
+  document.getElementById("generated").textContent = "Model Tape · updated " + DATA.generated;
+  const rows = DATA.tickers.slice().sort((a, b) => (b.stats.model_sharpe ?? -9) - (a.stats.model_sharpe ?? -9));
+  board(rows);
+  const list = document.getElementById("list");
+  if (!rows.length) { list.append(el("div", "empty", "No model data yet.")); return; }
+  rows.forEach(v => { const [c, box, eq] = card(v); list.append(c); draw(box, eq, v); });
+  const repaint = () => paints.forEach(p => p());
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
+  new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+if (window.LightweightCharts && DATA) boot();
+else document.getElementById("list").append(el("div", "empty", "The chart library did not load. Reload the page."));
+</script>

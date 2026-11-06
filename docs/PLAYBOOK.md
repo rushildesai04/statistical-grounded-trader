@@ -96,6 +96,13 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 - **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
   receiving it is flagged the same night, because the edge is the channel's selection (finding 11).
 
+## 6b. The daily per-stock model (Model Tape, `scripts/model_tape.py`)
+At 15:50 ET each day it predicts the next close-to-close move per stock and goes long / short / flat (walk-forward,
+each month predicted by a model trained on earlier months). Out of sample 2018-2026 on 20 large caps it beats simply
+holding on NONE of them: best GOOGL Sharpe 0.74 vs hold 0.76 (+12%/yr vs +24%/yr); NVDA +10%/yr vs +55%/yr; six
+names lose outright; hit rates 44-55%. The live forward test on the original six (since 2026-10-30) took 11 calls in
+5 sessions, 10 profitable (+1.6% average); far too few to judge. Kept as a forward test, not a money strategy.
+
 ## 7. Open questions and decision points
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
   time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`).
