@@ -67,3 +67,12 @@ Survivorship: Alpaca's inactive-asset list may miss some delisted names. ETFs ar
   skipped, commission only, to bound the intrabar ambiguity. The primary stays worst case.
 - During implementation the `dev` command was run on a 19-session slice (2021-02) to validate the pipeline; it is not
   the training result and is superseded by the full 2021-2023 run.
+
+## Amendment A2 (2026-11-06, before the full training run; no training or held-out number seen)
+- Owner decision (2026-11-06): if training replicates the paper, run the one-shot held-out immediately, without a
+  further check-in. "Replicates" is fixed here: on training 2021-2023, the COMMISSION-ONLY mean net per trade (the
+  paper's own cost assumption) is > 0 AND its day-cluster bootstrap one-sided 95% lower bound is > 0. Otherwise the
+  replication is reported as failed and the held-out stays sealed (no fixing-and-retrying toward a pass).
+- The held-out verdict is still decided by the PRIMARY cost (commission + measured spread), as registered above.
+- Engineering note: the opening-window aggregation now streams one session file at a time (vectorized, output
+  verified identical to the earlier loop); the full 2021-2023 dev run had exhausted the owner's laptop.
