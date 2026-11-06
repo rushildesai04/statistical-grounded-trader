@@ -76,6 +76,17 @@
         "2026-10-16"
       ],
       "prereg": "docs/findings/prereg_self_fade_2026-11-06.md"
+    },
+    "later-long-2026-11": {
+      "train": [
+        "2025-01-03",
+        "2026-06-30"
+      ],
+      "holdout": [
+        "2026-07-01",
+        "2026-10-29"
+      ],
+      "prereg": "docs/findings/prereg_later_long_2026-11-06.md"
     }
   }
 }

@@ -76,3 +76,24 @@ def simulate(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float, x: Exit) -
         if fire:
             return done(o[i + 1], "signal", i + 1) if i < last else done(c[i], "signal", i)
     return done(c[last], "cap", last)
+
+
+def simulate_long(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float, cap_min: int = 60,
+                  stop: float = STOP) -> dict | None:
+    """LONG mirror of the champion (prereg_later_long_2026-11-06): stop ``stop`` below the entry checked first in each
+    bar (fill at min(level, open)); otherwise the close of the last RTH bar within ``cap_min``. None = no bar to hold."""
+    pos = np.flatnonzero((ind.ts >= entry_ts).to_numpy())
+    if not len(pos):
+        return None
+    i0 = int(pos[0])
+    end = np.flatnonzero((ind.ts < entry_ts + pd.Timedelta(minutes=cap_min)).to_numpy())
+    if not len(end) or int(end[-1]) < i0:
+        return None
+    last = int(end[-1])
+    o, lo, c = (ind[k].to_numpy(float) for k in ("open", "low", "close"))
+    lvl = entry * (1 - stop)
+    for i in range(i0, last + 1):
+        if lo[i] <= lvl:
+            px = min(lvl, o[i])
+            return {"gross": (px - entry) / entry, "how": "stop", "minutes": i - i0 + 1}
+    return {"gross": (c[last] - entry) / entry, "how": "cap", "minutes": last - i0 + 1}

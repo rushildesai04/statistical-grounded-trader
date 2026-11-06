@@ -34,7 +34,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    bounce (trail, VWAP, EMA cross, failed pullback, breakeven) covers right before the second leg down.
 5. **Re-alerts mark the squeeze top.** A third of fades get re-alerted during the hold (on new highs); they lose
    -4.6% if held but -5.9% if covered at the re-alert. A repeat alert an hour later means a sustained run: fading
-   it loses -3.19%/trade. Trade the first alert only.
+   it loses -3.19%/trade, and buying them lost -2.43% on the sealed test: no stable direction. Trade the first
+   alert only.
 6. **Hindsight always finds an exit.** 84% of fades show at least +3% profit at some point in the hour (75% show +5%).
    A chart review of any loser will find a "best exit"; that is not a rule.
 7. **Underwater trades that come back usually keep falling.** Fades that went 5% against us and returned to the entry
@@ -70,6 +71,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | skip-filter model v1 | total profit not higher | - | prereg_fade_meta_2026-11-04 |
 | SEC filings split (8-K today, offering 30 d) | no reliable split | flips sign | prereg_fade_filings_2026-11-05 |
 | fade the channel's later alerts (repeat after 60 min) | -3.19% (n 402) | not scored | prereg_fade_later_alerts_2026-11-06 |
+| BUY the channel's later alerts (from the short result) | +0.92% (one month = 61%) | **-2.43%** (n 147, sealed test) | prereg_later_long_2026-11-06 |
 | cover when the channel re-alerts during the hold | +0.56% | +0.75% | same, addendum A |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
 | other strategies: trader rules, ORB stocks-in-play, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
