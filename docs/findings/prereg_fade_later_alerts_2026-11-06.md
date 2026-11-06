@@ -26,3 +26,18 @@ first (forward n >= 100 later-alert trades with a lower bound > 0) before they a
 Mean by alert number (2nd, 3rd+), by minutes since the first alert, news / no-news, by entry window; the first-alert
 champion on the same sessions for comparison.
 Trial ledger run ids `fade-later-2026-11-06-dev`, `fade-later-2026-11-06-holdout`.
+
+## Result (2026-11-06, training run once, trial ledger `fade-later-2026-11-06-dev`) — FAIL; held-out not scored
+(A first run crashed in the shared scorer on a date type before any event was scored; fixed and re-run.)
+402 later alerts (non-overlapping repeats), training: mean net -3.19%/trade (gross -2.09%, lower 95% -4.33%), halves
+-3.40% / -3.07%; 2nd alert -3.44% (n 340), 3rd+ -1.79% (n 62); before 11 / 11-14 / after 14: -3.54% / -2.71% / -4.16%.
+Reading: a stock the channel alerts again an hour later is in a sustained run; shorting it loses. The live book's
+first-alert-only rule is right. Follow-up hypotheses formed from this result get their own preregistration.
+
+## Addendum A (2026-11-06, written before computing): exit when the channel re-alerts during the hold (X-REALERT)
+On the champion's training trades (first alert per symbol-day), if any later primary alert of the same symbol-day is
+posted after the entry and before the champion's exit, cover at the open of the first bar at or after that alert's
+time + 10 s (the live reaction), unless the 20% stop was hit first. Otherwise the champion's exit. Same gate as the exit
+studies (paired per-session vs champion, session bootstrap 10,000, seed 20261106, one-sided lower bound > 0 at alpha
+0.05, 1st percentile no worse than champion - 5 pts); champion guard; held-out secondary. Secondary: share of trades
+re-alerted during the hold, their net held vs covered.
