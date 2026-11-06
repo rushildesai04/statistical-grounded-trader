@@ -516,20 +516,37 @@ def test_time_of_day_history_line_by_entry_window():
     assert fade.confidence("volume_spike", {}, datetime(2026, 11, 6, 15, 0, tzinfo=timezone.utc))[0] == 93   # unknown
 
 
-def test_quote_ignores_stale_prints_during_a_halt():
+def test_stale_print_is_no_price_only_when_it_looks_halted():
     import httpx
 
-    now = datetime(2026, 11, 6, 14, 39, 54, tzinfo=timezone.utc)          # RAYA: alert during a LULD halt
-    prints = {"RAYA": "2026-11-06T14:37:41.123456789Z", "LIVE": "2026-11-06T14:39:50.5Z", "BAD": "not-a-time"}
+    # RAYA 2026-11-06: alert during a LULD halt after +31% in 5 minutes -> stale print is not a price.
+    # SNT 2026-11-06: quiet on IEX but trading on SIP, flat -> the stale print is still the estimate.
+    now = datetime(2026, 11, 6, 14, 39, 54, tzinfo=timezone.utc)
+    last = {"RAYA": "2026-11-06T14:37:41.123456789Z", "SNT": "2026-11-06T14:37:02Z", "NOBARS": "2026-11-06T14:37:00Z",
+            "LIVE": "2026-11-06T14:39:50.5Z", "BAD": "not-a-time"}
+    t0 = datetime(2026, 11, 6, 14, 32, tzinfo=timezone.utc)
+
+    def bars(path):
+        out = []
+        for i, px in enumerate(path):
+            out.append({"t": (t0 + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"), "o": px, "h": px * 1.01,
+                        "l": px * 0.99, "c": px, "v": 1000})
+        return out
+
+    series = {"RAYA": bars([1.16, 1.18, 1.24, 1.32, 1.52, 1.52]), "SNT": bars([1.90, 1.91, 1.89, 1.90, 1.88, 1.90]),
+              "NOBARS": []}
 
     def handler(req):
         sym = req.url.path.split("/")[3]
-        return httpx.Response(200, json={"trade": {"p": 1.425, "t": prints[sym]}})
+        if req.url.path.endswith("/bars"):
+            return httpx.Response(200, json={"bars": series.get(sym, [])})
+        return httpx.Response(200, json={"trade": {"p": 1.425, "t": last[sym]}})
 
     q = fl.iex_quote(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)), now=lambda: now)
-    assert q("RAYA") is None                    # last print 2+ minutes old: halted, not a price
-    assert q("LIVE") == 1.425
-    assert q("BAD") is None
+    assert q("RAYA") is None                    # stale after a violent move: likely halted, wait
+    assert q("SNT") == 1.425                    # stale but flat: thin on IEX, keep the estimate
+    assert q("NOBARS") is None                  # unknown: the safe side is to wait
+    assert q("LIVE") == 1.425 and q("BAD") is None
 
 
 def test_digest_warns_when_the_channel_goes_quiet(db):
