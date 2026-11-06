@@ -1,10 +1,12 @@
 """Build the Model Tape page from the daily model's out-of-sample record (owner 2026-11-06).
 
     python scripts/model_tape.py --out reports/model_tape/model_tape.html [--fragment]
+    python scripts/model_tape.py --export config/models/model_tape.json   # static record for the Fade Tape tab
 """
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,18 +19,8 @@ SOURCES = (("original six", Path("reports/megacap_daily")), ("unseen twelve", Pa
 ORIGINAL = {"AAPL", "AMZN", "GOOGL", "MSFT", "META", "NVDA"}
 
 
-def forward_rows(path: Path | None) -> list[dict]:
-    """Live calls from the runner's reports/megacap_forward/marks.csv (position at 15:50 ET, next close-to-close)."""
-    if not path or not path.exists():
-        return []
-    m = pd.read_csv(path)
-    m = m[~m.void.astype(bool)] if "void" in m else m
-    return [{"date": str(r.date), "symbol": str(r.symbol), "position": int(r.position),
-             "ret": model_tape._f(r.ret), "net": model_tape._f(r.net)} for r in m.itertuples(index=False)]
-
-
-def build(fragment: bool = False, forward: Path | None = None) -> str:
-    views = []
+def views() -> list[dict]:
+    out = []
     for group, root in SOURCES:
         for f in sorted(root.glob("oos_*.parquet")):
             sym = f.stem.removeprefix("oos_")
@@ -36,8 +28,12 @@ def build(fragment: bool = False, forward: Path | None = None) -> str:
             if not daily.exists():
                 continue
             g = group if group != "original six" or sym in ORIGINAL else "development extra"
-            views.append(model_tape.view(sym, g, pd.read_parquet(f), pd.read_parquet(daily)))
-    html = model_tape.render(views, datetime.now(timezone.utc), forward_rows(forward))
+            out.append(model_tape.view(sym, g, pd.read_parquet(f), pd.read_parquet(daily)))
+    return out
+
+
+def build(fragment: bool = False, forward: Path | None = None) -> str:
+    html = model_tape.render(views(), datetime.now(timezone.utc), model_tape.forward_rows(forward))
     if fragment:
         return html
     head = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
@@ -51,7 +47,13 @@ def main() -> int:
     ap.add_argument("--fragment", action="store_true", help="omit the document head (for an Artifact publish)")
     ap.add_argument("--forward", type=Path, default=Path("reports/megacap_forward/marks.csv"),
                     help="live marks (runner path by default)")
+    ap.add_argument("--export", type=Path, help="write the static views JSON (shipped in the app for the Fade Tape tab)")
     a = ap.parse_args()
+    if a.export:
+        a.export.parent.mkdir(parents=True, exist_ok=True)
+        a.export.write_text(json.dumps(views(), allow_nan=False, separators=(",", ":")))
+        print(f"wrote {a.export}")
+        return 0
     a.out.parent.mkdir(parents=True, exist_ok=True)
     tmp = a.out.with_suffix(".tmp")
     tmp.write_text(build(a.fragment, a.forward))

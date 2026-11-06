@@ -130,9 +130,9 @@ def learning_rows(rows: list[dict] | None) -> list[dict]:
 
 
 def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True,
-           learning: list[dict] | None = None) -> str:
+           learning: list[dict] | None = None, models: dict | None = None) -> str:
     data = {"title": title, "generated": generated.astimezone(ET).strftime("%a %b %-d, %-I:%M %p ET"),
-            "trades": views, "learning": learning_rows(learning)}
+            "trades": views, "learning": learning_rows(learning), "models": models}
     payload = json.dumps(data, allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
     page = TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
     return DOC_HEAD + page if standalone else page
