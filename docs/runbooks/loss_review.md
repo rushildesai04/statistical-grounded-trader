@@ -37,3 +37,6 @@ on a pass (live changes need the owner's OK). Lessons already tested (all lose t
 ## 4. Report plainly
 Lead with what went wrong, what was fixed, what was tested and the numbers; say which lessons look right on one chart
 and lose over thousands of trades, and why.
+
+## 5. Record it
+Add the review to `docs/PLAYBOOK.md` (sections 3-5) in the same PR, so the knowledge base and the algorithm move together.
