@@ -506,10 +506,14 @@ def test_live_bars_feed_the_chart_read_and_tolerate_junk():
 def test_time_of_day_history_line_by_entry_window():
     ctx = {"news": {"news_any": 0, "news_own": 0, "news_earn": 0}}
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc))
-    assert "🕐 Before 11:00 ET" in t and fade.tod_hist(datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc))[1] == 0.0058
+    assert f"🧠 Confidence {bold('98')}/100 · no company news, before 11:00 ET" in t      # confidence v2 (A2)
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 19, 30, tzinfo=timezone.utc))
-    assert "🕐 After 14:00 ET" in t                                              # 14:30 ET
-    assert "🕐" not in fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "")
+    assert f"🧠 Confidence {bold('99')}/100 · no company news, after 14:00 ET" in t
+    raya = {"news": {"news_any": 1, "news_own": 1, "news_earn": 0}}                  # RAYA / STAK / SERV 2026-11-06
+    t = fade.ask_text("RAYA", "news", 1.52, 5000, raya, "", at=datetime(2026, 11, 6, 14, 39, tzinfo=timezone.utc))
+    assert f"🧠 Confidence {bold('38')}/100 · company news today, before 11:00 ET" in t
+    assert fade.confidence("news", {}, datetime(2026, 11, 6, 19, 0, tzinfo=timezone.utc))[0] == 66    # news alert, 14:00
+    assert fade.confidence("volume_spike", {}, datetime(2026, 11, 6, 15, 0, tzinfo=timezone.utc))[0] == 93   # unknown
 
 
 def test_quote_ignores_stale_prints_during_a_halt():

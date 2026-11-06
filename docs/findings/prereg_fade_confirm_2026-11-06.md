@@ -64,3 +64,23 @@ held-out (secondary) +0.01% vs +1.12%. It exits 29% of trades early; those earne
 held (training) and +0.36% vs +4.21% (held-out). Reading: a fade that goes 5% against us and then comes back to the
 entry usually keeps falling; the breakeven exit gives away the best trades. With the trail, VWAP, EMA, target,
 learned and failed-pullback exits this is the eighth exit that loses to the 60-minute hold.
+
+## Addendum C (2026-11-06, written before computing): partial profit + protect the rest (SERV / STAK review)
+Owner's review of SERV and STAK (both were in profit, +2.8% and +8%, then exited at the 60-minute mark at about -2.4%
+and -2.3%): "take some profit on the first meaningful dip, then protect the remainder as it starts recovering".
+X-SCALE (fixed): champion entry. The first time a bar's low reaches entry x 0.97 (+3% for the short), cover HALF at
+min(entry x 0.97, that bar's open). From the next bar on, the other half keeps the 60-minute hold but its stop moves to
+the entry (breakeven): a bar whose high reaches the entry covers it at max(entry, that bar's open). The 20% stop applies
+to both halves until the partial. Gross = the average of the two halves. One rule, alpha 0.05, run once on training
+with the champion guard; held-out secondary. Secondary: X-SCALE5 (same with the partial at +5%).
+
+## Addendum C result (2026-11-06, run once each, trial ledger `fade-scale3/5-2026-11-06-dev`) — FAIL
+| | training per trade | held-out (secondary) | trades reaching the partial | those trades: scaled vs held |
+|---|---|---|---|---|
+| champion | +0.97% | +1.12% | - | - |
+| X-SCALE (+3%, decides) | -0.50% | -0.67% | 84% / 85% | +2.09% vs +3.84% (train) |
+| X-SCALE5 (+5%, secondary) | -0.16% | -0.48% | 75% / 74% | +4.05% vs +5.57% (train) |
+Reading: 84% of fades show at least +3% profit at some point in the hour (75% show +5%), so almost every losing trade
+has a "best visible exit" in hindsight. Banking half on the first dip and protecting the rest at breakeven caps the
+winners while the trades that never dip keep their full 20% stop: the strategy turns from +0.97% to -0.50% per trade.
+Ninth post-entry rule that loses to the 60-minute hold. Nothing deployed.

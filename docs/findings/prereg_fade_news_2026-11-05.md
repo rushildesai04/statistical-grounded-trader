@@ -77,3 +77,23 @@ the news flags and the number shown are stored per trade (`fade_trades.news_own/
 split is re-checked on forward trades at n >= 300 alongside F1.
 
 DNUT 2026-11-05 was an earnings-news fade (confidence 55 under A1).
+
+## Amendment A2 (2026-11-06): confidence by news x time of day (display only)
+Owner: "why is the confidence score always 55?" v1 had two levels (no company news 99, company news 55) and the three
+trades of 2026-11-06 all had company news. Same definition as A1 (100 x P(mean net of trades like this > 0), session
+bootstrap, 10,000 draws, over all 3,109 tested fades), with "like this" = news (company news found OR a news-type
+alert, the RAYA review's zero-edge group) x entry window. Unknown news (lookup failed) uses all fades in the window.
+
+| cell | n | avg net | win | confidence |
+|---|---|---|---|---|
+| news, before 11:00 | 1,006 | -0.14% | 53% | 38 |
+| news, 11:00-14:00 | 292 | -0.07% | 52% | 47 |
+| news, after 14:00 | 86 | +0.71% | 55% | 66 |
+| no news, before 11:00 | 1,074 | +1.17% | 57% | 98 |
+| no news, 11:00-14:00 | 491 | +2.74% | 59% | 99 (100 capped) |
+| no news, after 14:00 | 160 | +3.98% | 65% | 99 (100 capped) |
+| unknown, before 11 / 11-14 / after 14 | 2,080 / 783 / 246 | +0.54% / +1.69% / +2.83% | 55-61% | 93 / 99 / 99 |
+
+Display and the stored `conf` only; trading is unchanged (owner keeps trading news alerts). The time-of-day line is
+folded into the confidence line. Caveat: cells were chosen after seeing both periods; they describe history, they are
+not a tested filter.
