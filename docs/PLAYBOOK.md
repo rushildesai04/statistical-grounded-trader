@@ -73,6 +73,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | fade the channel's later alerts (repeat after 60 min) | -3.19% (n 402) | not scored | prereg_fade_later_alerts_2026-11-06 |
 | BUY the channel's later alerts (from the short result) | +0.92% (one month = 61%) | **-2.43%** (n 147, sealed test) | prereg_later_long_2026-11-06 |
 | cover when the channel re-alerts during the hold | +0.56% | +0.75% | same, addendum A |
+| skip fades when small caps are risk-on (IWM >= +1% at entry) | risk-on fades did BETTER (+1.50% vs +0.94%) | n.s. | prereg_fade_mood_2026-11-06 |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
 | other strategies: trader rules, ORB stocks-in-play, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
 

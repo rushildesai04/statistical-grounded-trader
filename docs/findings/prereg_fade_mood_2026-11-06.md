@@ -19,3 +19,15 @@ the champion). PASS -> forward shadow (skip risk-on) decided at n >= 300; live c
 ## Secondary (reported only)
 Mean net by group in both periods; SPY instead of IWM; the opposite question (do risk-off days help?).
 Trial ledger run id `fade-mood-2026-11-06-dev`.
+
+## Result (2026-11-06, run once, trial ledger `fade-mood-2026-11-06-dev`) — FAIL
+IWM minute bars downloaded for 2025-01..2026-10 (459 sessions). Training: risk-on (IWM >= +1% at entry) n 130
++1.50%/trade, neutral n 2,114 +0.94%, risk-off n 101 +0.91%; difference +0.53% (opposite sign to H, upper bound
++2.85%); skipping risk-on would cost -0.55%/session. Held-out (secondary): risk-on n 8 +9.6%, risk-off n 22 +6.6%,
+neutral +0.87% (tiny groups). SPY gives the same picture. Reading: the market's mood does not hurt the fade; hype
+spikes revert whatever the index does. No filter; nothing deployed.
+
+## Context: the losing day that prompted this (2026-11-06)
+Historically, on days with 3 or more fades, every trade lost on 2% of days and the day ended negative on 45%. All three
+of 2026-11-06's trades were news trades (confidence v2 = 38); the confidence-sizing shadow (0.5x on such trades) would
+have halved the day's loss.
