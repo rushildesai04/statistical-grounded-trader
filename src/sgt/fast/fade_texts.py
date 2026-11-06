@@ -60,6 +60,36 @@ def _usd(x: float) -> str:
     return f"{'+' if x >= 0 else '-'}${abs(x):,.0f}"
 
 
+# Confidence v2 (prereg_fade_news amendment A2, 2026-11-06; display only). Owner: "why is it always 55?" - v1 had two
+# levels. Same definition (100 x P(mean net of trades like this > 0), session bootstrap over all 3,109 tested fades), finer
+# "like this": news (company news found OR a news-type alert) x entry window. cell -> (confidence, win, avg net, n).
+CONF2 = {("news", "pre11"): (38, 0.53, -0.0014, 1006), ("news", "11-14"): (47, 0.52, -0.0007, 292),
+         ("news", "14-16"): (66, 0.55, 0.0071, 86), ("none", "pre11"): (98, 0.57, 0.0117, 1074),
+         ("none", "11-14"): (100, 0.59, 0.0274, 491), ("none", "14-16"): (100, 0.65, 0.0398, 160),
+         ("all", "pre11"): (93, 0.55, 0.0054, 2080), ("all", "11-14"): (100, 0.56, 0.0169, 783),
+         ("all", "14-16"): (100, 0.61, 0.0283, 246)}
+WINDOW_LABEL = {"pre11": "before 11:00 ET", "11-14": "11:00-14:00 ET", "14-16": "after 14:00 ET"}
+
+
+def window(at: datetime) -> str:
+    t = at.astimezone(ET)
+    m = t.hour * 60 + t.minute
+    return "pre11" if m < 11 * 60 else ("11-14" if m < 14 * 60 else "14-16")
+
+
+def confidence(alert_type: str, ctx: dict, at: datetime | None) -> tuple[int, float, float, str]:
+    """(confidence 0-99, win rate, avg net, label) for the entry text and the stored ``conf``. Without a time, v1."""
+    g = news_group(ctx)
+    if at is None:
+        conf, win, avg, _ = CONF[g]
+        return min(conf, CONF_MAX), win, avg, CONF_LABEL[g]
+    cell = "news" if alert_type == "news" or g in ("own", "earn") else g
+    conf, win, avg, _ = CONF2[(cell, window(at))]
+    what = ("news alert" if alert_type == "news" and g not in ("own", "earn") else CONF_LABEL[g]) if cell == "news" \
+        else CONF_LABEL[g]
+    return min(conf, CONF_MAX), win, avg, f"{what}, {WINDOW_LABEL[window(at)]}"
+
+
 def news_group(ctx: dict) -> str:
     """'none' / 'own' / 'earn' from the live news flags; 'all' when the news lookup failed (unknown)."""
     n = ctx.get("news")
@@ -126,15 +156,11 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     why, tape, risk, tested payoff, live record, borrow, chart. ``out_at`` set = the F5 entry text (already short).
     Unicode bold + emoji = UCS-2 SMS; see sms_style."""
     head = f"{bold(f'SHORT {symbol}')} @ {bold('$' + _fmt(px)) if px else 'market'}"
-    g = news_group(ctx)
-    conf, win, avg, _ = CONF[g]
+    conf, win, avg, label = confidence(alert_type, ctx, at)
     lines = [f"✅ {bold('FADE IN')} · {head}" if out_at else f"🔻 {head}",
              f"💬 {'Shorted' if out_at else 'Short'} ${size:,.0f} of {symbol}: we make money if it falls",
-             f"🧠 Confidence {bold(f'{min(conf, CONF_MAX)}')}/100 · {CONF_LABEL[g]}: "
+             f"🧠 Confidence {bold(f'{conf}')}/100 · {label}: "
              + italic(f"trades like this win {win:.0%}, avg {avg:+.1%}")]
-    if at is not None:
-        tw, ta, tn = tod_hist(at)
-        lines.append(f"🕐 {tn}: " + italic(f"past fades at this time won {tw:.0%}, avg {ta:+.1%}"))
     head_line = (ctx.get("news") or {}).get("headline")
     if head_line:
         lines.append(f"📰 “{head_line}”")

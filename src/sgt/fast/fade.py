@@ -30,7 +30,8 @@ import pandas as pd
 from sgt.fast.fade_rule import (AVG_LOSS, AVG_WIN, BASE_EV, BASE_N, BASE_WIN, BASE_WIN_CI, ET, HOLD,  # noqa: F401
                                 JUDGE_N, STOP, STOP_RATE, STOPPED_NET, VETO, VETO_EXIT)
 from sgt.fast.fade_texts import (CONF, CONF_LABEL, CONF_MAX, EXIT_WHY, FILING_HIST, PLAIN, TOD_HIST, _fmt,  # noqa: F401
-                                 _qty, _usd, ask_text, borrow_note, news_group, out_text, signals_line, tod_hist)
+                                 _qty, _usd, ask_text, borrow_note, confidence, news_group, out_text, signals_line,
+                                 tod_hist)
 from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals
 from sgt.ops.sms_style import italic
@@ -291,7 +292,7 @@ def _context(db: OpsStore, r, context) -> dict:
         log.warning("context %s failed", r["symbol"])
         ctx = {}
     n = ctx.get("news")
-    cols = {"conf": min(CONF[news_group(ctx)][0], CONF_MAX)}
+    cols = {"conf": confidence(r["alert_type"], ctx, datetime.fromisoformat(r["posted_at"]))[0]}   # v2, A2
     if n:
         cols.update(news_own=int(bool(n.get("news_own"))), news_earn=int(bool(n.get("news_earn"))),
                     news_head=n.get("headline"))
