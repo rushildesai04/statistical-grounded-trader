@@ -100,3 +100,6 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
   time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`).
 - Real money only on a strategy proven on unseen data and tradeable at a broker (borrow).
+- Broker path (`docs/research/broker_borrow_2026-11-06.md`): IBKR has no locate fee and no borrow fee on same-day
+  shorts [VERIFY] but often no shares; locate brokers (TradeZero, Cobra, CenterPoint) can short them for a per-share
+  fee. Break-even locate = 1.6% of price (e.g. $0.04/share at $2.50); two thirds of trades are under $5.
