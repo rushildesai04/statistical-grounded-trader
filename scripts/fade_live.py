@@ -55,15 +55,30 @@ FORWARD_START = datetime(2026, 10, 30, tzinfo=timezone.utc)   # alert_fade_forwa
 MAX_FADE_TEXTS_DAY = 40
 MAX_PILOT_TEXTS_DAY = 150                       # real-money texts: own counter, never crowded out by paper
 VOID_AFTER = timedelta(days=3)                 # SIP bars still missing after this -> void
-STALE_QUOTE = timedelta(seconds=90)            # older IEX print = halted / no trading: not a price (RAYA 2026-11-06)
+STALE_QUOTE = timedelta(seconds=90)            # older IEX print + a large move = likely halted (RAYA 2026-11-06)
+HALT_MOVE = 0.10                               # high/low range in the 5 min before the last print that looks like LULD
 _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
 
 
+def halted_like(client: httpx.Client, symbol: str, last_at: datetime) -> bool:
+    """A stale IEX print after a violent move (>= HALT_MOVE in the 5 minutes before it) looks like a limit-up/down
+    halt; a stale print without one is a stock that is just quiet on IEX (SNT 2026-11-06 traded every minute on SIP
+    while IEX was silent). Unknown (no bars) counts as halted: waiting is the safe side."""
+    b = live_bars(client, symbol, last_at + timedelta(minutes=1))
+    if b.empty:
+        return True
+    w = b[b.ts >= last_at - timedelta(minutes=5)]
+    if w.empty or w.low.min() <= 0:
+        return True
+    return bool(w.high.max() / w.low.min() - 1 >= HALT_MOVE)
+
+
 def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
-    """Latest IEX trade price, or None when there is no FRESH trade. Review 2026-11-06 (RAYA): an alert arrived during a
-    LULD halt and the book 'entered' at the last pre-halt print ($1.425) while the stock reopened at $1.52. A trade
-    older than STALE_QUOTE (halted, or no IEX print) is not a price; entry then waits for real trading, exactly like
-    the research rule (first bar after the alert, within 5 minutes)."""
+    """Latest IEX trade price, or None when that price cannot be used. Review 2026-11-06: RAYA's alert came during a
+    LULD halt and the book 'entered' at the last pre-halt print ($1.425; reopen $1.52), so a print older than
+    STALE_QUOTE after a violent move is not a price (entry waits for real trading, like the research rule). But SNT the
+    same day was only quiet on IEX while trading every minute on SIP; skipping it diverged from the research rule, so a
+    stale print WITHOUT such a move is still used (thin on IEX, not halted)."""
     def quote(symbol: str) -> float | None:
         if not _SYMBOL.match(symbol):
             return None
@@ -74,8 +89,10 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
             t = r.json().get("trade", {})
             p = float(t.get("p", 0))
             at = pd.Timestamp(str(t.get("t", ""))).to_pydatetime(warn=False)   # nanosecond ISO from Alpaca
-            if at.tzinfo is None or now() - at > STALE_QUOTE:
-                log.info("quote %s stale (%s): treated as no price", symbol, at.isoformat())
+            if at.tzinfo is None:
+                return None
+            if now() - at > STALE_QUOTE and halted_like(client, symbol, at):
+                log.info("quote %s stale (%s) after a large move: likely halted, no price yet", symbol, at.isoformat())
                 return None
             return p if p > 0 else None
         except (httpx.HTTPError, ValueError, TypeError) as exc:

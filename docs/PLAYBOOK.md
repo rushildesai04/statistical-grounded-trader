@@ -13,7 +13,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 ## 2. The algorithm today (exactly what runs)
 | step | rule | source |
 |---|---|---|
-| entry | first 1-min bar at or after alert + 10 s (live: first fresh IEX trade; prints older than 90 s, e.g. halts, are not prices) | prereg_alert_fade; RAYA fix 2026-11-06 |
+| entry | first 1-min bar at or after alert + 10 s (live: latest IEX trade; a print older than 90 s after a >= 10% move in 5 min looks like a halt and is not a price; without such a move it is a thin-on-IEX stock and is used) | prereg_alert_fade; RAYA / SNT fixes 2026-11-06 |
 | filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
 | stop | 20% above entry (worst case inside a bar) | prereg_alert_fade (10/20/30/none explored on train) |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
