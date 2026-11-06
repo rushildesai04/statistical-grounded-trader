@@ -264,8 +264,21 @@ def signals_line(sig: dict | None) -> str | None:
     return "📈 " + " · ".join(parts) + tail + " " + italic("(chart read, not a tested filter)")
 
 
+# Champion net by ET entry window, training 2025-01..2026-06 (prereg_fade_hold_2026-11-05 secondary; display only,
+# time-of-day sizing is a forward shadow, prereg_fade_tod_2026-11-06): (win rate, avg net, label).
+TOD_HIST = ((11 * 60, (0.55, 0.0058, "Before 11:00 ET")), (14 * 60, (0.55, 0.0163, "11:00-14:00 ET")),
+            (24 * 60, (0.59, 0.0233, "After 14:00 ET")))
+
+
+def tod_hist(at: datetime) -> tuple[float, float, str]:
+    t = at.astimezone(ET)
+    m = t.hour * 60 + t.minute
+    return next(v for cut, v in TOD_HIST if m < cut)
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
-             live: tuple[int, float | None] = (0, None), out_at: datetime | None = None) -> str:
+             live: tuple[int, float | None] = (0, None), out_at: datetime | None = None,
+             at: datetime | None = None) -> str:
     """Trade text body (owner requests 2026-11-04/05): trade in plain words, confidence by news group, headline,
     why, tape, risk, tested payoff, live record, borrow, chart. ``out_at`` set = the F5 entry text (already short).
     Unicode bold + emoji = UCS-2 SMS; see sms_style."""
@@ -276,6 +289,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
              f"💬 {'Shorted' if out_at else 'Short'} ${size:,.0f} of {symbol}: we make money if it falls",
              f"🧠 Confidence {bold(f'{min(conf, CONF_MAX)}')}/100 · {CONF_LABEL[g]}: "
              + italic(f"trades like this win {win:.0%}, avg {avg:+.1%}")]
+    if at is not None:
+        tw, ta, tn = tod_hist(at)
+        lines.append(f"🕐 {tn}: " + italic(f"past fades at this time won {tw:.0%}, avg {ta:+.1%}"))
     head_line = (ctx.get("news") or {}).get("headline")
     if head_line:
         lines.append(f"📰 “{head_line}”")
@@ -349,7 +365,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
         ctx = _context(db, r, context)
-        summary = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db))
+        summary = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), at=now)
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -416,7 +432,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> 
         ctx = _context(db, r, context)
         how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
         send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db),
-                                 out_at=out) + how)
+                                 out_at=out, at=now) + how)
 
 
 def _context(db: OpsStore, r, context) -> dict:
@@ -447,7 +463,8 @@ def _context(db: OpsStore, r, context) -> dict:
 def _veto_text(db: OpsStore, send, r, px: float, now: datetime, out: datetime, context) -> None:
     """F5 entry text: the full trade card + "NO <code> = exit now" (approval kind 'fadeexit', open until the exit)."""
     ctx = _context(db, r, context)
-    body = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), out_at=out)
+    body = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), out_at=out,
+                    at=now)
     approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fadeexit", period=r["session"], summary=body,
                       payload={"fade_id": r["id"], "symbol": r["symbol"]}, expires_at=out, now=now)
 
