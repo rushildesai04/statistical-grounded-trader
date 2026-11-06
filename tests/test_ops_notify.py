@@ -53,3 +53,12 @@ def test_missing_twilio_config_exits_zero(monkeypatch, tmp_path):
     monkeypatch.setattr(ops_notify, "ALERTS", tmp_path)
     monkeypatch.setattr(ops_notify, "first_today", lambda job: True)
     assert ops_notify.main(["digest"]) == 0
+
+
+def test_safety_refusal_is_not_called_an_internal_error(tmp_path):
+    # 2026-11-06: the 60/40 run refused on a 392-second-old IEF print; the text said "internal error"
+    log = tmp_path / "run.log"
+    log.write_text("=== 2026-11-06 12:05:00 EST python ...\nstale prices {'IEF': 392.666091}; refusing to trade\n"
+                   "!!! exit 1\n")
+    msg = ops_notify.build_message("rebalance", log, NOW)
+    assert "safety check stopped it" in msg and "internal error" not in msg and "nothing was traded" in msg
