@@ -110,9 +110,29 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     }
 
 
-def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True) -> str:
+LEARN_KEYS = ("challenger", "prereg", "n", "champ", "chal", "diff", "lower", "status")
+
+
+def learning_rows(rows: list[dict] | None) -> list[dict]:
+    """Scoreboard rows for the page (owner 2026-11-06: make the learning visible): known keys only, finite numbers,
+    short strings (rendered with textContent)."""
+    out = []
+    for r in (rows or [])[:40]:
+        x = {}
+        for k in LEARN_KEYS:
+            v = r.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                x[k] = float(v) if math.isfinite(float(v)) else None
+            else:
+                x[k] = str(v)[:80] if v is not None else None
+        out.append(x)
+    return out
+
+
+def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True,
+           learning: list[dict] | None = None) -> str:
     data = {"title": title, "generated": generated.astimezone(ET).strftime("%a %b %-d, %-I:%M %p ET"),
-            "trades": views}
+            "trades": views, "learning": learning_rows(learning)}
     payload = json.dumps(data, allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
     page = TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
     return DOC_HEAD + page if standalone else page

@@ -134,6 +134,22 @@ h1 em { font-style: normal; color: var(--accent); }
 .links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
 .empty { color: var(--muted); padding: 24px 0; }
+.learn { display: grid; gap: 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 14px 16px; min-width: 0; }
+.learn-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+.learn-wrap { overflow-x: auto; }
+.learn-table { width: 100%; border-collapse: collapse; font: 400 12.5px var(--mono); font-variant-numeric: tabular-nums; }
+.learn-table th { text-align: left; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.learn-table td { padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.learn-table td.pos { color: var(--up); } .learn-table td.neg { color: var(--down); }
+.prog { display: inline-block; width: 60px; height: 5px; border-radius: 3px; background: var(--grid); margin-right: 6px;
+  vertical-align: middle; overflow: hidden; }
+.prog i { display: block; height: 100%; background: var(--accent); }
+.chip { font: 500 11.5px var(--mono); padding: 2px 7px; border-radius: 5px; color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.chip.ready-beats { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.chip.ready-worse { color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
 footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; border-top: 1px solid var(--rule); padding-top: 14px; }
 footer b { color: var(--ink); font-weight: 600; }
 
@@ -204,6 +220,15 @@ footer b { color: var(--ink); font-weight: 600; }
   </div>
 
   <main class="list" id="list"></main>
+
+  <section class="learn" id="learn" hidden aria-label="What the system is learning">
+    <div class="learn-head"><span class="label">What the system is learning</span>
+      <span class="small" id="learn-sub"></span></div>
+    <div class="learn-wrap"><table class="learn-table">
+      <thead><tr><th>Challenger</th><th>Live trades</th><th>Live rule</th><th>Challenger</th><th>Per day vs live</th>
+        <th>Status</th></tr></thead>
+      <tbody id="learn-rows"></tbody></table></div>
+  </section>
 
   <footer>
     <span><b>Rushil's Agent · SGT</b> · paper trading record, not advice.</span>
@@ -471,7 +496,31 @@ function show(day) {
   ts.forEach((t, i) => { const [c, boxes] = card(t, i); list.append(c); draw(boxes, t); });
 }
 
+function learning() {
+  const rows = (DATA.learning || []).filter(r => r && r.challenger);
+  if (!rows.length) return;
+  const box = document.getElementById("learn"), body = document.getElementById("learn-rows");
+  const n = Math.max(...rows.map(r => r.n || 0));
+  document.getElementById("learn-sub").textContent =
+    n + " of 300 live trades so far · each idea is scored nightly against the live rule; nothing changes without your OK";
+  const p = x => x == null ? "–" : (x >= 0 ? "+" : "") + (x * 100).toFixed(2) + "%";
+  rows.sort((a, b) => (b.diff ?? -9) - (a.diff ?? -9)).forEach(r => {
+    const tr = el("tr");
+    tr.append(el("td", null, r.challenger));
+    const prog = el("td"), bar = el("span", "prog"), fill = el("i");
+    fill.style.width = Math.min(100, (r.n || 0) / 3) + "%"; bar.append(fill); prog.append(bar, document.createTextNode(String(r.n || 0)));
+    tr.append(prog, el("td", null, p(r.champ)), el("td", null, p(r.chal)));
+    tr.append(el("td", r.diff == null ? null : (r.diff > 0 ? "pos" : "neg"), p(r.diff)));
+    const st = String(r.status || ""), chip = el("span", "chip" + (st.startsWith("READY: beats") ? " ready-beats" :
+      st.startsWith("READY: worse") ? " ready-worse" : ""), st);
+    const td = el("td"); td.append(chip); tr.append(td);
+    body.append(tr);
+  });
+  box.hidden = false;
+}
+
 function boot() {
+  learning();
   document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
   const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
   const bar = document.getElementById("days");
