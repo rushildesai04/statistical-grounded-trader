@@ -65,6 +65,17 @@
         "2026-10-30"
       ],
       "prereg": "docs/findings/prereg_orb_stocks_in_play_2026-11-05.md"
+    },
+    "self-fade-2026-11": {
+      "train": [
+        "2024-10-01",
+        "2025-12-31"
+      ],
+      "holdout": [
+        "2026-01-02",
+        "2026-10-16"
+      ],
+      "prereg": "docs/findings/prereg_self_fade_2026-11-06.md"
     }
   }
 }

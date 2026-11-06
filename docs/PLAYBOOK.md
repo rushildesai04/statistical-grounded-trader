@@ -44,7 +44,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 9. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
    setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs (`ema_cross_check_2026-11-05`,
    `docs/research/signals_research_2026-11-05.md`). They are shown in texts as context, never as filters.
-10. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
+10. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
+   volume, new high; 517 in training) fade only +0.11% before costs, -1.23% after; the 4% the channel also alerted
+   earned +4.7% (`prereg_self_fade_2026-11-06`). The book depends on that channel staying as it is.
+11. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
    far is negative (n 34). In shadow until n >= 300.
 
 ## 4. Rules tested and rejected (do not re-test without a new reason)
@@ -63,6 +66,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | enter 2 / 4 minutes late | +0.14% / -0.21% | +0.28% / +0.61% | prereg_fade_challengers_2026-11-04 |
 | skip-filter model v1 | total profit not higher | - | prereg_fade_meta_2026-11-04 |
 | SEC filings split (8-K today, offering 30 d) | no reliable split | flips sign | prereg_fade_filings_2026-11-05 |
+| fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
 | other strategies: trader rules, ORB stocks-in-play, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
 
 ## 5. Loss reviews (each: facts, classification, lesson, test)
@@ -82,6 +86,8 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
   a prereg amendment and becomes the live rule. A worse one is retired. Nothing is promoted automatically.
 - Live data feeds the next questions: borrow stamps, StockTwits buzz, signals at entry, news and filings per trade.
+- **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
+  receiving it is flagged the same night, because the edge is the channel's selection (finding 10).
 
 ## 7. Open questions and decision points
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
