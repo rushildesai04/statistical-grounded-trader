@@ -12,7 +12,8 @@ import pandas as pd
 
 from sgt.ops import model_tape
 
-SOURCES = (("original six", Path("reports/megacap_daily")), ("unseen twelve", Path("reports/megacap_oos")))
+SOURCES = (("original six", Path("reports/megacap_daily")), ("unseen twelve", Path("reports/megacap_oos")),
+           ("trader's pick", Path("reports/aaoi_daily")))
 ORIGINAL = {"AAPL", "AMZN", "GOOGL", "MSFT", "META", "NVDA"}
 
 
