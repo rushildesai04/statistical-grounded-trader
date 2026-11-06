@@ -41,7 +41,9 @@ from sgt.ops.store import OpsStore
 
 ET = ZoneInfo("America/New_York")
 WINDOW = (dtime(9, 45), dtime(15, 55))
-STALE_S = 300
+STALE_S = 300                                   # a price this old cannot set a limit order
+VERY_STALE_S = 3600                             # ...or even measure drift (2026-11-06: IEX prints for IEF can be 5+ min
+                                                # apart midday; the 300 s guard alone failed runs that needed no trade)
 STRATEGY = "passive_60_40"
 
 
@@ -106,9 +108,9 @@ async def main_async(args) -> int:
             print(f"orders with prefix {prefix} already exist; already rebalanced this month")
             return 0
         px_age = latest_prices(list(targets))
-        stale = {s: a for s, (_, a) in px_age.items() if a > STALE_S}
-        if stale and args.execute:
-            raise SystemExit(f"stale prices {stale}; refusing to trade")
+        stale = {s: round(a) for s, (_, a) in px_age.items() if a > STALE_S}
+        if args.execute and any(a > VERY_STALE_S for a in stale.values()):
+            raise SystemExit(f"stale prices (seconds since the last trade) {stale}; refusing to trade")
         prices = {s: p for s, (p, _) in px_age.items()}
 
         def current_plan(state):
@@ -128,7 +130,9 @@ async def main_async(args) -> int:
         for o in orders:
             print(f"PLAN {o.side:4s} {o.qty:6d} {o.symbol:4s} @ {o.limit:.2f}  (${o.notional:,.0f})")
         if not orders:
-            print("within drift threshold; no trades")
+            print("within drift threshold; no trades" + (f" (prices {stale} s old, fine for drift)" if stale else ""))
+        elif stale and args.execute:                    # an order needs a fresh price for its limit
+            raise SystemExit(f"stale prices (seconds since the last trade) {stale}; refusing to trade")
         if args.execute and orders and not args.no_approval:
             approval_id = approval_gate(args, orders, et, now)
             if approval_id is None:

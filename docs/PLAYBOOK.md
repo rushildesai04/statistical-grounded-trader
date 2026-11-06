@@ -1,0 +1,89 @@
+# SGT Playbook — the alert fade (living knowledge base)
+
+Single source of truth for what the fade does, why, what we have learned, and how it gets smarter. Updated after every
+study and every loss review (owner, 2026-11-06: "distill all of it ... keep making it more intelligent"). Numbers cite
+the file that produced them; "train" = 2,349 fades 2025-01..2026-06, "held-out" = 764 fades 2026-07..10 never used to
+build the rule.
+
+## 1. What we trade and why it works
+Short small caps ($1-50) right after a MetaTradings momentum alert. Mechanism: retail-attention buying sprees in small
+caps are followed by falling prices (Barber, Huang, Odean, Schwarz, "Attention Induced Trading and Returns"); the alert
+marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 764 (`prereg_alert_fade_2026-11-01`).
+
+## 2. The algorithm today (exactly what runs)
+| step | rule | source |
+|---|---|---|
+| entry | first 1-min bar at or after alert + 10 s (live: first fresh IEX trade; prints older than 90 s, e.g. halts, are not prices) | prereg_alert_fade; RAYA fix 2026-11-06 |
+| filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
+| stop | 20% above entry (worst case inside a bar) | prereg_alert_fade (10/20/30/none explored on train) |
+| exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
+| size | 5% of book NAV per trade, max 15 trades/day, 8 open, -3% day loss stop | fade_rule.py |
+| approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
+| confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
+| texts | trade card, news, SEC filings, StockTwits buzz, chart read, borrow, TradingView link | fade_texts.py |
+
+## 3. What actually drives results (the knowledge)
+1. **News kills the fade.** News-type alerts or company news: +0.00%/trade train (n 1,107), -0.37% held-out (n 277).
+   No-news alerts: +1.84% / +1.97% and all of the profit. Real news gives buyers a reason; hype without news reverts.
+   (Owner decision 2026-11-06: keep trading news alerts; confidence shows 38-66 for them.)
+2. **Time of day.** Per trade: before 11:00 +0.58% / +0.39%; 11-14 +1.63% / +1.89%; after 14:00 +2.33% / +4.04%
+   (train / held-out). Morning alerts are two thirds of the trades and the weakest.
+3. **The drop starts at the alert and plays out over about an hour.** 15 min +0.18%, 30 min +0.65%, 60 min +0.97%,
+   90 min +1.14%, 2 h +1.05%, to the close +0.75% (train). Entering 2-4 minutes late loses most of the edge.
+4. **Squeeze-then-fade.** These stocks bounce hard inside the hour and then fall again. Any rule that reacts to a
+   bounce (trail, VWAP, EMA cross, failed pullback, breakeven) covers right before the second leg down.
+5. **Hindsight always finds an exit.** 84% of fades show at least +3% profit at some point in the hour (75% show +5%).
+   A chart review of any loser will find a "best exit"; that is not a rule.
+6. **Underwater trades that come back usually keep falling.** Fades that went 5% against us and returned to the entry
+   then earned +2.30% (train) / +4.21% (held-out) more by holding.
+7. **The stop is a trade-off, not a free fix.** No stop +2.31%/trade on train but with -78% worst cases; 20% stop
+   +1.47% (exploration on train). About 25% of fades lose more than 15%. RAYA (2026-11-06) was stopped at the top of
+   its squeeze and fell back below our entry 15 minutes later.
+8. **Borrow is the real-money question.** Names Alpaca can short lost -0.55%/trade held-out; live stamps show the
+   biggest winners (CRIS, AEHL) had zero IBKR shares. Decided at forward n >= 300 on the IBKR-borrowable subset.
+9. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
+   setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs (`ema_cross_check_2026-11-05`,
+   `docs/research/signals_research_2026-11-05.md`). They are shown in texts as context, never as filters.
+10. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
+   far is negative (n 34). In shadow until n >= 300.
+
+## 4. Rules tested and rejected (do not re-test without a new reason)
+| idea | train per trade (champion +0.97%) | held-out (champion +1.12%) | file |
+|---|---|---|---|
+| trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
+| cover on VWAP reclaim | +0.52% | +0.22% | same |
+| cover on EMA 9/21 cross up | +0.68% | +0.99% | same |
+| 15% profit target | +0.23% | +0.37% | same |
+| hold 2 h / to close | +1.05% / +0.75% (n.s.) | +0.98% / +0.63% | prereg_fade_hold_2026-11-05 |
+| learned exit (model at 10-50 min) | +0.81% (vs +0.92% same window) | - | prereg_fade_exit_learn_2026-11-06 |
+| wait for breakdown + failed bounce | -0.08% | +0.24% | prereg_fade_confirm_2026-11-06 |
+| cover when a pullback fails | +0.87% | +0.07% | same |
+| breakeven exit after 5% underwater | +0.38% | +0.01% | same, addendum B |
+| half at +3% / +5%, rest at breakeven | -0.50% / -0.16% | -0.67% / -0.48% | same, addendum C |
+| enter 2 / 4 minutes late | +0.14% / -0.21% | +0.28% / +0.61% | prereg_fade_challengers_2026-11-04 |
+| skip-filter model v1 | total profit not higher | - | prereg_fade_meta_2026-11-04 |
+| SEC filings split (8-K today, offering 30 d) | no reliable split | flips sign | prereg_fade_filings_2026-11-05 |
+| other strategies: trader rules, ORB stocks-in-play, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
+
+## 5. Loss reviews (each: facts, classification, lesson, test)
+| trade | facts (official bars) | classification | lesson / action |
+|---|---|---|---|
+| RAYA 2026-11-06 -20% | alert during a LULD halt; live "entry" $1.425 was a stale print, real reopen $1.52; stop at the squeeze top, back below entry by 10:01 | execution bug + news trade + stop trade-off | stale-quote guard shipped; 3 exit/entry ideas tested, all lose |
+| SERV 2026-11-06 -2.4% | +2.8% at 10:33, ground up, 60-min exit | rule loss, news trade | partial-profit idea tested: -0.50%/trade |
+| STAK 2026-11-06 -2.3% | +4-8% for 40 min, rebound at 11:07 as the timer fired; rose to -9.6% after our exit | rule loss (timer saved a larger loss) | same |
+Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
+
+## 6. How the system gets smarter
+- Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
+- Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
+  (entry delay, holds, exits, brain sizing, time-of-day sizing; StockTwits buzz recorded).
+- The **learning scoreboard** (`scripts/learning_report.py`, nightly 22:05 ET, `reports/learning/scoreboard.md`, digest
+  line) scores each challenger against the live rule on forward trades and marks it READY at n >= 300.
+- A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
+  a prereg amendment and becomes the live rule. A worse one is retired. Nothing is promoted automatically.
+- Live data feeds the next questions: borrow stamps, StockTwits buzz, signals at entry, news and filings per trade.
+
+## 7. Open questions and decision points
+- Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
+  time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`).
+- Real money only on a strategy proven on unseen data and tradeable at a broker (borrow).

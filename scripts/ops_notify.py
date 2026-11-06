@@ -44,6 +44,7 @@ JOBS = {
     "fadehold": ("fade longer-hold shadow scoring", "Nothing was traded; it catches up on the next run."),
     "fadebrain": ("fade sizing-model shadow scoring", "Nothing was traded; it catches up on the next run."),
     "fadetod": ("fade time-of-day sizing shadow", "Nothing was traded; it catches up on the next run."),
+    "learning": ("learning scoreboard", "Nothing was traded; the scoreboard shows the previous night."),
     "charts": ("chart page refresh", "Trades are unaffected; the chart page shows the previous version."),
     "summary": ("midnight day summary", "Trades and positions are unaffected; only tonight's summary is missing."),
     "pilotbook": ("real-money 60/40 / turn-of-month at Schwab",
@@ -54,6 +55,9 @@ _NETWORK = re.compile(r"HTTPError|HTTPStatusError|ConnectError|ConnectTimeout|Re
                       r"Temporary failure|Name or service not known", re.I)
 
 
+_SAFETY = re.compile(r"refusing to trade|stale prices|fail(?:s|ed)? closed|differ from the approved plan", re.I)
+
+
 def cause(log: Path | None) -> str:
     if not (log and log.exists()):
         return "the cause is in the job log"
@@ -61,6 +65,8 @@ def cause(log: Path | None) -> str:
         tail = "\n".join(deque(fh, maxlen=TAIL_LINES))
     if _NETWORK.search(tail):
         return "a data or SMS provider did not respond (usually clears on the next run)"
+    if _SAFETY.search(tail):
+        return "a safety check stopped it (prices too old or a plan mismatch), so nothing was traded; it retries next run"
     return "an internal error (logged for a fix)"
 
 

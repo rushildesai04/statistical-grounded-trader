@@ -33,6 +33,8 @@
 50 21 * * 1-5  /app/deploy/entrypoint.sh job fadebrain
 # Fade time-of-day sizing in shadow (prereg_fade_tod_2026-11-06): 0.75x before 11:00 ET, 1.5x after.
 55 21 * * 1-5  /app/deploy/entrypoint.sh job fadetod
+# Learning scoreboard (2026-11-06): every shadow challenger vs the live rule, flags READY at forward n >= 300.
+5 22 * * 1-5   /app/deploy/entrypoint.sh job learning
 # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab. Asks for OK, then trades in the last 15 min before
 # the close (half-days included); a no-op unless SGT_PILOT_SCHWAB=1.
 */5 10-15 * * 1-5 /app/deploy/entrypoint.sh job pilotbook
