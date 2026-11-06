@@ -43,6 +43,7 @@ JOBS = {
     "fadeexits": ("fade exit shadow scoring", "Nothing was traded; it catches up on the next run."),
     "fadehold": ("fade longer-hold shadow scoring", "Nothing was traded; it catches up on the next run."),
     "fadebrain": ("fade sizing-model shadow scoring", "Nothing was traded; it catches up on the next run."),
+    "fadetod": ("fade time-of-day sizing shadow", "Nothing was traded; it catches up on the next run."),
     "charts": ("chart page refresh", "Trades are unaffected; the chart page shows the previous version."),
     "summary": ("midnight day summary", "Trades and positions are unaffected; only tonight's summary is missing."),
     "pilotbook": ("real-money 60/40 / turn-of-month at Schwab",
