@@ -30,3 +30,25 @@ def test_view_and_render_are_json_safe():
     html = mt.render([v], datetime(2026, 11, 6, tzinfo=timezone.utc), [{"date": "2026-11-05", "symbol": "NVDA",
                                                                        "position": 1, "ret": 0.035, "net": 0.0353}])
     assert "</script>X" not in html and "/*MODELS*/null" not in html and '"forward": [{"date": "2026-11-05"' in html
+
+
+def test_load_for_page_combines_static_record_and_live_marks(tmp_path):
+    static, marks = tmp_path / "model_tape.json", tmp_path / "marks.csv"
+    assert mt.load_for_page(static, marks) is None                         # no static record shipped: no tab
+    static.write_text('[{"symbol": "NVDA", "stats": {}, "candles": [], "marks": [], "equity": []}]')
+    marks.write_text("date,symbol,position,ret,void,net\n2026-11-05,NVDA,1,0.035,False,0.0353\n"
+                     "2026-11-05,AAPL,0,0.01,True,0.0\n")
+    got = mt.load_for_page(static, marks)
+    assert got["tickers"][0]["symbol"] == "NVDA" and got["forward"] == [
+        {"date": "2026-11-05", "symbol": "NVDA", "position": 1, "ret": 0.035, "net": 0.0353}]
+    static.write_text("not json")
+    assert mt.load_for_page(static, marks) is None
+
+
+def test_fade_page_embeds_models_escaped():
+    from sgt.ops import charts
+
+    html = charts.render([], datetime(2026, 11, 6, tzinfo=timezone.utc),
+                         models={"tickers": [{"symbol": "</script>X", "stats": {}}], "forward": []})
+    assert "</script>X" not in html and '"models": {"tickers": [{"symbol": "\\u003c/script>X"' in html
+    assert 'id="tab-models"' in html

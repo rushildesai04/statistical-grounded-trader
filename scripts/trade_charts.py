@@ -19,7 +19,7 @@ import pandas as pd
 from sgt.core.secrets import get_secret
 from sgt.fast import fade
 from sgt.intraday.calendar import default_calendar
-from sgt.ops import charts
+from sgt.ops import charts, model_tape
 from sgt.ops.store import OpsStore, utcnow
 
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.]{0,9}")
@@ -96,7 +96,8 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
         learning = json.loads(board.read_text()).get("rows") if board.exists() else None
     except (OSError, ValueError):
         learning = None                                  # the page still renders without the scoreboard
-    return charts.render(views, now, standalone=standalone, learning=learning)
+    models = model_tape.load_for_page(marks=Path("reports/megacap_forward/marks.csv"))   # Models tab (owner 2026-11-06)
+    return charts.render(views, now, standalone=standalone, learning=learning, models=models)
 
 
 def main() -> int:

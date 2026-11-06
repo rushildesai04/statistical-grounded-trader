@@ -75,3 +75,28 @@ def render(views: list[dict], generated: datetime, forward: list[dict] | None = 
     data = {"generated": generated.strftime("%a %b %-d, %Y %-I:%M %p"), "tickers": views, "forward": forward or []}
     payload = json.dumps(data, allow_nan=False).replace("<", "\\u003c")
     return TEMPLATE.read_text().replace("/*MODELS*/null", payload, 1)
+
+
+STATIC = Path(__file__).resolve().parents[3] / "config" / "models" / "model_tape.json"   # /app/config on Fly
+
+
+def forward_rows(path: Path | None) -> list[dict]:
+    """Live calls from the runner's reports/megacap_forward/marks.csv (position at 15:50 ET, next close-to-close)."""
+    if not path or not path.exists():
+        return []
+    m = pd.read_csv(path)
+    m = m[~m.void.astype(bool)] if "void" in m else m
+    return [{"date": str(r.date), "symbol": str(r.symbol), "position": int(r.position), "ret": _f(r.ret),
+             "net": _f(r.net)} for r in m.itertuples(index=False)]
+
+
+def load_for_page(static: Path = STATIC, marks: Path | None = None) -> dict | None:
+    """Model views for the Fade Tape's Models tab: the static out-of-sample record shipped with the app (built locally
+    by scripts/model_tape.py --export) plus the runner's live marks. None when the static file is missing."""
+    try:
+        views = json.loads(static.read_text()) if static.exists() else None
+    except (OSError, ValueError):
+        views = None
+    if not isinstance(views, list):
+        return None
+    return {"tickers": views, "forward": forward_rows(marks)}

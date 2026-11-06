@@ -134,6 +134,15 @@ h1 em { font-style: normal; color: var(--accent); }
 .links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
 .empty { color: var(--muted); padding: 24px 0; }
+.pane { display: grid; gap: 20px; min-width: 0; }
+.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--rule); }
+.tabs button { font: 600 14px var(--body); color: var(--muted); background: none; border: 0; padding: 8px 14px;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.mt-eq { height: 150px; min-width: 0; }
+.mt-years { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 400 11.5px var(--mono); color: var(--muted); }
+.learn-table td a { color: var(--accent); text-decoration: none; font-weight: 600; }
 .learn { display: grid; gap: 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
   padding: 14px 16px; min-width: 0; }
 .learn-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
@@ -177,6 +186,12 @@ footer b { color: var(--ink); font-weight: 600; }
     <div class="status"><span class="dot"></span><span id="generated">paper book</span></div>
   </div>
 
+  <nav class="tabs" role="tablist" aria-label="Views" id="tabs" hidden>
+    <button type="button" role="tab" id="tab-fade" aria-selected="true" aria-controls="pane-fade">Fade trades</button>
+    <button type="button" role="tab" id="tab-models" aria-selected="false" aria-controls="pane-models">Models</button>
+  </nav>
+
+  <div class="pane" id="pane-fade" role="tabpanel" aria-labelledby="tab-fade">
   <div class="tape" aria-label="Trades on this day"><div class="tape-track" id="tape"></div></div>
 
   <div class="head">
@@ -229,6 +244,38 @@ footer b { color: var(--ink); font-weight: 600; }
         <th>Status</th></tr></thead>
       <tbody id="learn-rows"></tbody></table></div>
   </section>
+  </div>
+
+  <div class="pane" id="pane-models" role="tabpanel" aria-labelledby="tab-models" hidden>
+    <div class="head"><div>
+      <h1>Model <em>Tape</em></h1>
+      <p class="lede">The daily per-stock model: at 15:50 ET it predicts the next close-to-close move and goes long,
+        short or stays flat. Out of sample since 2018 (each month predicted by a model trained only on earlier months),
+        0.04% per round trip. Compared with simply holding the stock.</p>
+    </div></div>
+    <section class="learn" id="mt-fwd" hidden aria-label="Live model calls">
+      <div class="learn-head"><span class="label">Live calls on the runner (paper)</span>
+        <span class="small" id="mt-fwd-sub"></span></div>
+      <div class="learn-wrap"><table class="learn-table"><thead><tr><th>Day</th><th>Stock</th><th>Call</th>
+        <th>Next-day move</th><th>Result</th></tr></thead><tbody id="mt-fwd-rows"></tbody></table></div>
+    </section>
+    <section class="learn" aria-label="Model scoreboard">
+      <div class="learn-head"><span class="label">Model vs simply holding (2018 to today)</span></div>
+      <div class="learn-wrap"><table class="learn-table"><thead><tr><th>Stock</th><th>Set</th><th>Model / yr</th>
+        <th>Hold / yr</th><th>Model Sharpe</th><th>Hold Sharpe</th><th>Hit</th><th>Last 3 mo model</th>
+        <th>Last 3 mo hold</th></tr></thead><tbody id="mt-board"></tbody></table></div>
+    </section>
+    <div class="legend">
+      <span><i style="background:var(--up)"></i>call that made money</span>
+      <span><i style="background:var(--down)"></i>call that lost</span>
+      <span>▲ long · ▼ short · no mark = flat</span>
+      <span><i style="background:var(--accent)"></i>model equity</span>
+      <span><i style="background:var(--muted)"></i>buy and hold</span>
+    </div>
+    <main class="list" id="mt-list"></main>
+    <p class="small">Verdict: the model beats holding on none of the 21 names out of sample (PLAYBOOK 6b); it stays a
+      paper forward test.</p>
+  </div>
 
   <footer>
     <span><b>Rushil's Agent · SGT</b> · paper trading record, not advice.</span>
@@ -519,7 +566,97 @@ function learning() {
   box.hidden = false;
 }
 
+const mtPaints = [];
+const mtPc = (x, d = 1) => x == null ? "–" : (x >= 0 ? "+" : "") + (x * 100).toFixed(d) + "%";
+const mtNum = (x, d = 2) => x == null ? "–" : x.toFixed(d);
+const mtSign = x => x == null ? null : (x > 0 ? "pos" : x < 0 ? "neg" : null);
+let mtDrawn = false;
+
+function mtForward(rows) {
+  const taken = rows.filter(r => r.position !== 0);
+  if (!rows.length) return;
+  const wins = taken.filter(r => r.net > 0).length, avg = taken.length ? taken.reduce((s, r) => s + r.net, 0) / taken.length : 0;
+  document.getElementById("mt-fwd-sub").textContent = new Set(rows.map(r => r.date)).size + " sessions, " + taken.length +
+    " calls (flat otherwise): " + wins + " made money, average " + mtPc(avg, 2) + " per call. Too few to judge.";
+  const body = document.getElementById("mt-fwd-rows");
+  taken.slice().reverse().forEach(r => {
+    const tr = el("tr");
+    tr.append(el("td", null, r.date), el("td", null, r.symbol), el("td", null, r.position > 0 ? "LONG" : "SHORT"),
+              el("td", mtSign(r.ret), mtPc(r.ret, 2)), el("td", mtSign(r.net), mtPc(r.net, 2)));
+    body.append(tr);
+  });
+  document.getElementById("mt-fwd").hidden = false;
+}
+
+function mtDraw(box, eqBox, v) {
+  const ch = LightweightCharts.createChart(box, { ...theme(), autoSize: true, handleScroll: { vertTouchDrag: false } });
+  ch.applyOptions({ timeScale: { timeVisible: false } });
+  const candles = ch.addCandlestickSeries({ borderVisible: false });
+  candles.setData(v.candles);
+  const e = LightweightCharts.createChart(eqBox, { ...theme(), autoSize: true, handleScroll: { vertTouchDrag: false } });
+  const m = e.addLineSeries({ lineWidth: 2, lastValueVisible: false, priceLineVisible: false });
+  const h = e.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false });
+  m.setData(v.equity.map(p => ({ time: p.time, value: p.model })));
+  h.setData(v.equity.map(p => ({ time: p.time, value: p.hold })));
+  const paint = () => {
+    ch.applyOptions(theme()); e.applyOptions(theme()); ch.applyOptions({ timeScale: { timeVisible: false } });
+    const up = css("--up"), down = css("--down");
+    candles.applyOptions({ upColor: up, downColor: down, wickUpColor: up, wickDownColor: down });
+    candles.setMarkers(v.marks.map(k => ({ time: k.time, position: k.pos > 0 ? "belowBar" : "aboveBar",
+      shape: k.pos > 0 ? "arrowUp" : "arrowDown", color: k.win ? up : down })));
+    m.applyOptions({ color: css("--accent") }); h.applyOptions({ color: css("--muted") });
+  };
+  paint(); ch.timeScale().fitContent(); e.timeScale().fitContent();
+  mtPaints.push(paint);
+}
+
+function mtBoot() {
+  if (mtDrawn || !DATA.models) return;
+  mtDrawn = true;
+  mtForward(DATA.models.forward || []);
+  const rows = (DATA.models.tickers || []).slice().sort((a, b) => (b.stats.model_sharpe ?? -9) - (a.stats.model_sharpe ?? -9));
+  const board = document.getElementById("mt-board"), list = document.getElementById("mt-list");
+  rows.forEach((v, i) => {
+    const s = v.stats, tr = el("tr"), a = el("a", null, v.symbol), td0 = el("td");
+    a.href = "#mt-" + v.symbol; td0.append(a);
+    tr.append(td0, el("td", null, v.group), el("td", mtSign(s.model_ann), mtPc(s.model_ann)),
+              el("td", mtSign(s.hold_ann), mtPc(s.hold_ann)), el("td", null, mtNum(s.model_sharpe)),
+              el("td", null, mtNum(s.hold_sharpe)), el("td", null, mtPc(s.hit, 0)),
+              el("td", mtSign(s.last63_model), mtPc(s.last63_model)), el("td", mtSign(s.last63_hold), mtPc(s.last63_hold)));
+    board.append(tr);
+    const beats = (s.model_sharpe ?? -9) > (s.hold_sharpe ?? -9);
+    const c = el("article", "card " + (beats ? "win" : "loss")); c.id = "mt-" + v.symbol; c.style.setProperty("--i", i);
+    const top = el("div", "top");
+    top.append(el("span", "sym", v.symbol), el("span", "kind", v.group),
+               el("span", "pill", beats ? "beats holding (Sharpe)" : "does not beat holding"));
+    const f = el("div", "facts");
+    const fact = (k, val) => { const x = el("span", null, k + " "); x.append(el("b", null, val)); f.append(x); };
+    fact("model", mtPc(s.model_ann) + "/yr"); fact("hold", mtPc(s.hold_ann) + "/yr");
+    fact("Sharpe", mtNum(s.model_sharpe) + " vs " + mtNum(s.hold_sharpe)); fact("hit", mtPc(s.hit, 0));
+    if (v.last) fact("latest call " + v.last.session, v.last.position > 0 ? "LONG" : v.last.position < 0 ? "SHORT" : "flat");
+    const box = el("div", "chart"), eq = el("div", "mt-eq"), yrs = el("div", "mt-years");
+    Object.entries(s.by_year || {}).forEach(([y, r]) => yrs.append(el("span", null, y + " " + mtPc(r.model, 0) + " (hold " + mtPc(r.hold, 0) + ")")));
+    c.append(top, f, box, el("span", "label", "Equity since 2018: model vs hold"), eq, yrs);
+    list.append(c);
+    mtDraw(box, eq, v);
+  });
+}
+
+function showTab(name) {
+  const models = name === "models" && DATA.models;
+  document.getElementById("pane-fade").hidden = !!models;
+  document.getElementById("pane-models").hidden = !models;
+  document.getElementById("tab-fade").setAttribute("aria-selected", String(!models));
+  document.getElementById("tab-models").setAttribute("aria-selected", String(!!models));
+  if (models) mtBoot();
+}
+
 function boot() {
+  if (DATA.models && (DATA.models.tickers || []).length) {
+    document.getElementById("tabs").hidden = false;
+    document.getElementById("tab-fade").addEventListener("click", () => { showTab("fade"); history.replaceState(null, "", "#fade"); });
+    document.getElementById("tab-models").addEventListener("click", () => { showTab("models"); history.replaceState(null, "", "#models"); });
+  }
   learning();
   document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
   const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
@@ -529,7 +666,9 @@ function boot() {
   if (days.length) show(days[0]); else { tape([]); document.getElementById("list").append(el("div", "empty", "No trades yet.")); }
   let current = days[0];
   bar.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.day) current = e.target.dataset.day; });
-  const repaint = () => { charts.forEach(p => p()); if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
+  const repaint = () => { charts.forEach(p => p()); mtPaints.forEach(p => p());
+    if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
+  if (location.hash === "#models") showTab("models");
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
   new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
