@@ -50,6 +50,8 @@ COLUMNS = {
         "news_own": "INTEGER", "news_earn": "INTEGER", "news_head": "TEXT",   # prereg_fade_news_2026-11-05
         "conf": "INTEGER",                   # confidence shown in the entry text (0-100)
         "filing_dilution": "INTEGER", "filing_form": "TEXT", "filing_8k": "INTEGER",  # EDGAR at alert, 2026-11-05
+        "st_n60": "INTEGER", "st_n15": "INTEGER", "st_span": "REAL", "st_bull": "INTEGER",  # StockTwits at alert,
+        "st_bear": "INTEGER", "st_watch": "INTEGER",                                         # 2026-11-06 (forward)
     },
 }
 

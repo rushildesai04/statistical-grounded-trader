@@ -389,9 +389,7 @@ def _prepare(start: date, end: date, client: httpx.Client, fetch_universe: bool)
         fetch_open_windows(client, eligible_universe(filters, sessions), sessions)
     daily = _load_daily(sessions[0], end)
     filters = orb_sip.build_daily_filters(daily)
-    allbars = _load_open_bars(sessions)
-    agg5 = orb_sip.aggregate_opening(allbars, last_min=orb_sip.OR5_LAST_MIN)
-    agg15 = orb_sip.aggregate_opening(allbars, last_min=orb_sip.OR15_LAST_MIN)
+    agg5, agg15 = _aggregate_open(sessions)               # one day at a time: bounded memory (2026-11-06)
     rvol = orb_sip.opening_rvol(agg5, sessions)            # RVOL is always the 5-bar window
     return filters, agg5, agg15, rvol, sessions
 
@@ -405,6 +403,24 @@ def _load_daily(start: date, end: date) -> pd.DataFrame:
     if not parts:
         raise SystemExit(f"daily cache {d} is empty")
     return pd.concat(parts, ignore_index=True)
+
+
+def _aggregate_open(sessions: list[date]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """5- and 15-minute opening aggregates, reading and reducing one session file at a time, so peak memory is one
+    day's opening bars (~35k rows) instead of every day at once (owner's Mac crashed on the all-at-once load)."""
+    d = ROOT / "open"
+    p5, p15 = [], []
+    for sess in sessions:
+        f = d / f"date={sess.isoformat()}.parquet"
+        if not f.exists():
+            continue
+        df = pd.read_parquet(f)
+        if len(df):
+            p5.append(orb_sip.aggregate_opening(df, last_min=orb_sip.OR5_LAST_MIN))
+            p15.append(orb_sip.aggregate_opening(df, last_min=orb_sip.OR15_LAST_MIN))
+    if not p5:
+        raise SystemExit("no cached opening windows; run `fetch` first")
+    return pd.concat(p5, ignore_index=True), pd.concat(p15, ignore_index=True)
 
 
 def _load_open_bars(sessions: list[date]) -> pd.DataFrame:

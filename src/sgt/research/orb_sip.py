@@ -122,19 +122,22 @@ def aggregate_opening(open_bars: pd.DataFrame, last_min: int = OR5_LAST_MIN) -> 
     bar), or_high, or_low, vol5 (summed volume of the FIRST FIVE bars, for RVOL),
     nbars. A day without the 09:30 bar has or_open NaN and is untradeable.
     """
-    b = open_bars[(open_bars["minute"] >= OPEN_MIN) & (open_bars["minute"] <= last_min)]
-    rows: list[dict] = []
-    for (sym, d), g in b.groupby(["symbol", "date"], sort=True):
-        g = g.sort_values("minute")
-        first = g[g["minute"] == OPEN_MIN]
-        or_open = float(first["open"].iloc[0]) if len(first) else np.nan
-        vol5 = float(g[g["minute"] <= OR5_LAST_MIN]["volume"].sum())
-        rows.append({
-            "symbol": sym, "date": d, "or_open": or_open,
-            "or_close": float(g["close"].iloc[-1]), "or_high": float(g["high"].max()),
-            "or_low": float(g["low"].min()), "vol5": vol5, "nbars": int(len(g))})
     cols = ["symbol", "date", "or_open", "or_close", "or_high", "or_low", "vol5", "nbars"]
-    return pd.DataFrame(rows, columns=cols)
+    b = open_bars[(open_bars["minute"] >= OPEN_MIN) & (open_bars["minute"] <= last_min)]
+    if b.empty:
+        return pd.DataFrame(columns=cols)
+    # 2026-11-06: vectorized (was a per-group Python loop; too slow and memory-heavy on ~2M symbol-days). Same output.
+    b = b.sort_values(["symbol", "date", "minute"], kind="mergesort")
+    g = b.groupby(["symbol", "date"], sort=True)
+    out = pd.DataFrame({"first_min": g["minute"].first(), "first_open": g["open"].first(),
+                        "or_close": g["close"].last(), "or_high": g["high"].max(), "or_low": g["low"].min(),
+                        "nbars": g.size()})
+    out["or_open"] = out["first_open"].where(out["first_min"] == OPEN_MIN).astype(float)
+    out["vol5"] = b[b["minute"] <= OR5_LAST_MIN].groupby(["symbol", "date"])["volume"].sum() \
+        .reindex(out.index, fill_value=0).astype(float)
+    out = out.reset_index()
+    return out.assign(or_close=out.or_close.astype(float), or_high=out.or_high.astype(float),
+                      or_low=out.or_low.astype(float), nbars=out.nbars.astype(int))[cols]
 
 
 def opening_rvol(agg: pd.DataFrame, sessions: list) -> pd.DataFrame:
