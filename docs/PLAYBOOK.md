@@ -51,7 +51,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 11. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
    volume, new high; 517 in training) fade only +0.11% before costs, -1.23% after; the 4% the channel also alerted
    earned +4.7% (`prereg_self_fade_2026-11-06`). The book depends on that channel staying as it is.
-12. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
+12. **Price matters, and it is not where you would guess.** By entry price (train / held-out): $1-2 +2.4% / +2.1% per
+   trade (about two thirds of all profit), $2-5 +0.2% / +0.2%, $5-10 +0.9% / +1.2%, $10-50 +0.3% / +0.8%. A $0.02/share
+   locate still leaves $1-2 fades at +1.4% / +1.2%. Descriptive (found after looking), so forward-only if used.
+13. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
    far is negative (n 34). In shadow until n >= 300.
 
 ## 4. Rules tested and rejected (do not re-test without a new reason)

@@ -18,8 +18,9 @@ $3.22; 10th-90th percentile $1.22-$10.61). The break-even locate is 1.6% of the 
 | $7.00 | $0.035/share | $0.112/share |
 | $15.00 | $0.075/share | $0.240/share |
 
-A typical hot small-cap locate of a few cents per share is affordable above about $4 and ruinous on $1-2 names. Real
-quotes per trade decide it; none of the brokers below publish them.
+A few cents per share is affordable above about $4. Measured (2026-11-06, both periods): $1-2 fades earn +2.4% / +2.1%
+per trade and about two thirds of all profit, so even a $0.02/share locate leaves them at +1.4% / +1.2%; the $2-5
+bucket earns ~0 before locates. Real quotes per trade decide it; none of the brokers below publish them.
 
 ## Brokers
 | broker | can short HTB small caps? | locate / borrow cost | account / rules | fit |
