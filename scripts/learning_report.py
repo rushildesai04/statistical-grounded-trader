@@ -35,7 +35,8 @@ SOURCES = (Source("fade_challengers", "prereg_fade_challengers_2026-11-04", 0.05
            Source("fade_exits", "prereg_fade_exits_2026-11-05", 0.05 / 4, "cols"),
            Source("fade_hold", "prereg_fade_hold_2026-11-05", 0.05 / 2, "cols"),
            Source("fade_brain", "prereg_fade_brain_2026-11-05", 0.05, "size"),
-           Source("fade_tod", "prereg_fade_tod_2026-11-06", 0.05, "size"))
+           Source("fade_tod", "prereg_fade_tod_2026-11-06", 0.05, "size"),
+           Source("fade_confsize", "prereg_fade_confsize_2026-11-06", 0.05, "size"))
 
 
 def challengers(t: pd.DataFrame, s: Source) -> dict[str, pd.DataFrame]:
