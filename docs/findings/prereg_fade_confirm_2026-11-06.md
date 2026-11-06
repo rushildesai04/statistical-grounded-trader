@@ -28,3 +28,25 @@ PASS -> nightly shadow, decided forward at n >= 300; a live change needs the own
 Share of events traded (E-CONFIRM), mean entry delay, mean per traded event; X-FAILPB share covered early, early-cover
 gross vs if held; both on the news / no-news split.
 Trial ledger run id `fade-confirm-2026-11-06-dev`.
+
+## Result (2026-11-06, dev run once, trial ledger `fade-confirm-2026-11-06-dev`) — both FAIL
+Champion reproduced `alert_fade_test.score` exactly (guard).
+
+| | training per trade | held-out per trade (secondary) | training diff/session [lower 97.5%] |
+|---|---|---|---|
+| champion (short at the alert, 60 min) | +0.97% | +1.12% | - |
+| E-CONFIRM (wait for breakdown + failed bounce; traded 93%) | -0.08% | +0.24% | -6.92% [-10.24%] |
+| X-FAILPB (cover when a pullback fails; 25% covered early) | +0.87% | +0.07% | -0.72% [-2.51%] |
+
+X-FAILPB early covers: -7.57% vs -7.14% if held (training); -7.75% vs -2.96% (held-out).
+Reading: the fade's drop starts right at the alert; waiting for a confirmed breakdown sells after most of it. Covering
+after a failed pullback locks in losses that usually fade again within the hour (RAYA itself ran to $2.12 at 09:51 and
+was back at $1.53 by 10:00). Both rules look right on one chart and lose over 2,349 trades. Nothing deployed.
+
+## What RAYA actually teaches (review 2026-11-06)
+1. Execution bug, fixed: the alert came during a LULD halt (no bars 09:38-09:41); the book "entered" at a stale
+   pre-halt print ($1.425) instead of the reopen ($1.52). Stale IEX prints are now ignored (fade_live STALE_QUOTE).
+2. The trade was in the zero-edge group: news-type alerts or company news earned +0.00%/trade on training (n 1,107)
+   and -0.37% held-out (n 277), while no-news alerts earned +1.84% / +1.97% and all of the profit. Our confidence
+   number (55) already said this; the book still traded it at full size. That is the mistake not to repeat (owner
+   decision pending: skip or shrink news trades).
