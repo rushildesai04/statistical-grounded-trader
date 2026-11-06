@@ -78,3 +78,27 @@ def breakeven_gross(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float) -> 
             return (entry - o[i + 1]) / entry, True
         under = under or c[i] >= entry * (1 + UNDER)
     return champ["gross"], False
+
+
+def scale_gross(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float, take: float = 0.03) -> tuple[float, bool] | None:
+    """X-SCALE (owner's SERV/STAK review 2026-11-06): cover half at +``take`` (bar low <= entry x (1 - take), filled at
+    min(level, open)); the other half keeps the 60-minute hold with its stop moved to the entry. Before the partial
+    both halves carry the 20% stop. Returns (gross of the whole position, partial_taken)."""
+    champ = simulate(ind, entry_ts, entry, CHAMPION)
+    if champ is None:
+        return None
+    ts = ind.ts
+    i0 = int(np.flatnonzero((ts >= entry_ts).to_numpy())[0])
+    last = int(np.flatnonzero((ts < entry_ts + pd.Timedelta(minutes=CHAMPION.cap_min)).to_numpy())[-1])
+    o, h, lo, c = (ind[k].to_numpy(float) for k in ("open", "high", "low", "close"))
+    stop, lvl = entry * (1 + CHAMPION.stop), entry * (1 - take)
+    for i in range(i0, last + 1):
+        if h[i] >= stop:                               # stop first (worst case): whole position out
+            return (entry - max(stop, o[i])) / entry, False
+        if lo[i] <= lvl:                               # partial: half covered at the target
+            half1 = (entry - min(lvl, o[i])) / entry
+            for j in range(i + 1, last + 1):           # remainder: breakeven stop from the next bar
+                if h[j] >= entry:
+                    return (half1 + (entry - max(entry, o[j])) / entry) / 2, True
+            return (half1 + (entry - c[last]) / entry) / 2, True
+    return champ["gross"], False

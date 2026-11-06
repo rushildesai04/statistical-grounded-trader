@@ -57,3 +57,17 @@ def test_breakeven_exit_only_after_being_underwater():
     rows2 = [(10, 10.2, 9.5, 9.6)] + [(9.6, 9.7, 9.0, 9.1)] * 70  # never underwater: champion
     g, early = confirm.breakeven_gross(ind(rows2), T0, 10.0)
     assert not early and g == pytest.approx(0.09)
+
+
+def test_scale_out_takes_half_at_three_percent_and_protects_the_rest():
+    # STAK-like: entry 2.18, dips to 2.06 (half covered at 2.1146), rebounds through the entry later
+    rows = [(2.18, 2.19, 2.15, 2.16), (2.16, 2.17, 2.06, 2.09), (2.09, 2.10, 2.03, 2.05),
+            (2.05, 2.24, 2.05, 2.23)] + [(2.23, 2.4, 2.2, 2.35)] * 70
+    g, part = confirm.scale_gross(ind(rows), T0, 2.18)
+    assert part and g == pytest.approx(((2.18 - 2.18 * 0.97) / 2.18 + 0.0) / 2)   # +3% on half, 0 on the rest
+    rows2 = [(10, 10.1, 9.9, 10.0)] * 70                      # never reaches +3%: champion
+    g, part = confirm.scale_gross(ind(rows2), T0, 10.0)
+    assert not part and g == pytest.approx(0.0)
+    rows3 = [(10, 12.5, 9.9, 12.0)] + [(12, 12, 11, 11)] * 70    # stop before any partial: whole position stopped
+    g, part = confirm.scale_gross(ind(rows3), T0, 10.0)
+    assert not part and g == pytest.approx(-0.20)
