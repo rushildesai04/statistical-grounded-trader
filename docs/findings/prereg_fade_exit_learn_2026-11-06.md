@@ -42,3 +42,19 @@ Share of trades covered early and at which checkpoint; mean gross of early cover
 policy with a 0.5% margin (cover only if predicted label < -0.5%); held-out 2026-07..10 with the frozen model (already
 seen, secondary); feature importance.
 Trial ledger run id `fade-exit-learn-2026-11-06-dev`.
+
+## Result (2026-11-06, dev walk-forward run once, trial ledger `fade-exit-learn-2026-11-06-dev`) — FAIL
+Champion reproduced `alert_fade_test.score` exactly (guard). Walk-forward 2025-07 .. 2026-06: 1,658 events, 234
+sessions, 9,508 checkpoint rows (training, all months).
+
+| | mean net/trade | 1st pct | covered early | early covers: gross vs if held | diff/session [lower 95%] |
+|---|---|---|---|---|---|
+| champion (60 min) | +0.92% | -23.8% | - | - | - |
+| X-LEARN | +0.81% | -21.8% | 66% (550 at 10 min) | +3.77% vs +3.95% | -0.80% [-3.05%] FAIL |
+| margin 0.5% (secondary) | +0.76% | -21.8% | 29% | +1.43% vs +2.00% | -1.18% [-2.98%] |
+
+Reading: from any checkpoint, holding to the champion's exit beat covering on average (+0.49% per checkpoint). The
+model trims the worst tail a little (1st percentile -23.8% -> -21.8%) but covers winners early more often than it
+saves losers, so it earns less. With the trailing, VWAP, EMA and target exits and the longer holds, this is the sixth
+exit that loses to the plain 60-minute hold: the remaining drift after entry is not predictable from the tape at
+these horizons. The live exit stays at 60 minutes; nothing is frozen or deployed.
