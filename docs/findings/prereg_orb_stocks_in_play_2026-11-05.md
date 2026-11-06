@@ -76,3 +76,23 @@ Survivorship: Alpaca's inactive-asset list may miss some delisted names. ETFs ar
 - The held-out verdict is still decided by the PRIMARY cost (commission + measured spread), as registered above.
 - Engineering note: the opening-window aggregation now streams one session file at a time (vectorized, output
   verified identical to the earlier loop); the full 2021-2023 dev run had exhausted the owner's laptop.
+
+## Result (2026-11-06, training 2021-01-04 .. 2023-12-29, dev run once on the full period) — replication FAILED
+Peak memory 0.74 GB (streamed). 12,337 trades on 753 sessions (top 20 by opening RVOL each day).
+
+| training 2021-2023 | mean per trade |
+|---|---|
+| gross | -0.098% |
+| commission only (the paper's cost; A2 criterion) | **-0.130%** (fails: must be > 0 with lower 95% > 0) |
+| commission + half the measured spread | -0.483% |
+| primary (commission + measured spread) | -0.837% (lower 95% -0.873%) |
+| entry-bar stop ignored, commission only (A1 bound) | -0.016% |
+| 15-minute range, primary | -0.793% |
+
+Hit rate 9%; 88% of trades stopped; long -0.87% / short -0.81%; top 5 / 10 / 20 all negative; every year negative
+(2021 -0.86%, 2022 -0.82%, 2023 -0.83%); paper-sizing portfolio (1% risk, 4x cap) goes to zero.
+Reading: with the published rules on SIP 1-minute data, the breakout has no edge even before spreads: gross is
+slightly negative, and even the most generous reading of the intrabar stop (A1 bound) is about zero. The 0.10 x ATR
+stop sits inside one minute's normal range for these names, so most trades are stopped by noise. Per A2 the held-out
+2024-2026 stays SEALED (the replication failed; no retrying toward a pass). Nothing deployed. Possible reasons it
+differs from the paper (not tested, not pursued): intrabar fill assumptions, data vendor, universe details.
