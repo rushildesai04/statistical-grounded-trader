@@ -31,6 +31,7 @@ on a pass (live changes need the owner's OK). Lessons already tested (all lose t
 | cover when a pullback fails | same | +0.87% / +0.07% |
 | get out near breakeven after being underwater | same, addendum B | +0.38% / +0.01% |
 | skip news trades | prereg_fade_news / RAYA review | same profit, half the trades (owner: keep trading) |
+| take half at +3% / +5%, protect the rest | prereg_fade_confirm addendum C | -0.50% / -0.67% (+3%) |
 | no stop / 10% / 30% stop | prereg_alert_fade_2026-11-01 | no stop +2.31% but -78% tails; 20% chosen for risk |
 
 ## 4. Report plainly

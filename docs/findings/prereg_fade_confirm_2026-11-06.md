@@ -73,3 +73,14 @@ min(entry x 0.97, that bar's open). From the next bar on, the other half keeps t
 the entry (breakeven): a bar whose high reaches the entry covers it at max(entry, that bar's open). The 20% stop applies
 to both halves until the partial. Gross = the average of the two halves. One rule, alpha 0.05, run once on training
 with the champion guard; held-out secondary. Secondary: X-SCALE5 (same with the partial at +5%).
+
+## Addendum C result (2026-11-06, run once each, trial ledger `fade-scale3/5-2026-11-06-dev`) — FAIL
+| | training per trade | held-out (secondary) | trades reaching the partial | those trades: scaled vs held |
+|---|---|---|---|---|
+| champion | +0.97% | +1.12% | - | - |
+| X-SCALE (+3%, decides) | -0.50% | -0.67% | 84% / 85% | +2.09% vs +3.84% (train) |
+| X-SCALE5 (+5%, secondary) | -0.16% | -0.48% | 75% / 74% | +4.05% vs +5.57% (train) |
+Reading: 84% of fades show at least +3% profit at some point in the hour (75% show +5%), so almost every losing trade
+has a "best visible exit" in hindsight. Banking half on the first dip and protecting the rest at breakeven caps the
+winners while the trades that never dip keep their full 20% stop: the strategy turns from +0.97% to -0.50% per trade.
+Ninth post-entry rule that loses to the 60-minute hold. Nothing deployed.
