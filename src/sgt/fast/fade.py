@@ -416,11 +416,30 @@ def nav(db: OpsStore, through: date | None = None) -> float:
     return v
 
 
+CHANNEL_QUIET = 0.25                            # alerts today below this share of the usual day -> warn
+
+
+def channel_health(db: OpsStore, session: str) -> list[str]:
+    """Warn when the channel went quiet (self-fade study 2026-11-06: the edge is the channel's selection, so a silent
+    or changed channel, or a listener that stopped receiving it, must show the same night). Needs 5+ past sessions."""
+    with db.tx() as c:
+        today = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=?", (session,)).fetchone()[0]
+        past = [r[0] for r in c.execute("SELECT COUNT(*) FROM fade_trades WHERE session<? GROUP BY session "
+                                        "ORDER BY session DESC LIMIT 20", (session,))]
+    if len(past) < 5:
+        return []
+    usual = sorted(past)[len(past) // 2]
+    if usual and today < CHANNEL_QUIET * usual:
+        return [f"! channel quiet: {today} alerts today vs usual {usual} (listener or channel change?)"]
+    return []
+
+
 def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[str]:
     s = day.isoformat()
     beat = db.flag("fade_heartbeat")
     down = beat and (now or utcnow()) - datetime.fromisoformat(beat) > HEARTBEAT_STALE
     warn = [f"! fade listener DOWN since {datetime.fromisoformat(beat).astimezone(ET):%m-%d %H:%M} ET"] if down else []
+    warn += channel_health(db, s)
     with db.tx() as c:
         rows = c.execute("SELECT status, net FROM fade_trades WHERE session=?", (s,)).fetchall()
         n_all = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status='settled'").fetchone()[0]

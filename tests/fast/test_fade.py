@@ -530,3 +530,17 @@ def test_quote_ignores_stale_prints_during_a_halt():
     assert q("RAYA") is None                    # last print 2+ minutes old: halted, not a price
     assert q("LIVE") == 1.425
     assert q("BAD") is None
+
+
+def test_digest_warns_when_the_channel_goes_quiet(db):
+    with db.tx() as c:
+        for i, d in enumerate(["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"]):
+            for k in range(12):
+                c.execute("INSERT INTO fade_trades (symbol, session, alert_type, posted_at, channel, message_id, "
+                          "status, reason, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                          (f"S{i}{k}", d, "news", f"{d}T15:00:00+00:00", "-1", i * 100 + k, "filtered", "x",
+                           f"{d}T15:00:00+00:00"))
+    assert fade.channel_health(db, DAY.isoformat()) == ["! channel quiet: 0 alerts today vs usual 12 (listener or "
+                                                       "channel change?)"]
+    assert any("channel quiet" in x for x in fade.digest_lines(db, DAY, T10))
+    assert fade.channel_health(db, "2026-10-26") == []          # fewer than 5 past sessions: no judgement

@@ -86,6 +86,8 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
   a prereg amendment and becomes the live rule. A worse one is retired. Nothing is promoted automatically.
 - Live data feeds the next questions: borrow stamps, StockTwits buzz, signals at entry, news and filings per trade.
+- **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
+  receiving it is flagged the same night, because the edge is the channel's selection (finding 10).
 
 ## 7. Open questions and decision points
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
