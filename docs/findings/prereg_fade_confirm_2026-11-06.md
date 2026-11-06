@@ -50,3 +50,10 @@ was back at $1.53 by 10:00). Both rules look right on one chart and lose over 2,
    and -0.37% held-out (n 277), while no-news alerts earned +1.84% / +1.97% and all of the profit. Our confidence
    number (55) already said this; the book still traded it at full size. That is the mistake not to repeat (owner
    decision pending: skip or shrink news trades).
+
+## Addendum B (2026-11-06, written before computing): the breakeven exit from the owner's review
+Owner (2026-11-06): the core of the review is exit timing: "best visible chance to exit was when the pullback brought
+it back close to your entry (roughly breakeven)". X-BE (fixed): champion entry; once a 1-minute close is at least 5%
+ABOVE the entry (the short is underwater), cover at the next bar's open the first time a close is back at or below
+entry x 1.01 (about breakeven). Otherwise the champion's exit. Same gate as above at alpha 0.05 (one new rule), same
+data, run once; held-out secondary. Secondary: share covered early and early-cover net vs if held.
