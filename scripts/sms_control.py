@@ -335,7 +335,8 @@ def cmd_digest(db: OpsStore) -> int:
                                   digest.challenger_research(Path("reports/fade_exits")),
                                   digest.challenger_research(Path("reports/fade_hold")),
                                   digest.challenger_research(Path("reports/fade_brain")),
-                                  digest.challenger_research(Path("reports/fade_tod"))])
+                                  digest.challenger_research(Path("reports/fade_tod")),
+                                  digest.challenger_research(Path("reports/learning"))])
     sms = Sms()
     try:
         sms.send(text)
