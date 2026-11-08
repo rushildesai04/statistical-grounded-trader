@@ -11,7 +11,12 @@ from sgt.ops.store import OpsStore  # noqa: E402
 NOW = datetime(2026, 11, 9, 14, 20, tzinfo=timezone.utc)
 
 
-def test_all_good_is_silent(tmp_path):
+def test_all_good_is_silent(tmp_path, monkeypatch):
+    import shutil
+    from collections import namedtuple
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: usage(100, 50, 50))     # not the test machine's real disk
     db = OpsStore(tmp_path / "ops.db")
     db.set_flag("fade_heartbeat", (NOW - timedelta(seconds=20)).isoformat())
     assert pf.run(db, NOW, quote_time=lambda: NOW - timedelta(minutes=1), disk=tmp_path) == []
@@ -30,3 +35,12 @@ def test_each_failure_is_one_plain_line(tmp_path):
     assert "stale" in pf.check_data(lambda: NOW - timedelta(hours=1), NOW)
     msg = pf.message(["a", "b"], NOW)
     assert msg.startswith("[SGT] Pre-market check found a problem") and "\n- a\n- b\n" in msg
+
+
+def test_full_disk_is_reported(monkeypatch, tmp_path):
+    import shutil
+    from collections import namedtuple
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: usage(100, 95, 5))
+    assert "95% full" in pf.check_disk(tmp_path)
