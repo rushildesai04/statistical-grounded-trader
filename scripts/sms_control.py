@@ -363,6 +363,26 @@ def cmd_summary(db: OpsStore) -> int:
     return 0
 
 
+def cmd_weekly(db: OpsStore) -> int:
+    """Friday weekly review (owner 2026-11-06); once per week, after the nightly reports."""
+    from sgt.ops import weekly
+
+    today = datetime.now(ET).date()
+    friday = today - timedelta(days=(today.weekday() - 4) % 7)
+    if done(db, f"weekly:{friday}"):
+        print(f"weekly {friday}: already sent")
+        return 0
+    text = weekly.build(db, friday)
+    sms = Sms()
+    try:
+        sms.send(text)
+    finally:
+        sms.close()
+    mark_done(db, f"weekly:{friday}")
+    print(text)
+    return 0
+
+
 def megacap_targets(positions: dict[str, int]) -> dict[str, float]:
     from sgt.risk.sizing import SizingConfig, asset_risk, size_book
 
@@ -489,13 +509,13 @@ def cmd_pilot(db: OpsStore) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot", "summary"])
+    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot", "summary", "weekly"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
     return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf,
-            "pilot": cmd_pilot, "summary": cmd_summary}[args.cmd](db)
+            "pilot": cmd_pilot, "summary": cmd_summary, "weekly": cmd_weekly}[args.cmd](db)
 
 
 if __name__ == "__main__":
