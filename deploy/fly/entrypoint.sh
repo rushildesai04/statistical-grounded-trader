@@ -59,6 +59,7 @@ if [ "${1:-}" = "job" ]; then
     charts)    run reports/charts/run.log python /app/scripts/trade_charts.py --out reports/charts/fade_tape.html ;;
     # Midnight day summary (owner request 2026-11-05): trades, count, $ made/lost, $ traded.
     summary)   run reports/ops/run.log python /app/scripts/sms_control.py summary ;;
+    preflight) run reports/ops/run.log python /app/scripts/preflight.py ;;
     weekly)    run reports/ops/run.log python /app/scripts/sms_control.py weekly ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
