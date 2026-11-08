@@ -97,6 +97,8 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
   a prereg amendment and becomes the live rule. A worse one is retired. Nothing is promoted automatically.
 - Live data feeds the next questions: borrow stamps, StockTwits buzz, signals at entry, news and filings per trade.
+- **Daily ops texts**: 09:20 ET pre-market health check (silent unless the listener, market data, database or disk
+  would cost the day), midnight day summary, nightly digest, Friday 23:15 weekly review.
 - **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
   receiving it is flagged the same night, because the edge is the channel's selection (finding 11).
 
