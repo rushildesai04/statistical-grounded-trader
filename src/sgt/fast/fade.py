@@ -304,6 +304,9 @@ def _context(db: OpsStore, r, context) -> dict:
     if st:
         cols.update(st_n60=st.get("st_n60"), st_n15=st.get("st_n15"), st_span=st.get("st_span_min"),
                     st_bull=st.get("st_bull"), st_bear=st.get("st_bear"), st_watch=st.get("st_watch"))
+    xs = ctx.get("x")
+    if xs:
+        cols.update({k: xs.get(k) for k in ("x_n60", "x_n15", "x_authors", "x_eng")})
     keys = ", ".join(f"{k}=?" for k in cols)
     with db.tx() as c:
         c.execute(f"UPDATE fade_trades SET {keys} WHERE id=?", (*cols.values(), r["id"]))  # noqa: S608 - fixed names

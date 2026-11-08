@@ -174,6 +174,10 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     line = social_line(ctx.get("social"))
     if line:
         lines.append(line)
+    xs = ctx.get("x")
+    if xs:
+        lines.append(f"𝕏 {xs['x_n60']} posts last hour from {xs['x_authors']} accounts, {xs['x_eng']:,} likes/reposts "
+                     + italic("(recorded, not a tested filter)"))
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:
         why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")

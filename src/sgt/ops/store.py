@@ -52,6 +52,7 @@ COLUMNS = {
         "filing_dilution": "INTEGER", "filing_form": "TEXT", "filing_8k": "INTEGER",  # EDGAR at alert, 2026-11-05
         "st_n60": "INTEGER", "st_n15": "INTEGER", "st_span": "REAL", "st_bull": "INTEGER",  # StockTwits at alert,
         "st_bear": "INTEGER", "st_watch": "INTEGER",                                         # 2026-11-06 (forward)
+        "x_n60": "INTEGER", "x_n15": "INTEGER", "x_authors": "INTEGER", "x_eng": "INTEGER",  # X at alert, 2026-11-08
     },
 }
 
