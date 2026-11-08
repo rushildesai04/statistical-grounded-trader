@@ -47,6 +47,7 @@ JOBS = {
     "fadeconfsize": ("fade confidence-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "fadepricesize": ("fade price-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "megacapoverlay": ("megacap timing-overlay shadow", "Nothing was traded; it catches up on the next run."),
+    "weekly": ("Friday weekly review", "Trades and positions are unaffected; only the weekly text is missing."),
     "learning": ("learning scoreboard", "Nothing was traded; the scoreboard shows the previous night."),
     "charts": ("chart page refresh", "Trades are unaffected; the chart page shows the previous version."),
     "summary": ("midnight day summary", "Trades and positions are unaffected; only tonight's summary is missing."),

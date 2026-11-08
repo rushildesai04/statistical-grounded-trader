@@ -42,6 +42,8 @@
 40 22 * * 1-5  /app/deploy/entrypoint.sh job megacapoverlay
 # (scoreboard moved to 22:50 so it includes the overlay)
 50 22 * * 1-5  /app/deploy/entrypoint.sh job learning
+# Friday weekly review text (2026-11-06), after the scoreboard.
+15 23 * * 5    /app/deploy/entrypoint.sh job weekly
 # Live pilot (2026-11-05): real 60/40 + turn-of-month at Schwab. Asks for OK, then trades in the last 15 min before
 # the close (half-days included); a no-op unless SGT_PILOT_SCHWAB=1.
 */5 10-15 * * 1-5 /app/deploy/entrypoint.sh job pilotbook
