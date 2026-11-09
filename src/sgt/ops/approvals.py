@@ -9,7 +9,8 @@ Control actions (RESUME / FLATTEN / ARM) keep 6-digit codes. A reply to an expir
 same strategy supersedes the pending one. Five wrong codes within an hour pause trading and expire
 everything pending (a spoofed sender cannot see the codes, which only go to the owner's phone).
 Control: PAUSE / DISARM (no code, fail-closed direction), RESUME / FLATTEN / ARM (challenge code first),
-STATUS, PENDING, CMDS. ARM enables the fast alert-fade book for the current ET trading day only (2026-11-03). Twilio reserves YES/STOP/HELP/START, so they are not used.
+STATUS, PENDING, CMDS. SIZE shows the fade trade size; SIZE <dollars> lowers it at once and raising it needs a
+code (``SIZE <dollars> <code>``; owner 2026-11-09). ARM enables the fast alert-fade book for the current ET trading day only (2026-11-03). Twilio reserves YES/STOP/HELP/START, so they are not used.
 """
 from __future__ import annotations
 
@@ -32,23 +33,29 @@ BAD_WINDOW = timedelta(hours=1)
 CONTROL_TTL = timedelta(minutes=10)
 STALE_EXECUTING = timedelta(minutes=30)
 _CODED = re.compile(rf"^(?:(OK|NO)\s+(\d{{{TRADE_DIGITS}}}|\d{{{CODE_DIGITS}}})|(RESUME|FLATTEN|ARM|REAL)\s+(\d{{{CODE_DIGITS}}}))$")
+# SIZE [$]<dollars> [<6-digit code>]; dollars as 10000, 10,000 or $10000.
+_SIZE = re.compile(rf"^SIZE(?:\s+\$?(\d{{1,3}}(?:,\d{{3}})+|\d{{1,7}}))?(?:\s+(\d{{{CODE_DIGITS}}}))?$")
 _WORD = re.compile(r"^(STATUS|PENDING|PAUSE|RESUME|FLATTEN|ARM|DISARM|REAL|PAPER|CMDS|\?)$")
 
 HELP = ("SGT commands: STATUS, PENDING, PAUSE, RESUME (sends a code), FLATTEN (sends a code), "
         "ARM (sends a code; fast trades for today) / DISARM, REAL (sends a code; real-money fade shorts at "
-        "Schwab, still needs ARM each day) / PAPER (real off now), OK 42 / NO 42 to answer a trade request.")
+        "Schwab, still needs ARM each day) / PAPER (real off now), SIZE (fade $ per trade) / SIZE 10000 (set it; "
+        "raising sends a code), OK 42 / NO 42 to answer a trade request.")
 
 
 @dataclass(frozen=True, slots=True)
 class Command:
     verb: str
     code: str | None = None
+    amount: int | None = None                   # SIZE dollars
 
 
 def parse(body: str) -> Command | None:
     text = " ".join((body or "").strip().upper().split())[:40]
     if m := _CODED.match(text):
         return Command(m.group(1), m.group(2)) if m.group(1) else Command(m.group(3), m.group(4))
+    if m := _SIZE.match(text):
+        return Command("SIZE", m.group(2), int(m.group(1).replace(",", "")) if m.group(1) else None)
     if m := _WORD.match(text):
         return Command("CMDS" if m.group(1) == "?" else m.group(1))
     return None
@@ -93,6 +100,8 @@ def request(db: OpsStore, send, *, strategy: str, kind: str, period: str, summar
                         (code, strategy, kind, period, summary, json.dumps(payload, default=str),
                          iso(now), iso(expires_at))).lastrowid
     verb = payload.get("action", "").upper() if kind == "control" else "OK"
+    if verb == "SIZE":
+        verb = f"SIZE {payload['usd']}"
     tail = (f"\nReply {verb} {code} to confirm (expires {fmt_et(expires_at)})." if kind == "control" else
             f"\n⏱ Auto-enters {expires_at.astimezone(ET):%H:%M:%S}\n👉 NO {code} = skip · OK {code} = enter now"
             if kind == "fade" else
@@ -131,12 +140,13 @@ def answer(db: OpsStore, cmd: Command, sid: str, now: datetime | None = None) ->
     """Apply an OK/NO/RESUME/FLATTEN code. Returns (reply text, the decided row or None)."""
     now = now or utcnow()
     expire(db, now)
-    want_kind = "control" if cmd.verb in ("RESUME", "FLATTEN", "ARM", "REAL") else None
+    want_kind = "control" if cmd.verb in ("RESUME", "FLATTEN", "ARM", "REAL", "SIZE") else None
     with db.tx() as c:
         row = c.execute("SELECT * FROM approvals WHERE status='pending' AND code=?", (cmd.code,)).fetchone()
         ok = row is not None and ((row["kind"] == "control") == (want_kind == "control"))
         if ok and want_kind == "control":
-            ok = json.loads(row["payload"]).get("action", "").upper() == cmd.verb
+            pl = json.loads(row["payload"])
+            ok = pl.get("action", "").upper() == cmd.verb and (cmd.verb != "SIZE" or pl.get("usd") == cmd.amount)
         paused = c.execute("SELECT value FROM flags WHERE key='paused'").fetchone()
         if ok and row["kind"] not in ("control", "fadeexit") and cmd.verb == "OK" and paused is not None and paused[0] == "1":
             c.execute("UPDATE approvals SET status='expired', decided_at=?, decided_sid=? WHERE id=?",
@@ -202,8 +212,8 @@ def lockout(db: OpsStore, now: datetime) -> None:
                   (iso(now),))
 
 
-def challenge(db: OpsStore, send, action: str, now: datetime | None = None) -> int | None:
-    """RESUME / FLATTEN / ARM: text a one-time code that must be echoed back."""
+def challenge(db: OpsStore, send, action: str, now: datetime | None = None, usd: int | None = None) -> int | None:
+    """RESUME / FLATTEN / ARM / REAL / SIZE: text a one-time code that must be echoed back (SIZE: with its amount)."""
     now = now or utcnow()
     expire(db, now)
     with db.tx() as c:
@@ -211,9 +221,11 @@ def challenge(db: OpsStore, send, action: str, now: datetime | None = None) -> i
             return None                       # one live challenge per action: a spoofed repeat cannot replace it
     what = {"resume": "Resume trading", "flatten": "FLATTEN: close every broker position and zero the approved book",
             "arm": f"ARM fast alert-fade trades for {now.astimezone(ET):%a %m-%d} (auto-entry, capped)",
-            "real": "REAL: real-money fade shorts at Schwab on ARMed days ($10k cap, stop held at Schwab)"}
+            "real": "REAL: real-money fade shorts at Schwab on ARMed days ($10k cap, stop held at Schwab)",
+            "size": f"SIZE: paper fade trades ${usd or 0:,} each from the next entry"}
+    payload = {"action": action} if action != "size" else {"action": action, "usd": usd}
     return request(db, send, strategy=f"control:{action}", kind="control", period=now.date().isoformat(),
-                   summary=what[action], payload={"action": action}, expires_at=now + CONTROL_TTL, now=now)
+                   summary=what[action], payload=payload, expires_at=now + CONTROL_TTL, now=now)
 
 
 def claim(db: OpsStore, approval_id: int, now: datetime | None = None) -> bool:
