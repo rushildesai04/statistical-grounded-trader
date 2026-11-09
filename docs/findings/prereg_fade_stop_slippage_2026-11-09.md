@@ -16,3 +16,18 @@ Adjusted net = net - (fill - modelled cover) / entry. No trigger print found (da
 Slippage mean / median / p90; adjusted mean net per trade (training, held-out) vs published; by price band.
 If adjusted held-out mean <= 0 -> the 20% stop as modelled is not a tradeable edge; the PLAYBOOK and the live book
 say so, and a stop redesign is pre-registered separately.
+
+## Result (2026-11-09)
+Triggers found for 580 / 580 training and 193 / 194 held-out stops (SIP trades, 2-second VWAP after the trigger print).
+| period | slippage mean / median / p90 | net per trade, modelled stops -> real stops |
+|---|---|---|
+| training | +0.82% / +0.31% / +2.13% | +0.97% -> **+0.80%** |
+| held-out | +1.44% / +0.37% / +3.17% | +1.12% -> **+0.91%** |
+By news group (real stops; session-bootstrap 5% lower bound):
+| group | training | held-out |
+|---|---|---|
+| no-news | **+1.70%** [+0.88%] (n 1,238) | **+1.77%** [+0.47%] (n 487) |
+| news | -0.20% [-1.00%] (n 1,107) | -0.60% [-2.32%] (n 277) |
+With a 1.5% locate (vs the 0.5% assumed) no-news stays +0.70% / +0.77%; news falls to -1.2% / -1.6%.
+Reading: the 20% stop slips about 1% on average (a few gap through by 2-3%+); the edge survives, but only in the
+no-news group. News alerts are a losing trade once stops and borrow are real.

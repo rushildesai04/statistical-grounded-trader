@@ -58,6 +58,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    -1.18% per trade (training / held-out), jumpiest fifth +3.64% / +4.86%; holds in every time-of-day bucket, price
    band and news group, 15 of 18 months. Found after looking -> forward shadows `calm skip` and `vol up`
    (`prereg_fade_calmskip_2026-11-08`). Inverse-volatility sizing (the textbook version) is rejected.
+18. **Real stop fills cost ~1% per stop; only no-news alerts survive them.** SIP trades at every historical stop:
+   slippage +0.82% / +1.44% mean (median ~0.35%). Net with real stops: no-news **+1.70% / +1.77%** (lower bounds
+   +0.88% / +0.47%), news **-0.20% / -0.60%**; with a 1.5% locate no-news stays +0.70% / +0.77%
+   (`prereg_fade_stop_slippage_2026-11-09`). Longs on the same alerts all lose (`prereg_long_family_2026-11-09`).
 17. **Halts right after the alert were a live-only loss.** The tested rule enters at the first bar after alert + 10 s
    within 5 minutes; a halt means no such bar, so the backtest never traded those alerts, but the live book shorted
    the last pre-halt print. Those events: -4.9% / -7.4% per trade, median -21% (5-8% of alerts). Corrected for live
