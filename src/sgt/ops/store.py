@@ -134,6 +134,28 @@ class OpsStore:
             c.execute("INSERT INTO flags(key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE "
                       "SET value=excluded.value, updated_at=excluded.updated_at", (key, value, utcnow().isoformat()))
 
+    def take(self, key: str, amount: int, cap: int) -> bool:
+        """Atomically add ``amount`` to the integer counter ``key`` if the result stays <= ``cap``; True when taken.
+        One transaction (BEGIN IMMEDIATE), so concurrent processes cannot both pass a cap check (adversarial F-5/F-6)."""
+        with self.tx() as c:
+            r = c.execute("SELECT value FROM flags WHERE key=?", (key,)).fetchone()
+            cur = int(r["value"]) if r and str(r["value"]).lstrip("-").isdigit() else 0
+            if cur + amount > cap:
+                return False
+            c.execute("INSERT INTO flags(key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE "
+                      "SET value=excluded.value, updated_at=excluded.updated_at", (key, str(cur + amount),
+                                                                                   utcnow().isoformat()))
+        return True
+
+    def add(self, key: str, amount: int) -> int:
+        """Atomically add to an integer counter (no cap); returns the new value."""
+        with self.tx() as c:
+            r = c.execute("SELECT value FROM flags WHERE key=?", (key,)).fetchone()
+            new = (int(r["value"]) if r and str(r["value"]).lstrip("-").isdigit() else 0) + amount
+            c.execute("INSERT INTO flags(key, value, updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE "
+                      "SET value=excluded.value, updated_at=excluded.updated_at", (key, str(new), utcnow().isoformat()))
+        return new
+
     def paused(self) -> bool:
         return self.flag("paused", "0") == "1"
 

@@ -27,8 +27,16 @@ if [ "${1:-}" = "job" ]; then
   case "${2:-}" in
     megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto
                run reports/ops/run.log python /app/scripts/sms_control.py megacap ;;
-    megacaplive) run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py decide
-               run reports/ops/run.log python /app/scripts/sms_control.py megacap
+    # Adversarial pass 1 (F-10): train the current month's models in the morning, so the 15:50 live run on the first
+    # session of a month finds them (the evening batch used to be the only trainer). Idempotent: "models exist".
+    megacapretrain) run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py retrain --month "$(date +%Y-%m)"
+               if [ -d reports/megacap_ext/models ]; then
+                 run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py retrain --set ext --month "$(date +%Y-%m)"
+               fi ;;
+    # Adversarial pass 4 (P4-4): under set -e a failure in the six-name set used to skip the ext set; run() already
+    # logs and texts every failure, so continue to the independent ext decision.
+    megacaplive) run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py decide || true
+               run reports/ops/run.log python /app/scripts/sms_control.py megacap || true
                if [ -f "reports/megacap_ext/models/$(date +%Y-%m)/meta.json" ]; then
                  run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext
                  run reports/ops/run.log python /app/scripts/sms_control.py megacapext

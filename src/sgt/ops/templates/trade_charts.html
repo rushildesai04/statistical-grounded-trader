@@ -754,8 +754,11 @@ function jnMarkdown(box, text) {
 
 function jnLoadMd() {                        // pinned libraries from unpkg (allowed by the page CSP), loaded on demand
   if (jnMd) return jnMd;
-  const load = src => new Promise(ok => { const sc = document.createElement("script"); sc.src = src; sc.onload = ok; sc.onerror = ok; document.head.append(sc); });
-  jnMd = Promise.all([load("https://unpkg.com/marked@12.0.2/marked.min.js"), load("https://unpkg.com/dompurify@3.1.6/dist/purify.min.js")]);
+  // Subresource integrity (adversarial pass 1, F-7): the browser refuses either file if unpkg ever serves other bytes.
+  const load = (src, sri) => new Promise(ok => { const sc = document.createElement("script"); sc.src = src; sc.integrity = sri;
+    sc.crossOrigin = "anonymous"; sc.onload = ok; sc.onerror = ok; document.head.append(sc); });
+  jnMd = Promise.all([load("https://unpkg.com/marked@12.0.2/marked.min.js", "sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi"),
+    load("https://unpkg.com/dompurify@3.1.6/dist/purify.min.js", "sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a")]);
   return jnMd;
 }
 

@@ -117,7 +117,18 @@ def _get(client: httpx.Client, url: str, params: dict, symbol: str) -> dict | No
         return None
 
 
-def lookup(symbol: str, at: datetime, client: httpx.Client | None = None) -> dict | None:
+def _take_call(day: str, db) -> bool:
+    """Count one paid lookup against DAILY_CAP. With an OpsStore the count is persisted and atomic (adversarial F-5: an
+    in-memory count reset on every restart/deploy); without one (tests, one-off scripts) it is per process."""
+    if db is not None:
+        return db.take(f"x_calls:{day}", 1, DAILY_CAP)
+    if _CALLS.get(day, 0) >= DAILY_CAP:
+        return False
+    _CALLS[day] = _CALLS.get(day, 0) + 1
+    return True
+
+
+def lookup(symbol: str, at: datetime, client: httpx.Client | None = None, db=None) -> dict | None:
     """Attention (last hour) and catalyst evidence (last 24 hours) for ``symbol`` at ``at``; None = dormant/unknown.
     ``x_cat24`` / ``x_cat_posts`` are None when the attention call worked but the catalyst calls did not."""
     if not enabled():
@@ -126,12 +137,13 @@ def lookup(symbol: str, at: datetime, client: httpx.Client | None = None) -> dic
     if hit and timedelta(0) <= at - hit[0] <= CACHE_TTL:
         return dict(hit[1])
     day = at.astimezone(timezone.utc).date().isoformat()
-    if not _SYMBOL.match(symbol or "") or _CALLS.get(day, 0) >= DAILY_CAP:
+    if not _SYMBOL.match(symbol or ""):
         return None
     token = get_secret("x_bearer", required=False)
     if not token:
         return None
-    _CALLS[day] = _CALLS.get(day, 0) + 1                # counted before the call: a failed call may still cost
+    if not _take_call(day, db):                         # counted before the call: a failed call may still cost
+        return None
     own = client is None
     client = client or httpx.Client(headers={"Authorization": f"Bearer {token}", "User-Agent": "statistical-grounded-trader/1.0"},
                                     timeout=TIMEOUT, follow_redirects=False)

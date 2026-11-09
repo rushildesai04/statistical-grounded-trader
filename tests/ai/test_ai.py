@@ -126,3 +126,40 @@ def test_facts_flag_minutes_without_prints_like_a_halt():
 
 def test_playbook_path_does_not_depend_on_the_working_directory():
     assert ta.PLAYBOOK.is_absolute() and ta.PLAYBOOK.exists() and "Playbook" in ta.PLAYBOOK.read_text()[:200]
+
+
+
+def test_budget_is_reserved_atomically_and_released_when_nothing_was_billed(db, monkeypatch):
+    # F-6: check-and-add in one transaction; a failed (unbilled) call gives its reservation back
+    monkeypatch.setenv("SGT_AI_DAILY_TOKENS", "2000")
+    key = oa._budget_key(NOW)
+    with pytest.raises(oa.AIError):
+        oa.chat_json(fake(REVIEW, status=401), db, "gpt-5.6-luna", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(key) or 0) == 0                               # released
+    assert db.take(key, 1500, 2000) and not db.take(key, 600, 2000)   # second reservation would pass the cap
+    db.add(key, -1500)
+    out = oa.chat_json(fake(REVIEW, tokens=700), db, "gpt-5.6-luna", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert out["verdict"] == "execution issue" and int(db.flag(key)) == 700          # settled to real usage
+
+
+def test_billed_but_unusable_answer_keeps_its_usage(db):
+    def handler(req):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "not json"}}], "usage": {"total_tokens": 900}})
+    with pytest.raises(oa.BilledError):
+        oa.chat_json(httpx.Client(transport=httpx.MockTransport(handler)), db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(oa._budget_key(NOW))) == 900
+
+
+
+def test_a_billed_answer_that_fails_before_parsing_keeps_the_reservation(db, monkeypatch):
+    # pass 2, F-11: HTTP 200 means billed; an oversize or non-JSON body must not give the reservation back
+    monkeypatch.setattr(oa, "MAX_BYTES", 50)
+    big = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, content=b"x" * 500)))
+    with pytest.raises(oa.BilledError):
+        oa.chat_json(big, db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(oa._budget_key(NOW))) == 1500
+    monkeypatch.setattr(oa, "MAX_BYTES", 10_000)
+    junk = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, content=b"<html>oops")))
+    with pytest.raises(oa.BilledError):
+        oa.chat_json(junk, db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(oa._budget_key(NOW))) == 3000

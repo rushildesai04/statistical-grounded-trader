@@ -149,7 +149,7 @@ def alpaca_asset(client: httpx.Client):
     return get
 
 
-def iex_context(client: httpx.Client):
+def iex_context(client: httpx.Client, db: OpsStore | None = None):
     """Tape for the request text from the IEX snapshot (IEX trades only, so approximate): % vs prior close and
     today's open, distance below today's high, today's VWAP, and today's volume so far vs all of yesterday's."""
     def ctx(symbol: str) -> dict:
@@ -184,7 +184,7 @@ def iex_context(client: httpx.Client):
         jobs = {"news": lambda: live_news(client, symbol, now),
                 "filings": lambda: filings.lookup(symbol, now, since_8k=news.window_start(now)),
                 "social": lambda: social.lookup(symbol, now),
-                "x": lambda: xsocial.lookup(symbol, now),           # None = dormant (no key), capped or unknown
+                "x": lambda: xsocial.lookup(symbol, now, db=db),    # None = dormant (no key), capped or unknown
                 "reddit": lambda: reddit.lookup(symbol, now)}       # None = unknown (ApeWisdom down)
         out.update(gather(jobs, CONTEXT_BUDGET))
         return out
@@ -319,8 +319,16 @@ def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: 
     et = now.astimezone(ET)
     from sgt.intraday.calendar import default_calendar
 
-    if not default_calendar().is_session(et.date()) or not (time_of(9, 30) <= et.time() < time_of(16, 0)):
-        return 0
+    cal, new = default_calendar(), 0
+    # Adversarial pass 1 (F-8): detection runs only inside the regular session, but the open trades' stop/exit checks
+    # below ALWAYS run, so a trade due out at the close is closed at the close (it used to stay open overnight).
+    if cal.is_session(et.date()) and cal.bounds(et.date()).rth_open <= now < cal.bounds(et.date()).rth_close:
+        new = _scan_detect(client, db, state, now, et)
+    scanner.step(db, quote, now, send)
+    return new
+
+
+def _scan_detect(client: httpx.Client, db: OpsStore, state: ScanState, now: datetime, et: datetime) -> int:
     session = et.date().isoformat()
     if state.at is None or now - state.at >= UNIVERSE_EVERY:
         state.universe, state.at = scan_universe(client, db, session), now
@@ -333,9 +341,8 @@ def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: 
                 if ev is not None and scanner.record(db, sym, ev, now):
                     new += 1
                     log.info("scanner %s spike at %s", sym, ev["bar_ts"])
-    except Exception:  # noqa: BLE001 - detection failing must never skip the open trades' stop/exit checks below
+    except Exception:  # noqa: BLE001 - detection failing must never skip the open trades' stop/exit checks
         log.exception("scanner detection failed")
-    scanner.step(db, quote, now, send)
     return new
 
 
@@ -427,7 +434,7 @@ async def run() -> int:
     db = OpsStore()
     send = CappedSms(db)
     dc, ac = data_client(), asset_client()
-    quote, context = iex_quote(dc), iex_context(dc)
+    quote, context = iex_quote(dc), iex_context(dc, db)
 
     def news_check(symbol: str, at: datetime) -> dict | None:      # amendment F6: company news at entry (None = unknown)
         return live_news(dc, symbol, at)

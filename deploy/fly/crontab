@@ -64,4 +64,6 @@
 # AI trade analyst (owner 2026-11-09): trades + owner notes -> distilled lessons (dormant without openai_key).
 58 22 * * 1-5  /app/deploy/entrypoint.sh job analyst
 # Daily models trade LIVE (2026-11-09): decide at 15:50 ET from bars to 15:49, fill at today's close, text the calls.
+# Month models before the live run (F-10): idempotent; trains only when this month's models are missing.
+15 8 * * 1-5   /app/deploy/entrypoint.sh job megacapretrain
 50 15 * * 1-5  /app/deploy/entrypoint.sh job megacaplive

@@ -40,6 +40,7 @@ LOOKBACK = timedelta(days=2)
 FILL_DEADLINE = (15, 50)          # approvals must land before this ET time on the fill session
 MEGACAP_SIZING = dict(risk_per_trade=0.01, stop_atr_mult=1.0, max_position_pct=0.25, gross_cap=1.0, beta_cap=1.0)
 TOM_FIRST_ENTRY = date(2026, 11, 27)
+MODEL_VOID_AFTER = (15, 55)   # = sgt.megacap.live.VOID_AFTER (prereg_megacap_forward: written after 15:55 ET is void)
 log = logging.getLogger("sms_control")
 
 
@@ -408,7 +409,18 @@ def model_fill(dec: dict, now_et: datetime) -> date | None:
     decision written live at 15:50 fills at TODAY's close. A batch decision (written after the close) would trade the
     signal one session late: it is recorded for the forward test but never sent to the book."""
     d = date.fromisoformat(dec["date"])
-    if dec.get("mode") != "realtime" or now_et.date() != d or now_et.hour >= 16:
+    if dec.get("mode") != "realtime" or now_et.date() != d:
+        return None
+    cal = default_calendar()
+    if not cal.is_session(d):
+        return None
+    close = cal.bounds(d).rth_close           # adversarial pass 4 (P4-3): early closes (13:00) too, not only 16:00
+    try:                                      # P4-1: the book and the forward test's void rule must agree
+        written = datetime.fromisoformat(str(dec["written_at"]).replace("Z", "+00:00")).astimezone(ET)
+    except (KeyError, TypeError, ValueError):
+        return None                           # fail closed: no provable write time, no trade
+    if (now_et >= close or written.date() != d or written >= close
+            or (written.hour, written.minute) > MODEL_VOID_AFTER):
         return None
     return d
 

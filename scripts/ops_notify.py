@@ -47,6 +47,7 @@ JOBS = {
     "fadetod": ("fade time-of-day sizing shadow", "Nothing was traded; it catches up on the next run."),
     "fadeconfsize": ("fade confidence-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "fadepricesize": ("fade price-sizing shadow", "Nothing was traded; it catches up on the next run."),
+    "megacapretrain": ("monthly model training", "Today's 15:50 model run may have no models; it retries tomorrow."),
     "megacaplive": ("live model calls (15:50)", "Today's model trades did not go in; positions stay as they were."),
     "analyst": ("AI trade analyst", "No lessons tonight; trading is unaffected. It retries tomorrow."),
     "fadevol": ("fade calm-skip / vol-sizing shadow", "Nothing was traded; it catches up on the next run."),
