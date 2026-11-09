@@ -43,6 +43,8 @@ odd-lot or off-exchange print. Not adopted on this evidence.
 For each timed exit: the ACTUAL NBBO at t (last quote at or before t; bid price and bid size) and every SIP trade in
 [t, t + 2 min). Keep regular-way prints only (drop condition codes for odd lot "I", average price "B"/"W", out of
 sequence "Z", derivatively priced "4", form-T/extended "T"/"U", prior reference "P", contingent "V"/"7").
+Also drop off-exchange prints (exchange "D", FINRA TRF/ADF: internalized flow never reaches a lit resting order)
+(added before any fetch, after inspecting one sample response's schema).
 FILLED when the cumulative size of kept prints at or below bid_t reaches bid_size_t x 100 (shares queued ahead of us,
 round lots) + our order (5,000 / entry shares); fill = bid_t. Otherwise market buy at the ask of the last quote before
 t + 2 min. Baseline = ask_t. Gate unchanged (training lower bound of mean delta > 0); held-out secondary; reported with
