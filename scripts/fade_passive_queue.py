@@ -4,8 +4,9 @@
     python scripts/fade_passive_queue.py report    # gate + secondary
 
 Only timed exits (no stop inside the hour, exit + 2 min before 16:00 ET) are simulated; the rest are unchanged.
-Quote sizes are taken as round lots of 100 shares [VERIFY against the Alpaca quote schema]; prints are filtered to
-regular-way trades.
+SIP quote sizes are round lots (x100 shares) before 2025-11-03 and shares from then on (the Reg NMS round-lot /
+market-data change; seen in the data: median bid size 3-23 through 2025-10-31, 100-5,200 from 2025-11-04). Prints are
+filtered to lit regular-way round-lot trades.
 """
 from __future__ import annotations
 
@@ -31,11 +32,20 @@ FIELDS = ["symbol", "session", "split", "entry", "net", "bid", "bid_lots", "ask"
           "min_px", "pages"]
 DROP = {"I", "B", "W", "Z", "4", "T", "U", "P", "V", "7"}
 WAIT, MAX_PAGES, NOTIONAL = pd.Timedelta(minutes=pe.TIMEOUT), 5, 5000.0
+SHARES_FROM = "2025-11-03"                       # quote sizes switch from round lots to shares
+
+
+def queue_shares(session: pd.Series, size: pd.Series) -> pd.Series:
+    """Shares queued at the bid: lots x 100 before SHARES_FROM, shares after."""
+    s = size.fillna(0).astype(float)
+    return s.where(session.astype(str) >= SHARES_FROM, s * 100)
 
 
 def kept(trades_: list) -> list[tuple[float, int]]:
     out = []
     for x in trades_ if isinstance(trades_, list) else []:
+        if not isinstance(x, dict):
+            continue
         p, s, c = x.get("p"), x.get("s"), x.get("c") or []
         if not isinstance(p, (int, float)) or not isinstance(s, int) or p <= 0 or s <= 0:
             continue
@@ -139,7 +149,7 @@ def cmd_report() -> int:
     out = {}
     for split in ("dev", "holdout"):
         d = q[(q.split == split) & q.bid.notna() & q.ask.notna()].copy()
-        need = d.bid_lots.fillna(0) * 100 + NOTIONAL / d.entry
+        need = queue_shares(d.session, d.bid_lots) + NOTIONAL / d.entry
         d["filled"] = d.vol_le_bid >= need
         end_ask = d.ask_end.where(d.ask_end > 0, d.ask)
         d["delta"] = np.where(d.filled, d.ask - d.bid, d.ask - end_ask) / d.entry

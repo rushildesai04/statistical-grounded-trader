@@ -49,3 +49,18 @@ FILLED when the cumulative size of kept prints at or below bid_t reaches bid_siz
 round lots) + our order (5,000 / entry shares); fill = bid_t. Otherwise market buy at the ask of the last quote before
 t + 2 min. Baseline = ask_t. Gate unchanged (training lower bound of mean delta > 0); held-out secondary; reported with
 fill rate and filled / unfilled deltas. Run id `fade-passive-exit-queue-2026-11-08-dev`.
+
+## Amendment A2 (2026-11-09, data correction found on inspection, before any decision)
+SIP quote sizes are round lots before 2025-11-03 and SHARES from then on (median bid size 3-23 through 2025-10-31,
+100-5,200 from 2025-11-04: the Reg NMS round-lot / market-data change). A1's "bid size x 100" therefore overstated
+the queue 100x for every exit after 2025-11-03. Fixed in `scripts/fade_passive_queue.py::queue_shares`; both runs
+reported. First (wrong-unit) run: fill 28% / 9%, delta -0.04% / -0.08%.
+
+## Result A1 + A2 (queue model, 2026-11-09) — FAIL
+| period | simulated timed exits | queue fill | delta per trade [lower bound] | filled / unfilled | net per trade |
+|---|---|---|---|---|---|
+| training | 1,680 | 51% | **-0.002%** [-0.036%] | +0.58% / -0.59% | +0.97% -> +0.97% |
+| held-out | 545 | 44% | -0.057% [-0.126%] | +0.58% / -0.61% | +1.12% -> +1.07% |
+Reading: when the queue ahead of us and off-exchange / odd-lot prints are respected, a resting bid fills about half
+the time, and the misses are exactly the exits where the price runs up (adverse selection). The saved spread and the
+cost of missing cancel. Timed exits stay market orders. The 1-minute-bar version (+0.25%) was a fill-model artifact.

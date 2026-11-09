@@ -61,6 +61,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 16. **Our cost model matches real spreads.** Real quoted bid/ask at entry and exit for 2,925 tested fades: round trip
    0.85% / 0.87% vs 0.90% / 0.89% modelled; net +1.18% / +1.33% at real spreads (`docs/research/real_spreads_2026-11-08.md`).
    The edge is not a cost illusion; borrow/locate is the open cost question.
+   Resting limit exits do not beat the spread: fills save +0.58%, misses cost -0.59% (queue model, finding from
+   `prereg_fade_passive_exit_2026-11-08`). Test fills with trade-level data and the queue, never 1-minute bar lows.
 14. **Losing streaks do not predict the next fade; do not stop after losses.** After the day's last two known results
    were losses, the next fade earned +2.18% (training, n 205) / +2.53% (held-out) vs +0.86% otherwise; a daily breaker
    costs ~1.3% per session. Day halves are uncorrelated (`prereg_fade_dayflow_2026-11-08`).
@@ -88,6 +90,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | cover when the channel re-alerts during the hold | +0.56% | +0.75% | same, addendum A |
 | skip fades when small caps are risk-on (IWM >= +1% at entry) | risk-on fades did BETTER (+1.50% vs +0.94%) | n.s. | prereg_fade_mood_2026-11-06 |
 | inverse-volatility sizing (smaller in jumpy names) | +0.17% per $ vs +0.97% | +0.37% vs +1.12% | prereg_fade_volsize_2026-11-08 |
+| timed exit as a limit at the bid (2 min, then market) | queue model -0.00% (bars said +0.25%: fill artifact) | -0.06% | prereg_fade_passive_exit_2026-11-08 |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
 | skip when >= 3 fades in the prior 30 min (burst) | +0.07% skipped (n.s.) | +1.65% skipped | same |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
