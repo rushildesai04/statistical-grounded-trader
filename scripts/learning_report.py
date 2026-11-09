@@ -40,6 +40,7 @@ SOURCES = (Source("fade_challengers", "prereg_fade_challengers_2026-11-04", 0.05
            Source("fade_pricesize", "prereg_fade_pricesize_2026-11-06", 0.05, "size"),
            Source("fade_calmskip", "prereg_fade_calmskip_2026-11-08", 0.05, "size"),
            Source("fade_volup", "prereg_fade_calmskip_2026-11-08", 0.05, "size"),
+           Source("fade_evsize", "prereg_fade_evsize_2026-11-09", 0.05, "size"),
            Source("megacap_overlay", "prereg_megacap_overlay_2026-11-06", 0.05, "cols"))
 
 

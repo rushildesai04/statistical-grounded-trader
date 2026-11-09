@@ -43,3 +43,12 @@ def test_summary_lines():
     t = pd.DataFrame({"net": [-0.02, 0.04], "w": [0.0, 1.0]})
     assert "skipped 1 calm (-2.0% avg), kept +4.00%" in vs.summary_line("calmskip", t)
     assert "vol-up" in vs.summary_line("volup", t.assign(w=[0.5, 2.0]))
+
+
+def test_ev_weights_follow_the_frozen_model_and_skip_news():
+    t = pd.DataFrame({"entry_ts": ["2026-11-10T19:30:00+00:00", "2026-11-10T14:40:00+00:00", "2026-11-10T19:30:00+00:00"],
+                      "entry": [1.5, 3.0, 1.5], "sigma": [0.05, 0.02, 0.05],
+                      "alert_type": ["new_high", "volume_spike", "news"]})
+    w = vs.ev_weights(t)
+    assert w[0] > 1.5 and w[1] < 0.6 and w[2] == 1.0              # jumpy afternoon $1-2 up; mid morning $2-5 down
+    assert ((w >= 0.25 * 0.9) & (w <= 2.0 * 1.1)).all()
