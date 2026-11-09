@@ -1,21 +1,23 @@
-"""X (Twitter) attention at alert time (owner decision 2026-11-08: add the X API next to StockTwits).
+"""X (Twitter) at entry: attention + a targeted CATALYST check (owner 2026-11-09: "use it correctly and wisely with
+optimal searches ... rather than blind, random searches").
 
-Cost-minimised design (owner 2026-11-08: "as little money as possible, as much ROI as we can"). X pay-per-use bills
-search per POST RETURNED ($0.005 each, so up to $0.50 for a 100-post page) but the counts endpoint per REQUEST
-($0.005). So:
+Why X at all: the fade's tested edge is news vs no news (no-news fades +1.7%, news fades lose). Our news filter is
+Benzinga; small-cap press releases, FDA/contract news and offerings often show up on X first or only. So X is used for
+two narrow questions, only for trades the book actually takes (never for every alert):
 
-1. ``/2/tweets/counts/recent`` (minute buckets) gives the pre-registered primary, ``x_n60``, plus ``x_n15``, exactly
-   and uncapped (a 100-post page saturated on busy names), for $0.005.
-2. Only when there were posts: one search page of the newest ``SAMPLE`` (10, the API minimum) posts for the
-   secondary measures ``x_authors`` / ``x_eng`` (unique accounts and likes/reposts among those newest posts), <= $0.05.
-3. One lookup per symbol per ``CACHE_TTL``: a second text for the same trade reuses the first answer.
+1. Attention: ``/2/tweets/counts/recent`` for ``$SYM -is:retweet`` over the last hour (minute buckets) -> ``x_n60``,
+   ``x_n15``. $0.005 (counts are billed per request).
+2. Catalyst: counts of ``$SYM`` posts in the last 24 hours that ALSO carry a catalyst word (announces, press release,
+   FDA, contract, merger, ...) -> ``x_cat24``, $0.005; and only when there are any, the <= 10 most RELEVANT of them
+   (search, sort_order=relevancy) -> ``x_cat_posts`` (5 short texts for the Notes page and the AI review), <= $0.05.
 
-Worst case per lookup $0.055 (was $0.50); at most ``DAILY_CAP`` paid lookups a day. Point in time: ``end_time`` = the
-alert minus ``END_LAG``. Dormant (returns None) until the bearer token secret ``x_bearer`` exists; None also means
-unknown (error, cap reached), never "no posts".
+Worst case $0.06 per trade; at most ``DAILY_CAP`` lookups a day; one lookup per symbol per ``CACHE_TTL``. Point in
+time: every window ends at the entry minus ``END_LAG``. Recorded forward (prereg_fade_x_2026-11-08 amendment A2), not
+a trading filter until proven. None = dormant (no key / disabled), capped or unknown; never "no posts".
 """
 from __future__ import annotations
 
+import html
 import logging
 import os
 import re
@@ -28,12 +30,22 @@ from sgt.core.secrets import get_secret
 log = logging.getLogger(__name__)
 COUNTS_URL = "https://api.x.com/2/tweets/counts/recent"
 SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
-TIMEOUT, MAX_BYTES, DAILY_CAP, SAMPLE = 6.0, 1024 * 1024, 60, 10
+TIMEOUT, MAX_BYTES, DAILY_CAP, SAMPLE, KEEP_POSTS, POST_CHARS = 6.0, 1024 * 1024, 60, 10, 5, 280
 END_LAG = timedelta(seconds=15)                  # X refuses end_time < 10 s before now
 CACHE_TTL = timedelta(minutes=10)
+CATALYST_WORDS = ('announces', '"press release"', 'FDA', 'approval', 'contract', 'merger', 'acquisition', 'acquire',
+                  'offering', 'earnings', 'partnership', 'agreement', 'patent', 'clinical', '"trial results"')
 _SYMBOL = re.compile(r"^[A-Z]{1,6}$")
 _CALLS: dict[str, int] = {}                      # UTC date -> paid lookups by this process (the listener is one process)
 _CACHE: dict[str, tuple[datetime, dict]] = {}    # symbol -> (lookup time, result)
+
+
+def enabled() -> bool:
+    return os.environ.get("SGT_X_ENABLED", "1") == "1"
+
+
+def catalyst_query(symbol: str) -> str:
+    return f"${symbol} ({' OR '.join(CATALYST_WORDS)}) -is:retweet"
 
 
 def _ts(s) -> datetime | None:
@@ -63,21 +75,33 @@ def counts(payload: dict, at: datetime) -> dict | None:
     return {"x_n60": n60, "x_n15": n15}
 
 
-def sample(payload: dict, at: datetime) -> dict:
-    """Unique accounts and likes/reposts among the newest posts of a search page (posts at or before ``at``)."""
+def total(payload: dict) -> int | None:
+    """Total posts in a counts answer (any granularity); None when it is not a counts answer."""
     data = payload.get("data") if isinstance(payload, dict) else None
-    rows = []
+    if not isinstance(data, list):
+        return None
+    return sum(b["tweet_count"] for b in data if isinstance(b, dict) and isinstance(b.get("tweet_count"), int)
+               and b["tweet_count"] >= 0)
+
+
+def posts(payload: dict, at: datetime) -> list[dict]:
+    """The most relevant catalyst posts (at or before ``at``), short and control-free: untrusted text for display."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    out = []
     for p in data if isinstance(data, list) else []:
         if not isinstance(p, dict):
             continue
         t = _ts(p.get("created_at"))
         if t is None or t > at:
             continue
+        text = re.sub(r"[\x00-\x1f\x7f]+", " ", html.unescape(str(p.get("text") or ""))).strip()[:POST_CHARS]
         m = p.get("public_metrics") if isinstance(p.get("public_metrics"), dict) else {}
-        eng = sum(int(m.get(k) or 0) for k in ("like_count", "retweet_count", "reply_count", "quote_count")
-                  if isinstance(m.get(k), (int, float)))
-        rows.append((str(p.get("author_id") or ""), eng))
-    return {"x_k": len(rows), "x_authors": len({a for a, _ in rows if a}), "x_eng": sum(e for _, e in rows)}
+        likes = m.get("like_count") if isinstance(m.get("like_count"), int) else 0
+        if text:
+            out.append({"at": t.isoformat(timespec="minutes"), "likes": likes, "text": text})
+        if len(out) >= KEEP_POSTS:
+            break
+    return out
 
 
 def _get(client: httpx.Client, url: str, params: dict, symbol: str) -> dict | None:
@@ -94,9 +118,9 @@ def _get(client: httpx.Client, url: str, params: dict, symbol: str) -> dict | No
 
 
 def lookup(symbol: str, at: datetime, client: httpx.Client | None = None) -> dict | None:
-    """X attention for ``symbol`` in the hour before ``at``; None = dormant, capped or unknown.
-    ``x_authors`` / ``x_eng`` are None when the counts call worked but the sample call did not."""
-    if os.environ.get("SGT_X_ENABLED", "0") != "1":    # owner 2026-11-09: X spending off; budget goes to OpenAI
+    """Attention (last hour) and catalyst evidence (last 24 hours) for ``symbol`` at ``at``; None = dormant/unknown.
+    ``x_cat24`` / ``x_cat_posts`` are None when the attention call worked but the catalyst calls did not."""
+    if not enabled():
         return None
     hit = _CACHE.get(symbol or "")
     if hit and timedelta(0) <= at - hit[0] <= CACHE_TTL:
@@ -111,18 +135,24 @@ def lookup(symbol: str, at: datetime, client: httpx.Client | None = None) -> dic
     own = client is None
     client = client or httpx.Client(headers={"Authorization": f"Bearer {token}", "User-Agent": "statistical-grounded-trader/1.0"},
                                     timeout=TIMEOUT, follow_redirects=False)
-    window = {"query": f"${symbol} -is:retweet",
-              "start_time": (at - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-              "end_time": (at - END_LAG).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    end = (at - END_LAG).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        c = counts(_get(client, COUNTS_URL, {**window, "granularity": "minute"}, symbol) or {}, at)
+        c = counts(_get(client, COUNTS_URL, {"query": f"${symbol} -is:retweet", "granularity": "minute",
+                                             "start_time": (at - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                             "end_time": end}, symbol) or {}, at)
         if c is None:
             return None
-        out = {**c, "x_k": 0, "x_authors": 0, "x_eng": 0}
-        if c["x_n60"] > 0:                              # nothing posted -> the sample would be empty: skip, $0
-            page = _get(client, SEARCH_URL, {**window, "max_results": SAMPLE,
-                                             "tweet.fields": "created_at,author_id,public_metrics"}, symbol)
-            out.update(sample(page, at) if page is not None else {"x_k": None, "x_authors": None, "x_eng": None})
+        out = {**c, "x_cat24": None, "x_cat_posts": None}
+        day_window = {"query": catalyst_query(symbol), "end_time": end,
+                      "start_time": (at - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        cat = total(_get(client, COUNTS_URL, {**day_window, "granularity": "hour"}, symbol) or {})
+        if cat is not None:
+            out["x_cat24"] = cat
+            out["x_cat_posts"] = []
+            if cat > 0:                                 # nothing to read -> skip the paid search, $0
+                page = _get(client, SEARCH_URL, {**day_window, "max_results": SAMPLE, "sort_order": "relevancy",
+                                                 "tweet.fields": "created_at,public_metrics"}, symbol)
+                out["x_cat_posts"] = posts(page, at) if page is not None else None
         for k in [k for k, (t, _) in _CACHE.items() if at - t > CACHE_TTL]:
             del _CACHE[k]                               # bounded: only the last 10 minutes are kept
         _CACHE[symbol] = (at, out)

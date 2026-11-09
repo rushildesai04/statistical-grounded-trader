@@ -17,7 +17,7 @@ _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _TABLE = {"fade": "fade_trades", "scan": "scan_trades", "book": "book_orders"}
 FADE_COLS = ("symbol", "session", "alert_type", "posted_at", "status", "reason", "est_entry", "est_entry_at", "est_exit",
              "est_exit_at", "entry", "cover", "net", "conf", "news_own", "news_head", "filing_dilution", "filing_form",
-             "ib_avail", "alp_shortable", "st_n60", "x_n60", "rd_rank", "rd_mentions")
+             "ib_avail", "alp_shortable", "st_n60", "x_n60", "x_cat24", "x_cat_posts", "rd_rank", "rd_mentions")
 SCAN_COLS = ("symbol", "session", "bar_ts", "status", "reason", "signal_px", "est_entry", "est_entry_at", "est_exit",
              "est_exit_at", "entry", "cover", "net")
 BOOK_COLS = ("strategy", "symbol", "fill_session", "target", "status", "fill_price", "label")

@@ -69,6 +69,7 @@ COLUMNS = {
         "st_n60": "INTEGER", "st_n15": "INTEGER", "st_span": "REAL", "st_bull": "INTEGER",  # StockTwits at alert,
         "st_bear": "INTEGER", "st_watch": "INTEGER",                                         # 2026-11-06 (forward)
         "x_n60": "INTEGER", "x_n15": "INTEGER", "x_authors": "INTEGER", "x_eng": "INTEGER",  # X at alert, 2026-11-08
+        "x_cat24": "INTEGER", "x_cat_posts": "TEXT",        # X catalyst check at entry, 2026-11-09 (prereg_fade_x A2)
         "rd_rank": "INTEGER", "rd_mentions": "INTEGER", "rd_upvotes": "INTEGER",              # Reddit (ApeWisdom)
         "rd_mentions_prev": "INTEGER",                                                         # at alert, 2026-11-08
     },
