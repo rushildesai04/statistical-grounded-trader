@@ -403,16 +403,26 @@ def mark_done(db: OpsStore, key: str) -> None:
     db.set_flag(f"done:{key}", "1")
 
 
-def cmd_megacap(db: OpsStore) -> int:
+def model_fill(dec: dict, now_et: datetime) -> date | None:
+    """Fill session for a daily-model decision (2026-11-09 fix): the model's trade is close(d) -> close(d+1), so a
+    decision written live at 15:50 fills at TODAY's close. A batch decision (written after the close) would trade the
+    signal one session late: it is recorded for the forward test but never sent to the book."""
+    d = date.fromisoformat(dec["date"])
+    if dec.get("mode") != "realtime" or now_et.date() != d or now_et.hour >= 16:
+        return None
+    return d
+
+
+def cmd_megacap(db: OpsStore, now: datetime | None = None) -> int:
     files = sorted((Path("reports/megacap_forward/decisions")).glob("*.json"))
     if not files:
         print("no megacap decisions")
         return 0
     dec = json.loads(files[-1].read_text())
     d = date.fromisoformat(dec["date"])
-    fill = next_session(d)
-    if datetime.now(ET) >= deadline(fill) or done(db, f"megacap:{d}"):
-        print(f"megacap {d}: already proposed or past the {fill} deadline")
+    fill = model_fill(dec, now or datetime.now(ET))
+    if fill is None or done(db, f"megacap:{d}"):
+        print(f"megacap {d}: already proposed, or not a live decision before today's close (book trades live only)")
         return 0
     positions = {s: int(v["position"]) for s, v in dec["positions"].items()}
     targets = megacap_targets(positions)
@@ -439,7 +449,7 @@ def overlay_targets(positions: dict[str, int]) -> dict[str, float]:
     return {s: (0.0 if p < 0 else w) for s, p in positions.items()}
 
 
-def cmd_megacap_ext(db: OpsStore) -> int:
+def cmd_megacap_ext(db: OpsStore, now: datetime | None = None) -> int:
     """Extended daily-model forward test (prereg_megacap_ext_forward_2026-11-09): the other 15 names as the
     approved book strategy 'megacap_ext'. Identical to cmd_megacap (auto_all, same MEGACAP_SIZING caps via
     megacap_targets); no timing overlay (that stays specific to the six-name overlay prereg)."""
@@ -449,9 +459,9 @@ def cmd_megacap_ext(db: OpsStore) -> int:
         return 0
     dec = json.loads(files[-1].read_text())
     d = date.fromisoformat(dec["date"])
-    fill = next_session(d)
-    if datetime.now(ET) >= deadline(fill) or done(db, f"megacap_ext:{d}"):
-        print(f"megacap_ext {d}: already proposed or past the {fill} deadline")
+    fill = model_fill(dec, now or datetime.now(ET))
+    if fill is None or done(db, f"megacap_ext:{d}"):
+        print(f"megacap_ext {d}: already proposed, or not a live decision before today's close (book trades live only)")
         return 0
     positions = {s: int(v["position"]) for s, v in dec["positions"].items()}
     targets = megacap_targets(positions)

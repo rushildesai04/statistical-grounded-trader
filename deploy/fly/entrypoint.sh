@@ -27,6 +27,12 @@ if [ "${1:-}" = "job" ]; then
   case "${2:-}" in
     megacap)   run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py auto
                run reports/ops/run.log python /app/scripts/sms_control.py megacap ;;
+    megacaplive) run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py decide
+               run reports/ops/run.log python /app/scripts/sms_control.py megacap
+               if [ -f "reports/megacap_ext/models/$(date +%Y-%m)/meta.json" ]; then
+                 run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext
+                 run reports/ops/run.log python /app/scripts/sms_control.py megacapext
+               fi ;;
     megacapext) run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py auto --set ext
                run reports/ops/run.log python /app/scripts/sms_control.py megacapext ;;
     etf)       run reports/forward/run.log python /app/scripts/forward_paper.py refresh || true
