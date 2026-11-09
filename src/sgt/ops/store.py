@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS fade_trades(
   entry_ts TEXT, entry REAL, cover REAL, cost_rt REAL, gross REAL, net REAL, settled_at TEXT,
   edited INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fade_event ON fade_trades(symbol, session) WHERE status != 'filtered';
+CREATE TABLE IF NOT EXISTS scan_trades(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, session TEXT NOT NULL, bar_ts TEXT NOT NULL,
+  detected_at TEXT NOT NULL, signal_px REAL NOT NULL, status TEXT NOT NULL, reason TEXT, weight REAL NOT NULL,
+  est_entry REAL, est_entry_at TEXT, est_last REAL, est_exit REAL, est_exit_at TEXT,
+  entry_ts TEXT, entry REAL, cover REAL, cost_rt REAL, gross REAL, net REAL, settled_at TEXT, created_at TEXT NOT NULL,
+  UNIQUE(symbol, session));
+CREATE INDEX IF NOT EXISTS ix_scan_status ON scan_trades(status, session);
 CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
 """
 # Additive column migrations for tables that already exist on the runner's volume (CREATE IF NOT EXISTS
