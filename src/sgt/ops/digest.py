@@ -83,6 +83,14 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     lines = [f"[SGT] {now_et:%a %m-%d} digest" + ("  ** PAUSED **" if db.paused() else "")]
     lines += ["Your book:"] + (book_lines(db, now_et.date()) or ["  (no approved positions yet)"])
     lines += fade.digest_lines(db, now_et.date(), now_et)
+    try:
+        from sgt.fast import scanner                  # experiment book (prereg_scanner_book_2026-11-09)
+
+        sl = scanner.summary(db, now_et.date().isoformat())
+        if sl:
+            lines.append(sl)
+    except Exception:  # noqa: BLE001 - one digest line must never block the digest
+        lines.append("scanner: summary unavailable")
     lines += realism.lines(db)
     if fills:
         lines.append("Fills: " + "; ".join(f"{f['strategy']} {f['symbol']} -> {f['target']:+.0%} @ {f['price']:.2f}"

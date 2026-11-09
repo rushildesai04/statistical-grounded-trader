@@ -25,6 +25,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import date, datetime, timedelta, timezone
+from datetime import time as time_of
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -37,7 +38,7 @@ from sgt.core.secrets import get_secret
 from sgt.crowd.telegram_parser import ParsedAlert, ParsedNews, parse_message
 from sgt.crowd.telegram_collector import SourceMessage, TelegramCollector
 from sgt.fast import borrow as borrow_mod
-from sgt.fast import fade, filings, news, reddit, signals, social, xsocial
+from sgt.fast import fade, filings, news, reddit, scanner, signals, social, xsocial
 from sgt.intraday.sources import AlpacaHistoricalBars
 from sgt.intraday.store import ParquetBarStore
 from sgt.ops.sms import Sms
@@ -246,6 +247,85 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
     return news.flags(symbol, at, pd.DataFrame(rows, columns=["created_at", "symbols", "headline"]))
 
 
+SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 80, 10
+
+
+class ScanState:
+    """Scanner universe cache (prereg_scanner_book_2026-11-09)."""
+
+    def __init__(self) -> None:
+        self.universe: list[str] = []
+        self.at: datetime | None = None
+
+
+def scan_universe(client: httpx.Client, db: OpsStore, session: str) -> list[str]:
+    """Top-50 gainers ($1-50, tradable symbols) + the channel's symbols today, at most UNIVERSE_MAX."""
+    out: list[str] = []
+    try:
+        r = client.get("/v1beta1/screener/stocks/movers", params={"top": 50})
+        gainers = (r.json() or {}).get("gainers") if r.status_code == 200 else None
+        for g in gainers if isinstance(gainers, list) else []:
+            sym, px = str((g or {}).get("symbol") or ""), (g or {}).get("price")
+            if scanner.tradable_symbol(sym) and isinstance(px, (int, float)) and fade.PRICE_MIN <= px <= fade.PRICE_MAX:
+                out.append(sym)
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("scanner movers failed: %s", type(exc).__name__)
+    with db.tx() as c:
+        out += [r[0] for r in c.execute("SELECT DISTINCT symbol FROM fade_trades WHERE session=?", (session,))]
+    return list(dict.fromkeys(s for s in out if scanner.tradable_symbol(s)))[:UNIVERSE_MAX]
+
+
+def scan_bars(client: httpx.Client, symbols: list[str], start: datetime) -> dict[str, pd.DataFrame]:
+    """Today's IEX 1-minute bars for many symbols (multi-symbol endpoint, bounded pages)."""
+    out: dict[str, list] = {}
+    token, pages = None, 0
+    while symbols and pages < SCAN_PAGES:
+        params = {"symbols": ",".join(symbols), "timeframe": "1Min", "start": start.isoformat(), "feed": "iex",
+                  "limit": 10000}
+        if token:
+            params["page_token"] = token
+        r = client.get("/v2/stocks/bars", params=params)
+        if r.status_code != 200:
+            log.warning("scanner bars -> %s", r.status_code)
+            break
+        j = r.json() or {}
+        for sym, rows in (j.get("bars") or {}).items():
+            if isinstance(rows, list):
+                out.setdefault(sym, []).extend(x for x in rows if isinstance(x, dict))
+        token, pages = j.get("next_page_token"), pages + 1
+        if not token:
+            break
+    frames = {}
+    for sym, rows in out.items():
+        f = pd.DataFrame(rows).rename(columns={"t": "ts", "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
+        if {"ts", "open", "high", "low", "close", "volume"} <= set(f):
+            frames[sym] = f.assign(ts=pd.to_datetime(f.ts, utc=True))[["ts", "open", "high", "low", "close", "volume"]]
+    return frames
+
+
+def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: datetime | None = None) -> int:
+    """One scanner pass: refresh the universe, detect spikes on complete bars, advance the book. Returns new trades."""
+    now = now or datetime.now(timezone.utc)
+    et = now.astimezone(ET)
+    from sgt.intraday.calendar import default_calendar
+
+    if not default_calendar().is_session(et.date()) or not (time_of(9, 30) <= et.time() < time_of(16, 0)):
+        return 0
+    session = et.date().isoformat()
+    if state.at is None or now - state.at >= UNIVERSE_EVERY:
+        state.universe, state.at = scan_universe(client, db, session), now
+    new = 0
+    if et.time() < time_of(15, 46):
+        start = datetime.combine(et.date(), time_of(9, 30), ET)
+        for sym, f in scan_bars(client, state.universe, start).items():
+            ev = scanner.detect(f, now)
+            if ev is not None and scanner.record(db, sym, ev, now):
+                new += 1
+                log.info("scanner %s spike at %s", sym, ev["bar_ts"])
+    scanner.step(db, quote, now)
+    return new
+
+
 def data_client() -> httpx.Client:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
     return httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=5)
@@ -351,13 +431,25 @@ async def run() -> int:
     if not await client.is_user_authorized():
         raise SystemExit("fade session not authorized; run `fade_live.py login` on the Mac")
     log.info("listening on %s", CHANNEL)
-    tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up())]
+    sc = data_client()                          # scanner: own connection, own loop (never delays the fade's stops)
+    scan_quote, scan_state = iex_quote(sc), ScanState()
+
+    async def scan_loop():
+        while True:
+            try:
+                await asyncio.to_thread(scan_tick, sc, db, scan_quote, scan_state)
+            except Exception:  # noqa: BLE001 - the experiment must never stop the listener; logged
+                log.exception("scanner failed")
+            await asyncio.sleep(SCAN_EVERY)
+
+    tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop())]
     try:
         await client.run_until_disconnected()
     finally:
         for t in tasks:
             t.cancel()
         await real.close()
+        sc.close()
         dc.close()
         ac.close()
     return 1                                   # disconnected: exit non-zero so the supervisor restarts us
@@ -447,10 +539,59 @@ def _score(a: pd.DataFrame, store: ParquetBarStore, now: datetime) -> pd.DataFra
                                        "cover"])
 
 
+def scan_official(r, bars: pd.DataFrame, cost) -> dict | None:
+    """Official SIP result of one scanner trade (prereg_scanner_book_2026-11-09): short the open of the first bar
+    starting at bar t+1 (within 5 minutes), the champion's 20% stop / 60-minute cover; None = no entry bar."""
+    if bars.empty:
+        return None
+    start = pd.Timestamp(r["bar_ts"]) + pd.Timedelta(minutes=1)
+    later = bars[(bars.ts >= start) & (bars.ts - start <= pd.Timedelta(minutes=5))]
+    if later.empty:
+        return None
+    t0, entry = later.ts.iloc[0], float(later.open.iloc[0])
+    w = bars[(bars.ts >= t0) & (bars.ts < t0 + pd.Timedelta(minutes=60))]
+    c = cover(w, entry)
+    if c is None or entry <= 0:
+        return None
+    rt = cost.round_trip(r["symbol"], t0.to_pydatetime(), entry)[0]
+    gross = (entry - c) / entry
+    return {"entry_ts": t0.isoformat(), "entry": entry, "cover": c, "cost_rt": rt, "gross": gross,
+            "net": gross - rt - LOCATE}
+
+
+def settle_scanner(db: OpsStore, now: datetime | None = None) -> list[str]:
+    from sgt.brokers.costs import GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT, GAPPER_REST_MULT
+    from sgt.decision.features import CostModelAdapter
+
+    now = now or utcnow()
+    d = scanner.due(db, now)
+    if d.empty:
+        return []
+    store, fetch = ParquetBarStore(BARS), AlpacaHistoricalBars(feed="sip").fetch
+    cost = CostModelAdapter(GAPPER_COST_MODEL, tag="gapper", open_hour_mult=GAPPER_OPEN_HOUR_MULT,
+                            rest_mult=GAPPER_REST_MULT)
+    lines = []
+    for session, g in d.groupby("session"):
+        day = date.fromisoformat(session)
+        backfill(sorted(g.symbol.unique()), day, day, store=store, fetch=fetch)
+        for _, r in g.iterrows():
+            f = store.read_frame(r["symbol"], day, day)
+            f = f[f.segment == "rth"].assign(ts=lambda x: pd.to_datetime(x.ts, utc=True)).sort_values("ts") if len(f) else f
+            res = scan_official(r, f, cost)
+            if scanner.book(db, int(r["id"]), r["status"], res, now):
+                lines.append(f"{r['symbol']} " + ("void" if res is None else f"{res['net']:+.2%}"))
+    return lines
+
+
 def cmd_settle() -> int:
     db = OpsStore()
     lines = fade.settle(db, official)
     print(f"fade settle {datetime.now(ET):%Y-%m-%d %H:%M}: " + (", ".join(lines) or "nothing due"))
+    try:                                         # scanner experiment (prereg_scanner_book_2026-11-09)
+        sl = settle_scanner(db)
+        print("scanner settle: " + (", ".join(sl) or "nothing due"))
+    except Exception:  # noqa: BLE001 - the experiment must never block the fade's settlement; logged
+        log.exception("scanner settle failed")
     return 0
 
 
