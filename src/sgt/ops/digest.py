@@ -91,6 +91,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             lines.append(sl)
     except Exception:  # noqa: BLE001 - one digest line must never block the digest
         lines.append("scanner: summary unavailable")
+    st = db.flag("analyst_status")
+    if st:
+        lines.append(f"AI analyst: {st} (Notes tab)")
     lines += realism.lines(db)
     if fills:
         lines.append("Fills: " + "; ".join(f"{f['strategy']} {f['symbol']} -> {f['target']:+.0%} @ {f['price']:.2f}"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,8 @@ from sgt.fast import fade
 from sgt.intraday.calendar import default_calendar
 from sgt.ops import charts, model_tape
 from sgt.ops.store import OpsStore, utcnow
+
+log = logging.getLogger("trade_charts")
 
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.]{0,9}")
 SIP_DELAY = timedelta(minutes=16)
@@ -97,7 +100,13 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     except (OSError, ValueError):
         learning = None                                  # the page still renders without the scoreboard
     models = model_tape.load_for_page(marks=Path("reports/megacap_forward/marks.csv"))   # Models tab (owner 2026-11-06)
-    return charts.render(views, now, standalone=standalone, learning=learning, models=models)
+    from sgt.ops import journal
+    try:
+        entries = journal.entries(db) if db is not None else []      # Notes tab (owner 2026-11-09)
+    except Exception:  # noqa: BLE001 - the page must render even if the journal query fails; logged
+        log.exception("journal entries failed")
+        entries = []
+    return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries)
 
 
 def main() -> int:

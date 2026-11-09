@@ -56,3 +56,5 @@
 # Fade Tape chart page (2026-11-05): every 10 min in market hours, and after the official settlement.
 */10 9-16 * * 1-5 /app/deploy/entrypoint.sh job charts
 50 20 * * 1-5  /app/deploy/entrypoint.sh job charts
+# AI trade analyst (owner 2026-11-09): trades + owner notes -> distilled lessons (dormant without openai_key).
+58 22 * * 1-5  /app/deploy/entrypoint.sh job analyst
