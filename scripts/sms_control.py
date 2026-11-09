@@ -439,6 +439,33 @@ def overlay_targets(positions: dict[str, int]) -> dict[str, float]:
     return {s: (0.0 if p < 0 else w) for s, p in positions.items()}
 
 
+def cmd_megacap_ext(db: OpsStore) -> int:
+    """Extended daily-model forward test (prereg_megacap_ext_forward_2026-11-09): the other 15 names as the
+    approved book strategy 'megacap_ext'. Identical to cmd_megacap (auto_all, same MEGACAP_SIZING caps via
+    megacap_targets); no timing overlay (that stays specific to the six-name overlay prereg)."""
+    files = sorted((Path("reports/megacap_ext/decisions")).glob("*.json"))
+    if not files:
+        print("no megacap_ext decisions")
+        return 0
+    dec = json.loads(files[-1].read_text())
+    d = date.fromisoformat(dec["date"])
+    fill = next_session(d)
+    if datetime.now(ET) >= deadline(fill) or done(db, f"megacap_ext:{d}"):
+        print(f"megacap_ext {d}: already proposed or past the {fill} deadline")
+        return 0
+    positions = {s: int(v["position"]) for s, v in dec["positions"].items()}
+    targets = megacap_targets(positions)
+    sms = Sms()
+    try:
+        res = book.propose(db, sms.send, strategy="megacap_ext", targets=targets, fill_session=fill,
+                           deadline=deadline(fill), label=f"megacap_ext {d:%m-%d}", auto_all=True)
+        mark_done(db, f"megacap_ext:{d}")
+    finally:
+        sms.close()
+    print(f"megacap_ext {d}: {res}")
+    return 0
+
+
 def tom_role(d: date) -> str | None:
     """'entry' on the 2nd-to-last session of a month, 'exit' on the 3rd session (anomalies A3 windows)."""
     cal = default_calendar()
@@ -522,13 +549,15 @@ def cmd_pilot(db: OpsStore) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "tom", "etf", "pilot", "summary", "weekly"])
+    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "megacapext", "tom", "etf", "pilot",
+                                    "summary", "weekly"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
-    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "tom": cmd_tom, "etf": cmd_etf,
-            "pilot": cmd_pilot, "summary": cmd_summary, "weekly": cmd_weekly}[args.cmd](db)
+    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "megacapext": cmd_megacap_ext,
+            "tom": cmd_tom, "etf": cmd_etf, "pilot": cmd_pilot, "summary": cmd_summary,
+            "weekly": cmd_weekly}[args.cmd](db)
 
 
 if __name__ == "__main__":

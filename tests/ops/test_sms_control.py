@@ -163,6 +163,43 @@ def test_megacap_proposal_is_sized_and_proposed_once(db, monkeypatch):
     assert (sc.OVERLAY, "MSFT") not in t                                            # ... cash on short days
 
 
+def test_megacap_ext_proposal_is_sized_and_proposed_once(db, monkeypatch):
+    # prereg_megacap_ext_forward_2026-11-09: the 15-name set as its own book 'megacap_ext', sized under the
+    # same MEGACAP_SIZING caps, auto-executed, and no overlay (that is the six-name prereg's).
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(5)
+    idx = pd.bdate_range("2025-06-02", periods=300).date
+    m = rng.normal(0, 0.01, 300)
+
+    def frame(beta, vol):
+        c = 100 * np.cumprod(1 + beta * m + rng.normal(0, vol, 300))
+        return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99, "close": c, "volume": 1e6}, index=idx)
+    bars = {"AMD": frame(2.0, 0.01), "JPM": frame(1.0, 0.005), "WMT": frame(1.0, 0.005), "SPY": frame(1.0, 0.0)}
+    monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
+    dec_dir = Path("reports/megacap_ext/decisions")
+    dec_dir.mkdir(parents=True)
+    d = sc.next_session(date.today()).isoformat()           # fill deadline always in the future
+    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "positions": {
+        "AMD": {"position": 1}, "JPM": {"position": -1}, "WMT": {"position": 0}}}))
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    sc.cmd_megacap_ext(db)
+    sc.cmd_megacap_ext(db)
+    # auto-executed (no approval) and proposed once; no overlay book for the extended set
+    assert ap.pending(db) == [] and len(sms.sent) == 1
+    assert "megacap_ext" in sms.sent[0] and "AMD long" in sms.sent[0] and "JPM short" in sms.sent[0]
+    with db.tx() as c:
+        rows = c.execute("SELECT strategy, symbol, target FROM book_orders WHERE status='scheduled'").fetchall()
+    t = {(r["strategy"], r["symbol"]): r["target"] for r in rows}
+    assert 0 < t[("megacap_ext", "AMD")] <= 0.25 and -0.25 <= t[("megacap_ext", "JPM")] < 0
+    assert ("megacap_ext", "WMT") not in t
+    assert all(strat != sc.OVERLAY for strat, _ in t)       # extended set runs no timing overlay
+
+
 def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
     from sgt.ops import digest
 

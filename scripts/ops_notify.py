@@ -31,6 +31,7 @@ ALERTS = Path("reports/ops/alerts")
 # job -> (what it is, what the failure means for money/positions). 2026-11-03: owner asked for no raw errors.
 JOBS = {
     "megacap": ("megacap model update", "No new megacap trade is proposed until it runs again; open positions are unchanged."),
+    "megacapext": ("extended megacap model update", "No new extended-set trade is proposed until it runs again; open positions are unchanged."),
     "etf": ("ETF research record update", "Nothing was traded."),
     "etfbook": ("ETF book proposal", "No ETF change is proposed until it runs again; holdings are unchanged."),
     "rebalance": ("60/40 rebalance", "Reply STATUS before approving anything else."),

@@ -19,10 +19,16 @@ from sgt.megacap.walkforward import Q_HIGH, Q_LOW
 
 ET = "America/New_York"
 TICKERS = ("AAPL", "AMZN", "GOOGL", "MSFT", "META", "NVDA")
+# Extended forward set (prereg_megacap_ext_forward_2026-11-09): the other 15 names on the OOS record
+# (config/models/model_tape.json) that are not in TICKERS, in tape order. Frozen for the pre-registration;
+# tests/megacap/test_ext.py guards that this equals the tape minus TICKERS.
+EXT_TICKERS = ("RDDT", "TSLA", "AMD", "AVGO", "COST", "JPM", "LLY", "MA", "NFLX", "ORCL", "UNH", "V", "WMT",
+               "XOM", "AAOI")
 COST_RT = 0.0004
 PARAMS = dict(n_estimators=300, learning_rate=0.03, num_leaves=7, min_child_samples=100,
               colsample_bytree=0.8, subsample=0.8, subsample_freq=1, random_state=0, verbose=-1)
 ROOT = Path("reports/megacap_forward")
+ROOT_EXT = Path("reports/megacap_ext")
 VOID_AFTER = (15, 55)          # a decision written later than 15:55 ET is void
 TIMEOUT_S = 20.0
 
@@ -76,16 +82,19 @@ def to_daily(f: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------- models
-def model_dir(month: str) -> Path:
-    return ROOT / "models" / month
+# ``root``/``tickers`` default to the original six-name forward test (ROOT/TICKERS) and are resolved at
+# call time so the existing monkeypatch of ``live.ROOT`` in tests keeps working; the extended set
+# (prereg_megacap_ext_forward_2026-11-09) passes ROOT_EXT / EXT_TICKERS to reuse this code unchanged.
+def model_dir(month: str, root: Path | None = None) -> Path:
+    return (ROOT if root is None else root) / "models" / month
 
 
-def train_month(month: str, features_by_symbol: dict[str, pd.DataFrame]) -> dict:
+def train_month(month: str, features_by_symbol: dict[str, pd.DataFrame], *, root: Path | None = None) -> dict:
     """Fit each ticker on rows with session < month start; save booster + thresholds."""
     import lightgbm as lgb
 
     start = pd.Period(month, "M").start_time.date()
-    out_dir = model_dir(month)
+    out_dir = model_dir(month, root)
     if (out_dir / "meta.json").exists():
         raise LiveError(f"models for {month} already exist (append-only)")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -105,10 +114,10 @@ def train_month(month: str, features_by_symbol: dict[str, pd.DataFrame]) -> dict
     return meta
 
 
-def load_models(month: str) -> tuple[dict, dict]:
+def load_models(month: str, *, root: Path | None = None) -> tuple[dict, dict]:
     import lightgbm as lgb
 
-    d = model_dir(month)
+    d = model_dir(month, root)
     if not (d / "meta.json").exists():
         raise LiveError(f"no models for {month}; run retrain first")
     meta = json.loads((d / "meta.json").read_text())
@@ -142,7 +151,8 @@ def today_row(today: date, intraday: dict[str, pd.DataFrame], daily: dict[str, p
     return r.iloc[0]
 
 
-def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: str = "realtime") -> Path:
+def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: str = "realtime",
+           tickers: tuple[str, ...] | None = None, root: Path | None = None) -> Path:
     """``realtime``: written at 15:50 ET, void after 15:55. ``batch`` (2026-10-30, forward amendment A1):
     computed later from the same point-in-time data (bars ending 15:49, frozen month model); proof comes
     from the hashed models + tested point-in-time code, not the clock."""
@@ -150,13 +160,15 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
         raise LiveError(f"unknown mode {mode}")
     if mode == "realtime" and (now_et.hour, now_et.minute) > VOID_AFTER:
         raise LiveError(f"too late ({now_et:%H:%M} ET): decisions after 15:55 are void")
-    path = ROOT / "decisions" / f"{today}.json"
+    syms = TICKERS if tickers is None else tickers
+    root = ROOT if root is None else root
+    path = root / "decisions" / f"{today}.json"
     if path.exists():
         raise LiveError(f"{path} exists (append-only)")
-    models, meta = load_models(f"{today:%Y-%m}")
+    models, meta = load_models(f"{today:%Y-%m}", root=root)
     out = {"date": str(today), "written_at": datetime.now(timezone.utc).isoformat(), "mode": mode,
            "model_month": meta["month"], "positions": {}}
-    for s in TICKERS:
+    for s in syms:
         x = today_row(today, intraday, daily, s)
         pred = float(models[s].predict(pd.DataFrame([x[list(DAILY_FEATURES)].astype(float)]))[0])
         th = meta["tickers"][s]
@@ -168,10 +180,11 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
     return path
 
 
-def mark(daily: dict[str, pd.DataFrame]) -> pd.DataFrame:
+def mark(daily: dict[str, pd.DataFrame], *, root: Path | None = None) -> pd.DataFrame:
     """Fill every valid decision at official closes t -> t+1 (adjusted daily bars), net of cost."""
+    root = ROOT if root is None else root
     rows = []
-    for p in sorted((ROOT / "decisions").glob("*.json")):
+    for p in sorted((root / "decisions").glob("*.json")):
         dec = json.loads(p.read_text())
         t = date.fromisoformat(dec["date"])
         written = pd.Timestamp(dec["written_at"]).tz_convert(ET)
