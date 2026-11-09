@@ -158,6 +158,8 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
     from the hashed models + tested point-in-time code, not the clock."""
     if mode not in ("realtime", "batch"):
         raise LiveError(f"unknown mode {mode}")
+    if now_et.tzinfo is None:
+        raise LiveError("now_et must be timezone-aware")      # fail closed: the stamp below is the void proof
     if mode == "realtime" and (now_et.hour, now_et.minute) > VOID_AFTER:
         raise LiveError(f"too late ({now_et:%H:%M} ET): decisions after 15:55 are void")
     syms = TICKERS if tickers is None else tickers
@@ -166,7 +168,10 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
     if path.exists():
         raise LiveError(f"{path} exists (append-only)")
     models, meta = load_models(f"{today:%Y-%m}", root=root)
-    out = {"date": str(today), "written_at": datetime.now(timezone.utc).isoformat(), "mode": mode,
+    # 2026-11-09 (adversarial pass 3, F-13): stamp the SAME instant the void guard above checked. The wall clock
+    # here disagreed with the guard, so any realtime decide() replayed after 15:55 was booked flat by mark(), and
+    # the gated deploy failed after 15:55 ET. Callers (megacap_forward.do_decide) pass datetime.now(ET).
+    out = {"date": str(today), "written_at": now_et.astimezone(timezone.utc).isoformat(), "mode": mode,
            "model_month": meta["month"], "positions": {}}
     for s in syms:
         x = today_row(today, intraday, daily, s)
