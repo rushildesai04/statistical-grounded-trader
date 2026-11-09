@@ -506,8 +506,9 @@ def cmd_tom(db: OpsStore) -> int:
         return 0
     sms = Sms()
     try:
+        # owner 2026-11-09: tested books trade automatically (no approval text that can be missed)
         res = book.propose(db, sms.send, strategy="tom", targets={"SPY": 1.0 if role == "entry" else 0.0},
-                           fill_session=d, deadline=deadline(d), label=f"turn-of-month {role}")
+                           fill_session=d, deadline=deadline(d), label=f"turn-of-month {role}", auto_all=True)
         mark_done(db, f"tom:{d}")
     finally:
         sms.close()
@@ -526,7 +527,8 @@ def cmd_etf(db: OpsStore) -> int:
             weights = json.loads(p.read_text())["weights"]
             for sleeve, w in weights.items():
                 book.propose(db, sms.send, strategy=f"etf:{sleeve}", targets={k: float(v) for k, v in w.items()},
-                             fill_session=fill, deadline=deadline(fill), label=f"ETF {sleeve} {p.stem}")
+                             fill_session=fill, deadline=deadline(fill), label=f"ETF {sleeve} {p.stem}",
+                             auto_all=True)
             mark_done(db, f"etf:{p.stem}")
             print(f"etf {p.stem}: proposed {list(weights)} for {fill}")
     finally:
