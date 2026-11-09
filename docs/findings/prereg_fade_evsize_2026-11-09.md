@@ -23,3 +23,13 @@ but is descriptive (these factors were looked at there before). DECISION: forwar
 no-news fade, scored by the learning scoreboard (paired per-session difference vs flat size, alpha 0.05), at n >= 300.
 Promotion needs the owner's OK. Expected if real: more profit from the same average capital, mostly by shrinking
 calm, morning, $2-5 trades and growing jumpy, afternoon, $1-2 ones.
+
+## Fit (2026-11-09, run once; frozen `config/models/fade_ev_v1.json`)
+Coefficients (net per trade vs base before-11:00 / $1-2 / calm): intercept +1.08%; 11:00-14:00 +0.68%, after 14:00
++0.42%; $2-5 -0.77%, $5-10 -0.76%, $10-50 +0.10%; middle volatility -0.66%, jumpy +3.04%.
+| period | n (no-news) | flat per trade | EV-sized per trade (same mean size) | per session vs flat [5% lb] |
+|---|---|---|---|---|
+| training (in-sample) | 1,238 | +1.70% | +3.89% | +8.2% of a trade [+5.5%] |
+| held-out (descriptive) | 487 | +1.77% | +3.43% | +9.5% [+2.9%] |
+Not adopted on these numbers (the factors were seen before). Forward shadow `fade_evsize` runs nightly with the
+other sizing shadows and is scored by the learning scoreboard; decision at n >= 300 with the owner's OK.

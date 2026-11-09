@@ -21,7 +21,8 @@ from sgt.intraday.store import ParquetBarStore
 
 OUT = Path("reports/fade_volsize")
 CALM, M = 0.015072, 0.025540                    # training 20th percentile / median sigma (prereg_fade_calmskip)
-SHADOWS = {"calmskip": Path("reports/fade_calmskip"), "volup": Path("reports/fade_volup")}
+SHADOWS = {"calmskip": Path("reports/fade_calmskip"), "volup": Path("reports/fade_volup"),
+           "evsize": Path("reports/fade_evsize")}                     # prereg_fade_evsize_2026-11-09
 SEED, N_BOOT, ALPHA, LOOKBACK, MIN_BARS, LO, HI = 20261108, 10_000, 0.05, 30, 10, 0.5, 2.0
 
 
@@ -80,12 +81,27 @@ def shadow_weights(sigma: pd.Series) -> dict[str, np.ndarray]:
     return {"calmskip": calm, "volup": up}
 
 
+def ev_weights(t: pd.DataFrame) -> np.ndarray:
+    """EV sizing (prereg_fade_evsize_2026-11-09) with the frozen config/models/fade_ev_v1.json. The forward record has no
+    company-news flag, so news-TYPE alerts get weight 1 (the live book filters them; they stay out of the comparison)."""
+    import json as _json
+
+    from fade_ev_study import MODEL, groups, predict
+
+    m = _json.loads(MODEL.read_text())
+    g = groups(t.entry_ts, t.entry, t.sigma)
+    w = np.clip(predict(m, g) / m["mean_ev"], m["lo"], m["hi"]) * m["scale"]
+    news = (t.get("alert_type", pd.Series("", index=t.index)) == "news").to_numpy()
+    return np.where(news, 1.0, w)
+
+
 def summary_line(name: str, t: pd.DataFrame) -> str:
     if name == "calmskip":
         calm = t.w == 0
         return (f"fade calm skip fwd n={len(t)}: live {t.net.mean():+.2%}/trade; skipped {int(calm.sum())} calm "
                 f"({t.net[calm].mean() if calm.any() else 0:+.1%} avg), kept {t.net[~calm].mean() if (~calm).any() else 0:+.2%}")
-    return f"fade vol-up sizing fwd n={len(t)}: equal {t.net.mean():+.2%}/trade, sized {(t.net * t.w).mean():+.2%}/trade"
+    label = "EV" if name == "evsize" else "vol-up"
+    return f"fade {label} sizing fwd n={len(t)}: equal {t.net.mean():+.2%}/trade, sized {(t.net * t.w).mean():+.2%}/trade"
 
 
 def cmd_shadow() -> int:
@@ -107,9 +123,12 @@ def cmd_shadow() -> int:
         print("no forward events yet")
         return 0
     ev["net"] = score(ev, store).net.to_numpy()
-    t = ev.dropna(subset=["net"])[["symbol", "session", "entry_ts", "entry", "net"]].reset_index(drop=True)
+    keep = [c for c in ("symbol", "session", "alert_type", "entry_ts", "entry", "net") if c in ev]
+    t = ev.dropna(subset=["net"])[keep].reset_index(drop=True)
     t["sigma"] = [sigma(store, r.symbol, str(r.session), pd.Timestamp(r.entry_ts)) for r in t.itertuples()]
-    for name, w in shadow_weights(t.sigma).items():
+    all_w = shadow_weights(t.sigma)
+    all_w["evsize"] = ev_weights(t)
+    for name, w in all_w.items():
         out = t.assign(w=w)
         SHADOWS[name].mkdir(parents=True, exist_ok=True)
         out.to_csv(SHADOWS[name] / "shadow.csv", index=False)

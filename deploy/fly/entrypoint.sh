@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/megacap_ext reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold reports/fade_brain reports/fade_tod reports/learning reports/fade_confsize reports/megacap_overlay reports/fade_pricesize reports/fade_calmskip reports/fade_volup reports/insights data/alpaca data/etf_yf data/borrow
+mkdir -p reports/megacap_forward reports/megacap_ext reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold reports/fade_brain reports/fade_tod reports/learning reports/fade_confsize reports/megacap_overlay reports/fade_pricesize reports/fade_calmskip reports/fade_volup reports/fade_evsize reports/insights data/alpaca data/etf_yf data/borrow
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
