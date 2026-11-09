@@ -20,7 +20,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | size | 5% of book NAV per trade, max 15 trades/day, 8 open, -3% day loss stop | fade_rule.py |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
-| texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), chart read, borrow, TradingView link | fade_texts.py, xsocial.py |
+| texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |
 
 ## 3. What actually drives results (the knowledge)
 1. **News kills the fade.** News-type alerts or company news: +0.00%/trade train (n 1,107), -0.37% held-out (n 277).
@@ -96,7 +96,7 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
   line) scores each challenger against the live rule on forward trades and marks it READY at n >= 300.
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
   a prereg amendment and becomes the live rule. A worse one is retired. Nothing is promoted automatically.
-- Live data feeds the next questions: borrow stamps, StockTwits buzz, X buzz, signals at entry, news and filings per trade.
+- Live data feeds the next questions: borrow stamps, StockTwits buzz, X buzz, Reddit buzz, signals at entry, news and filings per trade.
 - **Daily ops texts**: 09:20 ET pre-market health check (silent unless the listener, market data, database or disk
   would cost the day), midnight day summary, nightly digest, Friday 23:15 weekly review.
 - **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
@@ -115,7 +115,7 @@ a nightly forward shadow decides at 300 symbol-days. The live forward test on th
 
 ## 7. Open questions and decision points
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
-  time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`); X buzz hypothesis (`prereg_fade_x_2026-11-08`, A1 cheap collection).
+  time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`); X buzz hypothesis (`prereg_fade_x_2026-11-08`, A1 cheap collection); Reddit buzz hypothesis (`prereg_fade_reddit_2026-11-08`).
 - Real money only on a strategy proven on unseen data and tradeable at a broker (borrow).
 - Broker path (`docs/research/broker_borrow_2026-11-06.md`): IBKR has no locate fee and no borrow fee on same-day
   shorts [VERIFY] but often no shares; locate brokers (TradeZero, Cobra, CenterPoint) can short them for a per-share

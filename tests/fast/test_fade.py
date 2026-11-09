@@ -390,6 +390,7 @@ def test_record_counts_only_settled_trades(db):
 def test_iex_context_computes_moves_and_tolerates_bad_payloads(monkeypatch):
     monkeypatch.setattr(fl.social, "lookup", lambda symbol, at: None)          # no network in tests
     monkeypatch.setattr(fl.xsocial, "lookup", lambda symbol, at: None)
+    monkeypatch.setattr(fl.reddit, "lookup", lambda symbol, at: None)
     import httpx
 
     def handler(req):
@@ -410,7 +411,7 @@ def test_iex_context_computes_moves_and_tolerates_bad_payloads(monkeypatch):
     assert got["off_high"] == pytest.approx(3.7 / 4.0 - 1) and got["vwap"] == 3.5 and got["rvol"] == pytest.approx(3.0)
     assert got["news"]["news_earn"] and got["news"]["headline"] == "XYZ Q3 EPS beats raises guidance"
     assert fade.news_group(got) == "earn"
-    assert ctx("BAD") == {"news": None, "filings": None, "social": None, "x": None} and ctx("not a symbol") == {}   # unknown, never "none"
+    assert ctx("BAD") == {"news": None, "filings": None, "social": None, "x": None, "reddit": None} and ctx("not a symbol") == {}   # unknown, never "none"
     assert fade.news_group(ctx("BAD")) == "all"
 
 

@@ -34,7 +34,7 @@ from sgt.core.secrets import get_secret
 from sgt.crowd.telegram_parser import ParsedAlert, ParsedNews, parse_message
 from sgt.crowd.telegram_collector import SourceMessage, TelegramCollector
 from sgt.fast import borrow as borrow_mod
-from sgt.fast import fade, filings, news, signals, social, xsocial
+from sgt.fast import fade, filings, news, reddit, signals, social, xsocial
 from sgt.intraday.sources import AlpacaHistoricalBars
 from sgt.intraday.store import ParquetBarStore
 from sgt.ops.sms import Sms
@@ -173,6 +173,7 @@ def iex_context(client: httpx.Client):
         out["filings"] = filings.lookup(symbol, now, since_8k=news.window_start(now))   # None = unknown
         out["social"] = social.lookup(symbol, now)                                       # None = unknown
         out["x"] = xsocial.lookup(symbol, now)                    # None = dormant (no key), capped or unknown
+        out["reddit"] = reddit.lookup(symbol, now)                # None = unknown (ApeWisdom down)
         return out
     return ctx
 
