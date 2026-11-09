@@ -67,13 +67,16 @@ def test_book_entry_stop_exit_caps_and_first_event(db, monkeypatch):
     def quote(symbol, since=None):
         return None if since is not None and prints["t"] < since else prints["p"]
     quote.since_aware = True
-    scanner.step(db, quote, start + timedelta(seconds=3))
+    sent = []
+    scanner.step(db, quote, start + timedelta(seconds=3), sent.append)
     with db.tx() as c:
         assert c.execute("SELECT status FROM scan_trades").fetchone()[0] == "pending"           # stale print: wait
     prints.update(t=start + timedelta(seconds=4), p=5.4)
-    scanner.step(db, quote, start + timedelta(seconds=10))
+    scanner.step(db, quote, start + timedelta(seconds=10), sent.append)
+    assert len(sent) == 1 and sent[0].startswith("[SGT] 🔎 SCANNER SHORT SPK @ $5.40") and "stop $6.48" in sent[0]
     prints.update(p=6.5)                                                                       # +20.4%: stop
-    scanner.step(db, quote, start + timedelta(minutes=3))
+    scanner.step(db, quote, start + timedelta(minutes=3), sent.append)
+    assert len(sent) == 2 and sent[1].startswith("[SGT] 🔎 SCANNER OUT SPK · lost -20.4%") and "stop hit" in sent[1]
     with db.tx() as c:
         r = dict(c.execute("SELECT * FROM scan_trades").fetchone())
     assert (r["status"], r["reason"], r["est_entry"], r["est_exit"]) == ("est_closed", "stop", 5.4, 6.5)
@@ -113,7 +116,7 @@ def test_scan_tick_universe_bars_detect_and_step(db):
             return httpx.Response(200, json={"gainers": [{"symbol": "SPK", "price": 5.3}, {"symbol": "CINGW", "price": 2},
                                                          {"symbol": "BIG", "price": 120.0}]})
         if req.url.path == "/v2/stocks/bars":
-            assert req.url.params["symbols"] == "SPK"
+            assert req.url.params["symbols"].split(",")[0] == "SPK" and "NVDA" in req.url.params["symbols"]
             rows = [{"t": t.isoformat(), "o": o, "h": h, "l": lo, "c": c, "v": v}
                     for t, o, h, lo, c, v in f[["ts", "open", "high", "low", "close", "volume"]].itertuples(index=False)]
             return httpx.Response(200, json={"bars": {"SPK": rows}, "next_page_token": None})
@@ -121,7 +124,7 @@ def test_scan_tick_universe_bars_detect_and_step(db):
     client = httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler))
     st = fl.ScanState()
     assert fl.scan_tick(client, db, lambda s, since=None: None, st, now=now) == 1
-    assert st.universe == ["SPK"]
+    assert st.universe[0] == "SPK" and "AAOI" in st.universe and "CINGW" not in st.universe   # + model names
     assert fl.scan_tick(client, db, lambda s, since=None: None, st, now=now) == 0           # first event per day
     sat = datetime(2026, 11, 7, 15, 0, tzinfo=timezone.utc)
     assert fl.scan_tick(client, db, lambda s, since=None: None, fl.ScanState(), now=sat) == 0  # not a session

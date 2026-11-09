@@ -144,13 +144,14 @@ def test_megacap_proposal_is_sized_and_proposed_once(db, monkeypatch):
     monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
     dec_dir = Path("reports/megacap_forward/decisions")
     dec_dir.mkdir(parents=True)
-    d = sc.next_session(date.today()).isoformat()           # fill deadline always in the future
-    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "positions": {
+    d = sc.next_session(date.today()).isoformat()           # a session; the clock below is 15:51 ET that day
+    live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
+    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "mode": "realtime", "positions": {
         "NVDA": {"position": 1}, "MSFT": {"position": -1}, "AAPL": {"position": 0}}}))
     sms = FakeSms()
     monkeypatch.setattr(sc, "Sms", lambda: sms)
-    sc.cmd_megacap(db)
-    sc.cmd_megacap(db)
+    sc.cmd_megacap(db, now=live_at)
+    sc.cmd_megacap(db, now=live_at)
     # owner 2026-11-09: model calls execute automatically (no approval), plus the overlay book
     assert ap.pending(db) == [] and len(sms.sent) == 2
     assert "megacap" in sms.sent[0] and "NVDA long" in sms.sent[0] and "MSFT short" in sms.sent[0]
@@ -182,13 +183,14 @@ def test_megacap_ext_proposal_is_sized_and_proposed_once(db, monkeypatch):
     monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
     dec_dir = Path("reports/megacap_ext/decisions")
     dec_dir.mkdir(parents=True)
-    d = sc.next_session(date.today()).isoformat()           # fill deadline always in the future
-    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "positions": {
+    d = sc.next_session(date.today()).isoformat()           # a session; the clock below is 15:51 ET that day
+    live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
+    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "mode": "realtime", "positions": {
         "AMD": {"position": 1}, "JPM": {"position": -1}, "WMT": {"position": 0}}}))
     sms = FakeSms()
     monkeypatch.setattr(sc, "Sms", lambda: sms)
-    sc.cmd_megacap_ext(db)
-    sc.cmd_megacap_ext(db)
+    sc.cmd_megacap_ext(db, now=live_at)
+    sc.cmd_megacap_ext(db, now=live_at)
     # auto-executed (no approval) and proposed once; no overlay book for the extended set
     assert ap.pending(db) == [] and len(sms.sent) == 1
     assert "megacap_ext" in sms.sent[0] and "AMD long" in sms.sent[0] and "JPM short" in sms.sent[0]
@@ -388,3 +390,15 @@ def test_flatten_also_closes_schwab_pilot_and_reports_failure(db, monkeypatch):
     sc.handle(db, sms, ap.parse("flatten"), "SM3")
     reply = sc.handle(db, sms, ap.parse(f"FLATTEN {sms.code()}"), "SM4")
     assert "INCOMPLETE" in reply and "pilot positions NOT closed" in reply
+
+
+
+def test_model_trades_fill_today_only_when_decided_live():
+    # 2026-11-09: a decision written after the close used to fill at the NEXT session's close (one day late)
+    from datetime import date as _d
+    d = _d(2026, 11, 10)
+    at = lambda h, m: datetime(2026, 11, 10, h, m, tzinfo=sc.ET)  # noqa: E731
+    assert sc.model_fill({"date": d.isoformat(), "mode": "realtime"}, at(15, 51)) == d
+    assert sc.model_fill({"date": d.isoformat(), "mode": "realtime"}, at(16, 5)) is None     # after the close
+    assert sc.model_fill({"date": d.isoformat(), "mode": "batch"}, at(15, 51)) is None       # late decision
+    assert sc.model_fill({"date": "2026-11-09", "mode": "realtime"}, at(15, 51)) is None     # yesterday's call

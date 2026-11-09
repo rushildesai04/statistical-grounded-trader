@@ -247,7 +247,8 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
     return news.flags(symbol, at, pd.DataFrame(rows, columns=["created_at", "symbols", "headline"]))
 
 
-SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 80, 10
+MAX_SCAN_TEXTS_DAY = 80                        # anti-spam ceiling on scanner texts (2 per trade)
+SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 120, 10
 
 
 class ScanState:
@@ -270,8 +271,11 @@ def scan_universe(client: httpx.Client, db: OpsStore, session: str) -> list[str]
                 out.append(sym)
     except (httpx.HTTPError, ValueError) as exc:
         log.warning("scanner movers failed: %s", type(exc).__name__)
-    with db.tx() as c:
-        out += [r[0] for r in c.execute("SELECT DISTINCT symbol FROM fade_trades WHERE session=?", (session,))]
+    with db.tx() as c:                          # the channel's names over the last week (repeat runners)
+        out += [r[0] for r in c.execute("SELECT DISTINCT symbol FROM fade_trades WHERE session>=? ORDER BY session DESC",
+                                        ((date.fromisoformat(session) - timedelta(days=7)).isoformat(),))]
+    from sgt.megacap.live import EXT_TICKERS, TICKERS   # owner 2026-11-09: also the stocks our models follow
+    out += list(TICKERS) + list(EXT_TICKERS)
     return list(dict.fromkeys(s for s in out if scanner.tradable_symbol(s)))[:UNIVERSE_MAX]
 
 
@@ -303,7 +307,8 @@ def scan_bars(client: httpx.Client, symbols: list[str], start: datetime) -> dict
     return frames
 
 
-def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: datetime | None = None) -> int:
+def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: datetime | None = None,
+              send=None) -> int:
     """One scanner pass: refresh the universe, detect spikes on complete bars, advance the book. Returns new trades."""
     now = now or datetime.now(timezone.utc)
     et = now.astimezone(ET)
@@ -322,7 +327,7 @@ def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: 
             if ev is not None and scanner.record(db, sym, ev, now):
                 new += 1
                 log.info("scanner %s spike at %s", sym, ev["bar_ts"])
-    scanner.step(db, quote, now)
+    scanner.step(db, quote, now, send)
     return new
 
 
@@ -479,11 +484,12 @@ async def run() -> int:
     log.info("listening on %s", CHANNEL)
     sc = data_client()                          # scanner: own connection, own loop (never delays the fade's stops)
     scan_quote, scan_state = iex_quote(sc), ScanState()
+    scan_send = CappedSms(db, "scanner_text", MAX_SCAN_TEXTS_DAY)   # owner 2026-11-09: text every trade, all books
 
     async def scan_loop():
         while True:
             try:
-                await asyncio.to_thread(scan_tick, sc, db, scan_quote, scan_state)
+                await asyncio.to_thread(scan_tick, sc, db, scan_quote, scan_state, None, scan_send)
             except Exception:  # noqa: BLE001 - the experiment must never stop the listener; logged
                 log.exception("scanner failed")
             await asyncio.sleep(SCAN_EVERY)

@@ -38,7 +38,8 @@ def entries(db: OpsStore, limit: int = 500) -> list[dict]:
         for r in c.execute("SELECT id, " + ", ".join(SCAN_COLS) + " FROM scan_trades WHERE status IN "  # noqa: S608
                            "('open','est_closed','settled','void') ORDER BY id DESC LIMIT ?", (limit,)):
             out.append({"key": f"scan:{r['id']}", "book": "scanner", **{k: r[k] for k in SCAN_COLS}})
-        for r in c.execute("SELECT id, " + ", ".join(BOOK_COLS) + " FROM book_orders WHERE status='filled' "  # noqa: S608
+        for r in c.execute("SELECT id, " + ", ".join(BOOK_COLS) + " FROM book_orders WHERE status IN "  # noqa: S608
+                           "('filled','scheduled') AND source != 'void' "
                            "ORDER BY id DESC LIMIT ?", (limit,)):
             out.append({"key": f"book:{r['id']}", "book": r["strategy"], "session": r["fill_session"],
                         **{k: r[k] for k in BOOK_COLS}})
