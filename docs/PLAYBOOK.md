@@ -96,6 +96,9 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | skip fades when small caps are risk-on (IWM >= +1% at entry) | risk-on fades did BETTER (+1.50% vs +0.94%) | n.s. | prereg_fade_mood_2026-11-06 |
 | inverse-volatility sizing (smaller in jumpy names) | +0.17% per $ vs +0.97% | +0.37% vs +1.12% | prereg_fade_volsize_2026-11-08 |
 | timed exit as a limit at the bid (2 min, then market) | queue model -0.00% (bars said +0.25%: fill artifact) | -0.06% | prereg_fade_passive_exit_2026-11-08 |
+| LONG every alert (5% stop, +5% target, 15 min; also +3/+8%, 30 min) | -1.65% (51% stopped) | -1.72% | prereg_long_family_2026-11-09 |
+| LONG calm alerts (the quintile that loses as a short) | -0.87% | -1.11% | same |
+| LONG the reopen after a halt | -2.12% (63% stopped) | -3.52% | same |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
 | skip when >= 3 fades in the prior 30 min (burst) | +0.07% skipped (n.s.) | +1.65% skipped | same |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |

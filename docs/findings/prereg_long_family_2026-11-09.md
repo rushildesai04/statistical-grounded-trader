@@ -28,3 +28,15 @@ Secondary: +3% / +8% targets, 30-minute exit, by time of day. Trial ledger run i
 L1 likely fails: the average path after an alert falls (finding 3); a tight stop truncates the squeeze. L2 is the
 mirror of a known short loss and may net ~0 after costs. L3 is the most plausible (halted-up names kept running) but
 small and fat-tailed.
+
+## Result (2026-11-09, run once, trial ledger `long-family-2026-11-09-dev`) — all three FAIL
+| long | training n / mean / median / win / stopped [lower bound] | held-out mean | +3% / +8% target, 30 min (training) |
+|---|---|---|---|
+| L1 all | 2,345 / **-1.65%** / -5.45% / 41% / 51% [-1.86%] | -1.72% | -1.70% / -1.69% / -1.62% |
+| L2 calm | 463 / **-0.87%** / -0.79% / 44% / 29% [-1.26%] | -1.11% | -0.85% / -0.81% / -0.80% |
+| L3 reopen | 119 / **-2.12%** / -5.45% / 36% / 63% [-3.06%] | -3.52% | -2.71% / -1.50% / -2.27% |
+Reading: buying the channel's alerts with day-trader stops loses at every target and hold tried. Half of L1 longs are
+stopped within 15 minutes: the squeeze phase is too noisy for a 5% stop, and the drift after the alert is down.
+After a halt BOTH sides lose (short -4.9%, long -2.1%): these are whipsaws, best not traded at all (which the
+2026-11-09 entry fix now does). Calm alerts are a loss for shorts AND longs: no edge either way -> skip, not flip.
+Nothing promoted; PLAYBOOK section 4 rows.
