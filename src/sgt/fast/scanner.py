@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Callable
 
 import pandas as pd
 
 from sgt.fast.fade import ET, PRICE_MAX, PRICE_MIN
+from sgt.intraday.calendar import default_calendar
 from sgt.ops.store import OpsStore, iso
 
 log = logging.getLogger(__name__)
@@ -89,6 +90,11 @@ def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
                          (*cols.values(), rid, expect)).rowcount == 1
 
 
+def session_close(session: str) -> datetime:
+    """The trade session's regular close from the exchange calendar (adversarial pass 1, F-9: was a fixed 16:00)."""
+    return default_calendar().bounds(date.fromisoformat(session)).rth_close
+
+
 def _say(send, text: str) -> None:
     if send is None:
         return
@@ -116,16 +122,16 @@ def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
                         _set(db, r["id"], "pending", status="skipped", reason="no print within 5 min")
                     continue
                 if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
-                    out = min(now + HOLD, datetime.combine(now.astimezone(ET).date(), time(16, 0), ET))
+                    out = min(now + HOLD, session_close(r["session"]))
                     _say(send, f"[SGT] 🔎 SCANNER SHORT {r['symbol']} @ ${px:.2f} · ${WEIGHT * nav(db):,.0f} (0.5%, "
                                f"experiment) · stop ${px * (1 + STOP):.2f} · out {out.astimezone(ET):%H:%M} ET\n"
                                f"Why: +5% in 5 min on 5x volume to a new high (spike bar {bar.astimezone(ET):%H:%M})\n"
                                f"https://www.tradingview.com/chart/?symbol={r['symbol']}")
                 continue
-            px = quote(r["symbol"])
+            close = session_close(r["session"])           # F-9: the calendar's close (13:00 on half days)
+            px = quote(r["symbol"]) if now < close else None   # after the close: the last session mark, not a late print
             entry = r["est_entry"]
             last = px if px and px > 0 else r["est_last"]
-            close = datetime.combine(now.astimezone(ET).date(), time(16, 0), ET)
             out_at = min(datetime.fromisoformat(r["est_entry_at"]) + HOLD, close)
             closed = None
             if px and px >= entry * (1 + STOP):

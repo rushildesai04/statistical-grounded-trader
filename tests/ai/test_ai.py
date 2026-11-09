@@ -126,3 +126,25 @@ def test_facts_flag_minutes_without_prints_like_a_halt():
 
 def test_playbook_path_does_not_depend_on_the_working_directory():
     assert ta.PLAYBOOK.is_absolute() and ta.PLAYBOOK.exists() and "Playbook" in ta.PLAYBOOK.read_text()[:200]
+
+
+
+def test_budget_is_reserved_atomically_and_released_when_nothing_was_billed(db, monkeypatch):
+    # F-6: check-and-add in one transaction; a failed (unbilled) call gives its reservation back
+    monkeypatch.setenv("SGT_AI_DAILY_TOKENS", "2000")
+    key = oa._budget_key(NOW)
+    with pytest.raises(oa.AIError):
+        oa.chat_json(fake(REVIEW, status=401), db, "gpt-5.6-luna", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(key) or 0) == 0                               # released
+    assert db.take(key, 1500, 2000) and not db.take(key, 600, 2000)   # second reservation would pass the cap
+    db.add(key, -1500)
+    out = oa.chat_json(fake(REVIEW, tokens=700), db, "gpt-5.6-luna", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert out["verdict"] == "execution issue" and int(db.flag(key)) == 700          # settled to real usage
+
+
+def test_billed_but_unusable_answer_keeps_its_usage(db):
+    def handler(req):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "not json"}}], "usage": {"total_tokens": 900}})
+    with pytest.raises(oa.BilledError):
+        oa.chat_json(httpx.Client(transport=httpx.MockTransport(handler)), db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(oa._budget_key(NOW))) == 900

@@ -70,7 +70,8 @@ def chat_json(c: httpx.Client, db: OpsStore, model: str, system: str, user: str,
               now: datetime) -> dict:
     """One strict-JSON chat completion; refuses to run past the daily token budget; records usage."""
     cap = int(os.environ.get("SGT_AI_DAILY_TOKENS", DAILY_TOKENS))
-    if spent(db, now) >= cap:
+    reserve = max_out                                           # reserve the worst-case answer up front (F-6)
+    if not db.take(_budget_key(now), reserve, cap):            # atomic check-and-add: no two processes both pass
         raise AIError(f"daily AI token budget {cap} reached")
     body = {"model": model, "max_completion_tokens": max_out,
             "response_format": {"type": "json_schema", "json_schema": schema},
@@ -78,6 +79,16 @@ def chat_json(c: httpx.Client, db: OpsStore, model: str, system: str, user: str,
     effort = os.environ.get("SGT_OPENAI_REASONING")          # optional: "low" / "medium" for reasoning models
     if effort:
         body["reasoning_effort"] = effort
+    try:
+        return _call(c, db, body, reserve, now)
+    except BilledError:
+        raise
+    except (AIError, httpx.HTTPError, ValueError):
+        db.add(_budget_key(now), -reserve)                     # nothing was billed: give the reservation back
+        raise
+
+
+def _call(c: httpx.Client, db: OpsStore, body: dict, reserve: int, now: datetime) -> dict:
     with c.stream("POST", f"{API}/chat/completions", json=body) as r:
         if r.status_code != 200:
             r.read()
@@ -90,17 +101,21 @@ def chat_json(c: httpx.Client, db: OpsStore, model: str, system: str, user: str,
                 raise AIError(f"OpenAI answer over {MAX_BYTES} bytes")
     j = json.loads(bytes(buf))
     used = int((j.get("usage") or {}).get("total_tokens") or 0)
-    db.set_flag(_budget_key(now), str(spent(db, now) + used))
+    db.add(_budget_key(now), used - reserve)                    # settle the reservation to the real usage
     msg = ((j.get("choices") or [{}])[0].get("message") or {})
-    if msg.get("refusal"):
-        raise AIError("model refused")
-    try:
+    try:                                                        # billed already: errors below keep the usage
+        if msg.get("refusal"):
+            raise ValueError("model refused")
         out = json.loads(msg.get("content") or "")
+        if not isinstance(out, dict):
+            raise ValueError("answer is not an object")
     except ValueError as exc:
-        raise AIError("answer is not JSON") from exc
-    if not isinstance(out, dict):
-        raise AIError("answer is not an object")
+        raise BilledError(str(exc) if str(exc) else "answer is not JSON") from exc
     return out
+
+
+class BilledError(AIError):
+    """The call was billed but the answer is unusable (the reservation is already settled; do not release it)."""
 
 
 def s(x, n: int = 600) -> str:

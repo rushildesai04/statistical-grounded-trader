@@ -667,3 +667,16 @@ def test_day_loss_stop_no_longer_blocks_entries(db):
         c.execute("UPDATE fade_trades SET weight=0.2")                          # make the day -6% on estimates
     assert fade.day_est_pnl(db, rows(db)[0]["session"]) < fade.DAY_LOSS_STOP
     assert fade.on_alert(db, alert("L2", mid=2), now=T10 + timedelta(minutes=3)).startswith("pending")
+
+
+
+def test_runaway_guard_blocks_entries_at_max_open(db, monkeypatch):
+    # adversarial F-3: the open-position guard boundary was never hit directly
+    monkeypatch.setattr(fade, "MAX_OPEN", 2)
+    ap.arm(db, T10)
+    for i, s in enumerate(["G1", "G2"]):
+        fade.on_alert(db, alert(s, mid=i), now=T10)
+    assert fade.caps(db, rows(db)[0]["session"]) == "runaway guard: 2 open"
+    assert fade.on_alert(db, alert("G3", mid=3), now=T10) == "skipped: runaway guard: 2 open"
+    monkeypatch.setattr(fade, "MAX_OPEN", 3)
+    assert fade.caps(db, rows(db)[0]["session"]) is None
