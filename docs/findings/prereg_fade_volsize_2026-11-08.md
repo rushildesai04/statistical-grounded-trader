@@ -20,3 +20,22 @@ live change only with the owner's OK. Held-out 2026-07..10 secondary.
 ## Secondary (reported only)
 Mean weight; session P&L Sharpe (equal vs weighted, same average dollars); mean net by sigma quintile; correlation
 of sigma with entry price. Trial ledger run id `fade-volsize-2026-11-08-dev`.
+
+## Result (2026-11-08, run once, trial ledger `fade-volsize-2026-11-08-dev`) — FAIL as registered; the reverse is strong
+Coverage 99%. Return per dollar: training equal +0.97% vs inverse-vol +0.17% (diff -0.81%, lower bound -1.04%);
+held-out +1.12% vs +0.37%. Session Sharpe 2.51 -> 0.50. Inverse-volatility sizing is rejected.
+
+The reason is the opposite effect: the fade earns MORE the jumpier the stock was before the alert. Mean net by sigma
+quintile (training cut points 1.51% / 2.16% / 2.92% / 4.10% per minute, applied to both periods):
+
+| quintile (calm -> jumpy) | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| training (n ~462 each) | **-1.32%** | -0.63% | +1.17% | +2.03% | +3.64% |
+| held-out | **-1.18%** | +0.17% | +2.04% | +0.15% | +4.86% |
+| stop-out rate (training) | 8% | 17% | 25% | 32% | 40% |
+
+Robustness (found after looking, so descriptive): the calmest quintile is negative in every time-of-day bucket in
+both periods, in every price band in training (3 of 4 held-out), for news and no-news alerts; the top two quintiles
+beat the bottom two in 15 of 18 training months; sigma is unrelated to price (Spearman -0.09). Reading: a violent
+spike overshoots and reverts; a calm stock that gets alerted is usually on a steady move that keeps going. Calm fades
+rarely stop out; they lose by grinding. -> forward test `prereg_fade_calmskip_2026-11-08`.

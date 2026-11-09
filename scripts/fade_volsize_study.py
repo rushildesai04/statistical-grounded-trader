@@ -1,9 +1,12 @@
-"""Size each fade by pre-alert 1-minute volatility (prereg_fade_volsize_2026-11-08).
+"""Size each fade by pre-alert 1-minute volatility (prereg_fade_volsize_2026-11-08) and the forward shadows that
+followed from its result (prereg_fade_calmskip_2026-11-08).
 
-    python scripts/fade_volsize_study.py      # run once: training gate + held-out secondary
+    python scripts/fade_volsize_study.py           # run once: training gate + held-out secondary (done 2026-11-08)
+    python scripts/fade_volsize_study.py shadow    # nightly on the runner: calm skip + vol up on forward events
 """
 from __future__ import annotations
 
+import argparse
 import json
 import math
 from datetime import date
@@ -17,6 +20,8 @@ from sgt.decision import trial_ledger
 from sgt.intraday.store import ParquetBarStore
 
 OUT = Path("reports/fade_volsize")
+CALM, M = 0.015072, 0.025540                    # training 20th percentile / median sigma (prereg_fade_calmskip)
+SHADOWS = {"calmskip": Path("reports/fade_calmskip"), "volup": Path("reports/fade_volup")}
 SEED, N_BOOT, ALPHA, LOOKBACK, MIN_BARS, LO, HI = 20261108, 10_000, 0.05, 30, 10, 0.5, 2.0
 
 
@@ -66,7 +71,56 @@ def evaluate(e: pd.DataFrame, m: float) -> dict:
     return res
 
 
-def main() -> int:
+def shadow_weights(sigma: pd.Series) -> dict[str, np.ndarray]:
+    """Unknown sigma -> 1.0 (the live rule) in both challengers."""
+    sg = sigma.astype(float).to_numpy()
+    known = np.isfinite(sg) & (sg > 0)
+    calm = np.where(known & (sg < CALM), 0.0, 1.0)
+    up = np.where(known, np.clip(np.where(known, sg, M) / M, LO, HI), 1.0)
+    return {"calmskip": calm, "volup": up}
+
+
+def summary_line(name: str, t: pd.DataFrame) -> str:
+    if name == "calmskip":
+        calm = t.w == 0
+        return (f"fade calm skip fwd n={len(t)}: live {t.net.mean():+.2%}/trade; skipped {int(calm.sum())} calm "
+                f"({t.net[calm].mean() if calm.any() else 0:+.1%} avg), kept {t.net[~calm].mean() if (~calm).any() else 0:+.2%}")
+    return f"fade vol-up sizing fwd n={len(t)}: equal {t.net.mean():+.2%}/trade, sized {(t.net * t.w).mean():+.2%}/trade"
+
+
+def cmd_shadow() -> int:
+    import sys
+    from datetime import datetime
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from alert_fade_forward import CHANNEL, DB, forward_events
+    from alert_fade_test import score
+    from fade_challengers import ET
+    from megacap_forward import last_complete_session
+    from telegram_alert_test import load_alerts
+
+    store = ParquetBarStore("data/alpaca")
+    end = last_complete_session(datetime.now(ET))
+    ev = forward_events(load_alerts(DB, CHANNEL), store, end, fill_bars=False).reset_index(drop=True)
+    ev = ev[ev.status == "ok"].reset_index(drop=True) if "status" in ev else ev
+    if ev.empty:
+        print("no forward events yet")
+        return 0
+    ev["net"] = score(ev, store).net.to_numpy()
+    t = ev.dropna(subset=["net"])[["symbol", "session", "entry_ts", "entry", "net"]].reset_index(drop=True)
+    t["sigma"] = [sigma(store, r.symbol, str(r.session), pd.Timestamp(r.entry_ts)) for r in t.itertuples()]
+    for name, w in shadow_weights(t.sigma).items():
+        out = t.assign(w=w)
+        SHADOWS[name].mkdir(parents=True, exist_ok=True)
+        out.to_csv(SHADOWS[name] / "shadow.csv", index=False)
+        line = summary_line(name, out)
+        (SHADOWS[name] / "shadow_summary.json").write_text(json.dumps({"asof": str(end), "n": len(out), "line": line},
+                                                                      indent=2))
+        print(line)
+    return 0
+
+
+def cmd_dev() -> int:
     store = ParquetBarStore("data/alpaca")
     dev = events("dev", store)
     m = float(dev.sigma.median())
@@ -85,6 +139,12 @@ def main() -> int:
         trial_ledger.record_trial(s, run_id="fade-volsize-2026-11-08-dev", kind="fade-volsize-dev",
                                   params={"prereg": "docs/findings/prereg_fade_volsize_2026-11-08.md"}, metrics=out)
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", nargs="?", default="dev", choices=["dev", "shadow"])
+    return {"dev": cmd_dev, "shadow": cmd_shadow}[ap.parse_args().cmd]()
 
 
 if __name__ == "__main__":

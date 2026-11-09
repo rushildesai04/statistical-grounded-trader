@@ -54,6 +54,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 12. **Price matters, and it is not where you would guess.** By entry price (train / held-out): $1-2 +2.4% / +2.1% per
    trade (about two thirds of all profit), $2-5 +0.2% / +0.2%, $5-10 +0.9% / +1.2%, $10-50 +0.3% / +0.8%. A $0.02/share
    locate still leaves $1-2 fades at +1.4% / +1.2%. Descriptive (found after looking), so forward-only if used.
+15. **Jumpy beats calm.** Pre-alert 1-minute volatility (last 30 bars) sorts fades cleanly: calmest fifth -1.32% /
+   -1.18% per trade (training / held-out), jumpiest fifth +3.64% / +4.86%; holds in every time-of-day bucket, price
+   band and news group, 15 of 18 months. Found after looking -> forward shadows `calm skip` and `vol up`
+   (`prereg_fade_calmskip_2026-11-08`). Inverse-volatility sizing (the textbook version) is rejected.
 14. **Losing streaks do not predict the next fade; do not stop after losses.** After the day's last two known results
    were losses, the next fade earned +2.18% (training, n 205) / +2.53% (held-out) vs +0.86% otherwise; a daily breaker
    costs ~1.3% per session. Day halves are uncorrelated (`prereg_fade_dayflow_2026-11-08`).
@@ -80,6 +84,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | BUY the channel's later alerts (from the short result) | +0.92% (one month = 61%) | **-2.43%** (n 147, sealed test) | prereg_later_long_2026-11-06 |
 | cover when the channel re-alerts during the hold | +0.56% | +0.75% | same, addendum A |
 | skip fades when small caps are risk-on (IWM >= +1% at entry) | risk-on fades did BETTER (+1.50% vs +0.94%) | n.s. | prereg_fade_mood_2026-11-06 |
+| inverse-volatility sizing (smaller in jumpy names) | +0.17% per $ vs +0.97% | +0.37% vs +1.12% | prereg_fade_volsize_2026-11-08 |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
 | skip when >= 3 fades in the prior 30 min (burst) | +0.07% skipped (n.s.) | +1.65% skipped | same |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
@@ -96,7 +101,7 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
-  (entry delay, holds, exits, brain sizing, time-of-day sizing, confidence sizing, price sizing; StockTwits buzz recorded).
+  (entry delay, holds, exits, brain sizing, time-of-day sizing, confidence sizing, price sizing, calm skip, vol-up sizing; StockTwits buzz recorded).
 - The **learning scoreboard** (`scripts/learning_report.py`, nightly 22:05 ET, `reports/learning/scoreboard.md`, digest
   line) scores each challenger against the live rule on forward trades and marks it READY at n >= 300.
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
