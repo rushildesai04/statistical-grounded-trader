@@ -3,4 +3,5 @@
 !scripts
 !deploy/fly
 !config/models
+!docs/PLAYBOOK.md
 **/__pycache__
