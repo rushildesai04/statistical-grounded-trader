@@ -127,6 +127,15 @@ def test_rebalance_gate_requests_then_runs_only_with_matching_claim(db, monkeypa
         rp.approval_gate(SimpleNamespace(approval_id=row["id"]), orders, et, now)
 
 
+def _full_session() -> date:
+    """Next session with a 16:00 close (adversarial pass 4: a half-day next session made model tests date-dependent)."""
+    from sgt.intraday.calendar import default_calendar
+    cal, d = default_calendar(), sc.next_session(date.today())
+    while cal.bounds(d).rth_close.astimezone(sc.ET).hour != 16:
+        d = sc.next_session(d)
+    return d
+
+
 def test_megacap_proposal_is_sized_and_proposed_once(db, monkeypatch):
     import json
 
@@ -144,9 +153,9 @@ def test_megacap_proposal_is_sized_and_proposed_once(db, monkeypatch):
     monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
     dec_dir = Path("reports/megacap_forward/decisions")
     dec_dir.mkdir(parents=True)
-    d = sc.next_session(date.today()).isoformat()           # a session; the clock below is 15:51 ET that day
+    d = _full_session().isoformat()                         # a 16:00-close session; the clock below is 15:51 ET
     live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
-    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "mode": "realtime", "positions": {
+    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "mode": "realtime", "written_at": live_at.replace(minute=50).isoformat(), "positions": {
         "NVDA": {"position": 1}, "MSFT": {"position": -1}, "AAPL": {"position": 0}}}))
     sms = FakeSms()
     monkeypatch.setattr(sc, "Sms", lambda: sms)
@@ -183,9 +192,9 @@ def test_megacap_ext_proposal_is_sized_and_proposed_once(db, monkeypatch):
     monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
     dec_dir = Path("reports/megacap_ext/decisions")
     dec_dir.mkdir(parents=True)
-    d = sc.next_session(date.today()).isoformat()           # a session; the clock below is 15:51 ET that day
+    d = _full_session().isoformat()                         # a 16:00-close session; the clock below is 15:51 ET
     live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
-    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "mode": "realtime", "positions": {
+    (dec_dir / f"{d}.json").write_text(json.dumps({"date": d, "mode": "realtime", "written_at": live_at.replace(minute=50).isoformat(), "positions": {
         "AMD": {"position": 1}, "JPM": {"position": -1}, "WMT": {"position": 0}}}))
     sms = FakeSms()
     monkeypatch.setattr(sc, "Sms", lambda: sms)
@@ -398,7 +407,8 @@ def test_model_trades_fill_today_only_when_decided_live():
     from datetime import date as _d
     d = _d(2026, 11, 10)
     at = lambda h, m: datetime(2026, 11, 10, h, m, tzinfo=sc.ET)  # noqa: E731
-    assert sc.model_fill({"date": d.isoformat(), "mode": "realtime"}, at(15, 51)) == d
-    assert sc.model_fill({"date": d.isoformat(), "mode": "realtime"}, at(16, 5)) is None     # after the close
-    assert sc.model_fill({"date": d.isoformat(), "mode": "batch"}, at(15, 51)) is None       # late decision
-    assert sc.model_fill({"date": "2026-11-09", "mode": "realtime"}, at(15, 51)) is None     # yesterday's call
+    w = {"written_at": at(15, 50).isoformat()}
+    assert sc.model_fill({"date": d.isoformat(), "mode": "realtime", **w}, at(15, 51)) == d
+    assert sc.model_fill({"date": d.isoformat(), "mode": "realtime", **w}, at(16, 5)) is None     # after the close
+    assert sc.model_fill({"date": d.isoformat(), "mode": "batch", **w}, at(15, 51)) is None       # late decision
+    assert sc.model_fill({"date": "2026-11-09", "mode": "realtime", **w}, at(15, 51)) is None     # yesterday's call

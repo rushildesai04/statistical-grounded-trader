@@ -143,7 +143,8 @@ def do_decide(cfg: ForwardSet) -> int:
     cut = pd.Timestamp(datetime.combine(today, datetime.min.time(), ET).replace(hour=15, minute=50))
     intraday = {s: f[f.ts < cut.tz_convert("UTC")] for s, f in intraday.items()}  # bars ending by 15:49
     daily = adjusted_daily(today, cfg)   # includes today's partial bar: official open (capped 16 min ago)
-    path = decide(today, now, intraday, daily, tickers=cfg.tickers, root=cfg.root)
+    # write-time stamp (adversarial pass 4, F-14): the fetches above can take minutes
+    path = decide(today, now, intraday, daily, tickers=cfg.tickers, root=cfg.root, clock=lambda: datetime.now(ET))
     pos = json.loads(path.read_text())["positions"]
     print(f"{today} decisions -> {path}: " + ", ".join(f"{s} {v['position']:+d}" for s, v in pos.items()))
     return 0
@@ -239,7 +240,7 @@ def catchup(cfg: ForwardSet) -> int:
             cut = pd.Timestamp(datetime.combine(x, datetime.min.time(), ET).replace(hour=15, minute=50))
             intr[s] = f[f.ts < cut.tz_convert("UTC")][["ts", "open", "high", "low", "close", "volume"]]
         path = decide(x, now, intr, {s: v[v.index <= x] for s, v in daily.items()}, mode="batch",
-                      tickers=cfg.tickers, root=cfg.root)
+                      tickers=cfg.tickers, root=cfg.root, clock=lambda: datetime.now(ET))
         pos = json.loads(path.read_text())["positions"]
         print(f"{x} batch decisions: " + ", ".join(f"{s} {v['position']:+d}" for s, v in pos.items()))
     return evaluate(cfg)

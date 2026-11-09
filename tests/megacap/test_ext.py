@@ -56,7 +56,8 @@ def test_decide_and_mark_use_the_ext_root_and_tickers(tmp_path, monkeypatch):
     assert (tmp_path / "models" / "2026-11" / "meta.json").exists()
     monkeypatch.setattr(live, "today_row", lambda *a, **k: _features(1).iloc[0])
     p = live.decide(date(2026, 11, 9), datetime(2026, 11, 9, 15, 50, tzinfo=ET), {}, {},
-                    tickers=live.EXT_TICKERS, root=tmp_path)
+                    tickers=live.EXT_TICKERS, root=tmp_path,
+                    clock=lambda: datetime(2026, 11, 9, 15, 50, 30, tzinfo=ET))   # write time (pass 4, F-14)
     assert p == tmp_path / "decisions" / "2026-11-09.json"
     dec = json.loads(p.read_text())
     assert set(dec["positions"]) == set(live.EXT_TICKERS)          # ext names only, none of the six

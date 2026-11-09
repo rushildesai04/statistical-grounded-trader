@@ -41,13 +41,16 @@ def test_mark_voids_only_decisions_stamped_after_1555(tmp_path):
     assert bool(m.void.all()) and int(m.position.iloc[0]) == 0
 
 
-def test_decide_stamps_the_clock_its_guard_checked(tmp_path, monkeypatch):
+def test_decide_stamps_the_injected_write_clock(tmp_path, monkeypatch):
+    # F-13 then F-14 (pass 4): the stamp is the WRITE time from an injectable clock, so the suite is deterministic
+    # at any hour and a decision written late is still voided by mark().
     live.train_month("2026-11", {s: _features() for s in live.TICKERS}, root=tmp_path)
     monkeypatch.setattr(live, "today_row", lambda *a, **k: _features(1).iloc[0])
     now_et = datetime(2026, 11, 9, 15, 50, 15, tzinfo=ET)
-    p = live.decide(date(2026, 11, 9), now_et, {}, {}, tickers=live.TICKERS, root=tmp_path)
+    wrote = datetime(2026, 11, 9, 15, 50, 40, tzinfo=ET)
+    p = live.decide(date(2026, 11, 9), now_et, {}, {}, tickers=live.TICKERS, root=tmp_path, clock=lambda: wrote)
     stamp = pd.Timestamp(json.loads(p.read_text())["written_at"])
-    assert stamp.to_pydatetime() == now_et                         # whatever the host clock says
+    assert stamp.to_pydatetime() == wrote                          # whatever the host clock says
     daily = {s: pd.DataFrame({"close": [100.0, 101.0]}, index=[date(2026, 11, 9), date(2026, 11, 10)])
              for s in live.TICKERS}
     assert not bool(live.mark(daily, root=tmp_path).void.any())    # a 15:50 decision is never booked flat

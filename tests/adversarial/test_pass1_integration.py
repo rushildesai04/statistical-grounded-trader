@@ -70,7 +70,7 @@ def test_megacap_batch_decision_never_books(tmp_path, monkeypatch):
 
 def test_model_fill_rules():
     from sms_control import model_fill
-    dec = {"date": "2026-11-09", "mode": "realtime"}
+    dec = {"date": "2026-11-09", "mode": "realtime", "written_at": "2026-11-09T20:50:24+00:00"}   # 15:50 ET
     assert model_fill(dec, datetime(2026, 11, 9, 15, 51, tzinfo=ET)) == date(2026, 11, 9)
     assert model_fill(dec, datetime(2026, 11, 9, 16, 1, tzinfo=ET)) is None
     assert model_fill({**dec, "mode": "batch"}, datetime(2026, 11, 9, 15, 51, tzinfo=ET)) is None

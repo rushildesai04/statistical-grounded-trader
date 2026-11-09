@@ -139,6 +139,13 @@ def caps(db: OpsStore, session: str) -> str | None:
     return None
 
 
+def last_entry(session: date) -> time:
+    """Last tested entry minute: 15:44 ET, i.e. 16 minutes before the close; on early-close days (13:00) the same
+    distance before THAT close (adversarial pass 4, P4-2: a fixed 15:44 let the paper book short after a 13:00 bell)."""
+    close = default_calendar().bounds(session).rth_close.astimezone(ET)
+    return min(LAST_ENTRY, (close - timedelta(minutes=16)).time())
+
+
 def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     """Classify one parsed alert. Returns what happened (for logs); texts nothing (``monitor`` does)."""
     now = now or utcnow()
@@ -151,8 +158,9 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     if not default_calendar().is_session(et.date()):
         return "not a session"
     entry_et = entry_start(a.posted_at).astimezone(ET).time()     # the tested entry bar's minute (09:30-15:44)
-    if not FIRST_ENTRY <= entry_et <= LAST_ENTRY:
-        _insert(db, a, session, "filtered", "outside 09:30-15:44", now)
+    last = last_entry(et.date())
+    if not FIRST_ENTRY <= entry_et <= last:
+        _insert(db, a, session, "filtered", f"outside 09:30-{last:%H:%M}", now)
         return "filtered: window"
     if NO_NEWS and a.alert_type == "news":                         # amendment F6 (owner 2026-11-09)
         _insert(db, a, session, "filtered", NEWS_REASON, now)
@@ -286,6 +294,10 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     posted = datetime.fromisoformat(r["posted_at"])
     start = entry_start(posted)
     if now < start:
+        return
+    close = default_calendar().bounds(date.fromisoformat(r["session"])).rth_close
+    if now >= close or start >= close:                # P4-2: never open on a print after the bell
+        _set(db, r["id"], "pending", status="skipped", reason="session closed before entry")
         return
     allowed = approvals.armed(db, now) or (r["reason"] in ("approved", "auto", VETO) and not approvals.disarmed(db, now))
     if not allowed:                                   # DISARM / PAUSE after the alert cancels the entry

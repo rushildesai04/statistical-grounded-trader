@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -152,14 +153,19 @@ def today_row(today: date, intraday: dict[str, pd.DataFrame], daily: dict[str, p
 
 
 def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: str = "realtime",
-           tickers: tuple[str, ...] | None = None, root: Path | None = None) -> Path:
+           tickers: tuple[str, ...] | None = None, root: Path | None = None,
+           clock: Callable[[], datetime] | None = None) -> Path:
     """``realtime``: written at 15:50 ET, void after 15:55. ``batch`` (2026-10-30, forward amendment A1):
     computed later from the same point-in-time data (bars ending 15:49, frozen month model); proof comes
-    from the hashed models + tested point-in-time code, not the clock."""
+    from the hashed models + tested point-in-time code, not the clock.
+
+    ``written_at`` is ``clock()`` read just before the file is written (default: the real clock), never ``now_et``:
+    the prereg voids a decision WRITTEN after 15:55, and fetching data between ``now_et`` and the write can take
+    minutes. Tests inject ``clock``."""
     if mode not in ("realtime", "batch"):
         raise LiveError(f"unknown mode {mode}")
     if now_et.tzinfo is None:
-        raise LiveError("now_et must be timezone-aware")      # fail closed: the stamp below is the void proof
+        raise LiveError("now_et must be timezone-aware")      # fail closed: the void guard needs a real ET time
     if mode == "realtime" and (now_et.hour, now_et.minute) > VOID_AFTER:
         raise LiveError(f"too late ({now_et:%H:%M} ET): decisions after 15:55 are void")
     syms = TICKERS if tickers is None else tickers
@@ -168,10 +174,7 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
     if path.exists():
         raise LiveError(f"{path} exists (append-only)")
     models, meta = load_models(f"{today:%Y-%m}", root=root)
-    # 2026-11-09 (adversarial pass 3, F-13): stamp the SAME instant the void guard above checked. The wall clock
-    # here disagreed with the guard, so any realtime decide() replayed after 15:55 was booked flat by mark(), and
-    # the gated deploy failed after 15:55 ET. Callers (megacap_forward.do_decide) pass datetime.now(ET).
-    out = {"date": str(today), "written_at": now_et.astimezone(timezone.utc).isoformat(), "mode": mode,
+    out = {"date": str(today), "written_at": None, "mode": mode,
            "model_month": meta["month"], "positions": {}}
     for s in syms:
         x = today_row(today, intraday, daily, s)
@@ -180,6 +183,13 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
         pos = 1 if pred >= th["q_hi"] else (-1 if pred <= th["q_lo"] else 0)
         out["positions"][s] = {"pred": pred, "position": pos, "q_lo": th["q_lo"], "q_hi": th["q_hi"],
                                "features": {f: (None if pd.isna(x[f]) else float(x[f])) for f in DAILY_FEATURES}}
+    # 2026-11-09 (adversarial passes 3-4, F-13/F-14): the stamp is the write time from an injectable clock. Pass 3
+    # stamped now_et, which hid a decision written at 15:57 after a slow fetch (pass 4); the untestable wall clock
+    # before that made the suite (and the gated deploy) fail after 15:55 ET.
+    written = (clock or (lambda: datetime.now(timezone.utc)))()
+    if written.tzinfo is None:
+        raise LiveError("clock must be timezone-aware")
+    out["written_at"] = written.astimezone(timezone.utc).isoformat()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2))
     return path
