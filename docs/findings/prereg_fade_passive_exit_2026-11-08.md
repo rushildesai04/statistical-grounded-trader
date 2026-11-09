@@ -27,3 +27,23 @@ the signal rule is unchanged); real-money use waits for the broker decision.
 ## Secondary
 Fill rate; delta for filled / unfilled; by price band; 1-minute and 5-minute timeouts. Trial ledger run id
 `fade-passive-exit-2026-11-08-dev`.
+
+## Result (2026-11-08, run once, trial ledger `fade-passive-exit-2026-11-08-dev`) — PASS as registered, but fill-model sensitive
+| period | timed exits | fill rate (2 min) | delta per trade [lower bound] | filled / unfilled | net per trade |
+|---|---|---|---|---|---|
+| training | 1,616 of 2,345 | 78% | **+0.251%** [+0.223%] | +0.64% / -0.61% | +0.97% -> +1.22% |
+| held-out | 528 of 764 | 77% | **+0.312%** [+0.273%] | +0.73% / -0.51% | +1.12% -> +1.44% |
+Same at 1 and 5 minutes and in every price band.
+Stress (after the run, conservative direction): requiring a print $0.01 below the bid: fill 55% / 49%, delta +0.06% /
++0.07%; $0.02 below: fill 40% / 36%, delta -0.03% / -0.01%. Most simulated fills come from bar lows exactly one tick
+under an ESTIMATED bid (mid x (1 - median half-spread)), so the 1-minute-bar test cannot tell a real fill from an
+odd-lot or off-exchange print. Not adopted on this evidence.
+
+## Amendment A1 (2026-11-08, before any trade-level data is fetched) — queue-model test decides
+For each timed exit: the ACTUAL NBBO at t (last quote at or before t; bid price and bid size) and every SIP trade in
+[t, t + 2 min). Keep regular-way prints only (drop condition codes for odd lot "I", average price "B"/"W", out of
+sequence "Z", derivatively priced "4", form-T/extended "T"/"U", prior reference "P", contingent "V"/"7").
+FILLED when the cumulative size of kept prints at or below bid_t reaches bid_size_t x 100 (shares queued ahead of us,
+round lots) + our order (5,000 / entry shares); fill = bid_t. Otherwise market buy at the ask of the last quote before
+t + 2 min. Baseline = ask_t. Gate unchanged (training lower bound of mean delta > 0); held-out secondary; reported with
+fill rate and filled / unfilled deltas. Run id `fade-passive-exit-queue-2026-11-08-dev`.

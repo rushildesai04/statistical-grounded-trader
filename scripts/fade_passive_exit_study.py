@@ -26,7 +26,7 @@ ET = "America/New_York"
 
 
 def simulate(bars: pd.DataFrame, entry: float, entry_ts: pd.Timestamp, mid: float | None, hs: float | None,
-             timeout: int = TIMEOUT) -> dict:
+             timeout: int = TIMEOUT, through: float = 0.0) -> dict:
     """One trade: baseline (ask at t) vs passive (bid at t, ``timeout`` minutes). ``bars`` = the day's RTH bars, ts UTC."""
     t = entry_ts + pd.Timedelta(minutes=HOLD_MIN)
     hold = bars[(bars.ts >= entry_ts) & (bars.ts < t)]
@@ -39,7 +39,7 @@ def simulate(bars: pd.DataFrame, entry: float, entry_ts: pd.Timestamp, mid: floa
         return {"kind": "near_close", "delta": 0.0, "filled": None}
     bid, ask = mid * (1 - hs), mid * (1 + hs)
     w = bars[(bars.ts >= t) & (bars.ts < end)]
-    if not w.empty and (w.low.to_numpy() < bid).any():
+    if not w.empty and (w.low.to_numpy() < bid - through).any():   # through: $ a print must trade below the bid
         px, filled = bid, True
     else:
         px, filled = (float(w.close.iloc[-1]) * (1 + hs) if not w.empty else ask), False
