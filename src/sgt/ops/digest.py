@@ -93,7 +93,25 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         lines.append("scanner: summary unavailable")
     st = db.flag("analyst_status")
     if st:
-        lines.append(f"AI analyst: {st} (Notes tab)")
+        lines.append(f"AI analyst (last night): {st} (Notes tab)")
+    try:
+        from sgt.ops import journal
+
+        pt = journal.pending_tests(db)
+        if pt:
+            lines.append(f"AI: {pt} proposed tests await the agent's review (reports/insights/latest.md)")
+    except Exception:  # noqa: BLE001 - informational line
+        pass
+    try:                                              # learning-loop audit F1: live vs tested, per book
+        from sgt.learning import live_monitor
+
+        res = live_monitor.check_all(db)
+        mon = live_monitor.lines(res)
+        if mon:
+            lines += ["Live vs tested:"] + [f"  {m}" for m in mon]
+        live_monitor.new_alarms(db, res, now_et.date())
+    except Exception:  # noqa: BLE001 - one digest section must never block the digest
+        lines.append("live monitor: unavailable")
     lines += realism.lines(db)
     if fills:
         lines.append("Fills: " + "; ".join(f"{f['strategy']} {f['symbol']} -> {f['target']:+.0%} @ {f['price']:.2f}"

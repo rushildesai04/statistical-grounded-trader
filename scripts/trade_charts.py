@@ -85,7 +85,7 @@ def dollars(t: dict, db: OpsStore | None) -> float | None:
 
 def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bool = True) -> str:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
-    views, cache = [], {}
+    views, scan_views, cache = [], [], {}
     with httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=10) as client:
         for t in trades[:MAX_TRADES]:
             key = (t["symbol"], t["session"])
@@ -93,7 +93,18 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
                 cache[key] = session_bars(client, *key, now)
             if cache[key].empty:
                 continue
-            views.append(charts.trade_view(t, cache[key], dollars(t, db)))
+            v = charts.trade_view(t, cache[key], dollars(t, db))
+            v["key"] = f"fade:{t['id']}" if t.get("id") is not None else None
+            views.append(v)
+        for t in scan_rows(db):                          # Notes tab charts for scanner trades (owner 2026-11-09)
+            key = (t["symbol"], t["session"])
+            if key not in cache:
+                cache[key] = session_bars(client, *key, now)
+            if cache[key].empty:
+                continue
+            v = charts.trade_view(t, cache[key], None)
+            v["key"] = f"scan:{t['id']}"
+            scan_views.append(v)
     board = Path("reports/learning/scoreboard.json")
     try:
         learning = json.loads(board.read_text()).get("rows") if board.exists() else None
@@ -106,7 +117,19 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     except Exception:  # noqa: BLE001 - the page must render even if the journal query fails; logged
         log.exception("journal entries failed")
         entries = []
-    return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries)
+    return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries,
+                         scan_views=scan_views)
+
+
+def scan_rows(db: OpsStore | None) -> list[dict]:
+    """Recent scanner trades shaped for charts.trade_view (the spike bar plays the alert)."""
+    if db is None:
+        return []
+    with db.tx() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT * FROM scan_trades WHERE est_entry IS NOT NULL ORDER BY id DESC LIMIT ?", (MAX_TRADES,))]
+    keep = sorted({r["session"] for r in rows}, reverse=True)[:MAX_SESSIONS]
+    return [{**r, "posted_at": r["bar_ts"], "alert_type": "scanner spike"} for r in rows if r["session"] in keep]
 
 
 def main() -> int:

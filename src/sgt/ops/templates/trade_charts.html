@@ -135,18 +135,50 @@ h1 em { font-style: normal; color: var(--accent); }
 .links a:hover { text-decoration: underline; }
 .empty { color: var(--muted); padding: 24px 0; }
 .pane { display: grid; gap: 20px; min-width: 0; }
-.jn-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.jn-bar input { flex: 1 1 220px; min-width: 0; font: 400 14px var(--mono); padding: 8px 10px; border-radius: 8px;
-  border: 1px solid var(--rule); background: var(--panel); color: var(--ink); }
-.jn-list { display: grid; gap: 12px; min-width: 0; }
-.jn-card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
-.jn-card h3 { margin: 0; font: 600 15px var(--mono); display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
-.jn-card h3 small { font-weight: 400; color: var(--muted); }
-.jn-card textarea { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical; font: 400 13.5px/1.45 system-ui, sans-serif;
-  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); }
+[hidden] { display: none !important; }      /* 2026-11-09: .pane{display:grid} overrode [hidden]: all tabs showed at once */
+.jn-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.jn-bar input, .jn-bar button, .jn-tabs button { font: 500 13.5px var(--mono); padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink); min-width: 0; }
+.jn-bar input[type=search] { flex: 1 1 160px; }
+.jn-bar button { cursor: pointer; }
+.jn-books { display: flex; gap: 6px; flex-wrap: wrap; }
+.jn-books button[aria-pressed=true], .jn-tabs button[aria-selected=true] { background: var(--ink); color: var(--panel); }
+.jn-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); min-width: 0; }
+.jn-card { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; display: grid;
+  gap: 6px; min-width: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; border-left: 4px solid var(--rule); }
+.jn-card.win { border-left-color: var(--up); } .jn-card.loss { border-left-color: var(--down); }
+.jn-card:hover, .jn-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.jn-card .row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.jn-card .sym { font: 700 18px var(--mono); }
+.jn-card .res { font: 700 15px var(--mono); }
+.jn-card .res.win { color: var(--up); } .jn-card .res.loss { color: var(--down); }
+.jn-card .meta { font: 400 12.5px var(--mono); color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+.jn-badge { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--rule); color: var(--muted); }
+.jn-empty { color: var(--muted); font: 400 14px system-ui, sans-serif; padding: 24px 4px; }
+.jn-detail { display: grid; gap: 14px; min-width: 0; }
+.jn-detail .back { justify-self: start; font: 600 13px var(--mono); padding: 7px 12px; border-radius: 8px; border: 1px solid var(--rule);
+  background: var(--panel); color: var(--ink); cursor: pointer; }
+.jn-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.jn-hero h2 { margin: 0; font: 700 30px var(--mono); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.jn-hero .big { font: 700 26px var(--mono); }
+.jn-hero .big.win { color: var(--up); } .jn-hero .big.loss { color: var(--down); }
+.jn-stats { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.jn-stat { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.jn-stat span { display: block; font: 400 11.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.jn-stat b { font: 600 15px var(--mono); overflow-wrap: anywhere; }
+.jn-cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); min-width: 0; }
+.jn-box { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.jn-box h3 { margin: 0; font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.jn-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font: 400 13px var(--mono); }
+.jn-kv dt { color: var(--muted); } .jn-kv dd { margin: 0; overflow-wrap: anywhere; }
+.jn-tabs { display: flex; gap: 6px; }
+.jn-box textarea { width: 100%; box-sizing: border-box; min-height: 180px; resize: vertical; font: 400 13.5px/1.5 var(--mono);
+  padding: 10px; border-radius: 8px; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); }
+.jn-md { font: 400 14px/1.55 system-ui, sans-serif; overflow-wrap: anywhere; min-height: 60px; }
+.jn-md pre { overflow-x: auto; background: var(--bg); padding: 8px; border-radius: 6px; }
 .jn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.jn-row button { font: 600 13px var(--mono); padding: 6px 14px; border-radius: 8px; border: 1px solid var(--rule);
-  background: var(--ink); color: var(--panel); cursor: pointer; }
+.jn-row button.save { font: 600 13px var(--mono); padding: 7px 16px; border-radius: 8px; border: 0; background: var(--ink); color: var(--panel); cursor: pointer; }
 .jn-ai { display: grid; gap: 8px; padding: 6px 2px; }
 .jn-ai p { margin: 0; font: 400 13.5px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
 .jn-lesson { font: 400 12.5px/1.45 system-ui, sans-serif; color: var(--muted); overflow-wrap: anywhere; }
@@ -265,17 +297,26 @@ footer b { color: var(--ink); font-weight: 600; }
   <div class="pane" id="pane-notes" role="tabpanel" aria-labelledby="tab-notes" hidden>
     <div class="head"><div>
       <h1>Trade <em>Journal</em></h1>
-      <p class="lede">Every trade the agent took, with everything it knew. Write what you saw; notes save to the server
-        and the nightly AI analyst reads them with the trades. Its lessons are proposals: each becomes a test before
-        it can change a rule.</p>
+      <p class="lede">Every trade the agent took, day by day. Open a trade for its chart, timeline and everything the agent
+        knew, and write your read in Markdown. The nightly AI analyst reads your notes with the trades; its lessons are
+        proposals that each become a test before they can change a rule.</p>
     </div></div>
     <section class="learn" id="jn-ai" aria-label="AI analyst">
       <div class="learn-head"><span class="label">AI analyst: distilled lessons</span><span class="small" id="jn-ai-sub">loading…</span></div>
       <div id="jn-ai-list" class="jn-ai"></div>
     </section>
-    <div class="jn-bar"><input id="jn-q" type="search" placeholder="Filter by stock or book" aria-label="Filter trades">
-      <span class="small" id="jn-count"></span></div>
-    <div id="jn-list" class="jn-list"></div>
+    <div id="jn-browse" class="pane">
+      <div class="jn-bar">
+        <button type="button" id="jn-prev" aria-label="Previous trading day">‹</button>
+        <input type="date" id="jn-date" aria-label="Trading day">
+        <button type="button" id="jn-next" aria-label="Next trading day">›</button>
+        <div class="jn-books" id="jn-books" role="group" aria-label="Book"></div>
+        <input type="search" id="jn-q" placeholder="Filter by stock" aria-label="Filter by stock">
+        <span class="small" id="jn-count"></span>
+      </div>
+      <div id="jn-grid" class="jn-grid"></div>
+    </div>
+    <article id="jn-detail" class="jn-detail" hidden aria-live="polite"></article>
   </div>
 
   <div class="pane" id="pane-models" role="tabpanel" aria-labelledby="tab-models" hidden>
@@ -683,61 +724,45 @@ function mtBoot() {
   });
 }
 
-// Trade journal (owner 2026-11-09). Notes and AI text are untrusted: rendered with textContent only (el()).
-const JN_LABEL = { alert_type: "alert", posted_at: "alert at", status: "status", reason: "why closed",
-  est_entry: "live entry", est_entry_at: "entered", est_exit: "live exit", est_exit_at: "exited", entry: "official entry",
-  cover: "official cover", net: "official net", conf: "group score", news_own: "company news", news_head: "headline",
-  filing_dilution: "offering filed", filing_form: "filing", ib_avail: "IBKR shares", alp_shortable: "Alpaca shortable",
-  st_n60: "StockTwits posts/h", x_n60: "X posts/h", rd_rank: "Reddit rank", rd_mentions: "Reddit mentions",
-  bar_ts: "spike bar", signal_px: "spike price", strategy: "book", target: "weight", fill_session: "filled",
-  fill_price: "fill price", label: "proposal" };
+// Trade journal (owner 2026-11-09). Notes and AI text are untrusted: rendered with textContent (el()), and the
+// Markdown preview goes through DOMPurify before it is inserted; without the libraries it falls back to plain text.
 const jnApi = () => (location.pathname.endsWith("/") ? location.pathname : location.pathname + "/") + "api/notes";
-let jnDrawn = false, jnNotes = {}, jnLessons = {};
+const JN_BOOKS = [["all", "All"], ["fade", "Alert fade"], ["scan", "Scanner"], ["book", "Models"]];
+let jnDrawn = false, jnNotes = {}, jnAI = {}, jnDay = null, jnBook = "all", jnViews = {}, jnMd = null;
 
-function jnFmt(k, v) {
-  if (v == null || v === "") return null;
-  if (k === "net") return (v >= 0 ? "+" : "") + (v * 100).toFixed(2) + "%";
-  if (k === "target") return (v * 100).toFixed(1) + "%";
-  if (k.endsWith("_at") || k === "bar_ts") { const d = new Date(v); return isNaN(d) ? String(v) :
-    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" }) + " ET"; }
-  if (k === "news_own" || k === "filing_dilution" || k === "alp_shortable") return v ? "yes" : "no";
-  return String(v);
+const jnEt = v => { if (v == null || v === "") return null; const d = new Date(typeof v === "number" ? v * 1000 : v);
+  return isNaN(d) ? String(v) : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: typeof v === "number" ? "UTC" : "America/New_York" }) + " ET"; };
+const jnPx = v => v == null ? null : "$" + Number(v).toFixed(Number(v) < 1 ? 4 : 2);
+const jnKind = e => e.key.split(":")[0];
+const jnSide = e => jnKind(e) === "book" ? (e.target > 0 ? "LONG" : e.target < 0 ? "SHORT" : "FLAT") : "SHORT";
+
+function jnResult(e) {                       // {ret, usd, official}: official SIP net, else the live estimate
+  const v = jnViews[e.key];
+  if (v && v.ret != null) return { ret: v.ret, usd: v.usd, official: v.official };
+  if (e.net != null) return { ret: e.net, usd: null, official: true };
+  if (e.est_entry && e.est_exit) return { ret: (e.est_entry - e.est_exit) / e.est_entry, usd: null, official: false };
+  return { ret: null, usd: null, official: false };
 }
 
-function jnCard(e) {
-  const c = el("article", "jn-card"); c.dataset.q = (e.symbol + " " + e.book).toLowerCase();
-  const h = el("h3", null, e.symbol); h.append(el("small", null, e.book + " · " + e.session));
-  const a = el("a", null, "chart"); a.href = "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(e.symbol);
-  a.target = "_blank"; a.rel = "noopener noreferrer"; h.append(a);
-  const f = el("div", "facts");
-  Object.keys(JN_LABEL).forEach(k => { const v = jnFmt(k, e[k]); if (v == null) return;
-    const x = el("span", null, JN_LABEL[k] + " "); x.append(el("b", null, v)); f.append(x); });
-  const ta = el("textarea"); ta.maxLength = 5000; ta.placeholder = "Your notes on this trade…"; ta.value = (jnNotes[e.key] || {}).text || "";
-  ta.setAttribute("aria-label", "Notes for " + e.symbol + " " + e.session);
-  const st = el("span", "small", (jnNotes[e.key] || {}).updated_at ? "saved " + jnFmt("x_at", jnNotes[e.key].updated_at) : "");
-  const b = el("button", null, "Save"); b.type = "button";
-  b.addEventListener("click", async () => {
-    b.disabled = true; st.textContent = "saving…";
-    try {
-      const r = await fetch(jnApi(), { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: e.key, text: ta.value }) });
-      const j = await r.json().catch(() => ({}));
-      st.textContent = r.ok ? "saved " + jnFmt("x_at", j.updated_at) : "not saved: " + (j.error || r.status);
-      if (r.ok) jnNotes[e.key] = j;
-    } catch (err) { st.textContent = "not saved: offline"; }
-    b.disabled = false;
-  });
-  const row = el("div", "jn-row"); row.append(b, st);
-  c.append(h, f);
-  if (jnLessons[e.key]) c.append(el("div", "jn-lesson", "AI: " + jnLessons[e.key]));
-  c.append(ta, row);
-  return c;
+function jnMarkdown(box, text) {
+  box.textContent = "";
+  if (!text) { box.append(el("span", "jn-lesson", "No notes yet.")); return; }
+  if (window.marked && window.DOMPurify) { box.innerHTML = DOMPurify.sanitize(marked.parse(text), { USE_PROFILES: { html: true } });
+    box.querySelectorAll("a").forEach(a => { a.target = "_blank"; a.rel = "noopener noreferrer"; }); return; }
+  text.split("\n").forEach((line, i) => { if (i) box.append(el("br")); box.append(document.createTextNode(line)); });
+}
+
+function jnLoadMd() {                        // pinned libraries from unpkg (allowed by the page CSP), loaded on demand
+  if (jnMd) return jnMd;
+  const load = src => new Promise(ok => { const sc = document.createElement("script"); sc.src = src; sc.onload = ok; sc.onerror = ok; document.head.append(sc); });
+  jnMd = Promise.all([load("https://unpkg.com/marked@12.0.2/marked.min.js"), load("https://unpkg.com/dompurify@3.1.6/dist/purify.min.js")]);
+  return jnMd;
 }
 
 function jnInsights(list) {
   const box = document.getElementById("jn-ai-list"), sub = document.getElementById("jn-ai-sub");
   box.textContent = "";
-  if (!list.length) { sub.textContent = "no analysis yet (runs nightly once the OpenAI key is set)"; return; }
+  if (!list.length) { sub.textContent = "no analysis yet (runs nightly once the OpenAI key works)"; return; }
   sub.textContent = "latest " + new Date(list[0].run_at).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET · " + list[0].model;
   (list[0].body.distilled || []).slice(0, 12).forEach(d => {
     const p = el("p"); p.append(el("b", null, String(d.insight || "")));
@@ -745,21 +770,155 @@ function jnInsights(list) {
     if (d.proposed_test) p.append(el("span", "jn-lesson", " Test: " + String(d.proposed_test)));
     box.append(p);
   });
-  list.forEach(run => (run.body.per_trade || []).forEach(t => { if (t && t.key && !jnLessons[t.key]) jnLessons[t.key] = String(t.lesson || ""); }));
+  list.forEach(run => (run.body.per_trade || []).forEach(t => { if (t && t.key && !jnAI[t.key]) jnAI[t.key] = t; }));
+}
+
+function jnCard(e) {
+  const r = jnResult(e), st = r.ret == null ? "" : (r.ret > 0 ? "win" : "loss");
+  const c = el("button", "jn-card " + st); c.type = "button"; c.dataset.key = e.key;
+  const row1 = el("div", "row1"); row1.append(el("span", "sym", e.symbol),
+    el("span", "res " + st, r.ret == null ? (e.status || "") : (r.ret >= 0 ? "+" : "") + (r.ret * 100).toFixed(1) + "%" + (r.official ? "" : " est")));
+  const meta = el("div", "meta"); meta.append(el("span", "jn-badge", e.book), el("span", null, jnSide(e)));
+  const t = jnEt(e.est_entry_at || e.posted_at || e.bar_ts); if (t) meta.append(el("span", null, t));
+  const prices = el("div", "meta");
+  const ent = jnPx(e.entry != null ? e.entry : (e.est_entry != null ? e.est_entry : e.fill_price));
+  const ex = jnPx(e.cover != null ? e.cover : e.est_exit);
+  prices.append(el("span", null, (ent || "–") + (ex ? " → " + ex : "")), el("span", null, e.reason || e.status || ""));
+  if (r.usd != null) prices.append(el("span", null, money(r.usd)));
+  const flags = el("div", "meta");
+  if ((jnNotes[e.key] || {}).text) flags.append(el("span", null, "📝 note"));
+  if (jnAI[e.key]) flags.append(el("span", null, "✦ AI read"));
+  c.append(row1, meta, prices); if (flags.childElementCount) c.append(flags);
+  c.addEventListener("click", () => { location.hash = "#notes/" + e.key; });
+  return c;
+}
+
+function jnBrowse() {
+  const rows = DATA.journal || [], grid = document.getElementById("jn-grid"), q = document.getElementById("jn-q").value.trim().toLowerCase();
+  grid.textContent = "";
+  const day = rows.filter(e => e.session === jnDay && (jnBook === "all" || jnKind(e) === jnBook) && (!q || e.symbol.toLowerCase().includes(q)));
+  day.sort((a, b) => String(a.est_entry_at || a.posted_at || a.bar_ts || "").localeCompare(String(b.est_entry_at || b.posted_at || b.bar_ts || "")));
+  day.forEach(e => grid.append(jnCard(e)));
+  if (!day.length) grid.append(el("div", "jn-empty", "No trades on this day" + (jnBook !== "all" || q ? " for this filter." : ".")));
+  const wins = day.filter(e => (jnResult(e).ret || 0) > 0).length;
+  document.getElementById("jn-count").textContent = day.length + " trades" + (day.length ? " · " + wins + " won" : "");
+}
+
+function jnDays() { return [...new Set((DATA.journal || []).map(e => e.session))].sort(); }
+
+function jnSetDay(d) {
+  jnDay = d; const inp = document.getElementById("jn-date"); inp.value = d || "";
+  const days = jnDays(), i = days.indexOf(d);
+  document.getElementById("jn-prev").disabled = !(days.length && (i > 0 || i === -1 && d > days[0]));
+  document.getElementById("jn-next").disabled = !(days.length && (i !== -1 ? i < days.length - 1 : d < days[days.length - 1]));
+  jnBrowse();
+}
+
+function jnStep(dir) {
+  const days = jnDays(); if (!days.length) return;
+  const later = days.filter(x => dir > 0 ? x > jnDay : x < jnDay);
+  if (later.length) jnSetDay(dir > 0 ? later[0] : later[later.length - 1]);
+}
+
+function jnKV(pairs) {
+  const dl = el("dl", "jn-kv");
+  pairs.forEach(([k, v]) => { if (v == null || v === "") return; dl.append(el("dt", null, k), el("dd", null, String(v))); });
+  return dl;
+}
+
+function jnDetail(key) {
+  const e = (DATA.journal || []).find(x => x.key === key), box = document.getElementById("jn-detail");
+  document.getElementById("jn-browse").hidden = true; box.hidden = false; box.textContent = "";
+  if (!e) { box.append(el("div", "jn-empty", "That trade is not on this page any more.")); return; }
+  const v = jnViews[key], r = jnResult(e), st = r.ret == null ? "" : (r.ret > 0 ? "win" : "loss");
+  const back = el("button", "back", "← All trades on " + e.session); back.type = "button";
+  back.addEventListener("click", () => { location.hash = "#notes"; });
+  const hero = el("div", "jn-hero"), h2 = el("h2", null, e.symbol);
+  h2.append(el("span", "jn-badge", e.book), el("span", "jn-badge", jnSide(e)), el("span", "jn-lesson", e.session));
+  hero.append(h2, el("span", "big " + st, r.ret == null ? (e.status || "open") : (r.ret >= 0 ? "+" : "") + (r.ret * 100).toFixed(2) + "%"
+    + (r.usd != null ? "  " + money(r.usd) : "") + (r.official ? "" : " est")));
+  const stats = el("div", "jn-stats");
+  const stat = (k, val) => { if (val == null || val === "") return; const s2 = el("div", "jn-stat"); s2.append(el("span", null, k), el("b", null, String(val))); stats.append(s2); };
+  stat("entry (official)", jnPx(e.entry)); stat("entry (live)", jnPx(e.est_entry)); stat("cover (official)", jnPx(e.cover));
+  stat("exit (live)", jnPx(e.est_exit)); stat("exit reason", e.reason); stat("status", e.status);
+  stat("stop", v && v.stop ? jnPx(v.stop) : null); stat("weight", e.target != null ? (e.target * 100).toFixed(1) + "%" : null);
+  stat("fill", jnPx(e.fill_price)); stat("group score", e.conf);
+  box.append(back, hero, stats);
+  if (v && v.candles && v.candles.length) {
+    const chartBox = el("div", "jn-box"); chartBox.append(el("h3", null, "Chart (1-minute, SIP) with alert, entry and exit"));
+    const main = el("div", "chart"), rsi = el("div", "sub rsi"), macd = el("div", "sub macd"), panes = el("div", "panes");
+    panes.append(main, rsi, macd); chartBox.append(panes);
+    if (v.signals) chartBox.append(chips(v.signals));
+    box.append(chartBox); draw({ main, rsi, macd }, v);
+  } else {
+    const nb = el("div", "jn-box"); nb.append(el("h3", null, "Chart"),
+      el("span", "jn-lesson", jnKind(e) === "book" ? "Daily model trade: see the Models tab and TradingView." : "Charts are kept for the last 10 trading days."));
+    box.append(nb);
+  }
+  const cols = el("div", "jn-cols");
+  const tl = el("div", "jn-box"); tl.append(el("h3", null, "Timeline"), jnKV([
+    ["alert", jnEt(e.posted_at)], ["spike bar", jnEt(e.bar_ts)], ["live entry", jnEt(e.est_entry_at)],
+    ["live exit", jnEt(e.est_exit_at)], ["filled", e.fill_session], ["alert type", e.alert_type], ["proposal", e.label]]));
+  const ctx = el("div", "jn-box"); ctx.append(el("h3", null, "What the agent knew"), jnKV([
+    ["company news", e.news_own == null ? null : (e.news_own ? "yes" : "none found")], ["headline", e.news_head],
+    ["offering filed", e.filing_dilution == null ? null : (e.filing_dilution ? "yes (" + (e.filing_form || "") + ")" : "no")],
+    ["IBKR shares", e.ib_avail], ["Alpaca shortable", e.alp_shortable == null ? null : (e.alp_shortable ? "yes" : "no")],
+    ["StockTwits posts/h", e.st_n60], ["X posts/h", e.x_n60], ["Reddit rank", e.rd_rank], ["Reddit mentions 24h", e.rd_mentions],
+    ["spike price", jnPx(e.signal_px)]]));
+  cols.append(tl, ctx);
+  const ai = jnAI[key];
+  if (ai) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "AI analyst"), jnKV([["what happened", ai.what_happened],
+    ["lesson", ai.lesson], ["tags", (ai.tags || []).join(", ")]])); cols.append(ab); }
+  box.append(cols);
+  const nb = el("div", "jn-box"); nb.append(el("h3", null, "Your notes (Markdown)"));
+  const tabs = el("div", "jn-tabs"), tw = el("button", null, "Write"), tp = el("button", null, "Preview");
+  [tw, tp].forEach(b => { b.type = "button"; b.setAttribute("role", "tab"); }); tabs.append(tw, tp);
+  const ta = el("textarea"); ta.maxLength = 5000; ta.value = (jnNotes[key] || {}).text || "";
+  ta.placeholder = "## What I saw\n- ...\n\n**Lesson:** ..."; ta.setAttribute("aria-label", "Notes in Markdown");
+  const prev = el("div", "jn-md"); prev.hidden = true;
+  const sel = w => { tw.setAttribute("aria-selected", String(w)); tp.setAttribute("aria-selected", String(!w)); ta.hidden = !w; prev.hidden = w;
+    if (!w) { jnMarkdown(prev, ta.value); jnLoadMd().then(() => jnMarkdown(prev, ta.value)); } };
+  tw.addEventListener("click", () => sel(true)); tp.addEventListener("click", () => sel(false));
+  const stt = el("span", "small", (jnNotes[key] || {}).updated_at ? "saved " + jnEt(jnNotes[key].updated_at) : "");
+  const save = el("button", "save", "Save"); save.type = "button";
+  save.addEventListener("click", async () => {
+    save.disabled = true; stt.textContent = "saving…";
+    try { const res = await fetch(jnApi(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, text: ta.value }) });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) { jnNotes[key] = j; stt.textContent = "saved " + jnEt(j.updated_at); } else stt.textContent = "not saved: " + (j.error || res.status);
+    } catch (err) { stt.textContent = "not saved: offline"; }
+    save.disabled = false;
+  });
+  const row = el("div", "jn-row"); row.append(save, stt, el("span", "jn-lesson", "Markdown: # heading, **bold**, - list, [link](https://…)"));
+  nb.append(tabs, ta, prev, row); box.append(nb);
+  sel(!(jnNotes[key] || {}).text);
+  window.scrollTo(0, 0);
+}
+
+function jnRoute() {
+  const m = location.hash.match(/^#notes\/((?:fade|scan|book):[1-9][0-9]{0,8})$/);
+  if (m) jnDetail(m[1]);
+  else { document.getElementById("jn-detail").hidden = true; document.getElementById("jn-browse").hidden = false; jnBrowse(); }
 }
 
 async function jnBoot() {
-  if (jnDrawn) return; jnDrawn = true;
-  const list = document.getElementById("jn-list"), rows = DATA.journal || [];
+  if (jnDrawn) { jnRoute(); return; } jnDrawn = true;
+  [...(DATA.trades || []), ...(DATA.scan_views || [])].forEach(v => { if (v.key) jnViews[v.key] = v; });
+  const books = document.getElementById("jn-books");
+  JN_BOOKS.forEach(([k, label]) => { const b = el("button", null, label); b.type = "button"; b.setAttribute("aria-pressed", String(k === jnBook));
+    b.addEventListener("click", () => { jnBook = k; books.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); jnBrowse(); });
+    books.append(b); });
+  document.getElementById("jn-prev").addEventListener("click", () => jnStep(-1));
+  document.getElementById("jn-next").addEventListener("click", () => jnStep(1));
+  document.getElementById("jn-date").addEventListener("change", ev => jnSetDay(ev.target.value));
+  document.getElementById("jn-q").addEventListener("input", jnBrowse);
+  window.addEventListener("hashchange", () => { if (location.hash.startsWith("#notes")) { showTab("notes"); } });
+  const days = jnDays();
   try { const r = await fetch(jnApi()); if (r.ok) { const j = await r.json(); jnNotes = j.notes || {}; jnInsights(j.insights || []); }
         else document.getElementById("jn-ai-sub").textContent = "notes server unavailable (" + r.status + ")"; }
   catch (err) { document.getElementById("jn-ai-sub").textContent = "notes server unavailable"; }
-  rows.forEach(e => list.append(jnCard(e)));
-  const q = document.getElementById("jn-q"), count = document.getElementById("jn-count");
-  const filter = () => { const s = q.value.trim().toLowerCase(); let n = 0;
-    list.querySelectorAll(".jn-card").forEach(c => { const on = !s || c.dataset.q.includes(s); c.hidden = !on; n += on; });
-    count.textContent = n + " trades"; };
-  q.addEventListener("input", filter); filter();
+  jnSetDay(days.length ? days[days.length - 1] : new Date().toISOString().slice(0, 10));
+  jnRoute();
 }
 
 function showTab(name) {
@@ -788,7 +947,8 @@ function boot() {
   bar.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.day) current = e.target.dataset.day; });
   const repaint = () => { charts.forEach(p => p()); mtLive.forEach(l => l.paint());
     if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
-  if (location.hash === "#models" || location.hash === "#notes") showTab(location.hash.slice(1));
+  if (location.hash === "#models") showTab("models");
+  else if (location.hash.startsWith("#notes")) showTab("notes");
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
   new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
