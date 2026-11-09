@@ -20,6 +20,7 @@ est_closed | settled | void.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -336,7 +337,9 @@ def _context(db: OpsStore, r, context) -> dict:
                     st_bull=st.get("st_bull"), st_bear=st.get("st_bear"), st_watch=st.get("st_watch"))
     xs = ctx.get("x")
     if xs:
-        cols.update({k: xs.get(k) for k in ("x_n60", "x_n15", "x_authors", "x_eng")})
+        cols.update({k: xs.get(k) for k in ("x_n60", "x_n15", "x_cat24")})
+        if xs.get("x_cat_posts") is not None:
+            cols["x_cat_posts"] = json.dumps(xs["x_cat_posts"])[:4000]
     rd = ctx.get("reddit")
     if rd:
         cols.update({k: rd.get(k) for k in ("rd_rank", "rd_mentions", "rd_upvotes", "rd_mentions_prev")})

@@ -23,3 +23,14 @@ Owner: spend as little as possible for the most information. X bills search per 
   when that call fails. Secondary measures only; reported as "among the newest 10".
 - One lookup per symbol per 10 minutes (a second text for the same trade reuses it); at most 60 paid lookups a day.
 Worst case $0.055 per lookup (was $0.50). Hypothesis, test, threshold and decision point are unchanged.
+
+## Amendment A2 (owner 2026-11-09, before any catalyst data is recorded): targeted catalyst check
+Owner: use X "correctly and wisely with optimal searches", not blind collection. The random newest-10 sample (accounts,
+likes) is dropped; X now answers two narrow questions at ENTRY for trades the book takes (`sgt.fast.xsocial`):
+attention (`x_n60`, `x_n15`, unchanged) and **catalyst**: `x_cat24` = posts in the 24 hours before entry with the
+cashtag AND a catalyst word (announces, "press release", FDA, approval, contract, merger, acquisition, acquire,
+offering, earnings, partnership, agreement, patent, clinical, "trial results"; retweets excluded), plus the <= 5 most
+relevant of them (`x_cat_posts`, display and AI review only). Cost <= $0.06 per trade.
+Secondary hypothesis (forward only, decided with the primary at >= 300 live fades with X data): among fades our
+Benzinga filter calls NO-NEWS, those with `x_cat24` >= 3 earn less than those with `x_cat24` = 0 (a catalyst the news
+feed missed). Session bootstrap one-sided 95%, >= 60 per group; PASS -> a skip rule is proposed to the owner.

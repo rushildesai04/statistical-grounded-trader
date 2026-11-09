@@ -150,11 +150,15 @@ def social_line(st: dict | None) -> str | None:
 
 
 def x_line(xs: dict) -> str:
-    """X attention (counts exact; accounts / likes over the newest few posts, the cheap sample, 2026-11-08)."""
+    """X attention + catalyst check (2026-11-09): posts in the last hour, and posts in 24 h that name a catalyst."""
     head = f"𝕏 {xs['x_n60']} posts last hour"
-    if xs.get("x_authors") is None or not xs.get("x_k"):
+    cat = xs.get("x_cat24")
+    if cat is None:
         return head
-    return f"{head}; newest {xs['x_k']}: {xs['x_authors']} accounts, {xs['x_eng']:,} likes/reposts"
+    if not cat:
+        return f"{head}; no catalyst posts in 24h"
+    top = (xs.get("x_cat_posts") or [{}])[0].get("text", "")
+    return f"{head}; ⚠️ {cat} catalyst posts in 24h" + (f": “{top[:90]}”" if top else "")
 
 
 def reddit_line(rd: dict) -> str:

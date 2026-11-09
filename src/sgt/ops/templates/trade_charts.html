@@ -875,9 +875,17 @@ function jnDetail(key) {
     ["company news", e.news_own == null ? null : (e.news_own ? "yes" : "none found")], ["headline", e.news_head],
     ["offering filed", e.filing_dilution == null ? null : (e.filing_dilution ? "yes (" + (e.filing_form || "") + ")" : "no")],
     ["IBKR shares", e.ib_avail], ["Alpaca shortable", e.alp_shortable == null ? null : (e.alp_shortable ? "yes" : "no")],
-    ["StockTwits posts/h", e.st_n60], ["X posts/h", e.x_n60], ["Reddit rank", e.rd_rank], ["Reddit mentions 24h", e.rd_mentions],
+    ["StockTwits posts/h", e.st_n60], ["X posts/h", e.x_n60], ["X catalyst posts 24h", e.x_cat24],
+    ["Reddit rank", e.rd_rank], ["Reddit mentions 24h", e.rd_mentions],
     ["spike price", jnPx(e.signal_px)]]));
   cols.append(tl, ctx);
+  let xp = []; try { xp = JSON.parse(e.x_cat_posts || "[]"); } catch (err) { xp = []; }
+  if (Array.isArray(xp) && xp.length) {               // untrusted post text: textContent only
+    const xb = el("div", "jn-box"); xb.append(el("h3", null, "X catalyst posts (24h, most relevant)"));
+    xp.slice(0, 5).forEach(p => { const q = el("p", "jn-lesson"); q.append(el("b", null, String(p.at || "").slice(11, 16) + " UTC · "
+      + (p.likes || 0) + " likes  "), document.createTextNode(String(p.text || ""))); xb.append(q); });
+    cols.append(xb);
+  }
   const rv = jnRev[key];
   if (rv) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "AI review · " + (rv.model || "")), jnKV([
     ["verdict", rv.verdict + " (" + rv.confidence + " confidence)"], ["what happened", rv.what_happened],
