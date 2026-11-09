@@ -121,7 +121,7 @@ def test_p4_3_model_fill_uses_the_early_close():
 def test_p4_2_entry_window_follows_the_calendar_close():
     from sgt.fast import fade
     assert fade.last_entry(date(2026, 11, 9)).strftime("%H:%M") == "15:44"       # normal day unchanged
-    assert fade.last_entry(date(2026, 11, 27)).strftime("%H:%M") == "12:44"      # 13:00 close
+    assert fade.last_entry(date(2026, 11, 27)).strftime("%H:%M") == "12:59"      # 13:00 close (research: RTH bars)
 
 
 def test_p4_2_pending_fade_never_opens_after_the_bell(tmp_path):

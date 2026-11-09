@@ -138,6 +138,10 @@ def do_decide(cfg: ForwardSet) -> int:
     if not default_calendar().is_session(today):
         print(f"{today}: market closed")
         return 0
+    close = default_calendar().bounds(today).rth_close
+    if now >= close:     # adversarial pass 5 (P5-1): half days close 13:00; a 15:50 "live" call could not trade
+        print(f"{today}: closed at {close.astimezone(ET):%H:%M} ET, no live decision (catchup records it as batch)")
+        return 0
     start = datetime.combine(today, datetime.min.time(), ET).replace(hour=9, minute=30)
     intraday = alpaca_bars(cfg.symbols, "1Min", start.isoformat(), None, feed="iex")
     cut = pd.Timestamp(datetime.combine(today, datetime.min.time(), ET).replace(hour=15, minute=50))

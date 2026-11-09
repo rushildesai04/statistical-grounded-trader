@@ -140,10 +140,12 @@ def caps(db: OpsStore, session: str) -> str | None:
 
 
 def last_entry(session: date) -> time:
-    """Last tested entry minute: 15:44 ET, i.e. 16 minutes before the close; on early-close days (13:00) the same
-    distance before THAT close (adversarial pass 4, P4-2: a fixed 15:44 let the paper book short after a 13:00 bell)."""
+    """Last tested entry minute: 15:44 ET, and never at or after the session's close. The research population
+    (telegram_alert_test primary_window: entry bar 09:30-15:44, RTH bars only) holds half-day entries up to 12:59
+    with the exit at the 13:00 close, so the live rule is the same (adversarial passes 4-5, P4-2/P5-2: a fixed 15:44
+    let the paper book short after a 13:00 bell; 16 minutes before the close was stricter than the tested rule)."""
     close = default_calendar().bounds(session).rth_close.astimezone(ET)
-    return min(LAST_ENTRY, (close - timedelta(minutes=16)).time())
+    return min(LAST_ENTRY, (close - timedelta(minutes=1)).time())
 
 
 def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
