@@ -157,6 +157,15 @@ def x_line(xs: dict) -> str:
     return f"{head}; newest {xs['x_k']}: {xs['x_authors']} accounts, {xs['x_eng']:,} likes/reposts"
 
 
+def reddit_line(rd: dict) -> str:
+    """Reddit stock-subreddit mentions over 24 h (ApeWisdom, 2026-11-08)."""
+    if rd.get("rd_rank") is None:
+        return "👽 Reddit: not among the ~700 most-mentioned stock tickers today"
+    prev = rd.get("rd_mentions_prev")
+    was = f" (was {prev} a day earlier)" if prev is not None else ""
+    return f"👽 Reddit: #{rd['rd_rank']} most-mentioned, {rd['rd_mentions']} mentions in 24h{was}"
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None,
              at: datetime | None = None) -> str:
@@ -185,6 +194,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     xs = ctx.get("x")
     if xs:
         lines.append(x_line(xs) + " " + italic("(recorded, not a tested filter)"))
+    rd = ctx.get("reddit")
+    if rd:
+        lines.append(reddit_line(rd) + " " + italic("(recorded, not a tested filter)"))
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:
         why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")
