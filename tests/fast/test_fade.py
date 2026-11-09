@@ -123,7 +123,7 @@ def test_gates_daily_cap_and_loss_stop(db, monkeypatch):
     monkeypatch.setattr(fade, "MAX_TRADES_DAY", 15)
     with db.tx() as c:
         c.execute("UPDATE fade_trades SET status='est_closed', est_entry=10, est_exit=20, weight=0.05 WHERE symbol='A'")
-    assert fade.gate(db, DAY.isoformat(), T10) == "day loss stop -3%"
+    assert fade.gate(db, DAY.isoformat(), T10) is None                      # F6 2026-11-09: no day-loss stop
 
 
 def test_no_quote_within_five_minutes_skips(db):
@@ -631,3 +631,39 @@ def test_context_lookups_run_in_parallel_within_one_budget():
     got = fl.gather({"a": lambda: 1, "b": slow, "c": boom, "d": lambda: {"x": 2}}, budget=0.5)
     assert got == {"a": 1, "b": None, "c": None, "d": {"x": 2}}          # late or failed = unknown, never fatal
     assert _t.monotonic() - t0 < 1.5                                      # bounded by the budget, not the sum
+
+
+def test_no_news_rule_filters_news_alerts_and_company_news_at_entry(db):
+    # amendment F6 (owner 2026-11-09): trade no-news alerts only; unknown news never blocks
+    ap.arm(db, T10)
+    assert fade.on_alert(db, alert("NWS", "news", news=True), now=T10) == "filtered: news"
+    for i, s in enumerate(["OWN", "EARN", "CLEAN", "UNKNOWN"]):
+        fade.on_alert(db, alert(s, mid=10 + i), now=T10)
+    flags = {"OWN": {"news_own": 1, "news_earn": 0, "headline": "OWN signs deal"},
+             "EARN": {"news_own": 0, "news_earn": 1, "headline": "EARN Q3"},
+             "CLEAN": {"news_own": 0, "news_earn": 0}, "UNKNOWN": None}
+    calls = []
+
+    def news(symbol, at):
+        calls.append(symbol)
+        return flags[symbol]
+    out = Outbox()
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=5), news=news)
+    got = {r["symbol"]: (r["status"], r["reason"], r["news_own"]) for r in rows(db)}
+    assert got["NWS"][:2] == ("filtered", fade.NEWS_REASON)
+    assert got["OWN"] == ("filtered", fade.NEWS_REASON, 1) and got["EARN"][:2] == ("filtered", fade.NEWS_REASON)
+    assert got["CLEAN"][0] == "open" and got["UNKNOWN"][0] == "open"            # unknown news does not block
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15), news=news)
+    assert calls.count("CLEAN") == 1                                            # looked up once per event
+
+
+def test_day_loss_stop_no_longer_blocks_entries(db):
+    # amendment F6: the breaker cost ~1.3%/session (prereg_fade_dayflow_2026-11-08)
+    ap.arm(db, T10)
+    fade.on_alert(db, alert("L1"), now=T10)
+    fade.monitor(db, Outbox(), lambda s: 10.0, now=T10 + timedelta(seconds=5))
+    fade.monitor(db, Outbox(), lambda s: 13.0, now=T10 + timedelta(minutes=2))  # -30% est on 5% weight = -1.5%
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET weight=0.2")                          # make the day -6% on estimates
+    assert fade.day_est_pnl(db, rows(db)[0]["session"]) < fade.DAY_LOSS_STOP
+    assert fade.on_alert(db, alert("L2", mid=2), now=T10 + timedelta(minutes=3)).startswith("pending")

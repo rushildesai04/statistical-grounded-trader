@@ -289,6 +289,9 @@ async def run() -> int:
     send = CappedSms(db)
     dc, ac = data_client(), asset_client()
     quote, context = iex_quote(dc), iex_context(dc)
+
+    def news_check(symbol: str, at: datetime) -> dict | None:      # amendment F6: company news at entry (None = unknown)
+        return live_news(dc, symbol, at)
     book = borrow_mod.BorrowBook(alpaca_asset=alpaca_asset(ac))
     init_db()
     client = TelegramClient(StringSession(get_secret(SESSION_SECRET)), int(get_secret("telegram_api_id")),
@@ -330,7 +333,7 @@ async def run() -> int:
         n = 0
         while True:
             try:
-                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context)
+                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             try:
