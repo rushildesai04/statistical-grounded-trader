@@ -140,3 +140,12 @@ tested timing; a NO-exited trade is covered at the last SIP 1-minute close befor
 then), and `rule_net` keeps the full tested result, so the cost of NO exits is measured (`sgt.fast.realism`).
 The F1 research record and its KEEP/DROP decision are unchanged. F3/F4 ask-first remains in code behind
 `fade.ASK_FIRST` (False).
+
+## Amendment F6 (owner decision 2026-11-09): no-news alerts only; no day-loss stop
+Evidence (all pre-registered before computing): `prereg_fade_stop_slippage_2026-11-09` (real SIP stop fills: no-news
++1.70% / +1.77% per trade, lower bounds +0.88% / +0.47%; news -0.20% / -0.60%), `prereg_fade_news_2026-11-05`,
+`prereg_fade_dayflow_2026-11-08` (trades after two losses +2.18%; a breaker costs ~1.3%/session). Live rule from the
+next deploy: a news-type alert, or company news found at entry by the same Benzinga lookup as the trade text, is
+filtered (`fade.NO_NEWS`, reason "news (no-news rule, amendment F6)"); an unknown lookup does not block. The day-loss
+stop (`DAY_LOSS_STOP`, -3% NAV on estimates) no longer blocks entries; the 15-trade and 8-open caps stay. The
+nightly forward research record keeps scoring every alert (news included), so both groups stay measured.

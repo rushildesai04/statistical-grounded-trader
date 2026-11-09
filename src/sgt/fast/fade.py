@@ -49,16 +49,35 @@ SETTLE_AFTER = timedelta(minutes=60 + 20)       # SIP is free once 15 min old; 5
 NAV0 = 100_000.0
 WEIGHT = 0.05                                   # short notional per trade, share of NAV
 MAX_TRADES_DAY, MAX_OPEN = 15, 8
-DAY_LOSS_STOP = -0.03                           # NAV fraction (estimates) that stops new entries for the day
+DAY_LOSS_STOP = -0.03                           # retired 2026-11-09 (amendment F6); see caps()
 HEARTBEAT_STALE = timedelta(minutes=15)
 ASK_MARGIN = timedelta(seconds=40)              # approval must land this long before the entry deadline
 # Amendment F5 (owner decision 2026-11-04, prereg_fade_challengers: entering 2-4 min late loses most of the edge):
 # not ARMed -> enter at the tested timing and text the trade with "NO <code> = exit now". True restores the
 # F3/F4 ask-first flow (_ask), kept intact for rows created before F5 and for a reversal.
 ASK_FIRST = False
+# Amendment F6 (owner decision 2026-11-09, prereg_fade_stop_slippage_2026-11-09): trade NO-NEWS alerts only. With real
+# stop fills no-news fades earned +1.70% / +1.77% per trade (training / held-out), news fades -0.20% / -0.60%. A
+# news-type alert, or company news found at entry (the same lookup as the trade text), is filtered; an unknown news
+# lookup does not block (the group "all" was still positive, +0.54% before 11:00).
+NO_NEWS = True
+NEWS_REASON = "news (no-news rule, amendment F6)"
 
 Quote = Callable[[str], "float | None"]
+# A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
+# after ``since``. The live IEX quote does; plain test doubles do not and are used as-is.
+
+
+def entry_start(posted: datetime) -> datetime:
+    """When the tested rule can enter: the start of the first 1-minute bar at or after alert + REACTION
+    (telegram_alert_test.attach_trades: bar ts >= posted + 10 s). OMH review 2026-11-09: the live book used to short at
+    the latest print at alert + 10 s, mid-minute, so an alert followed by a halt (no bar for 5+ minutes) was a live
+    trade the backtest never had (prereg_fade_halt_audit_2026-11-09: those events lose -4.9% / -7.4% per trade)."""
+    t = posted + REACTION
+    floor = t.replace(second=0, microsecond=0)
+    return t if t == floor else floor + timedelta(minutes=1)
 Borrow = Callable[[str, datetime], dict]
+NewsCheck = Callable[[str, datetime], "dict | None"]          # company-news flags at a time; None = unknown
 BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable")
 Official = Callable[[pd.DataFrame], pd.DataFrame]
 
@@ -103,14 +122,17 @@ def caps(db: OpsStore, session: str) -> str | None:
     """Risk caps that block any new entry (automatic or approved), or None."""
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status IN "
-                          "('ask','pending','open','est_closed','settled','void')", (session,)).fetchone()[0]
+                          "('ask','pending','open','est_closed','settled')", (session,)).fetchone()[0]   # void: not a trade
         n_open = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('ask','pending','open')").fetchone()[0]
     if n_day >= MAX_TRADES_DAY:
         return f"daily cap {MAX_TRADES_DAY}"
     if n_open >= MAX_OPEN:
         return f"open cap {MAX_OPEN}"
-    if day_est_pnl(db, session) <= DAY_LOSS_STOP:
-        return f"day loss stop {DAY_LOSS_STOP:.0%}"
+    # 2026-11-09 owner decision (prereg_alert_fade amendment F6): the day-loss stop is removed. The breaker study
+    # (prereg_fade_dayflow_2026-11-08) found fades after two losses earned +2.18% (training), so stopping costs ~1.3%
+    # per session, and it acted on noisy IEX estimates. Kept for reference:
+    # if day_est_pnl(db, session) <= DAY_LOSS_STOP:
+    #     return f"day loss stop {DAY_LOSS_STOP:.0%}"
     return None
 
 
@@ -125,10 +147,13 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     session = et.date().isoformat()
     if not default_calendar().is_session(et.date()):
         return "not a session"
-    entry_et = (a.posted_at + REACTION).astimezone(ET).time()
+    entry_et = entry_start(a.posted_at).astimezone(ET).time()     # the tested entry bar's minute (09:30-15:44)
     if not FIRST_ENTRY <= entry_et <= LAST_ENTRY:
         _insert(db, a, session, "filtered", "outside 09:30-15:44", now)
         return "filtered: window"
+    if NO_NEWS and a.alert_type == "news":                         # amendment F6 (owner 2026-11-09)
+        _insert(db, a, session, "filtered", NEWS_REASON, now)
+        return "filtered: news"
     if now - a.posted_at > MAX_ENTRY_DELAY:
         _insert(db, a, session, "skipped", "alert received late", now)
         return "skipped: late"
@@ -149,7 +174,7 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
 
 
 def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None,
-            context: Callable[[str], dict] | None = None) -> None:
+            context: Callable[[str], dict] | None = None, news: NewsCheck | None = None) -> None:
     """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
     open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event."""
     now = now or utcnow()
@@ -160,7 +185,7 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borro
         try:
             if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
                 r = _stamp(db, r, borrow(r["symbol"], now))
-            _advance(db, send, quote, r, now, context)
+            _advance(db, send, quote, r, now, context, news)
         except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
             log.exception("fade row %s failed", r["id"])
 
@@ -182,11 +207,11 @@ def record(db: OpsStore) -> tuple[int, float | None]:
     return int(n), mean
 
 
-def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
+def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None) -> None:
     if r["status"] == "ask":
         _ask(db, send, quote, r, now, context)
     elif r["status"] == "pending":
-        _enter(db, send, quote, r, now, context)
+        _enter(db, send, quote, r, now, context, news)
     else:
         _exit(db, send, quote, r, now)
 
@@ -254,18 +279,21 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
         _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context)
 
 
-def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
+def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
-    if now < posted + REACTION:
+    start = entry_start(posted)
+    if now < start:
         return
     allowed = approvals.armed(db, now) or (r["reason"] in ("approved", "auto", VETO) and not approvals.disarmed(db, now))
     if not allowed:                                   # DISARM / PAUSE after the alert cancels the entry
         _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
         return
-    px = quote(r["symbol"])
+    if NO_NEWS and news is not None and r["news_own"] is None and _company_news(db, r, news(r["symbol"], now)):
+        return
+    px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
     if px is None or not px > 0:
-        if now - posted > MAX_ENTRY_DELAY:
-            _set(db, r["id"], "pending", status="skipped", reason="no quote within 5 min")
+        if now - posted > MAX_ENTRY_DELAY:          # the tested rule: no bar within 5 minutes -> no trade (halts)
+            _set(db, r["id"], "pending", status="skipped", reason="no trade print within 5 min (halted or no quote)")
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
@@ -361,6 +389,20 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
             n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='est_closed'",
                               (r["session"],)).fetchone()[0]
         send(out_text(r, entry, exit_px, why, usd, day_est_pnl(db, r["session"]) * v, n_day))
+
+
+def _company_news(db: OpsStore, r, flags: dict | None) -> bool:
+    """Amendment F6: stamp the entry-time news flags; True (and filtered) when the company has news today.
+    Unknown (None) never blocks and is retried on the next tick only while the entry is still pending."""
+    if flags is None:
+        return False
+    own, earn = int(bool(flags.get("news_own"))), int(bool(flags.get("news_earn")))
+    if own or earn:
+        _set(db, r["id"], "pending", status="filtered", reason=NEWS_REASON, news_own=own, news_earn=earn,
+             news_head=flags.get("headline"))
+        return True
+    _set(db, r["id"], "pending", news_own=0, news_earn=0)
+    return False
 
 
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:

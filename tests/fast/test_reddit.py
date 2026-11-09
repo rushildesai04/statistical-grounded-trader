@@ -71,3 +71,9 @@ def test_entry_text_lines():
     t = fade.ask_text("ZZZZ", "news", 2.0, 5000, {**base, "reddit": {"rd_rank": None, "rd_mentions": 0}}, "")
     assert "👽 Reddit: not among the ~700 most-mentioned stock tickers today" in t
     assert "Reddit" not in fade.ask_text("ZZZZ", "news", 2.0, 5000, base, "")   # unknown: no line
+
+
+def test_table_gives_up_when_the_site_is_slow(monkeypatch):
+    clock = iter([0.0, 100.0, 200.0])
+    monkeypatch.setattr(reddit.time, "monotonic", lambda: next(clock))
+    assert reddit.lookup("GME", AT, client([])) is None and reddit._TABLE["rows"] is None
