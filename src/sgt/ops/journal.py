@@ -100,3 +100,28 @@ def insights(db: OpsStore, limit: int = 30) -> list[dict]:
             continue
         out.append({"run_at": r["run_at"], "model": r["model"], "scope": r["scope"], "body": body})
     return out
+
+
+REVIEWED = "insights_reviewed_id"
+
+
+def pending_tests(db: OpsStore) -> int:
+    """Proposed tests from AI runs the agent has not reviewed yet (learning-loop audit F3: insight -> test queue)."""
+    seen = int(db.flag(REVIEWED) or 0)
+    with db.tx() as c:
+        rows = c.execute("SELECT body FROM trade_insights WHERE id > ?", (seen,)).fetchall()
+    n = 0
+    for r in rows:
+        try:
+            n += sum(1 for d in json.loads(r["body"]).get("distilled", []) if d.get("proposed_test"))
+        except (ValueError, AttributeError):
+            continue
+    return n
+
+
+def mark_reviewed(db: OpsStore) -> int:
+    """Record that every insight so far was reviewed (each accepted idea gets a prereg in docs/findings)."""
+    with db.tx() as c:
+        top = c.execute("SELECT COALESCE(MAX(id), 0) FROM trade_insights").fetchone()[0]
+    db.set_flag(REVIEWED, str(top))
+    return int(top)

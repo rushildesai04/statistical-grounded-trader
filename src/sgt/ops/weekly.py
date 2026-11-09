@@ -57,5 +57,13 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
     over = _line(reports / "megacap_overlay" / "shadow_summary.json")
     if over:
         lines.append("Stock model: " + over.replace("megacap overlay fwd ", ""))
+    try:                                              # every book vs its tested expectation (live monitor)
+        from sgt.learning import live_monitor
+
+        mon = live_monitor.lines(live_monitor.check_all(db))
+        if mon:
+            lines += ["Live vs tested:"] + [f"  {m}" for m in mon]
+    except Exception:  # noqa: BLE001 - one section must never block the weekly text
+        lines.append("live monitor: unavailable")
     lines.append(f"Decisions come at {DECIDE_N} live trades; one week is noise. Reply STATUS for the books.")
     return "\n".join(lines)

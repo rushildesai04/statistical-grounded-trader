@@ -162,7 +162,11 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--all", action="store_true", help="review every past trade (first run)")
+    ap.add_argument("--reviewed", action="store_true", help="agent: mark every insight so far as reviewed")
     args = ap.parse_args()
+    if args.reviewed:
+        print(f"insights reviewed through id {journal.mark_reviewed(OpsStore())}")
+        return 0
     key = get_secret("openai_key", required=False)
     if not key:
         print("trade analyst: dormant (no openai_key secret)")
