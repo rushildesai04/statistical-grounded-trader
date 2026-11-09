@@ -115,7 +115,7 @@ def caps(db: OpsStore, session: str) -> str | None:
     """Risk caps that block any new entry (automatic or approved), or None."""
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status IN "
-                          "('ask','pending','open','est_closed','settled','void')", (session,)).fetchone()[0]
+                          "('ask','pending','open','est_closed','settled')", (session,)).fetchone()[0]   # void: not a trade
         n_open = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('ask','pending','open')").fetchone()[0]
     if n_day >= MAX_TRADES_DAY:
         return f"daily cap {MAX_TRADES_DAY}"

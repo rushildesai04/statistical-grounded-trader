@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 
 import httpx
@@ -25,6 +26,7 @@ URL = "https://apewisdom.io/api/v1.0/filter/all-stocks/page/{page}"
 UA = "statistical-grounded-trader/1.0"
 TIMEOUT, MAX_BYTES, MAX_PAGES = 5.0, 512 * 1024, 15
 CACHE_TTL = timedelta(minutes=10)
+TABLE_BUDGET = 6.0                               # seconds for the whole table
 _SYMBOL = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _TABLE: dict = {"at": None, "rows": None}        # last full table: {"at": datetime, "rows": {TICKER: row}}
 
@@ -81,7 +83,11 @@ def table(at: datetime, client: httpx.Client | None = None) -> dict[str, dict] |
         if first is None:
             return None
         rows, pages = first
+        deadline = time.monotonic() + TABLE_BUDGET
         for p in range(2, pages + 1):
+            if time.monotonic() > deadline:              # bounded wall time: a slow site is "unknown", not a stall
+                log.warning("apewisdom table over %.0fs at page %d", TABLE_BUDGET, p)
+                return None
             nxt = parse(_page(client, p) or {})
             if nxt is None:
                 return None

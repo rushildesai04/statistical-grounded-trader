@@ -21,6 +21,9 @@ import logging
 import re
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -50,6 +53,7 @@ SESSION_SECRET = "tg_fade_session"
 DEVICE = "SGT fade listener (Fly)"              # how the session shows in Telegram > Settings > Devices
 BARS = Path("data/fast")                       # own store: never mixes with research bar stores
 TICK = 10                                      # seconds between monitor passes (approval -> entry latency)
+CONTEXT_BUDGET = 8.0                           # seconds for all informational lookups of one trade text
 POLL_EVERY = 3600                              # seconds between gap-filling channel polls (research record)
 FORWARD_START = datetime(2026, 10, 30, tzinfo=timezone.utc)   # alert_fade_forward.FORWARD_START (amendment F1)
 MAX_FADE_TEXTS_DAY = 40
@@ -173,13 +177,37 @@ def iex_context(client: httpx.Client):
         bars = live_bars(client, symbol, now)
         if not bars.empty:
             out["signals"] = signals.snapshot(bars, pd.Timestamp(now), prev_close=pc or None, prior_day_volume=pv or None)
-        out["news"] = live_news(client, symbol, now)
-        out["filings"] = filings.lookup(symbol, now, since_8k=news.window_start(now))   # None = unknown
-        out["social"] = social.lookup(symbol, now)                                       # None = unknown
-        out["x"] = xsocial.lookup(symbol, now)                    # None = dormant (no key), capped or unknown
-        out["reddit"] = reddit.lookup(symbol, now)                # None = unknown (ApeWisdom down)
+        # Review 2026-11-09: these ran one after another inside the serial monitor pass (worst case ~100 s: Reddit
+        # alone up to 15 pages x 5 s), delaying every other trade's stop/exit and the real-money step. Now in
+        # parallel with one wall-clock budget; anything late is None = unknown (texts already treat None that way).
+        jobs = {"news": lambda: live_news(client, symbol, now),
+                "filings": lambda: filings.lookup(symbol, now, since_8k=news.window_start(now)),
+                "social": lambda: social.lookup(symbol, now),
+                "x": lambda: xsocial.lookup(symbol, now),           # None = dormant (no key), capped or unknown
+                "reddit": lambda: reddit.lookup(symbol, now)}       # None = unknown (ApeWisdom down)
+        out.update(gather(jobs, CONTEXT_BUDGET))
         return out
     return ctx
+
+
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ctx")
+
+
+def gather(jobs: dict, budget: float) -> dict:
+    """Run informational lookups in parallel; each result or None if it failed or missed the shared deadline."""
+    futs = {k: _POOL.submit(f) for k, f in jobs.items()}
+    deadline = time.monotonic() + budget
+    out = {}
+    for k, fut in futs.items():
+        try:
+            out[k] = fut.result(timeout=max(0.0, deadline - time.monotonic()))
+        except FuturesTimeout:
+            log.warning("context %s missed the %.0fs budget", k, budget)
+            out[k] = None
+        except Exception as exc:  # noqa: BLE001 - informational: a failed lookup is unknown, never fatal
+            log.warning("context %s failed: %s", k, type(exc).__name__)
+            out[k] = None
+    return out
 
 
 def live_bars(client: httpx.Client, symbol: str, at: datetime) -> pd.DataFrame:

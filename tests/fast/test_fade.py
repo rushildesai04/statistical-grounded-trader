@@ -616,3 +616,18 @@ def test_entry_window_uses_the_tested_bar_minute(db):
     assert fade.on_alert(db, alert("EARLY", at=et(9, 29, 45)), now=et(9, 29, 46)) != "filtered: window"   # bar 09:30
     assert fade.on_alert(db, alert("LATE1", at=et(15, 43, 50), mid=2), now=et(15, 43, 51)) != "filtered: window"
     assert fade.on_alert(db, alert("LATE2", at=et(15, 44, 30), mid=3), now=et(15, 44, 31)) == "filtered: window"
+
+
+def test_context_lookups_run_in_parallel_within_one_budget():
+    import time as _t
+
+    def slow():
+        _t.sleep(2)
+        return "late"
+
+    def boom():
+        raise RuntimeError("down")
+    t0 = _t.monotonic()
+    got = fl.gather({"a": lambda: 1, "b": slow, "c": boom, "d": lambda: {"x": 2}}, budget=0.5)
+    assert got == {"a": 1, "b": None, "c": None, "d": {"x": 2}}          # late or failed = unknown, never fatal
+    assert _t.monotonic() - t0 < 1.5                                      # bounded by the budget, not the sum

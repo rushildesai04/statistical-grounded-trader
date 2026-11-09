@@ -566,7 +566,6 @@ function learning() {
   box.hidden = false;
 }
 
-const mtPaints = [];
 const mtPc = (x, d = 1) => x == null ? "–" : (x >= 0 ? "+" : "") + (x * 100).toFixed(d) + "%";
 const mtNum = (x, d = 2) => x == null ? "–" : x.toFixed(d);
 const mtSign = x => x == null ? null : (x > 0 ? "pos" : x < 0 ? "neg" : null);
@@ -607,8 +606,17 @@ function mtDraw(box, eqBox, v) {
     m.applyOptions({ color: css("--accent") }); h.applyOptions({ color: css("--muted") });
   };
   paint(); ch.timeScale().fitContent(); e.timeScale().fitContent();
-  mtPaints.push(paint);
+  return { paint, remove() { ch.remove(); e.remove(); } };
 }
+
+// 2026-11-09: drawing all 21 cards at once made 42 charts / 294 canvases (~246 MB of canvas at iPhone size), over
+// Safari's 224 MB canvas cap, so the Models tab went blank on the phone. Charts now exist only near the viewport.
+const mtLive = new Map();
+const mtObserver = "IntersectionObserver" in window ? new IntersectionObserver(entries => entries.forEach(en => {
+  const card = en.target, live = mtLive.get(card);
+  if (en.isIntersecting && !live) mtLive.set(card, mtDraw(card._mtBox, card._mtEq, card._mtView));
+  else if (!en.isIntersecting && live) { live.remove(); mtLive.delete(card); }
+}), { rootMargin: "600px 0px" }) : null;
 
 function mtBoot() {
   if (mtDrawn || !DATA.models) return;
@@ -638,7 +646,8 @@ function mtBoot() {
     Object.entries(s.by_year || {}).forEach(([y, r]) => yrs.append(el("span", null, y + " " + mtPc(r.model, 0) + " (hold " + mtPc(r.hold, 0) + ")")));
     c.append(top, f, box, el("span", "label", "Equity since 2018: model vs hold"), eq, yrs);
     list.append(c);
-    mtDraw(box, eq, v);
+    c._mtBox = box; c._mtEq = eq; c._mtView = v;
+    if (mtObserver) mtObserver.observe(c); else mtLive.set(c, mtDraw(box, eq, v));
   });
 }
 
@@ -666,7 +675,7 @@ function boot() {
   if (days.length) show(days[0]); else { tape([]); document.getElementById("list").append(el("div", "empty", "No trades yet.")); }
   let current = days[0];
   bar.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.day) current = e.target.dataset.day; });
-  const repaint = () => { charts.forEach(p => p()); mtPaints.forEach(p => p());
+  const repaint = () => { charts.forEach(p => p()); mtLive.forEach(l => l.paint());
     if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
   if (location.hash === "#models") showTab("models");
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
