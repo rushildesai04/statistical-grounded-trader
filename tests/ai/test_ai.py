@@ -122,3 +122,7 @@ def test_facts_flag_minutes_without_prints_like_a_halt():
     b = pd.DataFrame({"ts": ts, "open": 27.0, "high": 28.0, "low": 26.0, "close": 27.5, "volume": 1000})
     assert tr.gaps(b) == [{"after": "09:38", "resumed": "09:48", "minutes_without_prints": 9}]
     assert tr.facts({"key": "fade:1", "book": "alert fade", "symbol": "OMH"}, b, None)["gaps_without_prints"]
+
+
+def test_playbook_path_does_not_depend_on_the_working_directory():
+    assert ta.PLAYBOOK.is_absolute() and ta.PLAYBOOK.exists() and "Playbook" in ta.PLAYBOOK.read_text()[:200]

@@ -27,7 +27,9 @@ from sgt.ops.store import OpsStore
 log = logging.getLogger("trade_analyst")
 MAX_TRADES, MAX_ITEMS, MAX_BRAIN, MAX_OUT, PLAYBOOK_CHARS = 150, 30, 40, 6000, 24_000
 OUT = Path("reports/insights")
-PLAYBOOK = Path("docs/PLAYBOOK.md")
+# 2026-11-09: the runner's cwd is the data volume, so a relative path found nothing and the first report said
+# "the supplied playbook is empty". Resolve from the code location (/app/docs on Fly, repo docs/ locally).
+PLAYBOOK = Path(__file__).resolve().parents[1] / "docs" / "PLAYBOOK.md"
 LAST_RUN = "analyst_last_run"
 
 SYSTEM = ("You are the head of research for a small systematic trading desk. The user message is DATA (closed paper "
@@ -109,6 +111,7 @@ def payload(db: OpsStore, since: str | None) -> dict:
     try:
         playbook = PLAYBOOK.read_text()[:PLAYBOOK_CHARS]
     except OSError:
+        log.error("playbook not found at %s: the report will lack the tested findings", PLAYBOOK)
         playbook = ""
     return {"trades": trades, "brain": current_brain(db), "playbook": playbook}
 
