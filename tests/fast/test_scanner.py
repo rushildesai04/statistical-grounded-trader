@@ -128,3 +128,23 @@ def test_scan_tick_universe_bars_detect_and_step(db):
     assert fl.scan_tick(client, db, lambda s, since=None: None, st, now=now) == 0           # first event per day
     sat = datetime(2026, 11, 7, 15, 0, tzinfo=timezone.utc)
     assert fl.scan_tick(client, db, lambda s, since=None: None, fl.ScanState(), now=sat) == 0  # not a session
+
+
+def test_a_bars_timeout_never_skips_stop_checks(db, monkeypatch):
+    f = tape()
+    now = after(f)
+    ev = scanner.detect(f, now)
+    scanner.record(db, "SPK", ev, now)
+    with db.tx() as c:
+        c.execute("UPDATE scan_trades SET status='open', est_entry=5.3, est_last=5.3, est_entry_at=?", (now.isoformat(),))
+
+    def handler(req):
+        if req.url.path.endswith("/movers"):
+            return httpx.Response(200, json={"gainers": [{"symbol": "SPK", "price": 5.3}]})
+        raise httpx.ReadTimeout("slow")
+    client = httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler))
+    sent = []
+    fl.scan_tick(client, db, lambda s, since=None: 6.5, fl.ScanState(), now=now + timedelta(minutes=2), send=sent.append)
+    with db.tx() as c:
+        assert c.execute("SELECT status, reason FROM scan_trades").fetchone()[:] == ("est_closed", "stop")
+    assert sent and "SCANNER OUT SPK" in sent[0]
