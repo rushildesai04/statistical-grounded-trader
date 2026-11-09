@@ -58,6 +58,9 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    -1.18% per trade (training / held-out), jumpiest fifth +3.64% / +4.86%; holds in every time-of-day bucket, price
    band and news group, 15 of 18 months. Found after looking -> forward shadows `calm skip` and `vol up`
    (`prereg_fade_calmskip_2026-11-08`). Inverse-volatility sizing (the textbook version) is rejected.
+19. **Two red weeks mean nothing; check for look-ahead first.** Even with the edge intact 36% of 2-week windows are
+   negative (45.5% of days). A promising split (entering at a fresh high: -0.59% vs +1.99%) used the entry bar's own
+   high, which happens after the entry: with point-in-time data it vanished (`docs/research/architecture_audit_2026-11-09.md`).
 18. **Real stop fills cost ~1% per stop; only no-news alerts survive them.** SIP trades at every historical stop:
    slippage +0.82% / +1.44% mean (median ~0.35%). Net with real stops: no-news **+1.70% / +1.77%** (lower bounds
    +0.88% / +0.47%), news **-0.20% / -0.60%**; with a 1.5% locate no-news stays +0.70% / +0.77%
