@@ -13,3 +13,13 @@ H: fades of HIGH-buzz alerts earn more (the attention mechanism). High = `x_n60`
 trades at the decision point. Mean official net (high) - (low), session bootstrap (10,000, seed 20261108), one-sided
 95% lower bound > 0 -> PASS -> a sizing shadow is pre-registered separately. Unknown (no key, capped, error) is
 reported apart, never as low buzz. Secondary: agreement with StockTwits buzz; unique authors; engagement.
+
+## Amendment A1 (2026-11-08, before any X data was recorded: 0 rows with `x_n60` on the runner)
+Owner: spend as little as possible for the most information. X bills search per post returned ($0.005 each, so a
+100-post page costs up to $0.50) and counts per request ($0.005). New collection, per alert:
+- `x_n60`, `x_n15` from `/2/tweets/counts/recent` (minute buckets): exact and uncapped (the 100-post page saturated
+  on busy names, e.g. a TSLA test returned 100). The primary measure is unchanged in meaning and now measured better.
+- `x_authors`, `x_eng` now over the NEWEST <= 10 posts only (API minimum page), fetched only when `x_n60` > 0; NULL
+  when that call fails. Secondary measures only; reported as "among the newest 10".
+- One lookup per symbol per 10 minutes (a second text for the same trade reuses it); at most 60 paid lookups a day.
+Worst case $0.055 per lookup (was $0.50). Hypothesis, test, threshold and decision point are unchanged.

@@ -149,6 +149,14 @@ def social_line(st: dict | None) -> str | None:
             f"span {st['st_span_min']:.0f} min{w} " + italic("(retail buzz, recorded, not a tested filter)"))
 
 
+def x_line(xs: dict) -> str:
+    """X attention (counts exact; accounts / likes over the newest few posts, the cheap sample, 2026-11-08)."""
+    head = f"𝕏 {xs['x_n60']} posts last hour"
+    if xs.get("x_authors") is None or not xs.get("x_k"):
+        return head
+    return f"{head}; newest {xs['x_k']}: {xs['x_authors']} accounts, {xs['x_eng']:,} likes/reposts"
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None,
              at: datetime | None = None) -> str:
@@ -176,8 +184,7 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         lines.append(line)
     xs = ctx.get("x")
     if xs:
-        lines.append(f"𝕏 {xs['x_n60']} posts last hour from {xs['x_authors']} accounts, {xs['x_eng']:,} likes/reposts "
-                     + italic("(recorded, not a tested filter)"))
+        lines.append(x_line(xs) + " " + italic("(recorded, not a tested filter)"))
     why = [PLAIN.get(alert_type, alert_type)]
     if ctx.get("chg_day") is not None:
         why.append(f"{'up' if ctx['chg_day'] >= 0 else 'down'} {abs(ctx['chg_day']):.0%} today")
