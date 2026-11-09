@@ -148,3 +148,18 @@ def test_billed_but_unusable_answer_keeps_its_usage(db):
     with pytest.raises(oa.BilledError):
         oa.chat_json(httpx.Client(transport=httpx.MockTransport(handler)), db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
     assert int(db.flag(oa._budget_key(NOW))) == 900
+
+
+
+def test_a_billed_answer_that_fails_before_parsing_keeps_the_reservation(db, monkeypatch):
+    # pass 2, F-11: HTTP 200 means billed; an oversize or non-JSON body must not give the reservation back
+    monkeypatch.setattr(oa, "MAX_BYTES", 50)
+    big = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, content=b"x" * 500)))
+    with pytest.raises(oa.BilledError):
+        oa.chat_json(big, db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(oa._budget_key(NOW))) == 1500
+    monkeypatch.setattr(oa, "MAX_BYTES", 10_000)
+    junk = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, content=b"<html>oops")))
+    with pytest.raises(oa.BilledError):
+        oa.chat_json(junk, db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
+    assert int(db.flag(oa._budget_key(NOW))) == 3000

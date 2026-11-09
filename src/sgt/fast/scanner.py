@@ -113,8 +113,12 @@ def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
         try:
             bar = datetime.fromisoformat(r["bar_ts"])
             start = bar + timedelta(minutes=1)                   # the tested entry bar t+1
+            close = session_close(r["session"])                  # F-9: the calendar's close (13:00 on half days)
             if r["status"] == "pending":
                 if now < start:
+                    continue
+                if now >= close or start >= close:               # pass 2, F-12: never open on a post-close print
+                    _set(db, r["id"], "pending", status="skipped", reason="session closed before entry")
                     continue
                 px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
                 if px is None or not px > 0:
@@ -128,7 +132,6 @@ def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
                                f"Why: +5% in 5 min on 5x volume to a new high (spike bar {bar.astimezone(ET):%H:%M})\n"
                                f"https://www.tradingview.com/chart/?symbol={r['symbol']}")
                 continue
-            close = session_close(r["session"])           # F-9: the calendar's close (13:00 on half days)
             px = quote(r["symbol"]) if now < close else None   # after the close: the last session mark, not a late print
             entry = r["est_entry"]
             last = px if px and px > 0 else r["est_last"]

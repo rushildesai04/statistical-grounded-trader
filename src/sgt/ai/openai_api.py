@@ -94,12 +94,17 @@ def _call(c: httpx.Client, db: OpsStore, body: dict, reserve: int, now: datetime
             r.read()
             err = (r.json().get("error") or {}) if "json" in r.headers.get("content-type", "") else {}
             raise AIError(f"OpenAI chat -> {r.status_code} {err.get('code') or err.get('type') or ''}".strip())
-        buf = bytearray()
-        for chunk in r.iter_bytes():
+        buf = bytearray()                                       # HTTP 200: billed from here on (pass 2, F-11):
+        for chunk in r.iter_bytes():                            # failures keep the reservation as the usage
             buf += chunk
             if len(buf) > MAX_BYTES:
-                raise AIError(f"OpenAI answer over {MAX_BYTES} bytes")
-    j = json.loads(bytes(buf))
+                raise BilledError(f"OpenAI answer over {MAX_BYTES} bytes")
+    try:
+        j = json.loads(bytes(buf))
+        if not isinstance(j, dict):
+            raise ValueError("response is not an object")
+    except ValueError as exc:
+        raise BilledError("OpenAI response is not JSON") from exc
     used = int((j.get("usage") or {}).get("total_tokens") or 0)
     db.add(_budget_key(now), used - reserve)                    # settle the reservation to the real usage
     msg = ((j.get("choices") or [{}])[0].get("message") or {})
