@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -89,3 +89,24 @@ def test_set_flag_selects_config(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["megacap_forward.py", "auto", "--set", "ext"])
     assert mf.main() == 0
     assert captured["cfg"] is mf.SETS["ext"]
+
+
+def test_retrain_refuses_a_thin_history():
+    import megacap_forward as mf
+
+    class Store:
+        def __init__(self, days):
+            self.days = days
+
+        def sessions(self, s):
+            return self.days
+    cfg = mf.SETS["ext"]
+    upto = date(2026, 10, 30)
+    recent = [upto - timedelta(days=i) for i in range(45)]
+    with pytest.raises(mf.LiveError, match="backfill from"):
+        mf.check_history(Store(recent), cfg, upto)
+    cal_days = [mf.HIST_START + timedelta(days=i) for i in range((upto - mf.HIST_START).days + 1)]
+    full = [d for d in cal_days if mf.default_calendar().is_session(d)]
+    mf.check_history(Store(full), cfg, upto)                                   # complete: passes
+    with pytest.raises(mf.LiveError, match="sessions stored"):
+        mf.check_history(Store(full[::2]), cfg, upto)                          # half the sessions missing

@@ -82,6 +82,25 @@ def last_session_before(d: date) -> date:
     return x
 
 
+MIN_HISTORY = 0.95          # share of sessions since a ticker's first stored session that must be present
+
+
+def check_history(store: ParquetBarStore, cfg: ForwardSet, upto: date) -> None:
+    """Fail closed before training on a thin store (2026-11-09: the runner held 1-minute history only for the
+    original six; the 45-day refresh above would otherwise train the extended set on ~1 month of data)."""
+    cal = default_calendar()
+    for s in cfg.symbols:
+        have = sorted(d for d in store.sessions(s) if d <= upto)
+        if not have or have[0] > HIST_START + timedelta(days=3 * 365):
+            listed = have[0] if have else None
+            if s not in ("RDDT",) or not have:                 # RDDT listed 2024-03-21: its history starts there
+                raise LiveError(f"{s}: 1-minute history starts {listed}; backfill from {HIST_START} first")
+        span = [have[0] + timedelta(days=i) for i in range((upto - have[0]).days + 1)]
+        want = sum(cal.is_session(d) for d in span)
+        if len(have) < MIN_HISTORY * want:
+            raise LiveError(f"{s}: {len(have)} of {want} sessions stored; backfill before retraining")
+
+
 def retrain(month: str, cfg: ForwardSet) -> int:
     if (model_dir(month, cfg.root) / "meta.json").exists():
         print(f"models for {month} exist")
@@ -92,6 +111,7 @@ def retrain(month: str, cfg: ForwardSet) -> int:
     stats = backfill(cfg.symbols, upto - timedelta(days=45), upto, store=store,
                      fetch=AlpacaHistoricalBars(feed="sip").fetch)
     print("1-minute refresh:", dict(stats))
+    check_history(store, cfg, upto)
     daily = adjusted_daily(upto, cfg)
     spy_b, qqq_b = (store.read_frame(s, HIST_START, upto) for s in CONTEXT)
     feats = {}
