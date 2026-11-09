@@ -80,7 +80,7 @@ def test_book_entry_stop_exit_caps_and_first_event(db, monkeypatch):
     monkeypatch.setattr(scanner, "MAX_OPEN", 0)
     assert scanner.record(db, "CAP", ev, now)
     with db.tx() as c:
-        assert c.execute("SELECT status, reason FROM scan_trades WHERE symbol='CAP'").fetchone()[:] == ("skipped", "open cap")
+        assert c.execute("SELECT status, reason FROM scan_trades WHERE symbol='CAP'").fetchone()[:] == ("skipped", "runaway guard")
 
 
 def test_official_result_and_void_and_summary(db):

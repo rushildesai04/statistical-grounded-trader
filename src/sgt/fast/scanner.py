@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 RUNUP, VOL_X, LOOKBACK, MIN_PRIOR, VOL_WINDOW = 0.05, 5.0, 5, 10, 20
 FIRST_BAR, LAST_BAR = time(9, 35), time(15, 44)          # bar t CLOSES in this window (ET)
 WEIGHT, NAV0, STOP, HOLD = 0.005, 100_000.0, 0.20, timedelta(minutes=60)
-MAX_DAY, MAX_OPEN = 20, 10
+MAX_DAY, MAX_OPEN = 10_000, 40                         # owner 2026-11-09: no trade limit; runaway guard only
 MAX_ENTRY_DELAY = timedelta(minutes=5)
 _SYM = re.compile(r"^[A-Z]{1,5}$")
 
@@ -74,7 +74,7 @@ def record(db: OpsStore, symbol: str, ev: dict, now: datetime) -> bool:
         n_day = c.execute("SELECT COUNT(*) FROM scan_trades WHERE session=? AND status!='void'", (session,)).fetchone()[0]
         n_open = c.execute("SELECT COUNT(*) FROM scan_trades WHERE status IN ('pending','open')").fetchone()[0]
         status, reason = ("skipped", "daily cap") if n_day >= MAX_DAY else \
-            ("skipped", "open cap") if n_open >= MAX_OPEN else ("pending", "")
+            ("skipped", "runaway guard") if n_open >= MAX_OPEN else ("pending", "")
         cur = c.execute("INSERT OR IGNORE INTO scan_trades(symbol, session, bar_ts, detected_at, signal_px, status, reason,"
                         " weight, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
                         (symbol, session, iso(ev["bar_ts"].to_pydatetime()), iso(now), ev["signal_px"], status, reason,
