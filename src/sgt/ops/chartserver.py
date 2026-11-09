@@ -125,9 +125,11 @@ def make_handler(token: str, page: Path = PAGE, db_factory=None, origin: str | N
                 if not reads.allow():
                     self._send(429, b"slow down")
                     return
+                from sgt.ai import trade_review
                 from sgt.ops import journal
                 db = store()
-                self._json(200, {"notes": journal.notes(db), "insights": journal.insights(db)})
+                self._json(200, {"notes": journal.notes(db), "insights": journal.insights(db, limit=5),
+                                 "reviews": trade_review.reviews(db)})
                 return
             self._page()
 
