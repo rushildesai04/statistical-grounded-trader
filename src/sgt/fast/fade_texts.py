@@ -176,8 +176,10 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     conf, win, avg, label = confidence(alert_type, ctx, at)
     lines = [f"✅ {bold('FADE IN')} · {head}" if out_at else f"🔻 {head}",
              f"💬 {'Shorted' if out_at else 'Short'} ${size:,.0f} of {symbol}: we make money if it falls",
-             f"🧠 Confidence {bold(f'{conf}')}/100 · {label}: "
-             + italic(f"trades like this win {win:.0%}, avg {avg:+.1%}")]
+             # OMH review 2026-11-09: "Confidence 98/100" read as "98% sure this trade wins". conf is how sure we are
+             # that the AVERAGE of trades like this is positive; the honest per-trade number is the win rate.
+             f"🎲 Win chance {bold(f'{win:.0%}')} · {label}: "
+             + italic(f"avg {avg:+.1%}/trade; {conf}% sure that average is positive")]
     head_line = (ctx.get("news") or {}).get("headline")
     if head_line:
         lines.append(f"📰 “{head_line}”")

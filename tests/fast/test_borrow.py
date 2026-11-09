@@ -66,7 +66,7 @@ def test_fade_stamps_borrow_once_and_shows_it_in_the_approval_text(tmp_path):
     def lookup(sym, now):
         seen.append(sym)
         return facts
-    fade.on_alert(db, fade.LiveAlert("ABC", "volume_spike", T10, "-1", 1), now=T10)
+    fade.on_alert(db, fade.LiveAlert("ABC", "volume_spike", T10 - timedelta(seconds=10), "-1", 1), now=T10)  # +10 s = bar start
     fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(seconds=15), borrow=lookup)
     fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(seconds=25), borrow=lookup)
     assert seen == ["ABC"]

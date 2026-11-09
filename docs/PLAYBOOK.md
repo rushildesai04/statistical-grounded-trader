@@ -58,6 +58,11 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    -1.18% per trade (training / held-out), jumpiest fifth +3.64% / +4.86%; holds in every time-of-day bucket, price
    band and news group, 15 of 18 months. Found after looking -> forward shadows `calm skip` and `vol up`
    (`prereg_fade_calmskip_2026-11-08`). Inverse-volatility sizing (the textbook version) is rejected.
+17. **Halts right after the alert were a live-only loss.** The tested rule enters at the first bar after alert + 10 s
+   within 5 minutes; a halt means no such bar, so the backtest never traded those alerts, but the live book shorted
+   the last pre-halt print. Those events: -4.9% / -7.4% per trade, median -21% (5-8% of alerts). Corrected for live
+   semantics the pooled edge was +0.86%, not +1.01%. Fixed 2026-11-09: live entry = tested entry (OMH review,
+   `prereg_fade_halt_audit_2026-11-09`).
 16. **Our cost model matches real spreads.** Real quoted bid/ask at entry and exit for 2,925 tested fades: round trip
    0.85% / 0.87% vs 0.90% / 0.89% modelled; net +1.18% / +1.33% at real spreads (`docs/research/real_spreads_2026-11-08.md`).
    The edge is not a cost illusion; borrow/locate is the open cost question.
@@ -102,6 +107,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | RAYA 2026-11-06 -20% | alert during a LULD halt; live "entry" $1.425 was a stale print, real reopen $1.52; stop at the squeeze top, back below entry by 10:01 | execution bug + news trade + stop trade-off | stale-quote guard shipped; 3 exit/entry ideas tested, all lose |
 | SERV 2026-11-06 -2.4% | +2.8% at 10:33, ground up, 60-min exit | rule loss, news trade | partial-profit idea tested: -0.50%/trade |
 | STAK 2026-11-06 -2.3% | +4-8% for 40 min, rebound at 11:07 as the timer fired; rose to -9.6% after our exit | rule loss (timer saved a larger loss) | same |
+| OMH 2026-11-09 -23% (live est) | alert 09:38:18, live short $27.04 at 09:38:33; LULD halts 09:39-09:47 and 09:55-09:58; reopened $32.80 over the $32.45 stop; live cover $33.33 (1-min monitor after the halt). Officially void (no tested entry bar within 5 min). Not shortable at IBKR / Alpaca | execution divergence (live entered where the rule cannot) | live entry aligned to the tested bar; halt audit: such events -4.9% / -7.4%; "Confidence 98" relabelled as win chance 57% |
 Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
 
 ## 6. How the system gets smarter

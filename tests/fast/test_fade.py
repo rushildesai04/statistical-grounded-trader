@@ -43,7 +43,10 @@ def ask_first(monkeypatch):
     monkeypatch.setattr(fade, "ASK_FIRST", True)
 
 
-def alert(sym="ABC", typ="volume_spike", at=T10, mid=1, news=None):
+ALERT_AT = T10 - timedelta(seconds=10)          # alert + 10 s = 10:00:00, the start of the tested entry bar
+
+
+def alert(sym="ABC", typ="volume_spike", at=ALERT_AT, mid=1, news=None):
     return fade.LiveAlert(sym, typ, at, "-1", mid, news)
 
 
@@ -249,7 +252,7 @@ def test_declined_skips_and_silence_auto_enters_at_the_deadline(db, ask_first):
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=15))
     no1 = next(t for t in out if bold("NO1") in t)
     ap.answer(db, ap.Command("NO", code_in(no1)), "SM2", now=T10 + timedelta(minutes=1))
-    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=5))
+    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(minutes=4, seconds=45))   # deadline + margin: 4:50
     got = {r["symbol"]: (r["status"], r["reason"]) for r in rows(db)}
     assert got == {"NO1": ("skipped", "declined"), "LATE": ("open", "auto")}
     late_code = code_in(next(t for t in out if bold("LATE") in t))
@@ -289,7 +292,7 @@ def test_official_shifts_approved_trades_to_their_entry_time(tmp_path, monkeypat
 def test_late_entry_exits_at_the_close_like_the_research_window(db):
     ap.arm(db, T10)
     t = datetime(2026, 11, 2, 15, 30, tzinfo=ET).astimezone(timezone.utc)
-    fade.on_alert(db, alert("EOD", at=t), now=t)
+    fade.on_alert(db, alert("EOD", at=t - timedelta(seconds=10)), now=t)
     out = Outbox()
     fade.monitor(db, out, lambda s: 10.0, now=t + timedelta(seconds=20))
     assert "out 16:00 ET" in out[-1]
@@ -356,7 +359,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
     assert body.split("\n") == [
         f"🔻 {bold('SHORT XYZ')} @ {bold('$4.20')}",
         "💬 Short $5,000 of XYZ: we make money if it falls",
-        f"🧠 Confidence {bold('55')}/100 · earnings news today: {italic('trades like this win 52%, avg +0.1%')}",
+        f"🎲 Win chance {bold('52%')} · earnings news today: {italic('avg +0.1%/trade; 55% sure that average is positive')}",
         "📰 “XYZ raises guidance”",
         "📣 halt resumed · up 85% today · +12% from open",
         f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
@@ -368,7 +371,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
         "🔗 https://www.tradingview.com/chart/?symbol=XYZ"]
     quiet = {"news_any": False, "news_own": False, "news_earn": False, "news_n": 0, "headline": None}
     clean = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {"news": quiet}, "")
-    assert f"🧠 Confidence {bold('99')}/100 · no company news" in clean and "📰" not in clean
+    assert f"🎲 Win chance {bold('58%')} · no company news" in clean and "📰" not in clean
     bare = fade.ask_text("XYZ", "news", None, 5000.0, {}, "")
     assert "📣 news\n" in bare and "🏦 borrow unknown" in bare and "stop +20%" in bare
     assert "📊" not in bare and "📈" not in bare and "@ market" in bare
@@ -423,8 +426,8 @@ def test_unarmed_alert_enters_at_the_tested_time_and_texts_the_trade_with_an_exi
     # amendment F5 (owner decision 2026-11-04): no waiting; the entry text carries the card and NO = exit now
     out = Outbox()
     assert fade.on_alert(db, alert("VTO"), now=T10) == "pending #1"
-    fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=5))
-    assert out == [] and rows(db)[0]["status"] == "pending"               # not before alert + 10 s
+    fade.monitor(db, out, lambda s: 10.0, now=T10 - timedelta(seconds=1))
+    assert out == [] and rows(db)[0]["status"] == "pending"               # not before the tested entry bar
     fade.monitor(db, out, lambda s: 10.0, now=T10 + timedelta(seconds=12),
                  context=lambda s: {"chg_day": 0.5})
     r = rows(db)[0]
@@ -508,12 +511,12 @@ def test_live_bars_feed_the_chart_read_and_tolerate_junk():
 def test_time_of_day_history_line_by_entry_window():
     ctx = {"news": {"news_any": 0, "news_own": 0, "news_earn": 0}}
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc))
-    assert f"🧠 Confidence {bold('98')}/100 · no company news, before 11:00 ET" in t      # confidence v2 (A2)
+    assert f"🎲 Win chance {bold('57%')} · no company news, before 11:00 ET" in t  # v2 (A2)
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 19, 30, tzinfo=timezone.utc))
-    assert f"🧠 Confidence {bold('99')}/100 · no company news, after 14:00 ET" in t
+    assert f"🎲 Win chance {bold('65%')} · no company news, after 14:00 ET" in t
     raya = {"news": {"news_any": 1, "news_own": 1, "news_earn": 0}}                  # RAYA / STAK / SERV 2026-11-06
     t = fade.ask_text("RAYA", "news", 1.52, 5000, raya, "", at=datetime(2026, 11, 6, 14, 39, tzinfo=timezone.utc))
-    assert f"🧠 Confidence {bold('38')}/100 · company news today, before 11:00 ET" in t
+    assert f"🎲 Win chance {bold('53%')} · company news today, before 11:00 ET" in t
     assert fade.confidence("news", {}, datetime(2026, 11, 6, 19, 0, tzinfo=timezone.utc))[0] == 66    # news alert, 14:00
     assert fade.confidence("volume_spike", {}, datetime(2026, 11, 6, 15, 0, tzinfo=timezone.utc))[0] == 93   # unknown
 
@@ -549,6 +552,8 @@ def test_stale_print_is_no_price_only_when_it_looks_halted():
     assert q("SNT") == 1.425                    # stale but flat: thin on IEX, keep the estimate
     assert q("NOBARS") is None                  # unknown: the safe side is to wait
     assert q("LIVE") == 1.425 and q("BAD") is None
+    assert q.since_aware and q("LIVE", since=pd.Timestamp(last["LIVE"]).to_pydatetime()) == 1.425   # print at since
+    assert q("LIVE", since=pd.Timestamp(last["LIVE"]).to_pydatetime() + timedelta(seconds=1)) is None   # older: wait
 
 
 def test_digest_warns_when_the_channel_goes_quiet(db):
@@ -563,3 +568,51 @@ def test_digest_warns_when_the_channel_goes_quiet(db):
                                                        "channel change?)"]
     assert any("channel quiet" in x for x in fade.digest_lines(db, DAY, T10))
     assert fade.channel_health(db, "2026-10-26") == []          # fewer than 5 past sessions: no judgement
+
+
+def test_entry_waits_for_the_tested_bar_and_a_halt_after_the_alert_is_no_trade(db):
+    # OMH 2026-11-09: alert 09:38:18, last print 09:38:33 at $27.04, halted 09:39-09:47, reopened above the stop.
+    # The tested rule enters at the open of the first bar at or after alert + 10 s (09:39), within 5 minutes.
+    assert fade.entry_start(datetime(2026, 11, 9, 14, 38, 18, tzinfo=timezone.utc)) == \
+        datetime(2026, 11, 9, 14, 39, tzinfo=timezone.utc)
+    assert fade.entry_start(ALERT_AT) == T10                             # alert + 10 s exactly on a bar start
+    ap.arm(db, T10)
+    posted = T10 + timedelta(seconds=18)                                # 10:00:18 -> tested bar 10:01
+    fade.on_alert(db, alert("OMH", at=posted), now=posted)
+    prints = {"t": posted + timedelta(seconds=15), "p": 27.04}         # last print before a halt
+
+    def quote(symbol, since=None):
+        return None if since is not None and prints["t"] < since else prints["p"]
+    quote.since_aware = True
+    out = Outbox()
+    fade.monitor(db, out, quote, now=posted + timedelta(seconds=20))    # mid-minute: the old book shorted here
+    assert rows(db)[0]["status"] == "pending" and out == []
+    fade.monitor(db, out, quote, now=T10 + timedelta(minutes=1, seconds=5))   # bar 10:01 started, no new print
+    assert rows(db)[0]["status"] == "pending"
+    fade.monitor(db, out, quote, now=posted + timedelta(minutes=5, seconds=5))   # still halted past 5 minutes
+    r = rows(db)[0]
+    assert r["status"] == "skipped" and r["reason"].startswith("no trade print within 5 min")
+    assert out == []
+
+
+def test_entry_uses_the_first_print_inside_the_tested_bar(db):
+    ap.arm(db, T10)
+    posted = T10 + timedelta(seconds=18)
+    fade.on_alert(db, alert("GO", at=posted), now=posted)
+    prints = {"t": posted, "p": 5.0}
+
+    def quote(symbol, since=None):
+        return None if since is not None and prints["t"] < since else prints["p"]
+    quote.since_aware = True
+    out = Outbox()
+    prints.update(t=T10 + timedelta(minutes=1, seconds=2), p=5.2)      # trading continues into the 10:01 bar
+    fade.monitor(db, out, quote, now=T10 + timedelta(minutes=1, seconds=5))
+    r = rows(db)[0]
+    assert r["status"] == "open" and r["est_entry"] == 5.2
+
+
+def test_entry_window_uses_the_tested_bar_minute(db):
+    et = lambda h, m, s: datetime(2026, 11, 2, h, m, s, tzinfo=ET).astimezone(timezone.utc)  # noqa: E731
+    assert fade.on_alert(db, alert("EARLY", at=et(9, 29, 45)), now=et(9, 29, 46)) != "filtered: window"   # bar 09:30
+    assert fade.on_alert(db, alert("LATE1", at=et(15, 43, 50), mid=2), now=et(15, 43, 51)) != "filtered: window"
+    assert fade.on_alert(db, alert("LATE2", at=et(15, 44, 30), mid=3), now=et(15, 44, 31)) == "filtered: window"

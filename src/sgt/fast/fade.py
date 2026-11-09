@@ -58,6 +58,18 @@ ASK_MARGIN = timedelta(seconds=40)              # approval must land this long b
 ASK_FIRST = False
 
 Quote = Callable[[str], "float | None"]
+# A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
+# after ``since``. The live IEX quote does; plain test doubles do not and are used as-is.
+
+
+def entry_start(posted: datetime) -> datetime:
+    """When the tested rule can enter: the start of the first 1-minute bar at or after alert + REACTION
+    (telegram_alert_test.attach_trades: bar ts >= posted + 10 s). OMH review 2026-11-09: the live book used to short at
+    the latest print at alert + 10 s, mid-minute, so an alert followed by a halt (no bar for 5+ minutes) was a live
+    trade the backtest never had (prereg_fade_halt_audit_2026-11-09: those events lose -4.9% / -7.4% per trade)."""
+    t = posted + REACTION
+    floor = t.replace(second=0, microsecond=0)
+    return t if t == floor else floor + timedelta(minutes=1)
 Borrow = Callable[[str, datetime], dict]
 BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable")
 Official = Callable[[pd.DataFrame], pd.DataFrame]
@@ -125,7 +137,7 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     session = et.date().isoformat()
     if not default_calendar().is_session(et.date()):
         return "not a session"
-    entry_et = (a.posted_at + REACTION).astimezone(ET).time()
+    entry_et = entry_start(a.posted_at).astimezone(ET).time()     # the tested entry bar's minute (09:30-15:44)
     if not FIRST_ENTRY <= entry_et <= LAST_ENTRY:
         _insert(db, a, session, "filtered", "outside 09:30-15:44", now)
         return "filtered: window"
@@ -256,16 +268,17 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
-    if now < posted + REACTION:
+    start = entry_start(posted)
+    if now < start:
         return
     allowed = approvals.armed(db, now) or (r["reason"] in ("approved", "auto", VETO) and not approvals.disarmed(db, now))
     if not allowed:                                   # DISARM / PAUSE after the alert cancels the entry
         _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
         return
-    px = quote(r["symbol"])
+    px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
     if px is None or not px > 0:
-        if now - posted > MAX_ENTRY_DELAY:
-            _set(db, r["id"], "pending", status="skipped", reason="no quote within 5 min")
+        if now - posted > MAX_ENTRY_DELAY:          # the tested rule: no bar within 5 minutes -> no trade (halts)
+            _set(db, r["id"], "pending", status="skipped", reason="no trade print within 5 min (halted or no quote)")
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")

@@ -38,10 +38,10 @@ def test_realism_measures_gap_latency_mode_and_waiting_cost(db, monkeypatch):  #
     df = realism.frame(db).set_index("symbol")
     assert df.loc["OKD", "mode"] == "approved" and df.loc["SIL", "mode"] == "auto"
     assert df.loc["OKD", "gap"] == pytest.approx(0.02) and df.loc["SIL", "gap"] == pytest.approx(0.0)
-    assert df.loc["OKD", "latency_s"] == pytest.approx(70) and df.loc["SIL", "latency_s"] == pytest.approx(260)
+    assert df.loc["OKD", "latency_s"] == pytest.approx(80) and df.loc["SIL", "latency_s"] == pytest.approx(270)  # alert 09:59:50
     assert df.loc["OKD", "wait_cost"] == pytest.approx(-0.035) and df.loc["SIL", "wait_cost"] == pytest.approx(0)
     s = realism.summary(realism.frame(db))
     assert s["n"] == 2 and s["modes"] == {"approved": 1, "auto": 1} and s["wait_cost_mean"] == pytest.approx(-0.0175)
     line = realism.lines(db)[0]
     assert line.startswith("fade exec: 2 trades (1 approved, 1 auto); texted vs official +1.00%/trade")
-    assert "alert->entry median 2m45s" in line and "approval cost -1.75%/trade" in line
+    assert "alert->entry median 2m55s" in line and "approval cost -1.75%/trade" in line

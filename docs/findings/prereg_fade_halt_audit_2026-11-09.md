@@ -28,3 +28,18 @@ Live semantics for "first event": per symbol-session the earliest candidate amon
    skips an alert when no SIP/IEX trade prints in the 30 s after alert + 10 s is pre-registered separately and scored
    in shadow (it is the live equivalent of the backtest's "no entry bar"). Otherwise recorded as no material bias.
 Trial ledger run id `fade-halt-audit-2026-11-09`.
+
+## Result (2026-11-09, run once, trial ledger `fade-halt-audit-2026-11-09`) — material bias; decision rule triggered
+| period | tested (ok) events | halt events (dropped by the backtest) | their mean / median net, stop rate | live-semantics per trade |
+|---|---|---|---|---|
+| training | 2,345, +0.97% | 121 (5.2%) | **-4.91% / -20.95%**, 55% | **+0.76%** (n 2,374) |
+| held-out | 764, +1.12% | 62 (8.1%) | **-7.35% / -21.22%**, 63% | +1.18% (n 774) |
+Median gap after the alert 9 minutes (two LULD halts); real halts (>= 5 min) average -7.9% (n 119).
+Live semantics replace 41 training ok events (they averaged +4.93%: later re-alerts that came after a halt) with 70
+halt events (-4.04%); held-out 15 ok events (-2.29%) with 25 halt events (+0.84%). Pooled: +0.86% per trade, not the
+published +1.01%. The published edge is right for the TESTED entry; it was wrong for what the live book did.
+
+Decision (fixed above): (a) PLAYBOOK records the corrected number; (b) instead of a new guard, the live entry is made
+identical to the tested one (`fade.entry_start`: first print at or after the start of the first bar at or after alert
++ 10 s, within 5 minutes; else no trade). That is the backtest's own rule, so no new shadow is needed: OMH would have
+been "no trade print within 5 min". Regression tests: `tests/fast/test_fade.py::test_entry_waits_for_the_tested_bar_*`.
