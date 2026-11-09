@@ -247,6 +247,7 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
     return news.flags(symbol, at, pd.DataFrame(rows, columns=["created_at", "symbols", "headline"]))
 
 
+SCAN_TIMEOUT = 15.0                            # the multi-symbol bars request is large
 MAX_SCAN_TEXTS_DAY = 80                        # anti-spam ceiling on scanner texts (2 per trade)
 SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 120, 10
 
@@ -288,7 +289,11 @@ def scan_bars(client: httpx.Client, symbols: list[str], start: datetime) -> dict
                   "limit": 10000}
         if token:
             params["page_token"] = token
-        r = client.get("/v2/stocks/bars", params=params)
+        try:
+            r = client.get("/v2/stocks/bars", params=params, timeout=SCAN_TIMEOUT)
+        except httpx.HTTPError as exc:          # 2026-11-09: 4 read timeouts/hour on the 94-symbol request
+            log.warning("scanner bars failed: %s", type(exc).__name__)
+            break
         if r.status_code != 200:
             log.warning("scanner bars -> %s", r.status_code)
             break
@@ -320,13 +325,16 @@ def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: 
     if state.at is None or now - state.at >= UNIVERSE_EVERY:
         state.universe, state.at = scan_universe(client, db, session), now
     new = 0
-    if et.time() < time_of(15, 46):
-        start = datetime.combine(et.date(), time_of(9, 30), ET)
-        for sym, f in scan_bars(client, state.universe, start).items():
-            ev = scanner.detect(f, now)
-            if ev is not None and scanner.record(db, sym, ev, now):
-                new += 1
-                log.info("scanner %s spike at %s", sym, ev["bar_ts"])
+    try:
+        if et.time() < time_of(15, 46):
+            start = datetime.combine(et.date(), time_of(9, 30), ET)
+            for sym, f in scan_bars(client, state.universe, start).items():
+                ev = scanner.detect(f, now)
+                if ev is not None and scanner.record(db, sym, ev, now):
+                    new += 1
+                    log.info("scanner %s spike at %s", sym, ev["bar_ts"])
+    except Exception:  # noqa: BLE001 - detection failing must never skip the open trades' stop/exit checks below
+        log.exception("scanner detection failed")
     scanner.step(db, quote, now, send)
     return new
 
