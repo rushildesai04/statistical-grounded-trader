@@ -37,6 +37,8 @@
 0 22 * * 1-5   /app/deploy/entrypoint.sh job fadeconfsize
 # Fade entry-price sizing in shadow (prereg_fade_pricesize_2026-11-06): 1.5x $1-2, 0.5x $2-5, 1x otherwise.
 10 22 * * 1-5  /app/deploy/entrypoint.sh job fadepricesize
+# Fade calm skip / vol-up sizing in shadow (prereg_fade_calmskip_2026-11-08): pre-alert 1-min volatility.
+15 22 * * 1-5  /app/deploy/entrypoint.sh job fadevol
 # Learning scoreboard (2026-11-06): every shadow challenger vs the live rule, flags READY at forward n >= 300.
 # Daily model as a timing overlay on holding (prereg_megacap_overlay_2026-11-06), after the 22:30 marks.
 40 22 * * 1-5  /app/deploy/entrypoint.sh job megacapoverlay
