@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r /app/requirements.lock
 COPY src /app/src
 COPY scripts /app/scripts
 COPY config/models /app/config/models
+COPY docs/PLAYBOOK.md /app/docs/PLAYBOOK.md
 COPY deploy/fly/crontab deploy/fly/entrypoint.sh /app/deploy/
 RUN chmod +x /app/deploy/entrypoint.sh
 
