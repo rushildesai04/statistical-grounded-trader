@@ -17,7 +17,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
 | stop | 20% above entry (worst case inside a bar) | prereg_alert_fade (10/20/30/none explored on train) |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
-| size | 5% of book NAV per trade, max 15 trades/day, 8 open, -3% day loss stop | fade_rule.py |
+| size | 5% of book NAV per trade by default; text `SIZE 10000` sets dollars per trade ($500 to 25% of the book; raising needs a code). Runaway guards only: 40 open, 200% of the book short. No daily cap or loss stop (F6) | fade.py, owner 2026-11-09 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
 | texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |

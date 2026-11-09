@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import pandas as pd
 
+from sgt.fast import fade
 from sgt.intraday.calendar import default_calendar
 from sgt.ops import approvals, book, digest, summary
 from sgt.ops.sms import Sms
@@ -169,8 +170,39 @@ def status_text(db: OpsStore) -> str:
     lines = ["[SGT] status" + ("  ** PAUSED **" if db.paused() else "")]
     lines += digest.book_lines(db, datetime.now(ET).date()) or ["book: flat"]
     lines.append(broker_line())
+    lines.append(size_line(db))
     lines.append(f"pending: {len(pend)}" + "".join(f"\n {p['strategy']}: OK {p['code']}" for p in pend))
     return "\n".join(lines)
+
+
+def size_line(db: OpsStore) -> str:
+    v = fade.nav(db)
+    usd = fade.trade_usd(db)
+    w = fade.trade_weight(db, v)
+    how = "default" if usd is None else (f"set ${usd:,.0f}, capped at {fade.MAX_WEIGHT:.0%}" if w * v < usd - 0.5
+                                        else "set")
+    return f"fade size: ${w * v:,.0f}/trade ({w:.1%} of the ${v:,.0f} paper book, {how})"
+
+
+def size_command(db: OpsStore, sms: Sms, usd: int | None, sid: str) -> str:
+    """SIZE: show. SIZE <dollars>: lowering applies at once (less risk, like PAUSE); raising texts a code first."""
+    if usd is None:
+        return size_line(db) + ". SIZE 10000 sets it."
+    v = fade.nav(db)
+    top = int(fade.MAX_WEIGHT * v)
+    if usd < fade.MIN_TRADE_USD or usd > top:
+        return f"SIZE not changed: allowed ${fade.MIN_TRADE_USD:,.0f} to ${top:,} ({fade.MAX_WEIGHT:.0%} of the book)."
+    if usd <= fade.notional(db) + 0.5:
+        return apply_size(db, usd, sid)
+    if approvals.challenge(db, sms.send, "size", usd=usd) is None:
+        return "A SIZE code was already sent and is still valid (10 min); reply with it."
+    return ""                                      # the challenge text is the reply
+
+
+def apply_size(db: OpsStore, usd: int, sid: str) -> str:
+    db.set_flag(fade.SIZE_FLAG, str(usd))
+    db.audit("size", usd=usd, sid=sid)
+    return f"SIZE: new paper fade trades ${usd:,} each. Open trades keep their size. {size_line(db)}"
 
 
 def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> str:
@@ -195,6 +227,8 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
         approvals.disarm(db)
         return ("DISARMED: no new fast trades today, including auto-entries at expiry. Open fast trades still "
                 "exit on their rules.")
+    if cmd.verb == "SIZE" and cmd.code is None:
+        return size_command(db, sms, cmd.amount, sid)
     if cmd.verb in ("RESUME", "FLATTEN", "ARM", "REAL") and cmd.code is None:
         if approvals.challenge(db, sms.send, cmd.verb.lower()) is None:
             return f"A {cmd.verb} code was already sent and is still valid (10 min); reply {cmd.verb} <code>."
@@ -224,6 +258,14 @@ def handle(db: OpsStore, sms: Sms, cmd: approvals.Command | None, sid: str) -> s
             approvals.finish(db, row["id"], True, "real on")
             return ("REAL ON: on ARMed days each fade is also shorted at Schwab ($500/trade, stop held at Schwab). "
                     "PAPER turns it off; FLATTEN closes the real positions.")
+        if action == "size":
+            usd = int(json.loads(row["payload"])["usd"])
+            top = fade.MAX_WEIGHT * fade.nav(db)        # re-checked: the book may have moved since the code was sent
+            if usd > top:
+                approvals.finish(db, row["id"], False, "over cap")
+                return f"SIZE not changed: ${usd:,} is now over {fade.MAX_WEIGHT:.0%} of the book (${top:,.0f})."
+            approvals.finish(db, row["id"], True, f"size {usd}")
+            return apply_size(db, usd, sid)
         if action == "resume":
             db.set_flag("paused", "0")
             db.set_flag("pilot_kill", "0")         # RESUME is the owner's deliberate restart of the real pilot too

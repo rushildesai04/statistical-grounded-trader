@@ -48,7 +48,11 @@ FIRST_ENTRY, LAST_ENTRY = time(9, 30), time(15, 44)
 PRICE_MIN, PRICE_MAX = 1.0, 50.0
 SETTLE_AFTER = timedelta(minutes=60 + 20)       # SIP is free once 15 min old; 5 min margin
 NAV0 = 100_000.0
-WEIGHT = 0.05                                   # short notional per trade, share of NAV
+WEIGHT = 0.05                                   # default short notional per trade, share of NAV
+# Owner 2026-11-09: dollar size per trade is a setting (SMS ``SIZE 10000``; raising it needs a code). Unset = the
+# 5%-of-NAV default above. Bounds: at least MIN_TRADE_USD, at most MAX_WEIGHT of the book per trade, and new
+# entries stop while open shorts would exceed MAX_GROSS of the book (= the old 40 x 5% runaway bound).
+SIZE_FLAG, MIN_TRADE_USD, MAX_WEIGHT, MAX_GROSS = "fade_trade_usd", 500.0, 0.25, 2.0
 # Owner 2026-11-09: no limit on how many trades: every qualifying alert trades. The only bound left is a RUNAWAY
 # GUARD on simultaneously open positions (a bug or a flood of duplicate alerts), far above anything seen live (max 5).
 MAX_TRADES_DAY, MAX_OPEN = 10_000, 40
@@ -96,6 +100,7 @@ class LiveAlert:
 
 
 def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, now: datetime) -> int | None:
+    w = trade_weight(db) if status in ("pending", "ask") else None      # fixed at entry; settle uses the row's weight
     with db.tx() as c:
         if status != "filtered" and c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND "
                                               "status!='filtered'", (a.symbol, session)).fetchone():
@@ -103,7 +108,7 @@ def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, 
         return c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status,"
                          " reason, weight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                          (a.symbol, session, a.alert_type, iso(a.posted_at), a.channel, a.message_id, status, reason,
-                          WEIGHT if status in ("pending", "ask") else None, iso(now))).lastrowid
+                          w, iso(now))).lastrowid
 
 
 def day_est_pnl(db: OpsStore, session: str) -> float:
@@ -126,11 +131,14 @@ def caps(db: OpsStore, session: str) -> str | None:
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status IN "
                           "('ask','pending','open','est_closed','settled')", (session,)).fetchone()[0]   # void: not a trade
-        n_open = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('ask','pending','open')").fetchone()[0]
+        n_open, gross = c.execute("SELECT COUNT(*), COALESCE(SUM(weight), 0) FROM fade_trades WHERE status IN "
+                                  "('ask','pending','open')").fetchone()
     if n_day >= MAX_TRADES_DAY:
         return f"daily cap {MAX_TRADES_DAY}"
     if n_open >= MAX_OPEN:
         return f"runaway guard: {MAX_OPEN} open"
+    if gross + trade_weight(db) > MAX_GROSS + 1e-9:
+        return f"runaway guard: {gross:.0%} of the book already short"
     # 2026-11-09 owner decision (prereg_alert_fade amendment F6): the day-loss stop is removed. The breaker study
     # (prereg_fade_dayflow_2026-11-08) found fades after two losses earned +2.18% (training), so stopping costs ~1.3%
     # per session, and it acted on noisy IEX estimates. Kept for reference:
@@ -467,9 +475,35 @@ def settle(db: OpsStore, official: Official, now: datetime | None = None) -> lis
     return lines
 
 
+def trade_usd(db: OpsStore) -> float | None:
+    """The owner's dollar size per trade (flag ``SIZE_FLAG``), or None = the WEIGHT default. A value that is not a
+    positive number is ignored with an error log: the default is the smaller, tested size (fail safe)."""
+    raw = db.flag(SIZE_FLAG)
+    if not raw:
+        return None
+    try:
+        usd = float(raw)
+    except ValueError:
+        usd = float("nan")
+    if not usd >= MIN_TRADE_USD or usd == float("inf"):
+        log.error("fade size flag %r invalid: using the %.0f%% default", raw[:20], WEIGHT * 100)
+        return None
+    return usd
+
+
+def trade_weight(db: OpsStore, v: float | None = None) -> float:
+    """Share of the book for one new trade: the dollar setting / current NAV, capped at MAX_WEIGHT."""
+    usd = trade_usd(db)
+    if usd is None:
+        return WEIGHT
+    v = nav(db) if v is None else v
+    return min(usd / v, MAX_WEIGHT) if v > 0 else 0.0
+
+
 def notional(db: OpsStore) -> float:
-    """Dollar size of one new fade trade: WEIGHT x current official book value."""
-    return WEIGHT * nav(db)
+    """Dollar size of one new fade trade: trade_weight x current official book value."""
+    v = nav(db)
+    return trade_weight(db, v) * v
 
 
 def nav(db: OpsStore, through: date | None = None) -> float:
