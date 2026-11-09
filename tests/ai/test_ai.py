@@ -115,3 +115,10 @@ def test_report_validate_bounds():
     v = ta.validate({"patterns": [{"pattern": "p", "confidence": "sure"}] * 99, "brain": [{"principle": "b", "status": "x"}] * 99})
     assert len(v["patterns"]) == ta.MAX_ITEMS and v["patterns"][0]["confidence"] == "low"
     assert len(v["brain"]) == ta.MAX_BRAIN and v["brain"][0]["status"] == "hypothesis"
+
+
+def test_facts_flag_minutes_without_prints_like_a_halt():
+    ts = pd.to_datetime(["2026-11-09 14:38", "2026-11-09 14:48", "2026-11-09 14:49"], utc=True)
+    b = pd.DataFrame({"ts": ts, "open": 27.0, "high": 28.0, "low": 26.0, "close": 27.5, "volume": 1000})
+    assert tr.gaps(b) == [{"after": "09:38", "resumed": "09:48", "minutes_without_prints": 9}]
+    assert tr.facts({"key": "fade:1", "book": "alert fade", "symbol": "OMH"}, b, None)["gaps_without_prints"]
