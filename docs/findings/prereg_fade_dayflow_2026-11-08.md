@@ -26,3 +26,15 @@ OK before it changes the live rule; a FAIL is written into PLAYBOOK section 4.
 ## Secondary (reported only)
 Mean net by number of known prior losses (0 / 1 / 2+) and by burst (0 / 1-2 / 3+); day-level correlation (mean net
 of the first half of a session's trades vs the second half). Trial ledger run id `fade-dayflow-2026-11-08-dev`.
+
+## Result (2026-11-08, run once, trial ledger `fade-dayflow-2026-11-08-dev`) — both FAIL
+| test | training: skipped n / mean (upper bound) | kept mean | per session | held-out skipped |
+|---|---|---|---|---|
+| B breaker (last 2 known results both losses) | 205 / **+2.18%** (+4.08%) | +0.86% | skipping costs -1.26% | 55 / +2.53% |
+| U burst (>= 3 fades in prior 30 min) | 347 / +0.07% (+1.48%) | +1.13% | -0.07% | 103 / +1.65% |
+
+By known prior losses (training): 0 -> +0.76% (n 1,525), 1 -> +1.03% (223), 2+ -> **+1.51%** (597); held-out 2+ ->
++2.66% (260). First-half vs second-half day correlation -0.11 (training), +0.13 (held-out): no clustering.
+Reading: losing streaks do NOT predict the next fade; trades after two losses did better (partly because they come
+later in the day, finding 2). A daily stop-trading rule would have thrown away some of the best trades. Bursts: weak
+in training, reversed in held-out; no filter. Nothing deployed.
