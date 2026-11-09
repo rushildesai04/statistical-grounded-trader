@@ -86,3 +86,9 @@ def test_dormant_without_key(monkeypatch, capsys):
     monkeypatch.setattr(ta, "get_secret", lambda name, required=True: None)
     monkeypatch.setattr(sys, "argv", ["trade_analyst.py"])
     assert ta.main() == 0 and "dormant" in capsys.readouterr().out
+
+
+def test_oversized_answer_is_refused_while_streaming(db, monkeypatch):
+    monkeypatch.setattr(ta, "MAX_BYTES", 100)
+    with pytest.raises(RuntimeError, match="over 100 bytes"):
+        ta.run(db, client(GOOD), "gpt-4.1-mini", everything=True, now=NOW)

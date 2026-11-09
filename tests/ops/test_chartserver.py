@@ -123,3 +123,9 @@ def test_notes_api_bounds_body_and_rate_and_wrong_token(api, monkeypatch):
     assert c.get(f"/{'u' * 40}/api/notes").status_code == 404
     codes = [post(c, {"key": "fade:1", "text": f"n{i}"}).status_code for i in range(chartserver.WRITES_PER_MIN + 3)]
     assert 429 in codes
+
+
+def test_notes_reads_are_rate_limited_too(api):
+    c, _ = api
+    codes = [c.get(f"/{TOKEN}/api/notes").status_code for _ in range(chartserver.READS_PER_MIN + 3)]
+    assert codes[0] == 200 and 429 in codes

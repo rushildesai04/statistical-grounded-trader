@@ -46,6 +46,7 @@ EMPTY = (b"<!doctype html><meta charset=utf-8><title>Fade Tape</title>"
 
 MAX_BODY = 16 * 1024
 WRITES_PER_MIN = 60
+READS_PER_MIN = 120                                # review 2026-11-09 F-1: reads take the DB lock too
 
 
 class _Bucket:
@@ -74,7 +75,7 @@ def make_handler(token: str, page: Path = PAGE, db_factory=None, origin: str | N
     bare = want[:-1]                                   # 2026-11-05: owner's pasted link dropped the trailing slash
     api = f"/{token}/api/notes".encode()
     allowed_origin = (origin or os.environ.get("SGT_CHARTS_BASE", "https://sgt-runner.fly.dev")).rstrip("/")
-    bucket = _Bucket(WRITES_PER_MIN)
+    bucket, reads = _Bucket(WRITES_PER_MIN), _Bucket(READS_PER_MIN)
 
     def store():
         if db_factory is not None:
@@ -121,6 +122,9 @@ def make_handler(token: str, page: Path = PAGE, db_factory=None, origin: str | N
 
         def do_GET(self) -> None:                      # noqa: N802 - http.server API
             if self._is_api():
+                if not reads.allow():
+                    self._send(429, b"slow down")
+                    return
                 from sgt.ops import journal
                 db = store()
                 self._json(200, {"notes": journal.notes(db), "insights": journal.insights(db)})
