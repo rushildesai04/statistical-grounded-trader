@@ -414,16 +414,29 @@ def cmd_megacap(db: OpsStore) -> int:
     if datetime.now(ET) >= deadline(fill) or done(db, f"megacap:{d}"):
         print(f"megacap {d}: already proposed or past the {fill} deadline")
         return 0
-    targets = megacap_targets({s: int(v["position"]) for s, v in dec["positions"].items()})
+    positions = {s: int(v["position"]) for s, v in dec["positions"].items()}
+    targets = megacap_targets(positions)
     sms = Sms()
     try:
+        # Owner 2026-11-09: "execute more trades ... from the alphas": model calls trade automatically (paper).
         res = book.propose(db, sms.send, strategy="megacap", targets=targets, fill_session=fill,
-                           deadline=deadline(fill), label=f"megacap {d:%m-%d}")
+                           deadline=deadline(fill), label=f"megacap {d:%m-%d}", auto_all=True)
+        over = book.propose(db, sms.send, strategy=OVERLAY, targets=overlay_targets(positions), fill_session=fill,
+                            deadline=deadline(fill), label=f"overlay {d:%m-%d}", auto_all=True)
         mark_done(db, f"megacap:{d}")
     finally:
         sms.close()
-    print(f"megacap {d}: {res}")
+    print(f"megacap {d}: {res}; overlay: {over}")
     return 0
+
+
+OVERLAY = "megacap_overlay"
+
+
+def overlay_targets(positions: dict[str, int]) -> dict[str, float]:
+    """prereg_megacap_overlay_2026-11-06 as a paper book: hold every name equally; cash on the model's short days."""
+    w = round(1.0 / max(len(positions), 1), 4)
+    return {s: (0.0 if p < 0 else w) for s, p in positions.items()}
 
 
 def tom_role(d: date) -> str | None:

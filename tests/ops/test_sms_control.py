@@ -151,10 +151,16 @@ def test_megacap_proposal_is_sized_and_proposed_once(db, monkeypatch):
     monkeypatch.setattr(sc, "Sms", lambda: sms)
     sc.cmd_megacap(db)
     sc.cmd_megacap(db)
-    assert len(sms.sent) == 1 and "NVDA long" in sms.sent[0] and "MSFT short" in sms.sent[0]
-    t = json.loads(ap.pending(db)[0]["payload"])["targets"]
-    assert 0 < t["NVDA"] <= 0.25 and -0.25 <= t["MSFT"] < 0 and "AAPL" not in t
-    assert abs(t["NVDA"] * 1.0) < 1.0
+    # owner 2026-11-09: model calls execute automatically (no approval), plus the overlay book
+    assert ap.pending(db) == [] and len(sms.sent) == 2
+    assert "megacap" in sms.sent[0] and "NVDA long" in sms.sent[0] and "MSFT short" in sms.sent[0]
+    with db.tx() as c:
+        rows = c.execute("SELECT strategy, symbol, target FROM book_orders WHERE status='scheduled'").fetchall()
+    t = {(r["strategy"], r["symbol"]): r["target"] for r in rows}
+    assert 0 < t[("megacap", "NVDA")] <= 0.25 and -0.25 <= t[("megacap", "MSFT")] < 0
+    assert ("megacap", "AAPL") not in t
+    assert t[(sc.OVERLAY, "NVDA")] == t[(sc.OVERLAY, "AAPL")] == round(1 / 3, 4)    # hold equally ...
+    assert (sc.OVERLAY, "MSFT") not in t                                            # ... cash on short days
 
 
 def test_digest_reports_failed_jobs_and_pending(db, tmp_path):

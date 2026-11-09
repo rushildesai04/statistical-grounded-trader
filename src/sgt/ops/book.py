@@ -73,12 +73,16 @@ def fmt_targets(t: dict[str, float]) -> str:
 
 
 def propose(db: OpsStore, send, *, strategy: str, targets: dict[str, float], fill_session: date,
-            deadline: datetime, label: str, now: datetime | None = None) -> dict:
+            deadline: datetime, label: str, now: datetime | None = None, auto_all: bool = False) -> dict:
+    """``auto_all`` (owner decision 2026-11-09 for the model books): every order is scheduled without an approval
+    text; the owner is informed. Otherwise entries / increases / flips wait for an SMS approval."""
     now = now or utcnow()
     for s, w in targets.items():
         if not math.isfinite(w) or abs(w) > 1.0:
             raise ValueError(f"{strategy}: target {s}={w} outside [-1, 1]")
     auto, ask = split(projected(db, strategy), targets)
+    if auto_all:
+        auto, ask = {**auto, **ask}, {}
     with db.tx() as c:
         _insert(c, strategy, auto, fill_session, "auto", None, label)
     aid = None
