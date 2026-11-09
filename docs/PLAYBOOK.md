@@ -115,6 +115,9 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | SERV 2026-11-06 -2.4% | +2.8% at 10:33, ground up, 60-min exit | rule loss, news trade | partial-profit idea tested: -0.50%/trade |
 | STAK 2026-11-06 -2.3% | +4-8% for 40 min, rebound at 11:07 as the timer fired; rose to -9.6% after our exit | rule loss (timer saved a larger loss) | same |
 | OMH 2026-11-09 -23% (live est) | alert 09:38:18, live short $27.04 at 09:38:33; LULD halts 09:39-09:47 and 09:55-09:58; reopened $32.80 over the $32.45 stop; live cover $33.33 (1-min monitor after the halt). Officially void (no tested entry bar within 5 min). Not shortable at IBKR / Alpaca | execution divergence (live entered where the rule cannot) | live entry aligned to the tested bar; halt audit: such events -4.9% / -7.4%; "Confidence 98" relabelled as win chance 57% |
+| NWGL 2026-11-09 -20% (live est) | alert 10:25:37; short $4.38 at 10:26:31 (54 s); already +15% in 5 min, 14% over VWAP, RSI 75, 5x volume; stopped 6 min later; no halt; IBKR 0 shares | rule loss (stop), no-news | none new: 'wait for a breakdown' tested -0.08%/trade |
+| FISN 2026-11-09 -20% (live est) | live entry $2.32 was a STALE IEX print: SIP traded $2.41-2.44 that minute; the live stop ($2.78) came from it (tested stop ~$2.92) | execution (stale thin-IEX price) | live entry now needs a print inside the tested bar (F6 branch); IEX-only stops lag on thin names -> paid SIP feed before real money |
+| CKX 2026-11-09 +15.6% (live est) | news trade (company news), spike failed and broke down | rule win, news | no-news rule (F6) would have skipped it; news fades -0.20% / -0.60% over 1,384 trades; partial-profit idea tested -0.50% |
 Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
 
 ## 6. How the system gets smarter
