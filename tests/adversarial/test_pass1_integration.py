@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from sgt.ops import book
 from sgt.ops.store import OpsStore, iso
 
 ET = ZoneInfo("America/New_York")
