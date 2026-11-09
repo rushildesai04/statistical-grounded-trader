@@ -58,6 +58,9 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    -1.18% per trade (training / held-out), jumpiest fifth +3.64% / +4.86%; holds in every time-of-day bucket, price
    band and news group, 15 of 18 months. Found after looking -> forward shadows `calm skip` and `vol up`
    (`prereg_fade_calmskip_2026-11-08`). Inverse-volatility sizing (the textbook version) is rejected.
+16. **Our cost model matches real spreads.** Real quoted bid/ask at entry and exit for 2,925 tested fades: round trip
+   0.85% / 0.87% vs 0.90% / 0.89% modelled; net +1.18% / +1.33% at real spreads (`docs/research/real_spreads_2026-11-08.md`).
+   The edge is not a cost illusion; borrow/locate is the open cost question.
 14. **Losing streaks do not predict the next fade; do not stop after losses.** After the day's last two known results
    were losses, the next fade earned +2.18% (training, n 205) / +2.53% (held-out) vs +0.86% otherwise; a daily breaker
    costs ~1.3% per session. Day halves are uncorrelated (`prereg_fade_dayflow_2026-11-08`).
