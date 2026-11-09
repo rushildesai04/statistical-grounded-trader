@@ -31,6 +31,7 @@ ALERTS = Path("reports/ops/alerts")
 # job -> (what it is, what the failure means for money/positions). 2026-11-03: owner asked for no raw errors.
 JOBS = {
     "megacap": ("megacap model update", "No new megacap trade is proposed until it runs again; open positions are unchanged."),
+    "megacapext": ("extended megacap model update", "No new extended-set trade is proposed until it runs again; open positions are unchanged."),
     "etf": ("ETF research record update", "Nothing was traded."),
     "etfbook": ("ETF book proposal", "No ETF change is proposed until it runs again; holdings are unchanged."),
     "rebalance": ("60/40 rebalance", "Reply STATUS before approving anything else."),
@@ -46,6 +47,7 @@ JOBS = {
     "fadetod": ("fade time-of-day sizing shadow", "Nothing was traded; it catches up on the next run."),
     "fadeconfsize": ("fade confidence-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "fadepricesize": ("fade price-sizing shadow", "Nothing was traded; it catches up on the next run."),
+    "analyst": ("AI trade analyst", "No lessons tonight; trading is unaffected. It retries tomorrow."),
     "fadevol": ("fade calm-skip / vol-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "megacapoverlay": ("megacap timing-overlay shadow", "Nothing was traded; it catches up on the next run."),
     "preflight": ("pre-market health check", "The check itself failed; reply STATUS to confirm the books are running."),

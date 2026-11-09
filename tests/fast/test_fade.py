@@ -120,7 +120,7 @@ def test_gates_daily_cap_and_loss_stop(db, monkeypatch):
     for i, s in enumerate(["A", "B", "C"]):
         fade.on_alert(db, alert(s, mid=i), now=T10)
     assert [r["reason"] for r in rows(db)] == ["", "", "daily cap 2"]
-    monkeypatch.setattr(fade, "MAX_TRADES_DAY", 15)
+    monkeypatch.setattr(fade, "MAX_TRADES_DAY", 10_000)
     with db.tx() as c:
         c.execute("UPDATE fade_trades SET status='est_closed', est_entry=10, est_exit=20, weight=0.05 WHERE symbol='A'")
     assert fade.gate(db, DAY.isoformat(), T10) is None                      # F6 2026-11-09: no day-loss stop

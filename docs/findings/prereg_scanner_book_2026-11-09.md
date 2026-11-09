@@ -17,8 +17,8 @@ of the tape, so the live event set differs from SIP's; the official result below
 ## Trade
 Short 0.5% of the scanner book's NAV ($100,000 start) at the first IEX print in bar t+1 (within 5 minutes, else no
 trade); 20% stop; 60-minute exit or the RTH close. OFFICIAL (nightly, SIP): entry = open of bar t+1, cover by
-`alert_fade_test.cover` over 60 minutes, net = gross - modelled round trip - 0.5% locate. Caps: 20 trades per day,
-10 open. One summary text per day (in the digest), no per-trade texts.
+`alert_fade_test.cover` over 60 minutes, net = gross - modelled round trip - 0.5% locate. Caps: no trade-count limit (owner 2026-11-09; runaway guard 40 open),
+One summary text per day (in the digest), no per-trade texts.
 
 ## Decision (forward n >= 300 settled trades)
 Report mean net with a session-bootstrap 95% interval. Upper bound < 0 -> retire the scanner. Lower bound > 0 ->

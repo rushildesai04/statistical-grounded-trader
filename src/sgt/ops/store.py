@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS scan_trades(
   entry_ts TEXT, entry REAL, cover REAL, cost_rt REAL, gross REAL, net REAL, settled_at TEXT, created_at TEXT NOT NULL,
   UNIQUE(symbol, session));
 CREATE INDEX IF NOT EXISTS ix_scan_status ON scan_trades(status, session);
+CREATE TABLE IF NOT EXISTS trade_notes(key TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS trade_notes_history(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS trade_insights(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL, model TEXT NOT NULL, scope TEXT NOT NULL,
+  body TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
 """
 # Additive column migrations for tables that already exist on the runner's volume (CREATE IF NOT EXISTS

@@ -5,6 +5,11 @@
 30 20 * * 1-5  /app/deploy/entrypoint.sh job megacap
 30 22 * * 1-5  /app/deploy/entrypoint.sh job megacap
 0 8 * * *      /app/deploy/entrypoint.sh job megacap
+# Extended daily-model forward test (prereg_megacap_ext_forward_2026-11-09): the other 15 names, own book
+# strategy 'megacap_ext'; same three passes offset 5 min so the two sets never hit Alpaca at once.
+35 20 * * 1-5  /app/deploy/entrypoint.sh job megacapext
+35 22 * * 1-5  /app/deploy/entrypoint.sh job megacapext
+5 8 * * *      /app/deploy/entrypoint.sh job megacapext
 # ETF forward test (F1/F2 vs 60/40): prices + month-end snapshot.
 45 17 * * 1-5  /app/deploy/entrypoint.sh job etf
 # 60/40 paper rebalance: hourly during the first 5 sessions of the month (script gates the window).
@@ -56,3 +61,5 @@
 # Fade Tape chart page (2026-11-05): every 10 min in market hours, and after the official settlement.
 */10 9-16 * * 1-5 /app/deploy/entrypoint.sh job charts
 50 20 * * 1-5  /app/deploy/entrypoint.sh job charts
+# AI trade analyst (owner 2026-11-09): trades + owner notes -> distilled lessons (dormant without openai_key).
+58 22 * * 1-5  /app/deploy/entrypoint.sh job analyst

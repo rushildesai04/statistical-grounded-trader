@@ -48,7 +48,9 @@ PRICE_MIN, PRICE_MAX = 1.0, 50.0
 SETTLE_AFTER = timedelta(minutes=60 + 20)       # SIP is free once 15 min old; 5 min margin
 NAV0 = 100_000.0
 WEIGHT = 0.05                                   # short notional per trade, share of NAV
-MAX_TRADES_DAY, MAX_OPEN = 15, 8
+# Owner 2026-11-09: no limit on how many trades: every qualifying alert trades. The only bound left is a RUNAWAY
+# GUARD on simultaneously open positions (a bug or a flood of duplicate alerts), far above anything seen live (max 5).
+MAX_TRADES_DAY, MAX_OPEN = 10_000, 40
 DAY_LOSS_STOP = -0.03                           # retired 2026-11-09 (amendment F6); see caps()
 HEARTBEAT_STALE = timedelta(minutes=15)
 ASK_MARGIN = timedelta(seconds=40)              # approval must land this long before the entry deadline
@@ -127,7 +129,7 @@ def caps(db: OpsStore, session: str) -> str | None:
     if n_day >= MAX_TRADES_DAY:
         return f"daily cap {MAX_TRADES_DAY}"
     if n_open >= MAX_OPEN:
-        return f"open cap {MAX_OPEN}"
+        return f"runaway guard: {MAX_OPEN} open"
     # 2026-11-09 owner decision (prereg_alert_fade amendment F6): the day-loss stop is removed. The breaker study
     # (prereg_fade_dayflow_2026-11-08) found fades after two losses earned +2.18% (training), so stopping costs ~1.3%
     # per session, and it acted on noisy IEX estimates. Kept for reference:
