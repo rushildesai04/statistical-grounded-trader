@@ -82,3 +82,11 @@ def test_targets_are_bounded(db):
     with pytest.raises(ValueError):
         book.propose(db, Outbox(), strategy="m", targets={"A": 1.5}, fill_session=D[1],
                      deadline=T0 + timedelta(days=1), label="m", now=T0)
+
+
+def test_auto_all_schedules_entries_without_an_approval(db):
+    out = []
+    res = book.propose(db, out.append, strategy="auto", targets={"A": 0.5, "B": -0.2}, fill_session=D[1],
+                       deadline=datetime(2099, 1, 1, tzinfo=timezone.utc), label="auto", auto_all=True)
+    assert res["ask"] == {} and res["approval_id"] is None and res["auto"] == {"A": 0.5, "B": -0.2}
+    assert len(out) == 1 and "auto at" in out[0]
