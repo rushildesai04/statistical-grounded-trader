@@ -728,7 +728,7 @@ function mtBoot() {
 // Markdown preview goes through DOMPurify before it is inserted; without the libraries it falls back to plain text.
 const jnApi = () => (location.pathname.endsWith("/") ? location.pathname : location.pathname + "/") + "api/notes";
 const JN_BOOKS = [["all", "All"], ["fade", "Alert fade"], ["scan", "Scanner"], ["book", "Models"]];
-let jnDrawn = false, jnNotes = {}, jnAI = {}, jnDay = null, jnBook = "all", jnViews = {}, jnMd = null;
+let jnDrawn = false, jnNotes = {}, jnAI = {}, jnRev = {}, jnDay = null, jnBook = "all", jnViews = {}, jnMd = null;
 
 const jnEt = v => { if (v == null || v === "") return null; const d = new Date(typeof v === "number" ? v * 1000 : v);
   return isNaN(d) ? String(v) : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: typeof v === "number" ? "UTC" : "America/New_York" }) + " ET"; };
@@ -764,12 +764,23 @@ function jnInsights(list) {
   box.textContent = "";
   if (!list.length) { sub.textContent = "no analysis yet (runs nightly once the OpenAI key works)"; return; }
   sub.textContent = "latest " + new Date(list[0].run_at).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET · " + list[0].model;
-  (list[0].body.distilled || []).slice(0, 12).forEach(d => {
+  const b0 = list[0].body || {};
+  if (b0.headline) box.append(el("p", null, String(b0.headline)));
+  if (b0.summary) box.append(el("p", "jn-lesson", String(b0.summary)));
+  (b0.distilled || []).slice(0, 12).forEach(d => {
     const p = el("p"); p.append(el("b", null, String(d.insight || "")));
     if (d.evidence) p.append(document.createTextNode(" — " + String(d.evidence)));
     if (d.proposed_test) p.append(el("span", "jn-lesson", " Test: " + String(d.proposed_test)));
     box.append(p);
   });
+  const brain = (list.find(r => Array.isArray((r.body || {}).brain)) || { body: {} }).body.brain || [];
+  if (brain.length) {
+    const bx = el("details"); bx.append(el("summary", "jn-lesson", "Brain: " + brain.filter(b => b.status === "confirmed").length
+      + " confirmed, " + brain.filter(b => b.status === "hypothesis").length + " hypotheses"));
+    brain.filter(b => b.status !== "retired").forEach(b => { const p = el("p"); p.append(el("b", null, "[" + b.status + "] "),
+      document.createTextNode(String(b.principle)), el("span", "jn-lesson", " (" + String(b.evidence || "") + ")")); bx.append(p); });
+    box.append(bx);
+  }
   list.forEach(run => (run.body.per_trade || []).forEach(t => { if (t && t.key && !jnAI[t.key]) jnAI[t.key] = t; }));
 }
 
@@ -787,7 +798,8 @@ function jnCard(e) {
   if (r.usd != null) prices.append(el("span", null, money(r.usd)));
   const flags = el("div", "meta");
   if ((jnNotes[e.key] || {}).text) flags.append(el("span", null, "📝 note"));
-  if (jnAI[e.key]) flags.append(el("span", null, "✦ AI read"));
+  if (jnRev[e.key]) flags.append(el("span", null, "✦ AI: " + jnRev[e.key].verdict));
+  else if (jnAI[e.key]) flags.append(el("span", null, "✦ AI read"));
   c.append(row1, meta, prices); if (flags.childElementCount) c.append(flags);
   c.addEventListener("click", () => { location.hash = "#notes/" + e.key; });
   return c;
@@ -866,8 +878,13 @@ function jnDetail(key) {
     ["StockTwits posts/h", e.st_n60], ["X posts/h", e.x_n60], ["Reddit rank", e.rd_rank], ["Reddit mentions 24h", e.rd_mentions],
     ["spike price", jnPx(e.signal_px)]]));
   cols.append(tl, ctx);
+  const rv = jnRev[key];
+  if (rv) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "AI review · " + (rv.model || "")), jnKV([
+    ["verdict", rv.verdict + " (" + rv.confidence + " confidence)"], ["what happened", rv.what_happened],
+    ["knowable at entry", rv.knowable_at_entry], ["lesson", rv.lesson], ["tags", (rv.tags || []).join(", ")],
+    ["reviewed", jnEt(rv.at)]])); cols.append(ab); }
   const ai = jnAI[key];
-  if (ai) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "AI analyst"), jnKV([["what happened", ai.what_happened],
+  if (ai) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "Nightly report"), jnKV([["what happened", ai.what_happened],
     ["lesson", ai.lesson], ["tags", (ai.tags || []).join(", ")]])); cols.append(ab); }
   box.append(cols);
   const nb = el("div", "jn-box"); nb.append(el("h3", null, "Your notes (Markdown)"));
@@ -914,7 +931,7 @@ async function jnBoot() {
   document.getElementById("jn-q").addEventListener("input", jnBrowse);
   window.addEventListener("hashchange", () => { if (location.hash.startsWith("#notes")) { showTab("notes"); } });
   const days = jnDays();
-  try { const r = await fetch(jnApi()); if (r.ok) { const j = await r.json(); jnNotes = j.notes || {}; jnInsights(j.insights || []); }
+  try { const r = await fetch(jnApi()); if (r.ok) { const j = await r.json(); jnNotes = j.notes || {}; jnRev = j.reviews || {}; jnInsights(j.insights || []); }
         else document.getElementById("jn-ai-sub").textContent = "notes server unavailable (" + r.status + ")"; }
   catch (err) { document.getElementById("jn-ai-sub").textContent = "notes server unavailable"; }
   jnSetDay(days.length ? days[days.length - 1] : new Date().toISOString().slice(0, 10));

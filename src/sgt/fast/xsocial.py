@@ -17,6 +17,7 @@ unknown (error, cap reached), never "no posts".
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -95,6 +96,8 @@ def _get(client: httpx.Client, url: str, params: dict, symbol: str) -> dict | No
 def lookup(symbol: str, at: datetime, client: httpx.Client | None = None) -> dict | None:
     """X attention for ``symbol`` in the hour before ``at``; None = dormant, capped or unknown.
     ``x_authors`` / ``x_eng`` are None when the counts call worked but the sample call did not."""
+    if os.environ.get("SGT_X_ENABLED", "0") != "1":    # owner 2026-11-09: X spending off; budget goes to OpenAI
+        return None
     hit = _CACHE.get(symbol or "")
     if hit and timedelta(0) <= at - hit[0] <= CACHE_TTL:
         return dict(hit[1])

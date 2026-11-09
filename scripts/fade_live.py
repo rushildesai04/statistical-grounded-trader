@@ -326,6 +326,52 @@ def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: 
     return new
 
 
+AI_EVERY, AI_RECHECK = 60, timedelta(hours=1)
+
+
+def ai_bars(client: httpx.Client, symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+    """IEX 1-minute bars for one trade's window (free feed), for the per-trade AI review."""
+    if not _SYMBOL.match(symbol):
+        return pd.DataFrame()
+    r = client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe": "1Min", "start": start.isoformat(),
+                                                        "end": end.isoformat(), "feed": "iex", "limit": 400})
+    rows = (r.json() or {}).get("bars") if r.status_code == 200 else None
+    if not isinstance(rows, list) or not rows:
+        return pd.DataFrame()
+    f = pd.DataFrame([x for x in rows if isinstance(x, dict)]).rename(
+        columns={"t": "ts", "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
+    return f.assign(ts=pd.to_datetime(f.ts, utc=True))[["ts", "open", "high", "low", "close", "volume"]]
+
+
+class AIState:
+    """Per-trade review loop state: the OpenAI client and when the model was last confirmed."""
+
+    def __init__(self) -> None:
+        self.client, self.ok_at = None, None
+
+
+def ai_tick(dc: httpx.Client, db: OpsStore, state: AIState, now: datetime | None = None) -> list[str]:
+    """Review newly closed trades with the per-trade model (owner 2026-11-09). Dormant without the key."""
+    from sgt.ai import openai_api as oa
+    from sgt.ai import trade_review
+
+    now = now or datetime.now(timezone.utc)
+    if state.client is None:
+        state.client = oa.client()
+        if state.client is None:
+            return []
+    if state.ok_at is None or now - state.ok_at >= AI_RECHECK:
+        try:
+            oa.require(state.client, oa.trade_model())
+        except (oa.AIError, httpx.HTTPError) as exc:
+            db.set_flag("ai_review_status", f"paused: {str(exc)[:120]}")
+            state.ok_at = None
+            return []
+        state.ok_at = now
+        db.set_flag("ai_review_status", f"ok ({oa.trade_model()})")
+    return trade_review.run_pending(db, state.client, lambda sym, a, b: ai_bars(dc, sym, a, b), now)
+
+
 def data_client() -> httpx.Client:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
     return httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=5)
@@ -442,7 +488,18 @@ async def run() -> int:
                 log.exception("scanner failed")
             await asyncio.sleep(SCAN_EVERY)
 
-    tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop())]
+    ai_dc, ai_state = data_client(), AIState()
+
+    async def ai_loop():                         # per-trade AI reviews: own connections, never in the trading path
+        while True:
+            try:
+                await asyncio.to_thread(ai_tick, ai_dc, db, ai_state)
+            except Exception:  # noqa: BLE001 - reviews must never stop the listener; logged
+                log.exception("ai review loop failed")
+            await asyncio.sleep(AI_EVERY)
+
+    tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
+             asyncio.create_task(ai_loop())]
     try:
         await client.run_until_disconnected()
     finally:
@@ -450,6 +507,7 @@ async def run() -> int:
             t.cancel()
         await real.close()
         sc.close()
+        ai_dc.close()
         dc.close()
         ac.close()
     return 1                                   # disconnected: exit non-zero so the supervisor restarts us

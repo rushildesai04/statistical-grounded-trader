@@ -42,6 +42,7 @@ def _client(seen, counts_payload, search_status=200):
 
 
 def _reset(monkeypatch, key="tok"):
+    monkeypatch.setenv("SGT_X_ENABLED", "1")
     xsocial._CALLS.clear()
     xsocial._CACHE.clear()
     monkeypatch.setattr(xsocial, "get_secret", lambda name, required=True: key)
@@ -107,3 +108,11 @@ def test_entry_text_line():
     ctx = {**base, "x": {"x_n60": 0, "x_n15": 0, "x_k": 0, "x_authors": 0, "x_eng": 0}}
     text = fade.ask_text("ABCD", "news", 2.0, 5000, ctx, "")
     assert "𝕏 0 posts last hour (" in text and "newest" not in text
+
+
+def test_off_unless_enabled(monkeypatch):
+    # owner 2026-11-09: X lookups off (no spend) unless SGT_X_ENABLED=1
+    _reset(monkeypatch)
+    monkeypatch.delenv("SGT_X_ENABLED")
+    seen = []
+    assert xsocial.lookup("RAYA", AT, client=_client(seen, {"data": [bucket(3, 2)]})) is None and seen == []

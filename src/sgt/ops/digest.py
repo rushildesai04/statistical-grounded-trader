@@ -94,6 +94,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     st = db.flag("analyst_status")
     if st:
         lines.append(f"AI analyst (last night): {st} (Notes tab)")
+    rs = db.flag("ai_review_status")
+    if rs:
+        lines.append(f"AI trade reviews: {rs}")
     try:
         from sgt.ops import journal
 
