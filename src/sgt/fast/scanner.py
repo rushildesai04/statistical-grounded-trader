@@ -14,7 +14,7 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast.fade import ET, PRICE_MAX, PRICE_MIN
+from sgt.fast.fade import ET, HIGH_BETA_SKIP, PRICE_MAX, PRICE_MIN
 from sgt.intraday.calendar import default_calendar
 from sgt.fast.beta import label as beta_label
 from sgt.ops.store import OpsStore, iso
@@ -26,6 +26,9 @@ WEIGHT, NAV0, STOP, HOLD = 0.005, 100_000.0, 0.20, timedelta(minutes=60)
 MAX_DAY, MAX_OPEN = 10_000, 40                         # owner 2026-11-09: no trade limit; runaway guard only
 MAX_ENTRY_DELAY = timedelta(minutes=5)
 _SYM = re.compile(r"^[A-Z]{1,5}$")
+# Amendment A1 (2026-11-10, owner: shorts never on beta >= 3): the spike is still recorded and scored on SIP nightly
+# (status stays 'filtered'), so the original rule keeps being measured; it never trades, texts or moves the book.
+BETA_REASON = "beta >= 3 (no shorts on high beta, amendment A1)"
 
 Quote = Callable[..., "float | None"]
 
@@ -71,12 +74,14 @@ def nav(db: OpsStore) -> float:
 
 def record(db: OpsStore, symbol: str, ev: dict, now: datetime, beta: float | None = None) -> bool:
     """Insert a pending trade (first event per symbol-day; caps). True when inserted. ``beta``: the symbol's beta
-    (ground rule 2026-11-10), stored and shown in the entry text."""
+    (ground rule 2026-11-10), stored and shown in the entry text; >= 3 records the spike as filtered (amendment A1).
+    Unknown beta never blocks."""
     session = ev["bar_ts"].tz_convert(ET).date().isoformat()
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM scan_trades WHERE session=? AND status!='void'", (session,)).fetchone()[0]
         n_open = c.execute("SELECT COUNT(*) FROM scan_trades WHERE status IN ('pending','open')").fetchone()[0]
-        status, reason = ("skipped", "daily cap") if n_day >= MAX_DAY else \
+        status, reason = ("filtered", BETA_REASON) if beta is not None and beta >= HIGH_BETA_SKIP else \
+            ("skipped", "daily cap") if n_day >= MAX_DAY else \
             ("skipped", "runaway guard") if n_open >= MAX_OPEN else ("pending", "")
         cur = c.execute("INSERT OR IGNORE INTO scan_trades(symbol, session, bar_ts, detected_at, signal_px, status, reason,"
                         " weight, created_at, beta) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -160,15 +165,18 @@ def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
 
 
 def due(db: OpsStore, now: datetime, after: timedelta = timedelta(minutes=80)) -> pd.DataFrame:
-    """Trades whose official 60-minute window is final on SIP."""
+    """Trades whose official 60-minute window is final on SIP, plus unscored beta-filtered spikes (amendment A1)."""
     with db.tx() as c:
-        rows = c.execute("SELECT * FROM scan_trades WHERE status IN ('open','est_closed') AND bar_ts <= ?",
-                         (iso(now - after),)).fetchall()
+        rows = c.execute("SELECT * FROM scan_trades WHERE (status IN ('open','est_closed') OR (status='filtered' AND "
+                         "reason=? AND settled_at IS NULL)) AND bar_ts <= ?", (BETA_REASON, iso(now - after))).fetchall()
     return pd.DataFrame([dict(r) for r in rows])
 
 
 def book(db: OpsStore, rid: int, expect: str, res: dict | None, now: datetime) -> bool:
-    """Write one official result (None -> void: no SIP entry bar)."""
+    """Write one official result (None -> void: no SIP entry bar). A filtered spike keeps its status: scored for the
+    record only (amendment A1), never part of the book."""
+    if expect == "filtered":
+        return _set(db, rid, expect, settled_at=iso(now), **(res or {}))
     if res is None:
         return _set(db, rid, expect, status="void", reason="no SIP entry bar", settled_at=iso(now))
     return _set(db, rid, expect, status="settled", settled_at=iso(now), **res)
@@ -178,10 +186,15 @@ def record_line(db: OpsStore) -> str | None:
     """Digest RECORD line for the experiment (prereg_scanner_book_2026-11-09)."""
     with db.tx() as c:
         nets = [r[0] for r in c.execute("SELECT net FROM scan_trades WHERE status='settled' AND net IS NOT NULL")]
-    if not nets:
+        hb = [r[0] for r in c.execute("SELECT net FROM scan_trades WHERE status='filtered' AND reason=? AND "
+                                      "net IS NOT NULL", (BETA_REASON,))]
+    if not nets and not hb:
         return None
-    return (f"scanner {len(nets)} trade{'s' * (len(nets) != 1)}, avg {sum(nets) / len(nets):+.2%}/trade, book ${nav(db):,.0f}; "
-            "tested -1.2%/trade, decide at 300")
+    line = (f"scanner {len(nets)} trade{'s' * (len(nets) != 1)}, avg {sum(nets) / len(nets):+.2%}/trade, "
+            f"book ${nav(db):,.0f}; tested -1.2%/trade, decide at 300") if nets else "scanner 0 trades"
+    if hb:                                      # amendment A1: what the skipped high-beta shorts would have made
+        line += f"; skipped at beta >= 3: {len(hb)}, would have avg {sum(hb) / len(hb):+.2%}"
+    return line
 
 
 def summary(db: OpsStore, session: str) -> str | None:

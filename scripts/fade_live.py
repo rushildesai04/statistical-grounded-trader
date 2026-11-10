@@ -719,7 +719,8 @@ def settle_scanner(db: OpsStore, now: datetime | None = None) -> list[str]:
             f = f[f.segment == "rth"].assign(ts=lambda x: pd.to_datetime(x.ts, utc=True)).sort_values("ts") if len(f) else f
             res = scan_official(r, f, cost)
             if scanner.book(db, int(r["id"]), r["status"], res, now):
-                lines.append(f"{r['symbol']} " + ("void" if res is None else f"{res['net']:+.2%}"))
+                lines.append(f"{r['symbol']} " + ("void" if res is None else f"{res['net']:+.2%}")
+                             + (" (skipped: beta >= 3)" if r["status"] == "filtered" else ""))
     return lines
 
 

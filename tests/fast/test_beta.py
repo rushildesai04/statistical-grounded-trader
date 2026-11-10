@@ -76,12 +76,14 @@ def test_ranking_happens_before_the_universe_cap(db, monkeypatch):
 def test_scanner_stores_and_texts_the_beta(db):
     ev = {"bar_ts": pd.Timestamp("2026-11-10 15:00", tz="UTC"), "signal_px": 4.0}
     now = datetime(2026, 11, 10, 15, 0, 30, tzinfo=timezone.utc)
-    assert scanner.record(db, "HIGH", ev, now, 3.84)
+    assert scanner.record(db, "MID", ev, now, 2.44)
+    assert scanner.record(db, "HIGH", ev, now, 3.84)                  # amendment A1: recorded, never shorted
     sent = []
     scanner.step(db, lambda sym, since=None: 4.1, datetime(2026, 11, 10, 15, 1, 5, tzinfo=timezone.utc), sent.append)
-    assert "β 3.8 (high)" in sent[0] and "SCANNER SHORT HIGH" in sent[0]
+    assert len(sent) == 1 and "β 2.4" in sent[0] and "SCANNER SHORT MID" in sent[0]
     with db.tx() as c:
-        assert c.execute("SELECT beta FROM scan_trades").fetchone()[0] == 3.84
+        got = {r[0]: (r[1], r[2]) for r in c.execute("SELECT symbol, beta, status FROM scan_trades")}
+    assert got == {"MID": (2.44, "open"), "HIGH": (3.84, "filtered")}
 
 
 def test_beta_failure_never_costs_the_stop_checks(db, monkeypatch):
