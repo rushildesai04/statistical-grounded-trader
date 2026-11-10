@@ -303,11 +303,15 @@ def entry_beta(db: OpsStore, symbol: str, at: datetime, fetch=None) -> float | N
     return gather({"beta": lambda: beta_mod.betas(db, [symbol], session, f).get(symbol)}, BETA_BUDGET)["beta"]
 
 
+SCAN_BETA_BUDGET = 10.0                         # seconds per universe refresh; a late fetch still fills the cache
+
+
 def ranked_universe(db: OpsStore, symbols: list[str], session: str, fetch=daily_for_beta) -> tuple[list[str], dict]:
-    """Owner ground rule 2026-11-10: beta >= 3 names first, then the rest; capped at UNIVERSE_MAX after ranking."""
+    """Owner ground rule 2026-11-10: beta >= 3 names first, then the rest; capped at UNIVERSE_MAX after ranking. The
+    beta lookup runs inside SCAN_BETA_BUDGET (review F-3): the scanner's stop/exit checks are never held up for long."""
     from sgt.fast import beta as beta_mod
 
-    b = beta_mod.betas(db, symbols, session, fetch)
+    b = gather({"beta": lambda: beta_mod.betas(db, symbols, session, fetch)}, SCAN_BETA_BUDGET)["beta"] or {}
     return beta_mod.prioritize(symbols, b)[:UNIVERSE_MAX], b
 
 

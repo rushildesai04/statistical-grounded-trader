@@ -237,7 +237,7 @@ def record(db: OpsStore) -> tuple[int, float | None]:
 def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
              beta: BetaCheck | None = None) -> None:
     if r["status"] == "ask":
-        _ask(db, send, quote, r, now, context)
+        _ask(db, send, quote, r, now, context, news, beta)
     elif r["status"] == "pending":
         _enter(db, send, quote, r, now, context, news, beta)
     else:
@@ -250,7 +250,8 @@ def _approval(db: OpsStore, rid: int):
                          (f"fade:{rid}",)).fetchone()
 
 
-def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
+def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
+         beta: BetaCheck | None = None) -> None:
     """Text one approval request per event; an approved request becomes a pending entry (same tick)."""
     posted = datetime.fromisoformat(r["posted_at"])
     deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
@@ -279,7 +280,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
             _set(db, r["id"], "ask", status="skipped", reason="paused or too late after approval")
             return
         approvals.finish(db, a["id"], True, "entering")
-        if _set(db, r["id"], "ask", status="pending", reason="approved"):
+        if _set(db, r["id"], "ask", status="pending", reason="approved"):  # the owner's OK: no at-entry gates
             _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now, context)
         return
     if a["status"] == "rejected":
@@ -304,7 +305,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
     if not won:                                        # someone else decided it (e.g. PAUSE): never enter
         _set(db, r["id"], "ask", status="skipped", reason="approval no longer open")
     elif _set(db, r["id"], "ask", status="pending", reason="auto"):
-        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context)
+        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context, news, beta)
 
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,

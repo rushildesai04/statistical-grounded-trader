@@ -103,3 +103,18 @@ def test_entry_beta_budget_and_cache(db, monkeypatch):
     monkeypatch.setattr(fl, "BETA_BUDGET", 0.2)
     t0 = time.monotonic()
     assert fl.entry_beta(db, "SLOW", T10, fetch=slow) is None and time.monotonic() - t0 < 0.8   # budget, not the fetch
+
+
+def test_auto_entry_after_an_unanswered_ask_is_gated_too(db, monkeypatch):
+    """Review F-2: the ask path's automatic entry at the deadline applies F6/F7 like the armed path."""
+    monkeypatch.setattr(fade, "ASK_FIRST", True)
+    with db.tx() as c:
+        c.execute("DELETE FROM flags WHERE key='fast_armed'")                 # not armed: the ask path runs
+    sent = []
+    fade.on_alert(db, alert(), now=T10)
+    assert row(db)["status"] == "ask"
+    fade.monitor(db, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(seconds=1))      # sends the ask
+    fade.monitor(db, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(minutes=4, seconds=21),
+                 beta=lambda s, at: 4.2)                                                    # deadline: auto-entry
+    r = row(db)
+    assert (r["status"], r["reason"], r["beta"]) == ("filtered", fade.BETA_REASON, 4.2)
