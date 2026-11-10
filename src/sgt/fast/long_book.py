@@ -27,10 +27,12 @@ from sgt.ops import approvals
 from sgt.ops.store import OpsStore, iso, utcnow
 
 log = logging.getLogger(__name__)
-LONG_KINDS = ("L5", "L4b", "L6", "L4a", "L7b", "L7a")      # tie order when two fill on the same bar
-NAMES = {"L5": "bull flag breakout", "L4b": "red-candle break", "L6": "break of structure",
+LONG_KINDS = ("L5v2", "L5", "L4b", "L6", "L4a", "L7b", "L7a")     # tie order when two fill on the same bar
+NAMES = {"L5v2": "bull flag breakout", "L5": "bull flag breakout (v1)", "L4b": "red-candle break",
+         "L6": "break of structure",
          "L4a": "red-candle close", "L7b": "halt reopen: red-candle break", "L7a": "halt reopen: red-candle close"}
-TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31}     # prereg_long_setups training
+TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31,     # prereg_long_setups training
+            "L5v2": 199}                                                                   # prereg_flag_v2 training
 MAX_OPEN = 40
 GRACE = pd.Timedelta(minutes=pt.TRIGGER_BARS + 2)          # after WATCH: the last setup's order can still fill
 MARGIN = pd.Timedelta(minutes=15)                           # candidates outlive the window so the "none" marker lands

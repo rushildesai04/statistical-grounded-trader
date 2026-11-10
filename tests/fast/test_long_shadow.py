@@ -93,7 +93,7 @@ def test_short_pays_the_locate_and_no_setup_is_marked(db):
     fade_row(db, "FLAG", "settled", posted=T1 - pd.Timedelta(seconds=10) + 4 * pt.BAR)
     day = bars(flag + down, start=T1 + 4 * pt.BAR, pre=pole)
     ls.run(db, lambda s, d: day, lambda *a: 0.0, now=NOW)
-    s2 = [r for r in shadow(db) if r["kind"] == "S2"][0]
+    s2 = [r for r in shadow(db) if r["kind"] == "S2v2"][0]          # the books use the owner-validated flag v2
     assert s2["side"] == "short" and s2["entry"] == 10.70
     assert s2["net"] == pytest.approx(s2["gross"] - 0.01 - ls.LOCATE)
 
@@ -194,3 +194,18 @@ def test_filtered_alert_outside_the_price_band_gets_no_long(db):
     cheap = DAY.assign(open=DAY.open / 20, high=DAY.high / 20, low=DAY.low / 20, close=DAY.close / 20)
     ls.run(db, lambda s, d: cheap, lambda *a: 0.0, now=NOW)
     assert [(r["kind"], r["reason"]) for r in shadow(db)] == [("-", "no start bar")]
+
+
+def test_books_use_the_owner_validated_bull_flag():
+    """2026-11-10: round 2 of grading confirmed v2 (14/17 real flags vs 6/12 for v1); the books trade v2's flags."""
+    pole = [(10.0, 10.3, 10.0, 10.3, 1000), (10.3, 10.6, 10.3, 10.6, 1200), (10.6, 10.9, 10.6, 10.9, 1500),
+            (10.9, 11.2, 10.9, 11.2, 1500)]
+    flag = [(11.15, 11.18, 11.0, 11.05, 400), (11.05, 11.1, 10.9, 10.95, 300)]
+    row = {"posted_at": (T1 - pd.Timedelta(seconds=10)).isoformat(), "status": "live"}
+    kinds = {s.kind for s in ls.setups(bars(pole + flag), row)[0]}
+    assert {"L5v2", "S2v2"} <= kinds and not kinds & {"L5", "S2"}
+    gappy = bars(pole + flag)
+    gappy.loc[1:, "ts"] = gappy.ts[1:] + pd.Timedelta(minutes=3)       # three empty minutes inside the run-up
+    from sgt.fast import patterns as pt
+    assert pt.find_flag(gappy, gappy.ts.iloc[0]) is not None             # v1 would have called it a flag
+    assert not {s.kind for s in ls.setups(gappy, row)[0]} & {"L5v2", "S2v2", "L5", "S2"}

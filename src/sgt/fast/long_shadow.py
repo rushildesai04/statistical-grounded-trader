@@ -26,7 +26,8 @@ LOOKBACK_DAYS = 14                  # review F-2: only recent events (bounds the
 HALT_REASON = "no_entry"          # attach_trades status: no bar within 5 min of the alert (a halt); fade_live._score
                                   # stores it as the void reason ("no bars in window" is a different case)
 TESTED = {"L4a": -0.0119, "L4b": -0.0244, "L5": -0.0172, "L6": -0.0185, "L7a": -0.0187, "L7b": -0.0283,
-          "S2": -0.0138}                  # training mean net per trade, prereg_long_setups_2026-11-10 (all FAIL)
+          "S2": -0.0138,                  # training mean net per trade, prereg_long_setups_2026-11-10 (all FAIL)
+          "L5v2": -0.0205, "S2v2": -0.0185}   # owner-graded bull flag v2, prereg_flag_v2_2026-11-10 (both FAIL)
 Bars = Callable[[str, str], pd.DataFrame]   # (symbol, session) -> RTH 1-minute bars, ts = bar start UTC
 Cost = Callable[[str, datetime, float], float]
 
@@ -79,7 +80,9 @@ def setups(f: pd.DataFrame, row: dict) -> tuple[list[pt.Setup], pd.Timestamp | N
         return [], None
     if halted:
         return pt.first_red(f, t0, "L7"), t0
-    return pt.first_red(f, t0) + pt.bull_flag(f, t0) + pt.bos_long(f, t0), t0
+    # 2026-11-10: the bull flag is the owner-validated v2 (round 2 of grading: 14 of 17 fresh detections were real
+    # flags, vs 6 of 12 for v1), so what the books call and trade as a bull flag matches the trader's eye.
+    return pt.first_red(f, t0) + pt.bull_flag_v2(f, t0) + pt.bos_long(f, t0), t0
 
 
 def run(db: OpsStore, bars: Bars, cost_fn: Cost, now: datetime | None = None) -> list[str]:
