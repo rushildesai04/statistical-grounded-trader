@@ -245,8 +245,7 @@ footer b { color: var(--ink); font-weight: 600; }
   <div class="head">
     <div>
       <h1>Fade <em>Tape</em></h1>
-      <p class="lede">Every short the agent took after a momentum alert, shown on its 1-minute chart with the alert,
-        the entry, the cover and the result.</p>
+      <p class="lede">Every paper trade the agent took after a momentum alert, longs first (the trader's setups: red candle, bull flag, break of structure) then shorts (the fade), each on its 1-minute chart with the alert, the entry, the exit and the result.</p>
     </div>
     <div class="days" id="days" role="group" aria-label="Trading day"></div>
   </div>
@@ -262,7 +261,7 @@ footer b { color: var(--ink); font-weight: 600; }
           <span class="big" id="s-win">–</span>
         </div>
       </div>
-      <div class="tile"><span class="label">Average trade</span><span class="big" id="s-avg">–</span><span class="small">tested record +1.12%</span></div>
+      <div class="tile"><span class="label">Average trade</span><span class="big" id="s-avg">–</span><span class="small">tested: shorts +1.12%, longs -2.3%</span></div>
     </div>
     <div class="curve">
       <span class="label">P&amp;L through the day</span>
@@ -272,8 +271,9 @@ footer b { color: var(--ink); font-weight: 600; }
 
   <div class="legend">
     <span><i style="background:var(--alert)"></i>alert posted</span>
+    <span><i style="background:var(--up)"></i>buy (long)</span>
     <span><i style="background:var(--down)"></i>short entry</span>
-    <span><i style="background:var(--up)"></i>cover (exit)</span>
+    <span><i style="background:var(--up)"></i>sell / cover (exit)</span>
     <span><i style="background:var(--accent)"></i>VWAP</span>
     <span><i style="background:var(--ema9)"></i>EMA 9</span>
     <span><i style="background:var(--ema21)"></i>EMA 21</span>
@@ -370,7 +370,8 @@ const hhmm = s => { const d = new Date(s * 1000); return String(d.getUTCHours())
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const svg = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 const state = t => t.ret == null ? "open" : (t.ret > 0 ? "win" : "loss");
-const exitAt = t => { const m = t.markers.find(x => x.kind === "cover"); return m ? m.time : t.alert_at; };
+const exitAt = t => { const m = t.markers.find(x => x.kind === "cover" || x.kind === "sell"); return m ? m.time : t.alert_at; };
+const isLong = t => t.side === "long";
 const KIND = {volume_increasing: "volume rising", volume_spike: "volume spike", gaining_volume: "volume rising",
   gaining_momentum: "momentum", new_high: "new high", intraday_high: "high of day", testing_high: "testing high",
   price_level: "price level", resumed: "halt resumed", news: "news"};
@@ -421,6 +422,7 @@ function draw(boxes, t) {
   const lines = [];
   if (t.entry) lines.push(candles.createPriceLine({ price: t.entry, lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "entry" }));
   if (t.stop) lines.push(candles.createPriceLine({ price: t.stop, lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "stop" }));
+  if (t.target) lines.push(candles.createPriceLine({ price: t.target, lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "target" }));
 
   const rc = LightweightCharts.createChart(boxes.rsi, noAxis());
   const rsi = rc.addLineSeries({ lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
@@ -447,12 +449,13 @@ function draw(boxes, t) {
     ema21.applyOptions({ color: css("--ema21") });
     lines[0] && lines[0].applyOptions({ color: css("--muted") });
     lines[1] && lines[1].applyOptions({ color: down });
+    lines[2] && lines[2].applyOptions({ color: up });
     const win = t.ret != null && t.ret > 0;
     candles.setMarkers(t.markers.slice().sort((a, b) => a.time - b.time).map(m => ({
       time: m.time, text: m.text,
-      position: m.kind === "cover" ? "belowBar" : "aboveBar",
-      shape: m.kind === "alert" ? "circle" : (m.kind === "short" ? "arrowDown" : "arrowUp"),
-      color: m.kind === "alert" ? css("--alert") : (m.kind === "short" ? down : (win ? up : down)) })));
+      position: (m.kind === "cover" || m.kind === "buy") ? "belowBar" : "aboveBar",
+      shape: m.kind === "alert" ? "circle" : ((m.kind === "short" || m.kind === "sell") ? "arrowDown" : "arrowUp"),
+      color: m.kind === "alert" ? css("--alert") : (m.kind === "short" ? down : (m.kind === "buy" ? up : (win ? up : down))) })));
     rc.applyOptions(noAxis());
     rsi.applyOptions({ color: css("--muted") });
     r30.applyOptions({ color: css("--rule") });
@@ -492,15 +495,16 @@ function card(t, i) {
   const c = el("article", "card " + state(t));
   c.style.setProperty("--i", i);
   const top = el("div", "top");
-  top.append(el("span", "sym", t.symbol), el("span", "kind", (KIND[t.alert_type] || t.alert_type) + " · alert " + hhmm(t.alert_at) + " ET"));
+  top.append(el("span", "sym", t.symbol), el("span", "kind", (isLong(t) ? "LONG · " + (t.setup || "") : "SHORT · " + (KIND[t.alert_type] || t.alert_type)) + " · alert " + hhmm(t.alert_at) + " ET"));
   const label = t.ret == null ? "open" : (t.usd != null ? money(t.usd) + " · " : "") + pct(t.ret) + (t.official ? "" : " est");
   top.append(el("span", "pill", label));
   const facts = el("div", "facts");
   const fact = (k, v) => { const s = el("span", null, k + " "); s.append(el("b", null, v)); facts.append(s); };
-  if (t.entry) fact("short", "$" + t.entry.toFixed(2));
-  if (t.exit) fact("cover", "$" + t.exit.toFixed(2));
+  if (t.entry) fact(isLong(t) ? "buy" : "short", "$" + t.entry.toFixed(2));
+  if (t.exit) fact(isLong(t) ? "sell" : "cover", "$" + t.exit.toFixed(2));
   if (t.reason) fact("exit", t.reason);
-  fact("news", t.news ? "yes" : "none found");
+  if (isLong(t)) { if (t.target) fact("target", "$" + t.target.toFixed(2)); }
+  else fact("news", t.news ? "yes" : "none found");
   c.append(top, facts);
   if (t.conf != null) {
     const conf = el("div", "conf", "confidence ");
@@ -531,9 +535,9 @@ function tape(ts) {
   const items = ts.length ? ts : [{ symbol: "SGT", ret: null, usd: null }];
   const one = () => items.map(t => {
     const s = el("span", "tape-item");
-    s.append(el("b", null, t.symbol));
+    s.append(el("b", null, (isLong(t) ? "LONG " : "") + t.symbol));
     s.append(el("span", state(t), t.ret == null ? (ts.length ? "open" : "no trades") :
-      (t.ret > 0 ? "▼ " : "▲ ") + (t.usd != null ? money(t.usd) + " " : "") + pct(t.ret)));
+      ((t.ret > 0) !== isLong(t) ? "▼ " : "▲ ") + (t.usd != null ? money(t.usd) + " " : "") + pct(t.ret)));
     return s;
   });
   // two copies side by side, shifted by half, so the loop is seamless; repeat short lists so the tape fills wide screens
@@ -610,7 +614,7 @@ function show(day) {
   const list = document.getElementById("list");
   list.replaceChildren(); charts.length = 0;
   document.querySelectorAll("#days button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.day === day)));
-  const ts = DATA.trades.filter(t => t.session === day);
+  const ts = DATA.trades.filter(t => t.session === day).sort((a, b) => isLong(b) - isLong(a));   // longs first
   tape(ts); summary(ts); curve(day, ts);
   if (!ts.length) { list.append(el("div", "empty", "No trades on this day.")); return; }
   ts.forEach((t, i) => { const [c, boxes] = card(t, i); list.append(c); draw(boxes, t); });

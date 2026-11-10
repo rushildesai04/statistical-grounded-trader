@@ -106,3 +106,46 @@ def test_learning_scoreboard_rows_are_sanitized_for_the_page():
                          learning=rows)
     assert "</script><b>" not in html and '"learning": [{"challenger": "\\u003c/script>' in html
     assert charts.learning_rows(None) == []
+
+
+LONG = {"id": 7, "symbol": "KULR", "session": "2026-11-05", "alert_type": "volume_spike",
+        "posted_at": "2026-11-05T15:11:54+00:00", "status": "est_closed", "reason": "target",
+        "est_entry": 4.0, "est_entry_at": "2026-11-05T15:13:00+00:00", "est_exit": 4.2,
+        "est_exit_at": "2026-11-05T15:20:00+00:00", "stop": 3.9, "target": 4.2, "setup": "red-candle break"}
+
+
+def test_long_trade_has_buy_sell_markers_own_stop_target_and_long_return():
+    """Owner 2026-11-10 option A: longs on the chart page, with the setup's own stop and target."""
+    v = charts.trade_view(LONG, bars(), usd=250.0, side="long")
+    assert [m["kind"] for m in v["markers"]] == ["alert", "buy", "sell"]
+    assert v["markers"][1]["text"] == "buy 4.00" and v["markers"][2]["text"] == "sell 4.20"
+    assert (v["side"], v["stop"], v["target"], v["setup"]) == ("long", 3.9, 4.2, "red-candle break")
+    assert v["ret"] == pytest.approx(0.05)                               # long: exit / entry - 1
+    short = charts.trade_view(TRADE, bars())
+    assert short["side"] == "short" and short["target"] is None
+
+
+def test_long_trades_rows_use_the_official_result_once_settled(tmp_path, monkeypatch):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import trade_charts as tc
+    from sgt.ops.store import OpsStore
+    db = OpsStore(tmp_path / "ops.db")
+    with db.tx() as c:
+        fid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                        "created_at) VALUES ('KULR','2026-11-05','volume_spike','2026-11-05T15:11:54+00:00','-1',1,"
+                        "'filtered','x')").lastrowid
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, target, weight, entry_ts, "
+                  "est_entry, est_exit, est_exit_at, net, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (fid, "KULR", "2026-11-05", "L4b", "settled", 3.9, 4.2, 0.05, "2026-11-05T15:13:00+00:00", 4.0, 4.2,
+                   "2026-11-05T15:20:00+00:00", 0.031, "x"))
+        c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, entry, exit, entry_ts, exit_ts, net, "
+                  "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (fid, "KULR", "2026-11-05", "L4b", "long", 4.01, 4.19,
+                  "2026-11-05T15:14:00+00:00", "2026-11-05T15:21:00+00:00", 0.031, "x"))
+    (r,) = tc.long_rows(db)
+    assert (r["entry"], r["cover"], r["est_exit_at"], r["setup"]) == (4.01, 4.19, "2026-11-05T15:21:00+00:00",
+                                                                       "red-candle break")
+    assert r["usd"] == pytest.approx(0.031 * 0.05 * 100_000)
+    v = charts.trade_view(r, bars(), r["usd"], side="long")
+    assert v["official"] and v["entry"] == 4.01 and v["exit"] == 4.19 and v["ret"] == pytest.approx(0.031)

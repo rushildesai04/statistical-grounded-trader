@@ -73,6 +73,36 @@ def from_db(db: OpsStore) -> list[dict]:
     return [r for r in rows if r["session"] in keep]
 
 
+def long_rows(db: OpsStore | None) -> list[dict]:
+    """Live paper long book trades shaped for charts.trade_view (owner 2026-11-10 option A: longs first). Settled
+    longs carry the official (shadow, SIP) entry/exit; others the live estimate."""
+    if db is None:
+        return []
+    from sgt.fast import long_book
+    with db.tx() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT t.id, t.symbol, t.session, t.kind, t.status, t.reason, t.stop, t.target, t.weight, t.net, "
+            "t.est_entry, t.est_exit, t.est_exit_at, t.entry_ts AS est_entry_at, f.posted_at, f.alert_type, "
+            "s.entry, s.exit AS cover, s.entry_ts, s.exit_ts FROM long_trades t JOIN fade_trades f ON f.id=t.fade_id LEFT JOIN "
+            "long_shadow s ON s.fade_id=t.fade_id AND s.kind=t.kind WHERE t.status IN ('open','est_closed','settled') "
+            "ORDER BY t.id DESC LIMIT ?", (MAX_TRADES,))]
+    keep = sorted({r["session"] for r in rows}, reverse=True)[:MAX_SESSIONS]
+    out = []
+    for r in rows:
+        if r["session"] not in keep:
+            continue
+        if r["status"] != "settled":                      # the official entry/exit only once settled
+            r.update(net=None, entry=None, cover=None, entry_ts=None)
+        elif r.get("exit_ts"):
+            r["est_exit_at"] = r["exit_ts"]                # the official exit time for the sell marker
+        ret = r["net"] if r["net"] is not None else (
+            r["est_exit"] / r["est_entry"] - 1 if r.get("est_exit") and r.get("est_entry") else None)
+        base = long_book.nav(db, through=date.fromisoformat(r["session"]) - timedelta(days=1))   # value before its day
+        out.append({**r, "setup": long_book.NAMES.get(r["kind"], r["kind"]),
+                    "usd": None if ret is None else ret * (r["weight"] or fade.WEIGHT) * base})
+    return out
+
+
 def dollars(t: dict, db: OpsStore | None) -> float | None:
     """Paper $ result: the trade's share of the book value before its day (official net where settled)."""
     ret = t.get("net") if t.get("net") is not None else (
@@ -87,6 +117,13 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
     views, scan_views, cache = [], [], {}
     with httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=10) as client:
+        for t in long_rows(db):                          # longs first (owner 2026-11-10 option A)
+            key = (t["symbol"], t["session"])
+            if key not in cache:
+                cache[key] = session_bars(client, *key, now)
+            if cache[key].empty:
+                continue
+            views.append(charts.trade_view(t, cache[key], t["usd"], side="long"))
         for t in trades[:MAX_TRADES]:
             key = (t["symbol"], t["session"])
             if key not in cache:
