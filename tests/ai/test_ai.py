@@ -163,3 +163,27 @@ def test_a_billed_answer_that_fails_before_parsing_keeps_the_reservation(db, mon
     with pytest.raises(oa.BilledError):
         oa.chat_json(junk, db, "m", "s", "u", tr.SCHEMA, 1500, NOW)
     assert int(db.flag(oa._budget_key(NOW))) == 3000
+
+
+def test_long_book_trades_get_a_review_and_reach_the_nightly_brain(db):
+    """2026-11-10: longs are the owner's priority but were invisible to both models (missing from the journal)."""
+    with db.tx() as c:
+        fid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                        "created_at) VALUES ('KULR','2026-11-10','volume_spike','2026-11-10T14:41:00+00:00','c',3,"
+                        "'filtered','x')").lastrowid
+        lid = c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
+                        "entry_ts, est_entry, est_exit, est_exit_at, reason, created_at) VALUES "
+                        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (fid, "KULR", "2026-11-10", "L4a", "est_closed", 4.31, 4.2,
+                                                         4.53, 0.05, "2026-11-10T14:44:00+00:00", 4.32, 4.27,
+                                                         "2026-11-10T14:52:00+00:00", "stop", "x")).lastrowid
+    seen = []
+    assert sorted(tr.run_pending(db, fake(REVIEW, seen=seen), bars, NOW)) == ["fade:1", f"long:{lid}"]
+    sent = {json.loads(s["messages"][1]["content"])["book"]: s for s in seen}
+    data = json.loads(sent["long book"]["messages"][1]["content"])
+    assert data["trade"]["side"] == "long" and data["trade"]["kind"] == "L4a" and data["trade"]["stop"] == 4.2
+    assert len(data["minute_path_ET_o_h_l_c_v"]) == 5                      # window from the alert time
+    assert "long book" in sent["long book"]["messages"][0]["content"]       # the model is told what the book does
+    seen2 = []
+    ta.run(db, fake(REPORT, seen=seen2), "gpt-5.6-sol", everything=True, now=NOW)
+    trades = {t["key"]: t for t in json.loads(seen2[0]["messages"][1]["content"])["trades"]}
+    assert trades[f"long:{lid}"]["review"]["verdict"] == "execution issue"

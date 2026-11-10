@@ -731,20 +731,20 @@ function mtBoot() {
 // Trade journal (owner 2026-11-09). Notes and AI text are untrusted: rendered with textContent (el()), and the
 // Markdown preview goes through DOMPurify before it is inserted; without the libraries it falls back to plain text.
 const jnApi = () => (location.pathname.endsWith("/") ? location.pathname : location.pathname + "/") + "api/notes";
-const JN_BOOKS = [["all", "All"], ["fade", "Alert fade"], ["scan", "Scanner"], ["book", "Models"]];
+const JN_BOOKS = [["all", "All"], ["long", "Long book"], ["fade", "Alert fade"], ["scan", "Scanner"], ["book", "Models"]];
 let jnDrawn = false, jnNotes = {}, jnAI = {}, jnRev = {}, jnDay = null, jnBook = "all", jnViews = {}, jnMd = null;
 
 const jnEt = v => { if (v == null || v === "") return null; const d = new Date(typeof v === "number" ? v * 1000 : v);
   return isNaN(d) ? String(v) : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: typeof v === "number" ? "UTC" : "America/New_York" }) + " ET"; };
 const jnPx = v => v == null ? null : "$" + Number(v).toFixed(Number(v) < 1 ? 4 : 2);
 const jnKind = e => e.key.split(":")[0];
-const jnSide = e => jnKind(e) === "book" ? (e.target > 0 ? "LONG" : e.target < 0 ? "SHORT" : "FLAT") : "SHORT";
+const jnSide = e => jnKind(e) === "book" ? (e.target > 0 ? "LONG" : e.target < 0 ? "SHORT" : "FLAT") : jnKind(e) === "long" ? "LONG" : "SHORT";
 
 function jnResult(e) {                       // {ret, usd, official}: official SIP net, else the live estimate
   const v = jnViews[e.key];
   if (v && v.ret != null) return { ret: v.ret, usd: v.usd, official: v.official };
   if (e.net != null) return { ret: e.net, usd: null, official: true };
-  if (e.est_entry && e.est_exit) return { ret: (e.est_entry - e.est_exit) / e.est_entry, usd: null, official: false };
+  if (e.est_entry && e.est_exit) return { ret: (jnKind(e) === "long" ? e.est_exit - e.est_entry : e.est_entry - e.est_exit) / e.est_entry, usd: null, official: false };
   return { ret: null, usd: null, official: false };
 }
 
@@ -858,9 +858,9 @@ function jnDetail(key) {
     + (r.usd != null ? "  " + money(r.usd) : "") + (r.official ? "" : " est")));
   const stats = el("div", "jn-stats");
   const stat = (k, val) => { if (val == null || val === "") return; const s2 = el("div", "jn-stat"); s2.append(el("span", null, k), el("b", null, String(val))); stats.append(s2); };
-  stat("entry (official)", jnPx(e.entry)); stat("entry (live)", jnPx(e.est_entry)); stat("cover (official)", jnPx(e.cover));
+  stat("entry (official)", jnPx(e.entry)); stat("entry (live)", jnPx(e.est_entry)); stat(jnKind(e) === "long" ? "sell (official)" : "cover (official)", jnPx(e.cover));
   stat("exit (live)", jnPx(e.est_exit)); stat("exit reason", e.reason); stat("status", e.status);
-  stat("stop", v && v.stop ? jnPx(v.stop) : null); stat("weight", e.target != null ? (e.target * 100).toFixed(1) + "%" : null);
+  stat("stop", v && v.stop ? jnPx(v.stop) : jnPx(e.stop)); stat("weight", jnKind(e) === "book" && e.target != null ? (e.target * 100).toFixed(1) + "%" : null);
   stat("fill", jnPx(e.fill_price)); stat("group score", e.conf);
   box.append(back, hero, stats);
   if (v && v.candles && v.candles.length) {
@@ -877,7 +877,8 @@ function jnDetail(key) {
   const cols = el("div", "jn-cols");
   const tl = el("div", "jn-box"); tl.append(el("h3", null, "Timeline"), jnKV([
     ["alert", jnEt(e.posted_at)], ["spike bar", jnEt(e.bar_ts)], ["live entry", jnEt(e.est_entry_at)],
-    ["live exit", jnEt(e.est_exit_at)], ["filled", e.fill_session], ["alert type", e.alert_type], ["proposal", e.label]]));
+    ["live exit", jnEt(e.est_exit_at)], ["filled", e.fill_session], ["alert type", e.alert_type], ["proposal", e.label],
+    ["setup", e.kind], ["buy trigger", jnPx(e.trigger)], ["target", jnKind(e) === "long" ? jnPx(e.target) : null]]));
   const ctx = el("div", "jn-box"); ctx.append(el("h3", null, "What the agent knew"), jnKV([
     ["company news", e.news_own == null ? null : (e.news_own ? "yes" : "none found")], ["headline", e.news_head],
     ["offering filed", e.filing_dilution == null ? null : (e.filing_dilution ? "yes (" + (e.filing_form || "") + ")" : "no")],
@@ -928,7 +929,7 @@ function jnDetail(key) {
 }
 
 function jnRoute() {
-  const m = location.hash.match(/^#notes\/((?:fade|scan|book):[1-9][0-9]{0,8})$/);
+  const m = location.hash.match(/^#notes\/((?:fade|scan|book|long):[1-9][0-9]{0,8})$/);
   if (m) jnDetail(m[1]);
   else { document.getElementById("jn-detail").hidden = true; document.getElementById("jn-browse").hidden = false; jnBrowse(); }
 }
