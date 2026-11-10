@@ -148,3 +148,36 @@ def test_a_bars_timeout_never_skips_stop_checks(db, monkeypatch):
     with db.tx() as c:
         assert c.execute("SELECT status, reason FROM scan_trades").fetchone()[:] == ("est_closed", "stop")
     assert sent and "SCANNER OUT SPK" in sent[0]
+
+
+def test_high_beta_spike_is_filtered_never_traded_but_still_scored(db):
+    """Amendment A1 (owner 2026-11-10: shorts never on beta >= 3). 11-10: the scanner shorted AMIX (beta 4.8) for -20%
+    because only the alert fade had rule F7. The spike is kept and scored on SIP nightly so the rule stays measured."""
+    f = tape(n=100)
+    ev = {"bar_ts": f.ts.iloc[29], "signal_px": 5.0}
+    now = after(f)
+    assert scanner.record(db, "HIB", ev, now, beta=4.8)
+    assert scanner.record(db, "EDGE", ev, now, beta=3.0)                      # the cut is inclusive (>= 3)
+    assert scanner.record(db, "LOW", ev, now, beta=2.99) and scanner.record(db, "UNK", ev, now, beta=None)
+    with db.tx() as c:
+        st = {r["symbol"]: (r["status"], r["reason"]) for r in c.execute("SELECT * FROM scan_trades")}
+    assert st["HIB"] == st["EDGE"] == ("filtered", scanner.BETA_REASON)
+    assert st["LOW"][0] == st["UNK"][0] == "pending"                          # unknown beta never blocks
+    sent = []
+    scanner.step(db, lambda s, since=None: 5.0, (ev["bar_ts"] + pd.Timedelta(minutes=1, seconds=5)).to_pydatetime(),
+                 sent.append)
+    assert sorted(t.split()[4] for t in sent) == ["LOW", "UNK"]               # only those two open; no text for HIB
+    res = {"entry_ts": "x", "entry": 5.0, "cover": 6.0, "cost_rt": 0.01, "gross": -0.2, "net": -0.215}
+    later = datetime(2026, 11, 10, 2, 0, tzinfo=timezone.utc)
+    d = scanner.due(db, later)
+    assert set(d.symbol) == {"HIB", "EDGE", "LOW", "UNK"}
+    hib, edge = (int(d[d.symbol == s].id.iloc[0]) for s in ("HIB", "EDGE"))
+    assert scanner.book(db, hib, "filtered", res, later) and scanner.book(db, edge, "filtered", None, later)
+    with db.tx() as c:
+        r = dict(c.execute("SELECT * FROM scan_trades WHERE id=?", (hib,)).fetchone())
+        e = dict(c.execute("SELECT * FROM scan_trades WHERE id=?", (edge,)).fetchone())
+    assert (r["status"], r["reason"], r["net"]) == ("filtered", scanner.BETA_REASON, -0.215) and r["settled_at"]
+    assert (e["status"], e["net"]) == ("filtered", None) and e["settled_at"]   # no SIP entry: scored once, empty
+    assert set(scanner.due(db, later).symbol) == {"LOW", "UNK"}                # never re-scored
+    assert scanner.nav(db) == scanner.NAV0                                     # never part of the book
+    assert scanner.record_line(db) == "scanner 0 trades; skipped at beta >= 3: 1, would have avg -21.50%"

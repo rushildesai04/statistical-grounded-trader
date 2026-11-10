@@ -24,3 +24,15 @@ One summary text per day (in the digest), no per-trade texts.
 Report mean net with a session-bootstrap 95% interval. Upper bound < 0 -> retire the scanner. Lower bound > 0 ->
 propose (owner decision) a larger size. Otherwise keep measuring. Secondary: by time of day, by price band, and the
 pre-alert volatility quintiles of `prereg_fade_calmskip_2026-11-08`.
+
+## Amendment A1 (2026-11-10): no scanner shorts on beta >= 3
+Owner decision 2026-11-10 (emphasis "A: longs first"): shorts only without news and never on a stock with a beta of 3
+or more; until now only the alert fade enforced it (amendment F7 of `prereg_alert_fade_2026-11-01`), while the scanner
+ranked beta >= 3 names first (ground rule) and shorted them. On 11-10 the scanner shorted AMIX (beta 4.8) for -20.1%.
+Rule from now: a spike on a stock whose beta (`sgt.fast.beta`, raw OLS vs SPY, 252 sessions) is >= 3 at detection is
+recorded with status `filtered` (reason "beta >= 3 ...") and never traded, texted or counted in the book's NAV.
+Unknown beta never blocks. The ground-rule ranking is unchanged.
+Measurement kept: filtered spikes are scored nightly on SIP exactly like trades (same entry, cover, cost, locate) and
+keep status `filtered`; the digest shows how many were skipped and what they would have averaged. The decision rule
+above is evaluated on settled trades (beta < 3 or unknown) from 2026-11-10; the pre-amendment trades stay in the record,
+and the secondary report adds the filtered spikes so the original rule can still be judged as registered.
