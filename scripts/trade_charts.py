@@ -123,7 +123,9 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
                 cache[key] = session_bars(client, *key, now)
             if cache[key].empty:
                 continue
-            views.append(charts.trade_view(t, cache[key], t["usd"], side="long"))
+            v = charts.trade_view(t, cache[key], t["usd"], side="long")
+            v["key"] = f"long:{t['id']}"           # links the chart to its Notes page (journal key)
+            views.append(v)
         for t in trades[:MAX_TRADES]:
             key = (t["symbol"], t["session"])
             if key not in cache:
