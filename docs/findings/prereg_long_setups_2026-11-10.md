@@ -54,3 +54,24 @@ price to turn back up first, so they skip the events that keep falling; they are
 fade's +1.8% average says the typical path after these alerts is down. S2 shorts confirmed weakness and may beat the
 plain fade per trade on fewer trades. L7 is small and noisy. A 5% pole and 2-4 bar flag are the standard day-trading
 definition, not tuned; the detector will also be checked by eye on charts (owner and trader).
+
+## Result (2026-11-10, run once after amendment A1, trial ledger `long-setups-2026-11-10-dev`) — all seven FAIL
+| test | training n | mean net | median | win | gross (before costs) | stopped | held-out n / mean (report only) |
+|---|---|---|---|---|---|---|---|
+| L4a first red, buy next open | 2,072 | **-1.19%** | -1.81% | 22% | -0.29% | 76% | 667 / -1.27% |
+| L4b first red, buy its high break | 754 | **-2.44%** | -4.24% | 23% | -1.55% | 75% | 245 / -2.36% |
+| L5 bull flag breakout long | 247 | **-1.72%** | -3.58% | 29% | -0.82% | 67% | 84 / -1.55% |
+| L6 break of structure long | 1,149 | **-1.85%** | -4.05% | 34% | -0.94% | 43% | 343 / -2.72% |
+| L7a halt reopen, first red, next open | 77 | **-1.87%** | -2.95% | 21% | -1.10% | 79% | 29 / -0.19% |
+| L7b halt reopen, first red, high break | 31 (under n floor) | -2.83% | -7.28% | 29% | -2.08% | 68% | 12 / -7.01% |
+| S2 failed bull flag short | 658 | **-1.38%** | -3.46% | 36% | +0.02% | 56% | 161 / -0.74% |
+Holm p all >= 0.87. Every secondary is negative too (15/60-minute holds, 1.5R/3R targets), and so is the no-news
+subset. Reading: on this channel's alerts, waiting for a dip, a flag or a break of structure does not turn a long into
+a winner; the moves after these alerts drift down, and the long setups mostly catch the bounces that fail. The same
+answer as `prereg_long_family_2026-11-09` from separate code. Nothing promoted; PLAYBOOK section 4 rows.
+
+Observed while diagnosing (training, NOT a test, suggests the next one): on the events where a long setup later
+triggers, the plain fade did badly: L5 bull-flag-breakout events -6.83% per fade (n 247), L6 -4.22%, L4b -4.16%,
+vs the fade's +1.84% overall. The bull flag looks like a warning sign FOR SHORTS. That conditions on the future, so it
+is no entry filter; it motivates an exit rule (cover the short when the flag breaks out), pre-registered separately
+and decided on data not yet looked at.
