@@ -16,6 +16,7 @@ from sgt.fast import fade  # noqa: E402
 from sgt.ops import approvals as ap  # noqa: E402
 from sgt.ops import digest  # noqa: E402
 from sgt.ops.sms import SMS_MAX  # noqa: E402
+from sgt.ops.sms_style import bold, italic  # noqa: E402
 from sgt.ops.store import OpsStore  # noqa: E402
 
 ET = ZoneInfo("America/New_York")
@@ -79,15 +80,18 @@ def test_today_lines_dollars_and_header_total(db):
     assert fade_usd == pytest.approx(before * ((1 + .05 * .1389) * (1 - .05 * .1574) - 1))
     mega = 101_000 - 101_000 / 1.01
     etf = 100_500 - 100_500 / 1.005
-    head = text.splitlines()[0]
-    assert head.startswith(f"[SGT] Mon 11-09: {digest.usd(fade_usd + mega + etf)} today (paper): ")
-    assert f"models {digest.usd(mega)}" in head and f"fade {digest.usd(fade_usd)}" in head
+    head, split = text.splitlines()[:2]
+    assert head == f"[SGT] \U0001F4CA {bold('Mon 11-09')}: {bold(digest.usd(fade_usd + mega + etf))} today {italic('(paper)')}"
+    assert f"models {digest.usd(mega)}" in split and f"fade {digest.usd(fade_usd)}" in split
     lines = text.splitlines()
-    i = lines.index("TODAY")
-    assert lines[i + 1] == f"fade {digest.usd(fade_usd)}, 2 trades: CKX +13.9%, FISN -15.7%, OMH void (1 not settled yet)"
-    assert lines[i + 2].startswith(f"megacap {digest.usd(mega)} (+1.00%), month +1.0%, $101,000: short META+MSFT 25%")
-    assert lines[i + 3].startswith(f"60/40 {digest.usd(etf)} (+0.50%)")
-    assert lines[i + 4].startswith("60/40 trend no close yet (last 11-06)")     # stale book: no dollars invented
+    i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
+    assert fade_usd < 0 and digest.dot(fade_usd) == "\U0001F534"
+    assert lines[i + 1] == (f"\U0001F534 {bold('fade')} {digest.usd(fade_usd)}, 2 trades: CKX +13.9%, FISN -15.7%, OMH void "
+                            f"({italic('1 not settled yet')})")
+    assert lines[i + 2].startswith(f"\U0001F7E2 {bold('megacap')} {digest.usd(mega)} (+1.00%), month +1.0%, $101,000: "
+                                   "short META+MSFT 25%")
+    assert lines[i + 3].startswith(f"\U0001F7E2 {bold('60/40')} {digest.usd(etf)} (+0.50%)")
+    assert lines[i + 4].startswith(f"\u23F8\uFE0F {bold('60/40 trend')} {italic('no close yet')} (last 11-06)")  # no dollars invented
 
 
 def test_needs_you_leads_and_lists_everything(db, monkeypatch, tmp_path):
@@ -100,15 +104,17 @@ def test_needs_you_leads_and_lists_everything(db, monkeypatch, tmp_path):
     for k in range(40):                                                    # 40 live F6 losers trip the fade drift alarm
         fade_row(db, f"L{k}", "2026-11-10", "settled", -0.25)
     text = digest.build(db, NOW, fills=[], problems=["x: missing close"], broker=None, research=[])
-    needs = text.split("\nTODAY")[0]
-    assert "PAUSED" in needs and "- pending tom: OK " in needs and "- jobs FAILED: megacap " in needs
-    assert "- x: missing close" in needs and "DRIFT" in needs and "alert fade (no-news)" in needs
+    needs = text.split(bold("TODAY"))[0]
+    assert bold("NEEDS YOU") in needs and "PAUSED" in needs and "\u2022 jobs FAILED: megacap " in needs
+    assert "\u2022 x: missing close" in needs and "DRIFT" in needs and "alert fade (no-news)" in needs
+    code = ap.pending(db)[0]["code"]
+    assert f"\u2022 pending tom: OK {code} by " in needs                    # reply code stays plain ASCII digits
     assert "Nothing needs you" not in text
 
 
 def test_quiet_night_says_nothing_needs_you(db):
     text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
-    assert text.splitlines()[1] == "Nothing needs you. Jobs OK (24h)."
+    assert text.splitlines()[1] == "\u2705 Nothing needs you. Jobs OK (24h)."
 
 
 def test_fills_show_the_last_position_per_symbol(db):
@@ -116,17 +122,18 @@ def test_fills_show_the_last_position_per_symbol(db):
              dict(strategy="megacap", symbol="META", target=-0.25, price=641.37),
              dict(strategy="megacap", symbol="GOOGL", target=0.0, price=288.15)]
     text = digest.build(db, NOW, fills=fills, problems=[], broker=None, research=[])
-    assert "Filled at close: megacap: META short 25% @641.37, GOOGL flat @288.15" in text
+    assert f"{bold('Filled at close')}: megacap: META short 25% @641.37, GOOGL flat @288.15" in text
     assert text.count("META") == 1
 
 
-def test_output_is_gsm7_only(db, monkeypatch):
-    monkeypatch.setattr(fade, "digest_warnings", lambda *a: ["! listener DOWN · since 10:00 → check \U0001F50E"])
+def test_styling_is_safe(db, monkeypatch):
+    # owner 2026-11-09: emojis, bold, italics; control characters from any section never reach the phone
+    monkeypatch.setattr(fade, "digest_warnings", lambda *a: ["! listener DOWN\x1b[31m since 10:00\x07"])
     nav_row(db, "etf:B_6040", "2026-11-09", 100_500, 0.005, {"SPY": .6})
-    text = digest.build(db, NOW, fills=[], problems=["− 1% ± 2"], broker="café €", research=["x …"])
-    assert "listener DOWN ; since 10:00 -> check ?" in text and "- 1% +/- 2" in text and "x ..." in text
-    gsm = set(digest._GSM)
-    assert all(ch in gsm for ch in text)
+    text = digest.build(db, NOW, fills=[], problems=["bad\rline"], broker="Alpaca \x00paper", research=["r\x0bx"])
+    assert "\u2022 listener DOWN[31m since 10:00" in text and "\u2022 badline" in text and "Alpaca paper" in text
+    assert not any(ord(ch) < 32 and ch != "\n" for ch in text) and "\x7f" not in text
+    assert bold("60/40") in text and "\U0001F7E2" in text and bold("RECORD") in text
 
 
 def test_parts_never_drop_anything():
@@ -140,6 +147,10 @@ def test_parts_never_drop_anything():
     out = digest.parts("head\n" + long)
     assert "".join(p.split(" ", 1)[1] for p in out).replace("\n", "") == "head" + long
     assert all(len(p) <= SMS_MAX for p in out)
+    styled = "\n".join(bold(f"book {i} ") + "\U0001F7E2" * 20 + " +$1,000" for i in range(60))   # 2-unit chars
+    out = digest.parts(styled)
+    assert len(out) > 1 and all(len(p.encode('utf-16-le')) // 2 <= 1500 for p in out)   # carriers count UTF-16
+    assert "\n".join(p.split(" ", 1)[1] for p in out) == styled
 
 
 def test_cmd_digest_sends_every_part(db, monkeypatch):
