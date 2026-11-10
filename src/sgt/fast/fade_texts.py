@@ -77,17 +77,21 @@ def window(at: datetime) -> str:
     return "pre11" if m < 11 * 60 else ("11-14" if m < 14 * 60 else "14-16")
 
 
-def confidence(alert_type: str, ctx: dict, at: datetime | None) -> tuple[int, float, float, str]:
-    """(confidence 0-99, win rate, avg net, label) for the entry text and the stored ``conf``. Without a time, v1."""
+def _row(alert_type: str, ctx: dict, at: datetime | None) -> tuple[tuple[int, float, float, int], str]:
+    """The confidence table row for a trade and its label (v1 without a time, v2 with one)."""
     g = news_group(ctx)
     if at is None:
-        conf, win, avg, _ = CONF[g]
-        return min(conf, CONF_MAX), win, avg, CONF_LABEL[g]
+        return CONF[g], CONF_LABEL[g]
     cell = "news" if alert_type == "news" or g in ("own", "earn") else g
-    conf, win, avg, _ = CONF2[(cell, window(at))]
     what = ("news alert" if alert_type == "news" and g not in ("own", "earn") else CONF_LABEL[g]) if cell == "news" \
         else CONF_LABEL[g]
-    return min(conf, CONF_MAX), win, avg, f"{what}, {WINDOW_LABEL[window(at)]}"
+    return CONF2[(cell, window(at))], f"{what}, {WINDOW_LABEL[window(at)]}"
+
+
+def confidence(alert_type: str, ctx: dict, at: datetime | None) -> tuple[int, float, float, str]:
+    """(confidence 0-99, win rate, avg net, label) for the stored ``conf``. Without a time, v1."""
+    (conf, win, avg, _), label = _row(alert_type, ctx, at)
+    return min(conf, CONF_MAX), win, avg, label
 
 
 def news_group(ctx: dict) -> str:
@@ -177,13 +181,15 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     why, tape, risk, tested payoff, live record, borrow, chart. ``out_at`` set = the F5 entry text (already short).
     Unicode bold + emoji = UCS-2 SMS; see sms_style."""
     head = f"{bold(f'SHORT {symbol}')} @ {bold('$' + _fmt(px)) if px else 'market'}"
-    conf, win, avg, label = confidence(alert_type, ctx, at)
+    (_, win, avg, n_past), label = _row(alert_type, ctx, at)
     lines = [f"✅ {bold('FADE IN')} · {head}" if out_at else f"🔻 {head}",
              f"💬 {'Shorted' if out_at else 'Short'} ${size:,.0f} of {symbol}: we make money if it falls",
-             # OMH review 2026-11-09: "Confidence 98/100" read as "98% sure this trade wins". conf is how sure we are
-             # that the AVERAGE of trades like this is positive; the honest per-trade number is the win rate.
+             # OMH review 2026-11-09: "Confidence 98/100" read as "98% sure this trade wins". Owner 2026-11-10: the
+             # confidence "makes no sense". The stored ``conf`` (how sure the AVERAGE is positive) is no per-trade
+             # number, so the text shows only the win rate and average of the past trades it comes from, and how
+             # many there are. A per-trade model added no skill (prereg_fade_confidence: Brier = base rate).
              f"🎲 Win chance {bold(f'{win:.0%}')} · {label}: "
-             + italic(f"avg {avg:+.1%}/trade; {conf}% sure that average is positive")]
+             + italic(f"avg {avg:+.1%}/trade over {n_past:,} past trades")]
     head_line = (ctx.get("news") or {}).get("headline")
     if head_line:
         lines.append(f"📰 “{head_line}”")
