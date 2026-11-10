@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS trade_insights(
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL, model TEXT NOT NULL, scope TEXT NOT NULL,
   body TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
+CREATE TABLE IF NOT EXISTS long_shadow(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, fade_id INTEGER NOT NULL, symbol TEXT NOT NULL, session TEXT NOT NULL,
+  kind TEXT NOT NULL, side TEXT, ready TEXT, trigger REAL, stop REAL, entry_ts TEXT, entry REAL, exit_ts TEXT,
+  exit REAL, reason TEXT, gross REAL, net REAL, cost_rt REAL, created_at TEXT NOT NULL, UNIQUE(fade_id, kind));
 """
 # Additive column migrations for tables that already exist on the runner's volume (CREATE IF NOT EXISTS
 # never adds columns). Only ADD COLUMN with NULL defaults: old rows stay valid, old code ignores them.

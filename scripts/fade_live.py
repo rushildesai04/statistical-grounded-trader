@@ -662,6 +662,29 @@ def settle_scanner(db: OpsStore, now: datetime | None = None) -> list[str]:
     return lines
 
 
+def settle_long_shadow(db: OpsStore) -> list[str]:
+    """Owner 2026-11-10 "paper-run the longs": the tested long setups on today's settled alerts, paper only."""
+    from sgt.brokers.costs import GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT, GAPPER_REST_MULT
+    from sgt.decision.features import CostModelAdapter
+    from sgt.fast import long_shadow
+
+    store, fetch = ParquetBarStore(BARS), AlpacaHistoricalBars(feed="sip").fetch
+    cost = CostModelAdapter(GAPPER_COST_MODEL, tag="gapper", open_hour_mult=GAPPER_OPEN_HOUR_MULT,
+                            rest_mult=GAPPER_REST_MULT)
+    seen: set[tuple[str, str]] = set()
+
+    def bars(symbol: str, session: str) -> pd.DataFrame:
+        day = date.fromisoformat(session)
+        if (symbol, session) not in seen:            # halt events were voided without a bar fetch
+            backfill([symbol], day, day, store=store, fetch=fetch)
+            seen.add((symbol, session))
+        f = store.read_frame(symbol, day, day)
+        return (f[f.segment == "rth"].assign(ts=lambda x: pd.to_datetime(x.ts, utc=True)).sort_values("ts")
+                .reset_index(drop=True)) if len(f) else f
+
+    return long_shadow.run(db, bars, lambda sym, ts, px: cost.round_trip(sym, ts, px)[0])
+
+
 def cmd_settle() -> int:
     db = OpsStore()
     lines = fade.settle(db, official)
@@ -671,6 +694,11 @@ def cmd_settle() -> int:
         print("scanner settle: " + (", ".join(sl) or "nothing due"))
     except Exception:  # noqa: BLE001 - the experiment must never block the fade's settlement; logged
         log.exception("scanner settle failed")
+    try:                                         # long shadow book (prereg_long_setups_2026-11-10), paper only
+        ls = settle_long_shadow(db)
+        print("long shadow: " + (", ".join(ls) or "nothing new"))
+    except Exception:  # noqa: BLE001 - the shadow must never block the fade's settlement; logged
+        log.exception("long shadow failed")
     return 0
 
 
