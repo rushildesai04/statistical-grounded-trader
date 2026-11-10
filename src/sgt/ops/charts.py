@@ -54,8 +54,11 @@ def _bar_at(times: list[int], when) -> int | None:
     return best if best is not None else times[0]
 
 
-def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
-    """One trade's chart data. ``bars``: the session's RTH 1-minute bars (ts UTC, open, high, low, close, volume)."""
+def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str = "short") -> dict:
+    """One trade's chart data. ``bars``: the session's RTH 1-minute bars (ts UTC, open, high, low, close, volume).
+    ``side``: "short" (the fade, the scanner) or "long" (the live paper long book, owner 2026-11-10: longs first;
+    the row carries its own stop/target and setup name)."""
+    long = side == "long"
     b = bars.copy()
     b["ts"] = pd.to_datetime(b.ts, utc=True)
     b = b.sort_values("ts").drop_duplicates("ts").tail(MAX_BARS)
@@ -91,18 +94,24 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None) -> dict:
     # settled = the official SIP result at the tested timing; otherwise the live IEX estimate
     entry, exit_px = ((_num(t.get("entry")), _num(t.get("cover"))) if settled else
                       (_num(t.get("est_entry")), _num(t.get("est_exit"))))
-    ret = official if official is not None else (
-        (entry - exit_px) / entry if entry and exit_px else None)
+    if long:
+        ret = official if official is not None else (exit_px / entry - 1 if entry and exit_px else None)
+    else:
+        ret = official if official is not None else (
+            (entry - exit_px) / entry if entry and exit_px else None)
+    open_k, close_k = ("buy", "sell") if long else ("short", "cover")
     markers = [{"time": _bar_at(times, alert), "kind": "alert", "text": "alert"},
-               {"time": _bar_at(times, entered), "kind": "short", "text": f"short {entry:.2f}" if entry else "short"}]
+               {"time": _bar_at(times, entered), "kind": open_k, "text": f"{open_k} {entry:.2f}" if entry else open_k}]
     if exited is not None:
-        markers.append({"time": _bar_at(times, exited), "kind": "cover",
-                        "text": f"cover {exit_px:.2f}" if exit_px else "cover"})
+        markers.append({"time": _bar_at(times, exited), "kind": close_k,
+                        "text": f"{close_k} {exit_px:.2f}" if exit_px else close_k})
     return {
         "id": t.get("id"), "symbol": str(t["symbol"]), "session": str(t["session"]),
         "alert_type": str(t.get("alert_type") or ""), "status": str(t.get("status") or ""),
         "reason": str(t.get("reason") or ""), "alert_at": et_epoch(alert),
-        "entry": entry, "exit": exit_px, "stop": entry * (1 + STOP) if entry else None,
+        "entry": entry, "exit": exit_px, "side": side, "setup": t.get("setup"),
+        "stop": _num(t.get("stop")) if long else (entry * (1 + STOP) if entry else None),
+        "target": _num(t.get("target")) if long else None,
         "ret": ret, "official": official is not None, "usd": usd,
         "conf": t.get("conf"), "news": bool(t.get("news_own")), "headline": t.get("news_head"),
         "candles": candles, "volume": volume, "vwap": vwap, **ema, "rsi": rsi, "macd": macd, "signals": sig,

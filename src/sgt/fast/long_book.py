@@ -185,11 +185,14 @@ def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
                          (*cols.values(), rid, expect)).rowcount == 1
 
 
-def nav(db: OpsStore) -> float:
-    """Official long book value: each settled long's official (shadow) net at its own weight."""
+def nav(db: OpsStore, through: date | None = None) -> float:
+    """Official long book value: each settled long's official (shadow) net at its own weight; ``through`` = only
+    sessions up to that date (the value before a later day's trades, as fade.nav)."""
     with db.tx() as c:
         rows = c.execute("SELECT t.weight, s.net FROM long_trades t JOIN long_shadow s ON s.fade_id=t.fade_id AND "
-                         "s.kind=t.kind WHERE t.status='settled' AND s.net IS NOT NULL ORDER BY t.id").fetchall()
+                         "s.kind=t.kind WHERE t.status='settled' AND s.net IS NOT NULL"
+                         + (" AND t.session<=?" if through else "") + " ORDER BY t.id",
+                         ((through.isoformat(),) if through else ())).fetchall()
     v = fade.NAV0
     for r in rows:
         v *= 1 + r["weight"] * r["net"]
