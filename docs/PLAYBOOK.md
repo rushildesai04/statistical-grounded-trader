@@ -112,6 +112,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG a break of structure (close over the last swing high after a higher low) | -1.85% | -2.72% | same |
 | LONG the first red candle after a halt reopen | -1.87% / -2.83% | -0.19% / -7.01% | same |
 | SHORT the failed bull flag (break below the flag low) | -1.38% | -0.74% | same |
+| BUY a sudden drop we detect (-5% in 5 min, 5x volume, new low; 20% stop, 60 min) | +0.32% (gross +1.07%; lower95 -0.39%, 2nd half -0.09%, top month 57%) | sealed | prereg_flush_long_2026-11-10 |
+| BUY a big sudden drop (>= 10% in 5 min; idea from the row above) | +1.06% (seen, n 95; 2nd half -0.72%) | **-2.15%** (n 87, decided here) | prereg_big_flush_2026-11-10 |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
