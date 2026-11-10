@@ -253,11 +253,22 @@ SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5),
 
 
 class ScanState:
-    """Scanner universe cache (prereg_scanner_book_2026-11-09)."""
+    """Scanner universe cache (prereg_scanner_book_2026-11-09) and today's betas (ground rule 2026-11-10)."""
 
     def __init__(self) -> None:
         self.universe: list[str] = []
         self.at: datetime | None = None
+        self.beta: dict[str, float | None] = {}
+
+
+def daily_for_beta(symbols: list[str]) -> dict[str, pd.DataFrame]:
+    """Split-adjusted SIP daily bars for the beta ground rule (sgt.fast.beta), ~400 calendar days."""
+    from sgt.megacap.live import alpaca_bars, to_daily
+
+    end = datetime.now(ET) - timedelta(minutes=16)
+    frames = alpaca_bars(symbols, "1Day", (end - timedelta(days=400)).date().isoformat(), end.isoformat(),
+                         feed="sip", adjustment="all")
+    return {s: to_daily(f) for s, f in frames.items() if len(f)}
 
 
 def scan_universe(client: httpx.Client, db: OpsStore, session: str) -> list[str]:
@@ -277,7 +288,31 @@ def scan_universe(client: httpx.Client, db: OpsStore, session: str) -> list[str]
                                         ((date.fromisoformat(session) - timedelta(days=7)).isoformat(),))]
     from sgt.megacap.live import EXT_TICKERS, TICKERS   # owner 2026-11-09: also the stocks our models follow
     out += list(TICKERS) + list(EXT_TICKERS)
-    return list(dict.fromkeys(s for s in out if scanner.tradable_symbol(s)))[:UNIVERSE_MAX]
+    return list(dict.fromkeys(s for s in out if scanner.tradable_symbol(s)))
+
+
+BETA_BUDGET = 3.0                               # seconds: the beta lookup never holds up the stop checks for long
+
+
+def entry_beta(db: OpsStore, symbol: str, at: datetime, fetch=None) -> float | None:
+    """Beta for amendment F7, from the session cache or one daily-bar fetch, inside BETA_BUDGET; None = unknown."""
+    from sgt.fast import beta as beta_mod
+
+    session = at.astimezone(ET).date().isoformat()
+    f = fetch or daily_for_beta
+    return gather({"beta": lambda: beta_mod.betas(db, [symbol], session, f).get(symbol)}, BETA_BUDGET)["beta"]
+
+
+SCAN_BETA_BUDGET = 10.0                         # seconds per universe refresh; a late fetch still fills the cache
+
+
+def ranked_universe(db: OpsStore, symbols: list[str], session: str, fetch=daily_for_beta) -> tuple[list[str], dict]:
+    """Owner ground rule 2026-11-10: beta >= 3 names first, then the rest; capped at UNIVERSE_MAX after ranking. The
+    beta lookup runs inside SCAN_BETA_BUDGET (review F-3): the scanner's stop/exit checks are never held up for long."""
+    from sgt.fast import beta as beta_mod
+
+    b = gather({"beta": lambda: beta_mod.betas(db, symbols, session, fetch)}, SCAN_BETA_BUDGET)["beta"] or {}
+    return beta_mod.prioritize(symbols, b)[:UNIVERSE_MAX], b
 
 
 def scan_bars(client: httpx.Client, symbols: list[str], start: datetime) -> dict[str, pd.DataFrame]:
@@ -331,14 +366,20 @@ def scan_tick(client: httpx.Client, db: OpsStore, quote, state: ScanState, now: 
 def _scan_detect(client: httpx.Client, db: OpsStore, state: ScanState, now: datetime, et: datetime) -> int:
     session = et.date().isoformat()
     if state.at is None or now - state.at >= UNIVERSE_EVERY:
-        state.universe, state.at = scan_universe(client, db, session), now
+        syms = scan_universe(client, db, session)
+        try:                                     # beta ranking must never cost the stop/exit checks (see #64)
+            state.universe, state.beta = ranked_universe(db, syms, session)
+        except Exception:  # noqa: BLE001 - priority only: fall back to the unranked universe; logged
+            log.exception("beta ranking failed")
+            state.universe, state.beta = syms[:UNIVERSE_MAX], {}
+        state.at = now
     new = 0
     try:
         if et.time() < time_of(15, 46):
             start = datetime.combine(et.date(), time_of(9, 30), ET)
             for sym, f in scan_bars(client, state.universe, start).items():
                 ev = scanner.detect(f, now)
-                if ev is not None and scanner.record(db, sym, ev, now):
+                if ev is not None and scanner.record(db, sym, ev, now, state.beta.get(sym)):
                     new += 1
                     log.info("scanner %s spike at %s", sym, ev["bar_ts"])
     except Exception:  # noqa: BLE001 - detection failing must never skip the open trades' stop/exit checks
@@ -438,6 +479,9 @@ async def run() -> int:
 
     def news_check(symbol: str, at: datetime) -> dict | None:      # amendment F6: company news at entry (None = unknown)
         return live_news(dc, symbol, at)
+
+    def beta_check(symbol: str, at: datetime) -> float | None:     # amendment F7: beta at entry (None = unknown)
+        return entry_beta(db, symbol, at)
     book = borrow_mod.BorrowBook(alpaca_asset=alpaca_asset(ac))
     init_db()
     client = TelegramClient(StringSession(get_secret(SESSION_SECRET)), int(get_secret("telegram_api_id")),
@@ -479,7 +523,8 @@ async def run() -> int:
         n = 0
         while True:
             try:
-                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check)
+                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check,
+                                        beta_check)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             try:

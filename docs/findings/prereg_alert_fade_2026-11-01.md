@@ -149,3 +149,13 @@ next deploy: a news-type alert, or company news found at entry by the same Benzi
 filtered (`fade.NO_NEWS`, reason "news (no-news rule, amendment F6)"); an unknown lookup does not block. The day-loss
 stop (`DAY_LOSS_STOP`, -3% NAV on estimates) no longer blocks entries; the 15-trade and 8-open caps stay. The
 nightly forward research record keeps scoring every alert (news included), so both groups stay measured.
+
+
+## Amendment F7 (owner 2026-11-10, "longs first", option A) — no shorts on beta >= 3
+The live book skips the short when the symbol's beta is >= 3 (raw OLS beta of daily returns vs SPY over the prior 252
+sessions, >= 60 returns; `sgt.fast.beta`), checked at entry next to the F6 company-news check, inside a 3-second
+budget; unknown beta never blocks. Stamped on every trade (`fade_trades.beta`). Basis (report only, all 3,109 tested
+events, beta from the year before each alert): >= 3 -2.14%/trade (n 76, win 39%; no-news -6.67%, n 29), 1.5-3 +0.06%
+(n 756), < 1.5 +1.86% (n 1,654), unknown +0.28% (n 623). Seen data, so the forward record re-checks it: the skipped
+alerts stay recorded (status filtered, reason "beta >= 3 ..."), and the long shadow book (`sgt.fast.long_shadow`) runs
+the long setups on them, as on every other research alert (longs first).

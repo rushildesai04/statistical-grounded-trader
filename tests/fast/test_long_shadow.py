@@ -169,3 +169,28 @@ def test_only_recent_events_are_due(db):
     late = pd.Timestamp("2026-11-30 01:40", tz="UTC").to_pydatetime()       # 21 days after the event
     ls.run(db, lambda s, d: calls.append(s) or DAY, lambda *a: 0.0, now=late)
     assert calls == [] and shadow(db) == []
+
+
+def test_longs_also_run_on_alerts_the_short_skipped(db):
+    """Owner 2026-11-10 'longs first': F6 (news) and F7 (beta >= 3) skips are long candidates; other filters are not."""
+    from sgt.fast import fade
+    for sym, reason in (("NEWS", fade.NEWS_REASON), ("BETA", fade.BETA_REASON), ("WIN", "outside 09:30-15:44")):
+        with db.tx() as c:
+            c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                      "reason, created_at) VALUES (?,?,?,?,?,?,?,?,?)", (sym, "2026-11-09", "volume_spike",
+                      POSTED.isoformat(), "-1", hash(sym) % 10_000, "filtered", reason, POSTED.isoformat()))
+    ls.run(db, lambda s, d: DAY, lambda *a: 0.01, now=NOW)
+    syms = {r["symbol"] for r in shadow(db) if r["kind"] == "L4a"}
+    assert syms == {"NEWS", "BETA"}
+    assert all(r["cost_rt"] == 0.01 for r in shadow(db) if r["net"] is not None)     # modelled cost (no fade cost)
+
+
+def test_filtered_alert_outside_the_price_band_gets_no_long(db):
+    from sgt.fast import fade
+    with db.tx() as c:
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                  "reason, created_at) VALUES (?,?,?,?,?,?,?,?,?)", ("PENNY", "2026-11-09", "volume_spike",
+                  POSTED.isoformat(), "-1", 7, "filtered", fade.NEWS_REASON, POSTED.isoformat()))
+    cheap = DAY.assign(open=DAY.open / 20, high=DAY.high / 20, low=DAY.low / 20, close=DAY.close / 20)
+    ls.run(db, lambda s, d: cheap, lambda *a: 0.0, now=NOW)
+    assert [(r["kind"], r["reason"]) for r in shadow(db)] == [("-", "no start bar")]

@@ -16,6 +16,7 @@ import pandas as pd
 
 from sgt.fast.fade import ET, PRICE_MAX, PRICE_MIN
 from sgt.intraday.calendar import default_calendar
+from sgt.fast.beta import label as beta_label
 from sgt.ops.store import OpsStore, iso
 
 log = logging.getLogger(__name__)
@@ -68,8 +69,9 @@ def nav(db: OpsStore) -> float:
     return v
 
 
-def record(db: OpsStore, symbol: str, ev: dict, now: datetime) -> bool:
-    """Insert a pending trade (first event per symbol-day; caps). True when inserted."""
+def record(db: OpsStore, symbol: str, ev: dict, now: datetime, beta: float | None = None) -> bool:
+    """Insert a pending trade (first event per symbol-day; caps). True when inserted. ``beta``: the symbol's beta
+    (ground rule 2026-11-10), stored and shown in the entry text."""
     session = ev["bar_ts"].tz_convert(ET).date().isoformat()
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM scan_trades WHERE session=? AND status!='void'", (session,)).fetchone()[0]
@@ -77,9 +79,9 @@ def record(db: OpsStore, symbol: str, ev: dict, now: datetime) -> bool:
         status, reason = ("skipped", "daily cap") if n_day >= MAX_DAY else \
             ("skipped", "runaway guard") if n_open >= MAX_OPEN else ("pending", "")
         cur = c.execute("INSERT OR IGNORE INTO scan_trades(symbol, session, bar_ts, detected_at, signal_px, status, reason,"
-                        " weight, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                        " weight, created_at, beta) VALUES (?,?,?,?,?,?,?,?,?,?)",
                         (symbol, session, iso(ev["bar_ts"].to_pydatetime()), iso(now), ev["signal_px"], status, reason,
-                         WEIGHT, iso(now)))
+                         WEIGHT, iso(now), beta))
     return cur.rowcount == 1
 
 
@@ -129,7 +131,8 @@ def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
                     out = min(now + HOLD, session_close(r["session"]))
                     _say(send, f"[SGT] 🔎 SCANNER SHORT {r['symbol']} @ ${px:.2f} · ${WEIGHT * nav(db):,.0f} (0.5%, "
                                f"experiment) · stop ${px * (1 + STOP):.2f} · out {out.astimezone(ET):%H:%M} ET\n"
-                               f"Why: +5% in 5 min on 5x volume to a new high (spike bar {bar.astimezone(ET):%H:%M})\n"
+                               f"Why: +5% in 5 min on 5x volume to a new high (spike bar {bar.astimezone(ET):%H:%M})"
+                               f" · {beta_label(r['beta'])}\n"
                                f"https://www.tradingview.com/chart/?symbol={r['symbol']}")
                 continue
             px = quote(r["symbol"]) if now < close else None   # after the close: the last session mark, not a late print

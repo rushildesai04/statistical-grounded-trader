@@ -69,6 +69,10 @@ ASK_FIRST = False
 # lookup does not block (the group "all" was still positive, +0.54% before 11:00).
 NO_NEWS = True
 NEWS_REASON = "news (no-news rule, amendment F6)"
+# Amendment F7 (owner 2026-11-10, option A "longs first"): no short on a beta >= 3 name. Past alerts by beta (report
+# only, beta from the year before each alert): >= 3 -2.14%/trade (n 76; no-news -6.67%, n 29), < 1.5 +1.86% (n 1,654).
+HIGH_BETA_SKIP = 3.0
+BETA_REASON = "beta >= 3 (no shorts on high beta, amendment F7)"
 
 Quote = Callable[[str], "float | None"]
 # A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
@@ -85,6 +89,7 @@ def entry_start(posted: datetime) -> datetime:
     return t if t == floor else floor + timedelta(minutes=1)
 Borrow = Callable[[str, datetime], dict]
 NewsCheck = Callable[[str, datetime], "dict | None"]          # company-news flags at a time; None = unknown
+BetaCheck = Callable[[str, datetime], "float | None"]         # the symbol's beta (sgt.fast.beta); None = unknown
 BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable")
 Official = Callable[[pd.DataFrame], pd.DataFrame]
 
@@ -195,7 +200,8 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
 
 
 def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None,
-            context: Callable[[str], dict] | None = None, news: NewsCheck | None = None) -> None:
+            context: Callable[[str], dict] | None = None, news: NewsCheck | None = None,
+            beta: BetaCheck | None = None) -> None:
     """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
     open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event."""
     now = now or utcnow()
@@ -206,7 +212,7 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borro
         try:
             if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
                 r = _stamp(db, r, borrow(r["symbol"], now))
-            _advance(db, send, quote, r, now, context, news)
+            _advance(db, send, quote, r, now, context, news, beta)
         except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
             log.exception("fade row %s failed", r["id"])
 
@@ -228,11 +234,12 @@ def record(db: OpsStore) -> tuple[int, float | None]:
     return int(n), mean
 
 
-def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None) -> None:
+def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
+             beta: BetaCheck | None = None) -> None:
     if r["status"] == "ask":
-        _ask(db, send, quote, r, now, context)
+        _ask(db, send, quote, r, now, context, news, beta)
     elif r["status"] == "pending":
-        _enter(db, send, quote, r, now, context, news)
+        _enter(db, send, quote, r, now, context, news, beta)
     else:
         _exit(db, send, quote, r, now)
 
@@ -243,7 +250,8 @@ def _approval(db: OpsStore, rid: int):
                          (f"fade:{rid}",)).fetchone()
 
 
-def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> None:
+def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
+         beta: BetaCheck | None = None) -> None:
     """Text one approval request per event; an approved request becomes a pending entry (same tick)."""
     posted = datetime.fromisoformat(r["posted_at"])
     deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
@@ -272,7 +280,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
             _set(db, r["id"], "ask", status="skipped", reason="paused or too late after approval")
             return
         approvals.finish(db, a["id"], True, "entering")
-        if _set(db, r["id"], "ask", status="pending", reason="approved"):
+        if _set(db, r["id"], "ask", status="pending", reason="approved"):  # the owner's OK: no at-entry gates
             _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now, context)
         return
     if a["status"] == "rejected":
@@ -297,10 +305,11 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None) -> No
     if not won:                                        # someone else decided it (e.g. PAUSE): never enter
         _set(db, r["id"], "ask", status="skipped", reason="approval no longer open")
     elif _set(db, r["id"], "ask", status="pending", reason="auto"):
-        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context)
+        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context, news, beta)
 
 
-def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None) -> None:
+def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
+           beta: BetaCheck | None = None) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
     start = entry_start(posted)
     if now < start:
@@ -314,6 +323,8 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         _set(db, r["id"], "pending", status="skipped", reason="disarmed before entry")
         return
     if NO_NEWS and news is not None and r["news_own"] is None and _company_news(db, r, news(r["symbol"], now)):
+        return
+    if beta is not None and r["beta"] is None and _high_beta(db, r, beta(r["symbol"], now)):
         return
     px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
     if px is None or not px > 0:
@@ -429,6 +440,18 @@ def _company_news(db: OpsStore, r, flags: dict | None) -> bool:
              news_head=flags.get("headline"))
         return True
     _set(db, r["id"], "pending", news_own=0, news_earn=0)
+    return False
+
+
+def _high_beta(db: OpsStore, r, b: float | None) -> bool:
+    """Amendment F7: stamp the beta; True (and filtered) when it is >= HIGH_BETA_SKIP. Unknown (None) never blocks
+    and is retried on the next tick only while the entry is still pending."""
+    if b is None:
+        return False
+    if b >= HIGH_BETA_SKIP:
+        _set(db, r["id"], "pending", status="filtered", reason=BETA_REASON, beta=b)
+        return True
+    _set(db, r["id"], "pending", beta=b)
     return False
 
 
