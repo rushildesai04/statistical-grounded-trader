@@ -46,7 +46,8 @@ def due(db: OpsStore, since: str) -> list[dict]:
     with db.tx() as c:
         rows = c.execute(
             "SELECT id, symbol, session, posted_at, status, reason, cost_rt FROM fade_trades f WHERE session>=? AND "
-            "(status='settled' OR (status='void' AND reason=?) OR (status='filtered' AND reason IN (?,?))) AND NOT "
+            "(status IN ('settled','skipped') OR (status='void' AND reason=?) OR (status='filtered' AND reason IN (?,?))) "
+            "AND NOT "
             "EXISTS (SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id",
             (since, HALT_REASON, *SHORT_SKIPS)).fetchall()
     return [dict(r) for r in rows]
@@ -54,22 +55,22 @@ def due(db: OpsStore, since: str) -> list[dict]:
 
 def setups(f: pd.DataFrame, row: dict) -> tuple[list[pt.Setup], pd.Timestamp | None]:
     """Setups for one event and its start bar (None = no start bar: nothing to run). Start bar exactly as the research
-    (telegram_alert_test.attach_trades): the first bar at or after alert + 10 s, starting within 5 minutes of the alert;
-    for a halt event the first bar after the gap, within 30 minutes of the alert."""
+    (telegram_alert_test.attach_trades): the first bar at or after alert + 10 s, starting within 5 minutes of the alert.
+    No such bar = a halt: L7 from the first bar after the gap, within 30 minutes of the alert (a settled fade had its
+    bar, so it is never a halt). Rows the fade did not trade also get the research $1-50 check at the start bar."""
     posted = pd.Timestamp(row["posted_at"]).tz_convert("UTC")
     nxt = f[f.ts >= posted + pd.Timedelta(fade.REACTION)]
     if nxt.empty:
         return [], None
-    t0 = nxt.ts.iloc[0]
-    if row["status"] in ("settled", "filtered"):
-        if t0 - posted > pd.Timedelta(fade.MAX_ENTRY_DELAY):
-            return [], None
-        if row["status"] == "filtered" and not fade.PRICE_MIN <= float(nxt.open.iloc[0]) <= fade.PRICE_MAX:
-            return [], None                       # the research $1-50 filter at the start bar (settled rows passed it)
-        return pt.first_red(f, t0) + pt.bull_flag(f, t0) + pt.bos_long(f, t0), t0
-    if t0 - posted > REOPEN_MAX:
+    t0, gap = nxt.ts.iloc[0], nxt.ts.iloc[0] - posted
+    settled = row["status"] == "settled"
+    halted = gap > pd.Timedelta(fade.MAX_ENTRY_DELAY)
+    if (halted and (settled or gap > REOPEN_MAX)) or \
+            (not settled and not fade.PRICE_MIN <= float(nxt.open.iloc[0]) <= fade.PRICE_MAX):
         return [], None
-    return pt.first_red(f, t0, "L7"), t0
+    if halted:
+        return pt.first_red(f, t0, "L7"), t0
+    return pt.first_red(f, t0) + pt.bull_flag(f, t0) + pt.bos_long(f, t0), t0
 
 
 def run(db: OpsStore, bars: Bars, cost_fn: Cost, now: datetime | None = None) -> list[str]:

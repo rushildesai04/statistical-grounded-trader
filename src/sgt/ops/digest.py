@@ -227,8 +227,23 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
              + (f"\n{split}" if split else "")]
     lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
               ["\u2705 Nothing needs you. Jobs OK (24h)."])
-    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + fl + sc + books
+    try:                                              # owner 2026-11-10 option A: longs first
+        from sgt.fast import long_book
+
+        lt = long_book.today_line(db, day.isoformat())
+        longs = [f"\U0001F7E2 {bold('longs')} " + lt.removeprefix("longs ")] if lt else []
+    except Exception:  # noqa: BLE001 - one digest line must never block the digest
+        longs = ["longs: unavailable"]
+    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + sc + books
     lines += ["", f"\U0001F4C8 {bold('RECORD')}"]
+    try:
+        from sgt.fast import long_book
+
+        lr = long_book.record_line(db)
+        if lr:
+            lines.append(f"{bold('long book')} " + lr.removeprefix("long book "))
+    except Exception:  # noqa: BLE001 - informational line
+        lines.append("long book: record unavailable")
     fr = fade.record_line(db)
     if fr:
         lines.append(f"{bold('fade')} " + fr.removeprefix("fade "))
