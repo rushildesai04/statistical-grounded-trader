@@ -118,3 +118,23 @@ def test_auto_entry_after_an_unanswered_ask_is_gated_too(db, monkeypatch):
                  beta=lambda s, at: 4.2)                                                    # deadline: auto-entry
     r = row(db)
     assert (r["status"], r["reason"], r["beta"]) == ("filtered", fade.BETA_REASON, 4.2)
+
+
+def test_short_text_shows_the_beta_split(db):
+    """Owner 2026-11-10: the confidence must mean something; the stock's beta and past shorts at that beta are shown."""
+    sent, _ = run(db, 1.2)
+    assert "📐 β 1.2 · past no-news shorts at β <1.5: win 61%, avg +3.1% (662)" in sent[0]
+    from sgt.ops.sms_style import italic
+    assert italic("(split of past data, not a tested rule)") in sent[0]
+
+
+def test_beta_line_buckets_and_unknown():
+    from sgt.fast import fade_texts as ft
+    assert ft.beta_line(None) is None
+    assert "β 1.5-3: win 55%, avg +1.1% (267)" in ft.beta_line(2.0)
+    assert "β >=3: win 21%, avg -6.7% (29)" in ft.beta_line(3.0)
+
+
+def test_unknown_beta_short_text_has_no_beta_line(db):
+    sent, _ = run(db, None)
+    assert "📐" not in sent[0]
