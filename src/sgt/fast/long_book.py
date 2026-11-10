@@ -15,7 +15,7 @@ that holds. Respects PAUSE / DISARM; no entry after the last entry minute; at mo
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable
 
 import pandas as pd
@@ -195,14 +195,30 @@ def nav(db: OpsStore) -> float:
     return v
 
 
-def settle(db: OpsStore) -> list[str]:
-    """After the shadow run: book each closed live long at its official shadow net (same alert, same setup). A live
-    long whose setup did not fill on SIP bars is void (IEX and SIP disagreed)."""
+STALE_DAYS = 3                                     # a closed long with no official event after this is void
+
+
+def settle(db: OpsStore, now: datetime | None = None) -> list[str]:
+    """After the shadow run: book each closed live long at its official shadow net (same alert, same setup). Void,
+    never left hanging (review F-1: a silent drop would bias the record, mostly losing L7 trades): a matching setup
+    that did not fill on SIP; an event the shadow processed without that setup (e.g. IEX gaps looked like a halt
+    live, SIP had none); a long whose alert never became an official event within STALE_DAYS."""
+    now = now or utcnow()
     with db.tx() as c:
         rows = [dict(r) for r in c.execute(
             "SELECT t.id, t.symbol, t.kind, s.net, s.entry FROM long_trades t JOIN long_shadow s ON s.fade_id=t.fade_id "
             "AND s.kind=t.kind WHERE t.status='est_closed'")]
+        orphans = [dict(r) for r in c.execute(
+            "SELECT t.id, t.symbol, t.kind, t.session, EXISTS(SELECT 1 FROM long_shadow s WHERE s.fade_id=t.fade_id) "
+            "AS seen FROM long_trades t WHERE t.status='est_closed' AND NOT EXISTS (SELECT 1 FROM long_shadow s WHERE "
+            "s.fade_id=t.fade_id AND s.kind=t.kind)")]
     out = []
+    stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
+    for r in orphans:
+        why = ("official bars show a different setup (IEX vs SIP)" if r["seen"] else
+               "no official event" if r["session"] <= stale else None)
+        if why and _set(db, r["id"], "est_closed", status="void", reason=why):
+            out.append(f"{r['symbol']} {r['kind']} void")
     for r in rows:
         if r["net"] is None:
             _set(db, r["id"], "est_closed", status="void", reason="setup did not fill on SIP bars")
@@ -235,12 +251,14 @@ def today_line(db: OpsStore, session: str) -> str | None:
     with db.tx() as c:
         rows = c.execute("SELECT symbol, kind, status, est_entry, est_exit, net, weight FROM long_trades WHERE "
                          "session=? AND status NOT IN ('none') ORDER BY id", (session,)).fetchall()
+    # review F-2: a void long has no official result: say so instead of showing its estimate
     if not rows:
         return None
     bits = []
     for r in rows:
         g = r["net"] if r["net"] is not None else (r["est_exit"] / r["est_entry"] - 1 if r["est_exit"] else None)
-        bits.append(f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])} " + ("open" if g is None else f"{g:+.1%}"))
+        state = "void" if r["status"] == "void" else ("open" if g is None else f"{g:+.1%}")
+        bits.append(f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])} {state}")
     return f"longs (paper) {len(rows)} trades: " + ", ".join(bits)
 
 

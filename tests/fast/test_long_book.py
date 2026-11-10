@@ -200,3 +200,56 @@ def test_repeat_alerts_of_one_stock_are_one_event(db):
     ls.run(db, feed(DAY), lambda *a: 0.0, now=at(400))
     with db.tx() as c:
         assert {r[0] for r in c.execute("SELECT DISTINCT fade_id FROM long_shadow")} == {first}   # same event
+
+
+def _closed_long(db, kind="L7b", session="2026-11-09"):
+    fid = alert_row(db, "ORPH")
+    with db.tx() as c:
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, target, weight, entry_ts, "
+                  "est_entry, est_exit, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (fid, "ORPH", session, kind, "est_closed", 9.0, 12.0, 0.05, T1.isoformat(), 10.0, 11.0,
+                   POSTED.isoformat()))
+    return fid
+
+
+def test_kind_mismatch_with_the_shadow_is_void_not_dropped(db):
+    """Review F-1: live L7 (IEX gap) vs a regular event on SIP must not hang as est_closed forever."""
+    fid = _closed_long(db)
+    with db.tx() as c:
+        c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, net, created_at) VALUES "
+                  "(?,?,?,?,?,?,?)", (fid, "ORPH", "2026-11-09", "L4a", "long", -0.02, POSTED.isoformat()))
+    assert lb.settle(db, now=at(400)) == ["ORPH L7b void"]
+    t = [x for x in trades(db) if x["symbol"] == "ORPH"][0]
+    assert (t["status"], t["reason"]) == ("void", "official bars show a different setup (IEX vs SIP)")
+
+
+def test_long_with_no_official_event_is_void_after_a_few_days(db):
+    _closed_long(db, "L4a", session="2026-11-09")
+    assert lb.settle(db, now=at(60)) == []                                   # the shadow may still come tonight
+    later = datetime(2026, 11, 13, 2, 0, tzinfo=timezone.utc)
+    assert lb.settle(db, now=later) == ["ORPH L4a void"]
+
+
+def test_digest_line_says_void(db):
+    _closed_long(db)
+    with db.tx() as c:
+        c.execute("UPDATE long_trades SET status='void'")
+    assert "ORPH halt reopen: red-candle break void" in lb.today_line(db, "2026-11-09")
+
+
+def test_long_book_settle_failure_is_logged_separately(tmp_path, monkeypatch, caplog):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import fade_live as fl
+
+    monkeypatch.setattr(fl, "OpsStore", lambda: OpsStore(tmp_path / "ops.db"))
+    monkeypatch.setattr(fl.fade, "settle", lambda db, official: [])
+    monkeypatch.setattr(fl, "settle_scanner", lambda db: [])
+    monkeypatch.setattr(fl, "settle_long_shadow", lambda db: ["X L4a +1.00%"])
+
+    def boom(db):
+        raise RuntimeError("bad join")
+    monkeypatch.setattr(lb, "settle", boom)
+    assert fl.cmd_settle() == 0
+    assert "long book settle failed" in caplog.text and "long shadow failed" not in caplog.text

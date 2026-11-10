@@ -758,11 +758,15 @@ def cmd_settle() -> int:
     try:                                         # long shadow book (prereg_long_setups_2026-11-10), paper only
         ls = settle_long_shadow(db)
         print("long shadow: " + (", ".join(ls) or "nothing new"))
-        from sgt.fast import long_book                 # live paper long book: official = the shadow row (option A)
+    except Exception:  # noqa: BLE001 - the shadow must never block the fade's settlement; logged
+        log.exception("long shadow failed")
+    try:                                         # live paper long book: official = the shadow row (option A)
+        from sgt.fast import long_book
+
         lb = long_book.settle(db)
         print("long book settle: " + (", ".join(lb) or "nothing due"))
-    except Exception:  # noqa: BLE001 - the long books must never block the fade's settlement; logged
-        log.exception("long shadow failed")
+    except Exception:  # noqa: BLE001 - review F-3: its own label; never blocks the fade's settlement
+        log.exception("long book settle failed")
     return 0
 
 
