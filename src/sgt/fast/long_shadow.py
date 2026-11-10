@@ -11,7 +11,7 @@ round trip; halt events (no stored cost) use ``cost_fn``. S2 (short) also pays t
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable
 
 import pandas as pd
@@ -22,6 +22,7 @@ from sgt.ops.store import OpsStore, iso, utcnow
 
 LOCATE = 0.005
 REOPEN_MAX = pd.Timedelta(minutes=30)
+LOOKBACK_DAYS = 14                  # review F-2: only recent events (bounds the first run and retries of missing bars)
 HALT_REASON = "no_entry"          # attach_trades status: no bar within 5 min of the alert (a halt); fade_live._score
                                   # stores it as the void reason ("no bars in window" is a different case)
 TESTED = {"L4a": -0.0119, "L4b": -0.0244, "L5": -0.0172, "L6": -0.0185, "L7a": -0.0187, "L7b": -0.0283,
@@ -35,12 +36,13 @@ def _latest(session: str) -> pd.Timestamp:
     return pd.Timestamp(datetime.combine(d, fade.last_entry(d), tzinfo=fade.ET)).tz_convert("UTC") + pt.BAR
 
 
-def due(db: OpsStore) -> list[dict]:
+def due(db: OpsStore, since: str) -> list[dict]:
+    """Research events from ``since`` (ISO session date) on that have no shadow rows yet."""
     with db.tx() as c:
         rows = c.execute(
-            "SELECT id, symbol, session, posted_at, status, reason, cost_rt FROM fade_trades f WHERE "
+            "SELECT id, symbol, session, posted_at, status, reason, cost_rt FROM fade_trades f WHERE session>=? AND "
             "(status='settled' OR (status='void' AND reason=?)) AND NOT EXISTS "
-            "(SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id", (HALT_REASON,)).fetchall()
+            "(SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id", (since, HALT_REASON)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -65,9 +67,12 @@ def setups(f: pd.DataFrame, row: dict) -> tuple[list[pt.Setup], pd.Timestamp | N
 def run(db: OpsStore, bars: Bars, cost_fn: Cost, now: datetime | None = None) -> list[str]:
     """Shadow every due event once. Returns one line per filled shadow trade."""
     now, out = now or utcnow(), []
-    for row in due(db):
+    since = (now - timedelta(days=LOOKBACK_DAYS)).date().isoformat()
+    for row in due(db, since):
         f = bars(row["symbol"], row["session"])
-        found, t0 = setups(f, row) if len(f) else ([], None)
+        if not len(f):                  # review F-1: bars not fetched (outage): retry next run, never a permanent "-"
+            continue
+        found, t0 = setups(f, row)
         recs = []
         for s in found:
             t = pt.simulate(f, s, latest=_latest(row["session"]))

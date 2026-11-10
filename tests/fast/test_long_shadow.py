@@ -10,6 +10,7 @@ from sgt.ops.store import OpsStore
 
 POSTED = pd.Timestamp("2026-11-09 15:00:20", tz="UTC")          # 10:00:20 ET -> start bar 15:01 (alert + 10 s)
 T1 = pd.Timestamp("2026-11-09 15:01", tz="UTC")
+NOW = pd.Timestamp("2026-11-10 01:40", tz="UTC").to_pydatetime()   # the 20:40 ET settle
 
 
 @pytest.fixture()
@@ -48,7 +49,7 @@ def shadow(db):
 def test_settled_event_gets_the_tested_setups_once(db):
     fid = fade_row(db, "ABCD", "settled")
     seen = []
-    lines = ls.run(db, lambda s, d: (seen.append((s, d)), DAY)[1], lambda *a: pytest.fail("stored cost exists"))
+    lines = ls.run(db, lambda s, d: (seen.append((s, d)), DAY)[1], lambda *a: pytest.fail("stored cost exists"), now=NOW)
     rows = {r["kind"]: r for r in shadow(db)}
     assert {"L4a", "L4b"} <= set(rows) and seen == [("ABCD", "2026-11-09")]
     a = rows["L4a"]                               # red candle 15:02 -> buy the 15:03 open 10.3, stop 10.2, 2R 10.5
@@ -57,13 +58,13 @@ def test_settled_event_gets_the_tested_setups_once(db):
     b = rows["L4b"]                               # buy-stop at the red high 10.55 fills on 15:03
     assert b["entry"] == 10.55 and b["cost_rt"] == 0.01
     assert any(x.startswith("ABCD L4a ") for x in lines)
-    assert ls.run(db, lambda s, d: DAY, lambda *a: 0.0) == [] and len(shadow(db)) == len(rows)   # idempotent
+    assert ls.run(db, lambda s, d: DAY, lambda *a: 0.0, now=NOW) == [] and len(shadow(db)) == len(rows)   # idempotent
 
 
 def test_start_bar_must_come_within_five_minutes(db):
     fade_row(db, "LATE", "settled")
     late = bars([(10, 10.5, 10, 10.4, 1)] * 5, start=POSTED.floor("min") + pd.Timedelta(minutes=6))
-    ls.run(db, lambda s, d: late, lambda *a: 0.0)
+    ls.run(db, lambda s, d: late, lambda *a: 0.0, now=NOW)
     assert [(r["kind"], r["reason"]) for r in shadow(db)] == [("-", "no start bar")]
 
 
@@ -74,7 +75,7 @@ def test_halt_event_runs_l7_from_the_reopen_with_modelled_cost(db):
     day = bars([(10.0, 10.5, 10.0, 10.4, 1), (10.5, 10.55, 10.2, 10.3, 1), (10.3, 11.0, 10.3, 10.9, 1)]
                + [(10.9, 11.0, 10.8, 10.9, 1)] * 40, start=reopen)
     calls = []
-    ls.run(db, lambda s, d: day, lambda sym, ts, px: calls.append((sym, px)) or 0.02)
+    ls.run(db, lambda s, d: day, lambda sym, ts, px: calls.append((sym, px)) or 0.02, now=NOW)
     rows = shadow(db)
     assert {r["kind"] for r in rows} == {"L7a", "L7b"} and all(r["symbol"] == "HALT" for r in rows)
     assert calls and calls[0][0] == "HALT" and all(r["cost_rt"] == 0.02 for r in rows if r["net"] is not None)
@@ -83,7 +84,7 @@ def test_halt_event_runs_l7_from_the_reopen_with_modelled_cost(db):
 def test_short_pays_the_locate_and_no_setup_is_marked(db):
     fade_row(db, "FLAT", "settled")
     flat = bars([(10.0, 10.1, 9.9, 10.05, 1)] * 45)                     # never red: no setup at all
-    ls.run(db, lambda s, d: flat, lambda *a: 0.0)
+    ls.run(db, lambda s, d: flat, lambda *a: 0.0, now=NOW)
     assert [(r["kind"], r["reason"]) for r in shadow(db)] == [("-", "no setup")]
     pole = [(10.0, 10.2, 10.0, 10.2, 1000), (10.2, 10.5, 10.2, 10.5, 1200), (10.5, 10.8, 10.5, 10.8, 1500),
             (10.8, 11.0, 10.8, 11.0, 1500)]
@@ -91,7 +92,7 @@ def test_short_pays_the_locate_and_no_setup_is_marked(db):
     down = [(10.75, 10.76, 10.5, 10.55, 300), (10.55, 10.6, 10.2, 10.25, 300)] + [(10.25, 10.3, 10.2, 10.25, 1)] * 40
     fade_row(db, "FLAG", "settled", posted=T1 - pd.Timedelta(seconds=10) + 4 * pt.BAR)
     day = bars(flag + down, start=T1 + 4 * pt.BAR, pre=pole)
-    ls.run(db, lambda s, d: day, lambda *a: 0.0)
+    ls.run(db, lambda s, d: day, lambda *a: 0.0, now=NOW)
     s2 = [r for r in shadow(db) if r["kind"] == "S2"][0]
     assert s2["side"] == "short" and s2["entry"] == 10.70
     assert s2["net"] == pytest.approx(s2["gross"] - 0.01 - ls.LOCATE)
@@ -100,7 +101,7 @@ def test_short_pays_the_locate_and_no_setup_is_marked(db):
 def test_record_line(db):
     assert ls.record_line(db) is None
     fade_row(db, "ABCD", "settled")
-    ls.run(db, lambda s, d: DAY, lambda *a: 0.0)
+    ls.run(db, lambda s, d: DAY, lambda *a: 0.0, now=NOW)
     line = ls.record_line(db)
     assert line.startswith("long shadow (paper, no orders) ") and "L4a 1 avg " in line and "tested -2.8% to -1.2%" in line
 
@@ -129,7 +130,7 @@ def test_digest_shows_the_shadow_record(db):
 
     from sgt.ops import digest
     fade_row(db, "ABCD", "settled")
-    ls.run(db, lambda s, d: DAY, lambda *a: 0.0)
+    ls.run(db, lambda s, d: DAY, lambda *a: 0.0, now=NOW)
     text = digest.build(db, datetime(2026, 11, 9, 20, 50, tzinfo=ZoneInfo("America/New_York")), fills=[],
                         problems=[], broker=None, research=[])
     assert "(paper, no orders)" in text and "L4a 1 avg" in text
@@ -150,3 +151,21 @@ def test_halt_reason_is_what_the_official_settle_writes():
     alert = pd.DataFrame({"symbol": ["ABCD"], "alert_type": ["volume_spike"], "posted_at": [pd.Timestamp(t0 + timedelta(seconds=30))],
                           "has_news": [None], "session": [date(2025, 3, 3)]})
     assert tat.attach_trades(alert, store).iloc[0].status == ls.HALT_REASON
+
+
+def test_missing_bars_are_retried_not_recorded(db):
+    """Review F-1: a failed bar download must not mark a settled event as 'no start bar' forever."""
+    fade_row(db, "ABCD", "settled")
+    now = pd.Timestamp("2026-11-10 01:40", tz="UTC").to_pydatetime()
+    assert ls.run(db, lambda s, d: DAY.iloc[0:0], lambda *a: 0.0, now=now) == [] and shadow(db) == []
+    ls.run(db, lambda s, d: DAY, lambda *a: 0.0, now=now)
+    assert {"L4a", "L4b"} <= {r["kind"] for r in shadow(db)}
+
+
+def test_only_recent_events_are_due(db):
+    """Review F-2: the first run after a deploy does not back-fetch the whole history."""
+    fade_row(db, "ABCD", "settled")
+    calls = []
+    late = pd.Timestamp("2026-11-30 01:40", tz="UTC").to_pydatetime()       # 21 days after the event
+    ls.run(db, lambda s, d: calls.append(s) or DAY, lambda *a: 0.0, now=late)
+    assert calls == [] and shadow(db) == []
