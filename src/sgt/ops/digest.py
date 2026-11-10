@@ -11,6 +11,7 @@ import pandas as pd
 from sgt.fast import fade, realism
 from sgt.ops import approvals
 from sgt.ops.book import fmt_targets
+from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore
 
 LOGS = {"megacap": Path("reports/megacap_forward/run.log"), "etf": Path("reports/forward/run.log"),
@@ -78,24 +79,27 @@ def book_lines(db: OpsStore, today: date) -> list[str]:
     return out
 
 
-# Owner 2026-11-09: "format the digest better". Layout: the day's dollars first, then what needs the owner, then
-# one line per book, then the record. Plain GSM-7 characters only: one unicode character (a middle dot, a real
-# minus, an emoji) switches the whole SMS to UCS-2 and ~2.3x the segments. Long digests are sent as numbered parts.
+# Owner 2026-11-09: "format the digest better", then "add emojis, bolds, italics". Layout: the day's dollars first,
+# then what needs the owner, then one line per book, then the record. Styled text makes the SMS UCS-2 (67 characters
+# per segment, and each bold/italic letter is 2 UTF-16 units), so bold is kept to headers and book names. Reply codes
+# are never styled: a copied styled digit is not an ASCII digit and would not parse. Long digests go as numbered parts.
 NAMES = {"etf:B_6040": "60/40", "etf:F1_dual_momentum": "dual momentum", "etf:F2_6040_trend": "60/40 trend",
          "megacap": "megacap", "megacap_overlay": "megacap overlay", "megacap_ext": "megacap 15"}
+_CTRL = {i: None for i in range(32) if i != 10} | {127: None}
 
 
-# GSM 03.38 basic + extension characters: anything else forces UCS-2 for the whole SMS.
-_GSM = set("@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5_\u00c6\u00e6\u00df\u00c9 !\"#\u00a4%&'()*+,-./0123456789:;<=>?"
-           "\u00a1ABCDEFGHIJKLMNOPQRSTUVWXYZ\u00c4\u00d6\u00d1\u00dc\u00a7\u00bfabcdefghijklmnopqrstuvwxyz\u00e4\u00f6\u00f1\u00fc\u00e0"
-           "^{}\\[~]|\u20ac")
-_ASCII = {"\u00b1": "+/-", "\u2212": "-", "\u2013": "-", "\u2014": "-", "\u00b7": ";", "\u2192": "->", "\u2026": "...",
-          "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2264": "<=", "\u2265": ">="}
+def clean(text: str) -> str:
+    """Drop control characters (other than newlines) from text that reaches the phone."""
+    return text.translate(_CTRL)
 
 
-def gsm(text: str) -> str:
-    """Plain GSM-7 text: known symbols spelled out, anything else (emoji, math letters) becomes '?'."""
-    return "".join(ch if ch in _GSM else _ASCII.get(ch, "?") for ch in text)
+def units(text: str) -> int:
+    """SMS length as carriers count it in UCS-2: UTF-16 code units (emoji and styled letters are 2)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def dot(x: float) -> str:
+    return "🟢" if x > 0.5 else "🔴" if x < -0.5 else "⚪"
 
 
 def usd(x: float) -> str:
@@ -139,9 +143,9 @@ def model_books(db: OpsStore, day: date) -> tuple[list[str], dict[str, float]]:
             if last["session"] == day.isoformat():
                 today = last["nav"] - last["nav"] / (1 + last["ret"])
                 total["ETF" if s.startswith("etf:") else "models"] += today
-                head = f"{name(s)} {usd(today)} ({last['ret']:+.2%})"
+                head = f"{dot(today)} {bold(name(s))} {usd(today)} ({last['ret']:+.2%})"
             else:
-                head = f"{name(s)} no close yet (last {last['session'][5:]})"
+                head = f"\u23F8\uFE0F {bold(name(s))} {italic('no close yet')} (last {last['session'][5:]})"
             out.append(f"{head}, month {mtd:+.1%}, ${last['nav']:,.0f}: {holdings(h)}")
     return out, total
 
@@ -158,7 +162,8 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     bits = [f"{r['symbol']} {r['net']:+.1%}" for r in st]
     bits += [f"{r['symbol']} void" for r in rows if r["status"] == "void"]
     wait = sum(r["status"] != "settled" and r["status"] != "void" for r in rows)
-    line = f"fade {usd(today)}, {len(st)} trades: " + ", ".join(bits) + (f" ({wait} not settled yet)" if wait else "")
+    line = (f"{dot(today)} {bold('fade')} {usd(today)}, {len(st)} trades: " + ", ".join(bits)
+            + (f" ({italic(f'{wait} not settled yet')})" if wait else ""))
     return [line], today
 
 
@@ -173,7 +178,8 @@ def scanner_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     g = sum(r["weight"] * r["net"] for r in rows)
     v = scanner.nav(db)
     today = v - v / (1 + g)                      # close enough for display: one compounding step
-    return [f"scanner {usd(today)} (experiment, 0.5%/trade): " + ", ".join(f"{r['symbol']} {r['net']:+.1%}" for r in rows)], today
+    return [f"{dot(today)} {bold('scanner')} {usd(today)} ({italic('experiment, 0.5%/trade')}): "
+            + ", ".join(f"{r['symbol']} {r['net']:+.1%}" for r in rows)], today
 
 
 def _safe(fn, fallback: str, *a):
@@ -217,24 +223,26 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         needs.append("live monitor unavailable")
 
     split = ", ".join(f"{k} {usd(v)}" for k, v in sorted(groups.items(), key=lambda kv: -abs(kv[1])) if abs(v) >= 0.5)
-    lines = [f"[SGT] {now_et:%a %m-%d}: {usd(total)} today (paper)" + (f": {split}" if split else "")]
-    lines += (["", "NEEDS YOU"] + [f"- {n}" for n in needs]) if needs else ["Nothing needs you. Jobs OK (24h)."]
-    lines += ["", "TODAY"] + fl + sc + books
-    lines += ["", "RECORD"]
+    lines = [f"[SGT] \U0001F4CA {bold(f'{now_et:%a %m-%d}')}: {bold(usd(total))} today {italic('(paper)')}"
+             + (f"\n{split}" if split else "")]
+    lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
+              ["\u2705 Nothing needs you. Jobs OK (24h)."])
+    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + fl + sc + books
+    lines += ["", f"\U0001F4C8 {bold('RECORD')}"]
     fr = fade.record_line(db)
     if fr:
-        lines.append(fr)
+        lines.append(f"{bold('fade')} " + fr.removeprefix("fade "))
     try:
         from sgt.fast import scanner
 
         sl = scanner.record_line(db)
         if sl:
-            lines.append(sl)
+            lines.append(f"{bold('scanner')} " + sl.removeprefix("scanner "))
     except Exception:  # noqa: BLE001
         lines.append("scanner: record unavailable")
-    lines += [f"live vs tested: {r}" for r in record]
+    lines += [f"{bold('live vs tested')}: {r}" for r in record]
     try:
-        lines += realism.lines(db)
+        lines += [f"{bold('fade exec')}: " + x.removeprefix("fade exec: ") for x in realism.lines(db)]
     except Exception:  # noqa: BLE001 - one digest line must never block the digest
         lines.append("fade exec: unavailable")
     ai = [x for x in (db.flag("analyst_status") and f"report {db.flag('analyst_status')}",
@@ -248,10 +256,10 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     except Exception:  # noqa: BLE001 - informational line
         pass
     if ai:
-        lines.append("AI: " + "; ".join(ai))
+        lines.append(f"\U0001F916 {bold('AI')}: " + "; ".join(ai))
     rs = [r for r in research if r]
     if rs:
-        lines += ["", "RESEARCH"] + rs
+        lines += ["", f"\U0001F52C {bold('RESEARCH')}"] + rs
     final: dict[tuple[str, str], dict] = {}
     for f in fills:                                   # several fills per symbol: the last one is the position held
         final[(f["strategy"], f["symbol"])] = f
@@ -261,27 +269,30 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             w = f["target"]
             by.setdefault(name(strat), []).append(
                 f"{sym} {'flat' if abs(w) < 1e-6 else ('long' if w > 0 else 'short') + f' {abs(w):.0%}'} @{f['price']:.2f}")
-        lines += ["", "Filled at close: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in by.items())]
+        lines += ["", f"\U0001F9FE {bold('Filled at close')}: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in by.items())]
 
     if broker:
-        lines += ["", broker]
-    return gsm("\n".join(lines))
+        lines += ["", f"\U0001F3E6 {broker}"]
+    return clean("\n".join(lines))
 
 
 def parts(text: str, limit: int = 1490) -> list[str]:
-    """Split at line breaks into SMS-sized parts marked (i/n). Nothing is dropped (Sms.send truncates at SMS_MAX, which
-    cut the 11-09 digest); a single over-long line is hard-wrapped. Header and NEEDS YOU lead ``build``, so part 1."""
+    """Split at line breaks into parts of at most ``limit`` UTF-16 units, marked (i/n). Nothing is dropped (Sms.send
+    truncates at SMS_MAX, which cut the 11-09 digest); an over-long line is hard-wrapped. NEEDS YOU is in part 1."""
     chunks: list[str] = []
     cur = ""
     for ln in text.split("\n"):
-        while len(ln) > limit:
+        while units(ln) > limit:
             if cur:
                 chunks.append(cur)
                 cur = ""
-            chunks.append(ln[:limit])
-            ln = ln[limit:]
+            cut = limit
+            while units(ln[:cut]) > limit:               # styled letters / emoji are 2 units each
+                cut -= 1
+            chunks.append(ln[:cut])
+            ln = ln[cut:]
         cand = f"{cur}\n{ln}" if cur else ln
-        if len(cand) > limit and cur:
+        if units(cand) > limit and cur:
             chunks.append(cur)
             cur = ln
         else:

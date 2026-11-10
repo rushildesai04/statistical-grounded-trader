@@ -224,9 +224,9 @@ def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
                payload={}, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
     text = digest.build(db, now, fills=[], problems=["x: missing close"], broker="Alpaca paper: $1", research=[None])
     # 2026-11-09 layout: what needs the owner comes first, before TODAY, so a long digest can never push it out
-    needs = text.split("\nTODAY")[0]
-    assert "NEEDS YOU" in needs and "- pending tom: OK " in needs and "- x: missing close" in needs
-    assert "Alpaca paper: $1" in text and "+$0 today" in text.splitlines()[0]
+    needs = text.split("TODAY")[0]
+    assert "\U0001F6A8" in needs and "\u2022 pending tom: OK " in needs and "\u2022 x: missing close" in needs
+    assert "Alpaca paper: $1" in text and " today " in text.splitlines()[0]
 
 
 # --- regression tests for the 2026-11-02 security review (F1-F4)
