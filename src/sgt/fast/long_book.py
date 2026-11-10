@@ -111,7 +111,8 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
 
 
 def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime) -> bool:
-    w = fade.trade_weight(db) if t is not None else None
+    v = nav(db)
+    w = fade.trade_weight(db, v) if t is not None else None     # the SIZE setting against the LONG book's value
     with db.tx() as c:
         return c.execute(
             "INSERT OR IGNORE INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
@@ -204,7 +205,10 @@ def settle(db: OpsStore, now: datetime | None = None) -> list[str]:
     that did not fill on SIP; an event the shadow processed without that setup (e.g. IEX gaps looked like a halt
     live, SIP had none); a long whose alert never became an official event within STALE_DAYS."""
     now = now or utcnow()
-    with db.tx() as c:
+    today = now.astimezone(ET).date().isoformat()
+    with db.tx() as c:                    # final pass F-1: a long still open from an earlier session (listener down
+        c.execute("UPDATE long_trades SET status='est_closed', reason='closed by settle (listener missed the exit)' "
+                  "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
             "SELECT t.id, t.symbol, t.kind, s.net, s.entry FROM long_trades t JOIN long_shadow s ON s.fade_id=t.fade_id "
             "AND s.kind=t.kind WHERE t.status='est_closed'")]
@@ -229,7 +233,8 @@ def settle(db: OpsStore, now: datetime | None = None) -> list[str]:
 
 
 def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
-    usd = fade.notional(db)
+    v = nav(db)
+    usd = fade.trade_weight(db, v) * v
     risk = (t.entry - s.stop) / t.entry
     out = min(t.entry_ts + pt.HOLD, pd.Timestamp(default_close(t.entry_ts.tz_convert(ET).date().isoformat())))
     return (f"[SGT] 🟢 LONG {symbol} @ ${t.entry:.2f} · ${usd:,.0f} (paper)\n"
@@ -240,7 +245,7 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
 
 
 def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
-    usd = (r["weight"] or fade.WEIGHT) * fade.nav(db) * t.gross
+    usd = (r["weight"] or fade.WEIGHT) * nav(db) * t.gross           # final pass F-2: the long book's own value
     word = {"stop": "stopped", "target": "target hit", "time": "time exit"}[t.reason]
     return (f"[SGT] 🟢 LONG OUT {r['symbol']} · {'made' if t.gross > 0 else 'lost'} {t.gross:+.1%} "
             f"({'+' if usd >= 0 else '-'}${abs(usd):,.0f} est, paper) · {word} · ${t.entry:.2f} -> ${t.exit:.2f}")

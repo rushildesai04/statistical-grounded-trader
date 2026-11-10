@@ -253,3 +253,32 @@ def test_long_book_settle_failure_is_logged_separately(tmp_path, monkeypatch, ca
     monkeypatch.setattr(lb, "settle", boom)
     assert fl.cmd_settle() == 0
     assert "long book settle failed" in caplog.text and "long shadow failed" not in caplog.text
+
+
+def test_open_long_from_an_earlier_session_is_settled_from_the_shadow(db):
+    """Final pass F-1: listener down across the close; the next day the long gets its official result, not 'open'."""
+    fid = _closed_long(db, "L4a")
+    with db.tx() as c:
+        c.execute("UPDATE long_trades SET status='open'")
+        c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, net, created_at) VALUES "
+                  "(?,?,?,?,?,?,?)", (fid, "ORPH", "2026-11-09", "L4a", "long", -0.031, POSTED.isoformat()))
+    assert lb.settle(db, now=at(60)) == []                                       # same session: still trading
+    nxt = datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)
+    assert lb.settle(db, now=nxt) == ["ORPH L4a -3.10%"]
+    t = [x for x in trades(db) if x["symbol"] == "ORPH"][0]
+    assert t["status"] == "settled" and "listener missed the exit" in t["reason"]
+
+
+def test_long_dollars_use_the_long_book(db):
+    """Final pass F-2: entry and exit dollars come from the long book's value, not the short book's."""
+    with db.tx() as c:                                      # the short book lost 50%: its NAV must not drive longs
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, weight,"
+                  " net, settled_at, created_at) VALUES ('L','2026-11-02','volume_spike','x','-1',9,'settled',1.0,-0.5,"
+                  "'2026-11-02T21:00:00+00:00','x')")
+    assert fade.nav(db) == pytest.approx(50_000)
+    alert_row(db)
+    sent = []
+    for k in range(0, 140):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
+    assert "$5,000 (paper)" in sent[0]
+    assert "(+$332 est, paper)" in sent[1]                                 # 0.05 x 100,000 x +6.64%
