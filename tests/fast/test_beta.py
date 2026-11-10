@@ -106,18 +106,27 @@ def test_missing_market_frame_is_not_cached(db):
 
 
 def test_scanner_ranking_is_time_budgeted(db, monkeypatch):
-    """Review F-3: a slow beta fetch never holds up the scanner; the late result still fills the cache."""
+    """Review F-3: a slow beta fetch never holds up the scanner; the late result still fills the cache.
+    Deterministic (convergence pass): the fetch blocks on an event until the budget has provably passed."""
+    import threading
     import time
 
     import fade_live as fl
     monkeypatch.setattr(fl, "SCAN_BETA_BUDGET", 0.2)
+    release = threading.Event()
 
     def slow(syms):
-        time.sleep(0.8)
+        release.wait(10)
         return FRAMES
     t0 = time.monotonic()
     uni, b = fl.ranked_universe(db, ["LOW", "HIGH"], "2026-11-13", slow)
-    assert time.monotonic() - t0 < 0.6 and uni == ["LOW", "HIGH"] and b == {}
-    time.sleep(1.0)                                                       # the background fetch finishes and caches
+    assert time.monotonic() - t0 < 5 and uni == ["LOW", "HIGH"] and b == {}   # returned while the fetch was blocked
+    release.set()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:                                       # the background fetch caches both names
+        with db.tx() as c:
+            if c.execute("SELECT COUNT(*) FROM symbol_beta WHERE session='2026-11-13'").fetchone()[0] == 2:
+                break
+        time.sleep(0.02)
     uni, b = fl.ranked_universe(db, ["LOW", "HIGH"], "2026-11-13", lambda s: pytest.fail("cached"))
     assert uni == ["HIGH", "LOW"]
