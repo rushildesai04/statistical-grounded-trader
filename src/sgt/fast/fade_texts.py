@@ -22,6 +22,21 @@ CONF = {"none": (100, 0.58, 0.0165, 1839), "own": (55, 0.53, 0.0007, 1004), "ear
 CONF_MAX = 99                                   # never show certainty
 
 
+# Past no-news shorts by the stock's beta (owner 2026-11-10: the confidence must mean something; beta is information the
+# 11-04 per-trade model never had). All 3,109 tested events, beta from the year before each alert; a split of SEEN data,
+# shown as context, not a tested rule (F7 already skips >= 3). bucket: (win rate, avg net, n).
+BETA_HIST = {"<1.5": (0.61, 0.0309, 662), "1.5-3": (0.55, 0.0115, 267), ">=3": (0.21, -0.0667, 29)}
+
+
+def beta_line(b: float | None) -> str | None:
+    if b is None:
+        return None
+    k = ">=3" if b >= 3 else ("1.5-3" if b >= 1.5 else "<1.5")
+    win, avg, n = BETA_HIST[k]
+    return (f"📐 β {b:.1f} · past no-news shorts at β {k}: win {win:.0%}, avg {avg:+.1%} ({n:,}) "
+            + italic("(split of past data, not a tested rule)"))
+
+
 CONF_LABEL = {"none": "no company news", "own": "company news today", "earn": "earnings news today",
               "all": "news check failed"}
 
@@ -190,6 +205,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
              # many there are. A per-trade model added no skill (prereg_fade_confidence: Brier = base rate).
              f"🎲 Win chance {bold(f'{win:.0%}')} · {label}: "
              + italic(f"avg {avg:+.1%}/trade over {n_past:,} past trades")]
+    bl = beta_line(ctx.get("beta"))
+    if bl:
+        lines.append(bl)
     head_line = (ctx.get("news") or {}).get("headline")
     if head_line:
         lines.append(f"📰 “{head_line}”")

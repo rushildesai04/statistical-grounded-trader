@@ -340,6 +340,8 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
             _veto_text(db, send, r, px, now, out, context)
             return
         ctx = _context(db, r, context)
+        with db.tx() as c:                            # the beta stamped by the F7 check, for the text (2026-11-10)
+            ctx = {**ctx, "beta": c.execute("SELECT beta FROM fade_trades WHERE id=?", (r["id"],)).fetchone()[0]}
         how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
         send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db),
                                  out_at=out, at=now) + how)
