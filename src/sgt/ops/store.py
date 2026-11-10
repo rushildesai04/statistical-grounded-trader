@@ -59,6 +59,11 @@ CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
 CREATE TABLE IF NOT EXISTS symbol_beta(
   symbol TEXT NOT NULL, session TEXT NOT NULL, beta REAL, n_obs INTEGER, computed_at TEXT NOT NULL,
   PRIMARY KEY(symbol, session));
+CREATE TABLE IF NOT EXISTS long_trades(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, fade_id INTEGER NOT NULL UNIQUE, symbol TEXT NOT NULL, session TEXT NOT NULL,
+  kind TEXT, status TEXT NOT NULL, trigger REAL, stop REAL, target REAL, weight REAL, entry_ts TEXT, est_entry REAL,
+  est_last REAL, est_exit REAL, est_exit_at TEXT, reason TEXT, net REAL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_long_status ON long_trades(status, session);
 CREATE TABLE IF NOT EXISTS long_shadow(
   id INTEGER PRIMARY KEY AUTOINCREMENT, fade_id INTEGER NOT NULL, symbol TEXT NOT NULL, session TEXT NOT NULL,
   kind TEXT NOT NULL, side TEXT, ready TEXT, trigger REAL, stop REAL, entry_ts TEXT, entry REAL, exit_ts TEXT,

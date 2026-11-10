@@ -250,6 +250,7 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
 SCAN_TIMEOUT = 15.0                            # the multi-symbol bars request is large
 MAX_SCAN_TEXTS_DAY = 80                        # anti-spam ceiling on scanner texts (2 per trade)
 SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 120, 10
+LONG_EVERY, MAX_LONG_TEXTS_DAY = 30, 100        # live paper long book: pass every 30 s (bars close each minute)
 
 
 class ScanState:
@@ -554,6 +555,19 @@ async def run() -> int:
                 log.exception("scanner failed")
             await asyncio.sleep(SCAN_EVERY)
 
+    lc = data_client()                          # live paper long book (option A "longs first"): own connection/loop
+    long_send = CappedSms(db, "long_text", MAX_LONG_TEXTS_DAY)
+
+    async def long_loop():
+        from sgt.fast import long_book
+
+        while True:
+            try:
+                await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send)
+            except Exception:  # noqa: BLE001 - the long book must never stop the listener; logged
+                log.exception("long book failed")
+            await asyncio.sleep(LONG_EVERY)
+
     ai_dc, ai_state = data_client(), AIState()
 
     async def ai_loop():                         # per-trade AI reviews: own connections, never in the trading path
@@ -565,6 +579,7 @@ async def run() -> int:
             await asyncio.sleep(AI_EVERY)
 
     tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
+             asyncio.create_task(long_loop()),
              asyncio.create_task(ai_loop())]
     try:
         await client.run_until_disconnected()
@@ -573,6 +588,7 @@ async def run() -> int:
             t.cancel()
         await real.close()
         sc.close()
+        lc.close()
         ai_dc.close()
         dc.close()
         ac.close()
@@ -744,6 +760,13 @@ def cmd_settle() -> int:
         print("long shadow: " + (", ".join(ls) or "nothing new"))
     except Exception:  # noqa: BLE001 - the shadow must never block the fade's settlement; logged
         log.exception("long shadow failed")
+    try:                                         # live paper long book: official = the shadow row (option A)
+        from sgt.fast import long_book
+
+        lb = long_book.settle(db)
+        print("long book settle: " + (", ".join(lb) or "nothing due"))
+    except Exception:  # noqa: BLE001 - review F-3: its own label; never blocks the fade's settlement
+        log.exception("long book settle failed")
     return 0
 
 
