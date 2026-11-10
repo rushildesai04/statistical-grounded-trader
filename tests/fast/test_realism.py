@@ -45,3 +45,8 @@ def test_realism_measures_gap_latency_mode_and_waiting_cost(db, monkeypatch):  #
     line = realism.lines(db)[0]
     assert line.startswith("fade exec: 2 trades (1 approved, 1 auto); texted vs official +1.00%/trade")
     assert "alert->entry median 2m55s" in line and "approval cost -1.75%/trade" in line
+
+
+def test_unknown_latency_does_not_crash_the_digest_line():
+    # regression 2026-11-09: settled trades without entry timestamps gave a NaN median and _dur raised
+    assert realism._dur(float("nan")) == "n/a" and realism._dur(None) == "n/a" and realism._dur(44.0) == "0m44s"

@@ -223,7 +223,10 @@ def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
     ap.request(db, lambda t: None, strategy="tom", kind="book", period="p", summary="tom",
                payload={}, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
     text = digest.build(db, now, fills=[], problems=["x: missing close"], broker="Alpaca paper: $1", research=[None])
-    assert "Pending: tom OK" in text and "! x: missing close" in text and "no approved positions" in text
+    # 2026-11-09 layout: what needs the owner comes first, before TODAY, so a long digest can never push it out
+    needs = text.split("\nTODAY")[0]
+    assert "NEEDS YOU" in needs and "- pending tom: OK " in needs and "- x: missing close" in needs
+    assert "Alpaca paper: $1" in text and "+$0 today" in text.splitlines()[0]
 
 
 # --- regression tests for the 2026-11-02 security review (F1-F4)
