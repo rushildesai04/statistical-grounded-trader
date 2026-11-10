@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS trade_insights(
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL, model TEXT NOT NULL, scope TEXT NOT NULL,
   body TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
+CREATE TABLE IF NOT EXISTS symbol_beta(
+  symbol TEXT NOT NULL, session TEXT NOT NULL, beta REAL, n_obs INTEGER, computed_at TEXT NOT NULL,
+  PRIMARY KEY(symbol, session));
 CREATE TABLE IF NOT EXISTS long_shadow(
   id INTEGER PRIMARY KEY AUTOINCREMENT, fade_id INTEGER NOT NULL, symbol TEXT NOT NULL, session TEXT NOT NULL,
   kind TEXT NOT NULL, side TEXT, ready TEXT, trigger REAL, stop REAL, entry_ts TEXT, entry REAL, exit_ts TEXT,
@@ -77,6 +80,7 @@ COLUMNS = {
         "rd_rank": "INTEGER", "rd_mentions": "INTEGER", "rd_upvotes": "INTEGER",              # Reddit (ApeWisdom)
         "rd_mentions_prev": "INTEGER",                                                         # at alert, 2026-11-08
     },
+    "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
 }
 
 
