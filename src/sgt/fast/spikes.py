@@ -35,3 +35,28 @@ def detect(rth: pd.DataFrame, run: float = RUN, vol_mult: float = VOL_MULT, need
             continue
         return t
     return None
+
+
+def detect_drop(rth: pd.DataFrame, run: float = RUN, vol_mult: float = VOL_MULT, need_lod: bool = True) -> int | None:
+    """Mirror of ``detect`` for a sudden DROP (prereg_flush_long_2026-11-10): index of the first bar t with a 5-min fall
+    >= ``run``, volume >= ``vol_mult`` x the prior 20-bar mean (>= 10 prior bars), a new low of day (optional), price
+    $1-50, entry bar t+1 inside 09:35-15:44 ET. None = no drop."""
+    n = len(rth)
+    if n < LOOK + 2:
+        return None
+    c, lo, v = (rth[k].to_numpy(float) for k in ("close", "low", "volume"))
+    et = pd.to_datetime(rth.ts, utc=True).dt.tz_convert("America/New_York")
+    minute = (et.dt.hour * 60 + et.dt.minute).to_numpy()
+    prior_low = np.minimum.accumulate(np.concatenate([[np.inf], lo[:-1]]))     # lowest low BEFORE bar t
+    for t in range(LOOK, n - 1):
+        if not FIRST_ENTRY_MIN <= minute[t + 1] <= LAST_ENTRY_MIN:
+            continue
+        if not PRICE_MIN <= c[t] <= PRICE_MAX or c[t - LOOK] <= 0 or c[t] > c[t - LOOK] * (1 - run):
+            continue
+        base = v[max(0, t - BASE):t]
+        if len(base) < MIN_BASE or base.mean() <= 0 or v[t] < vol_mult * base.mean():
+            continue
+        if need_lod and not lo[t] < prior_low[t]:
+            continue
+        return t
+    return None

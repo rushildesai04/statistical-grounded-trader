@@ -87,6 +87,17 @@
         "2026-10-29"
       ],
       "prereg": "docs/findings/prereg_later_long_2026-11-06.md"
+    },
+    "flush-long-2026-11": {
+      "train": [
+        "2024-10-01",
+        "2025-12-31"
+      ],
+      "holdout": [
+        "2026-01-02",
+        "2026-10-16"
+      ],
+      "prereg": "docs/findings/prereg_flush_long_2026-11-10.md"
     }
   }
 }
