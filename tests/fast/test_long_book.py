@@ -184,3 +184,19 @@ def test_the_long_book_never_takes_the_short_setup(monkeypatch):
     monkeypatch.setattr(ls, "setups", lambda f, row: ([short], T1))
     day = bars([(10.3, 10.4, 10.0, 10.1, 1)] * 10)                       # the short would fill at once
     assert lb.first_fill(day, {"posted_at": POSTED.isoformat(), "status": "pending"}, ls._latest("2026-11-09")) is None
+
+
+def test_repeat_alerts_of_one_stock_are_one_event(db):
+    """Replay 2026-11-09: WCT was alerted five times (each skipped by the short for news) and got five longs."""
+    for k in range(4):
+        alert_row(db, "WCT", "filtered", fade.NEWS_REASON, posted=POSTED + pd.Timedelta(seconds=k))
+    alert_row(db, "WCT", "filtered", "outside 09:30-15:44", posted=POSTED - pd.Timedelta(minutes=1))   # not an event
+    for k in range(0, 140):
+        lb.tick(db, feed(DAY), [].append, now=at(0, 30 * k))
+    assert [t["symbol"] for t in trades(db) if t["status"] != "none"] == ["WCT"]
+    with db.tx() as c:
+        first = c.execute("SELECT MIN(id) FROM fade_trades WHERE reason=?", (fade.NEWS_REASON,)).fetchone()[0]
+    assert {t["fade_id"] for t in trades(db)} == {first}
+    ls.run(db, feed(DAY), lambda *a: 0.0, now=at(400))
+    with db.tx() as c:
+        assert {r[0] for r in c.execute("SELECT DISTINCT fade_id FROM long_shadow")} == {first}   # same event

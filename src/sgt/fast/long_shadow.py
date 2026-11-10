@@ -41,15 +41,24 @@ def _latest(session: str) -> pd.Timestamp:
 SHORT_SKIPS = (fade.NEWS_REASON, fade.BETA_REASON)
 
 
+# A research event for the long books: any channel alert that passed the research filters, whatever the short did.
+QUALIFY = ("(status IN ('pending','open','est_closed','settled','skipped') OR (status='void' AND reason=?) OR "
+           "(status='filtered' AND reason IN (?,?)))")
+QUALIFY_ARGS = (HALT_REASON, *SHORT_SKIPS)
+# The research is first event per symbol-session (repeat alerts of a stock the short skipped are new rows; replay of
+# 2026-11-09 gave WCT five longs): only the earliest qualifying row of a symbol-session is an event.
+FIRST = ("NOT EXISTS (SELECT 1 FROM fade_trades g WHERE g.symbol=f.symbol AND g.session=f.session AND g.id<f.id AND "
+         + QUALIFY + ")")
+
+
 def due(db: OpsStore, since: str) -> list[dict]:
-    """Research events from ``since`` (ISO session date) on that have no shadow rows yet."""
+    """Research events from ``since`` (ISO session date) on, final for the short, with no shadow rows yet."""
     with db.tx() as c:
         rows = c.execute(
             "SELECT id, symbol, session, posted_at, status, reason, cost_rt FROM fade_trades f WHERE session>=? AND "
-            "(status IN ('settled','skipped') OR (status='void' AND reason=?) OR (status='filtered' AND reason IN (?,?))) "
-            "AND NOT "
-            "EXISTS (SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id",
-            (since, HALT_REASON, *SHORT_SKIPS)).fetchall()
+            "status IN ('settled','skipped','void','filtered') AND " + QUALIFY + " AND " + FIRST + " AND NOT EXISTS "
+            "(SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id",
+            (since, *QUALIFY_ARGS, *QUALIFY_ARGS)).fetchall()
     return [dict(r) for r in rows]
 
 

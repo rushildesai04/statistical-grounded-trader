@@ -55,9 +55,9 @@ def candidates(db: OpsStore, now: datetime) -> list[dict]:
     with db.tx() as c:
         rows = c.execute(
             "SELECT id, symbol, session, posted_at, status, reason FROM fade_trades f WHERE session=? AND posted_at>=? "
-            "AND (status IN ('pending','open','est_closed','settled','skipped') OR (status='void' AND reason=?) OR "
-            "(status='filtered' AND reason IN (?,?))) AND NOT EXISTS (SELECT 1 FROM long_trades t WHERE t.fade_id=f.id) "
-            "ORDER BY id", (session, since, long_shadow.HALT_REASON, *long_shadow.SHORT_SKIPS)).fetchall()
+            "AND " + long_shadow.QUALIFY + " AND " + long_shadow.FIRST + " AND NOT EXISTS (SELECT 1 FROM long_trades t "
+            "WHERE t.fade_id=f.id) ORDER BY id",
+            (session, since, *long_shadow.QUALIFY_ARGS, *long_shadow.QUALIFY_ARGS)).fetchall()
     return [dict(r) for r in rows]
 
 
