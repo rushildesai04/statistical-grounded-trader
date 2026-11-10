@@ -17,3 +17,13 @@ PASS -> held-out 2026-07-01..10-29 CONFIRMED if mean > 0, p < 0.05, n >= 20. Not
 v1's L5/S2 results (-1.55% / -0.74%); v2 picks a different set of events, but the confirmation is not fully blind, so a
 pass goes to the paper book and the 300-trade forward proof before anything else.
 Trial ledger `flag-v2-2026-11-10`. Secondary: the same events under v1's exits at 15/60 minutes and 1.5R/3R.
+
+## Result (2026-11-10, run once, trial ledger `flag-v2-2026-11-10`) — both FAIL
+| test | v2 flags (training) | fills | mean net | gross | win | p | v1 (for reference) |
+|---|---|---|---|---|---|---|---|
+| L5v2 long breakout | 756 | 199 | **-2.05%** | -1.14% | 29% | 0.9998 | -1.72% (n 247) |
+| S2v2 failed-flag short | 756 | 556 | **-1.85%** | -0.42% | 35% | 1.00 | -1.38% (n 658) |
+Every secondary is negative (15/60-min holds -1.5% to -1.9%, 1.5R/3R -1.7% to -2.0%). Held-out not opened (no pass).
+Reading: a bull flag that matches the trader's eye (all 6 graded real flags, the missed one found, the 4 non-flags
+dropped) does not make money on these alerts either; its breakouts fail slightly more often than v1's. The detector
+stays at v2 for any future use; nothing changes in trading. PLAYBOOK section 4.
