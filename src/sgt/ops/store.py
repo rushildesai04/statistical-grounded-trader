@@ -79,6 +79,7 @@ COLUMNS = {
         "x_cat24": "INTEGER", "x_cat_posts": "TEXT",        # X catalyst check at entry, 2026-11-09 (prereg_fade_x A2)
         "rd_rank": "INTEGER", "rd_mentions": "INTEGER", "rd_upvotes": "INTEGER",              # Reddit (ApeWisdom)
         "rd_mentions_prev": "INTEGER",                                                         # at alert, 2026-11-08
+        "beta": "REAL",                      # amendment F7 (2026-11-10): beta at entry; >= 3 is not shorted
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
 }

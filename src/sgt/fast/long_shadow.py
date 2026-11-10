@@ -36,13 +36,19 @@ def _latest(session: str) -> pd.Timestamp:
     return pd.Timestamp(datetime.combine(d, fade.last_entry(d), tzinfo=fade.ET)).tz_convert("UTC") + pt.BAR
 
 
+# Owner 2026-11-10 ("longs first"): longs are considered on every research alert, including the ones the SHORT
+# skipped for company news (F6) or high beta (F7); those never settle as fades, so they are taken from 'filtered'.
+SHORT_SKIPS = (fade.NEWS_REASON, fade.BETA_REASON)
+
+
 def due(db: OpsStore, since: str) -> list[dict]:
     """Research events from ``since`` (ISO session date) on that have no shadow rows yet."""
     with db.tx() as c:
         rows = c.execute(
             "SELECT id, symbol, session, posted_at, status, reason, cost_rt FROM fade_trades f WHERE session>=? AND "
-            "(status='settled' OR (status='void' AND reason=?)) AND NOT EXISTS "
-            "(SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id", (since, HALT_REASON)).fetchall()
+            "(status='settled' OR (status='void' AND reason=?) OR (status='filtered' AND reason IN (?,?))) AND NOT "
+            "EXISTS (SELECT 1 FROM long_shadow s WHERE s.fade_id=f.id) ORDER BY id",
+            (since, HALT_REASON, *SHORT_SKIPS)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -55,9 +61,11 @@ def setups(f: pd.DataFrame, row: dict) -> tuple[list[pt.Setup], pd.Timestamp | N
     if nxt.empty:
         return [], None
     t0 = nxt.ts.iloc[0]
-    if row["status"] == "settled":
+    if row["status"] in ("settled", "filtered"):
         if t0 - posted > pd.Timedelta(fade.MAX_ENTRY_DELAY):
             return [], None
+        if row["status"] == "filtered" and not fade.PRICE_MIN <= float(nxt.open.iloc[0]) <= fade.PRICE_MAX:
+            return [], None                       # the research $1-50 filter at the start bar (settled rows passed it)
         return pt.first_red(f, t0) + pt.bull_flag(f, t0) + pt.bos_long(f, t0), t0
     if t0 - posted > REOPEN_MAX:
         return [], None

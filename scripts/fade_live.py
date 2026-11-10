@@ -291,6 +291,18 @@ def scan_universe(client: httpx.Client, db: OpsStore, session: str) -> list[str]
     return list(dict.fromkeys(s for s in out if scanner.tradable_symbol(s)))
 
 
+BETA_BUDGET = 3.0                               # seconds: the beta lookup never holds up the stop checks for long
+
+
+def entry_beta(db: OpsStore, symbol: str, at: datetime, fetch=None) -> float | None:
+    """Beta for amendment F7, from the session cache or one daily-bar fetch, inside BETA_BUDGET; None = unknown."""
+    from sgt.fast import beta as beta_mod
+
+    session = at.astimezone(ET).date().isoformat()
+    f = fetch or daily_for_beta
+    return gather({"beta": lambda: beta_mod.betas(db, [symbol], session, f).get(symbol)}, BETA_BUDGET)["beta"]
+
+
 def ranked_universe(db: OpsStore, symbols: list[str], session: str, fetch=daily_for_beta) -> tuple[list[str], dict]:
     """Owner ground rule 2026-11-10: beta >= 3 names first, then the rest; capped at UNIVERSE_MAX after ranking."""
     from sgt.fast import beta as beta_mod
@@ -463,6 +475,9 @@ async def run() -> int:
 
     def news_check(symbol: str, at: datetime) -> dict | None:      # amendment F6: company news at entry (None = unknown)
         return live_news(dc, symbol, at)
+
+    def beta_check(symbol: str, at: datetime) -> float | None:     # amendment F7: beta at entry (None = unknown)
+        return entry_beta(db, symbol, at)
     book = borrow_mod.BorrowBook(alpaca_asset=alpaca_asset(ac))
     init_db()
     client = TelegramClient(StringSession(get_secret(SESSION_SECRET)), int(get_secret("telegram_api_id")),
@@ -504,7 +519,8 @@ async def run() -> int:
         n = 0
         while True:
             try:
-                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check)
+                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check,
+                                        beta_check)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             try:
