@@ -112,6 +112,59 @@ def find_flag(bars: pd.DataFrame, start: pd.Timestamp) -> dict | None:
     return None
 
 
+# Bull flag v2 (owner's grades of 18 charts, 2026-11-10: 6/12 detections were real flags, 1 real flag missed). Each
+# change answers a graded failure; v1 above stays frozen for prereg_long_setups_2026-11-10.
+V2_MIN_RISE = 0.10          # SLNH "no distinct, strong pole" (+5.3%); the six real flags rose 14-80%
+V2_MIN_FILL = 0.90          # NXTT/PFSA/JL "fragmented, large gaps, sparse": pole bars cover >= 90% of its minutes
+V2_IMPULSE_BARS = 5         # ATNF missed: the flag is lighter than the push into the high, not the whole pole's average
+
+
+def find_flag_v2(bars: pd.DataFrame, start: pd.Timestamp) -> dict | None:
+    """v1's flag plus: a pole of at least V2_MIN_RISE, trading in at least V2_MIN_FILL of its minutes, ending at a NEW
+    HIGH OF DAY (SAGT: "a prolonged recovery after a sharp selloff"), and a flag lighter than the last V2_IMPULSE_BARS
+    pole bars. Same no-peeking contract: decided on bars up to the flag's last bar."""
+    bars = bars.reset_index(drop=True)
+    o, h, lo, c, v = (bars[k].to_numpy(float) for k in ("open", "high", "low", "close", "volume"))
+    ts = bars.ts
+    first, end = int(ts.searchsorted(start, "left")), int(ts.searchsorted(start + WATCH, "left"))
+    for j in range(first, end):
+        for n in range(FLAG_MIN, FLAG_MAX + 1):
+            p = j - n
+            if p < 1:
+                break
+            q0 = max(0, p - POLE_LOOKBACK + 1)
+            p_hi = h[p]
+            if p_hi < h[q0:p + 1].max() or (p > 0 and p_hi <= h[:p].max()):     # pole top = a new high of day
+                continue
+            fl = slice(p + 1, j + 1)
+            if h[fl].max() > p_hi or int((c[fl] < o[fl]).sum()) < FLAG_MIN_RED:
+                continue
+            q = q0 + int(np.argmin(lo[q0:p + 1]))
+            p_lo = lo[q]
+            if p_lo <= 0 or (p_hi - p_lo) / p_lo < V2_MIN_RISE:
+                continue
+            span = (ts.iloc[p] - ts.iloc[q]).total_seconds() / 60 + 1
+            if (p - q + 1) / span < V2_MIN_FILL:
+                continue
+            f_lo, f_hi = lo[fl].min(), h[fl].max()
+            if f_lo < p_hi - FLAG_MAX_RETRACE * (p_hi - p_lo):
+                continue
+            if v[fl].mean() >= v[max(q, p - V2_IMPULSE_BARS + 1):p + 1].mean():
+                continue
+            return {"pole_lo": float(p_lo), "pole_hi": float(p_hi), "pole_lo_ts": ts.iloc[q], "pole_hi_ts": ts.iloc[p],
+                    "flag_lo": float(f_lo), "flag_hi": float(f_hi), "flag_bars": n,
+                    "flag_red": int((c[fl] < o[fl]).sum()), "ready": ts.iloc[j] + BAR}
+    return None
+
+
+def bull_flag_v2(bars: pd.DataFrame, start: pd.Timestamp) -> list[Setup]:
+    f = find_flag_v2(bars, start)
+    if f is None:
+        return []
+    return [Setup("L5v2", "long", f["ready"], f["flag_hi"], f["flag_lo"], f),
+            Setup("S2v2", "short", f["ready"], f["flag_lo"], f["flag_hi"], f)]
+
+
 def bull_flag(bars: pd.DataFrame, start: pd.Timestamp) -> list[Setup]:
     f = find_flag(bars, start)
     if f is None:

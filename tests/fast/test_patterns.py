@@ -143,3 +143,54 @@ def test_simulate_no_peeking(setup):
     assert pt.simulate(cut, setup) == t
     wild = pd.concat([cut, bars([(50.0, 99.0, 0.01, 1.0, 9)] * 30, start=t.exit_ts + pt.BAR)], ignore_index=True)
     assert pt.simulate(wild, setup) == t
+
+
+# ---------------------------------------------------------------- bull flag v2 (owner's grades, 2026-11-10)
+POLE10 = [(10.0, 10.3, 10.0, 10.3, 1000), (10.3, 10.6, 10.3, 10.6, 1200), (10.6, 10.9, 10.6, 10.9, 1500),
+          (10.9, 11.2, 10.9, 11.2, 1500)]                       # +12% run-up, every minute traded, new high of day
+FLAG10 = [(11.15, 11.18, 11.0, 11.05, 400), (11.05, 11.1, 10.9, 10.95, 300)]
+
+
+def test_v2_accepts_a_clean_flag_like_v1():
+    f = pt.find_flag_v2(bars(POLE10 + FLAG10), T0)
+    assert f["pole_lo"] == 10.0 and f["pole_hi"] == 11.2 and f["flag_bars"] == 2
+    lng, sht = pt.bull_flag_v2(bars(POLE10 + FLAG10), T0)
+    assert (lng.kind, sht.kind) == ("L5v2", "S2v2")
+
+
+def test_v2_rejects_a_weak_pole_that_v1_took():
+    assert pt.find_flag(bars(POLE + FLAG), T0) is not None                        # +10% exactly passes v1
+    weak = [(10.0, 10.1, 10.0, 10.1, 1000), (10.1, 10.2, 10.1, 10.2, 1200), (10.2, 10.35, 10.2, 10.35, 1500),
+            (10.35, 10.6, 10.35, 10.6, 1500)]                                     # +6% (SLNH)
+    flag = [(10.58, 10.59, 10.5, 10.52, 400), (10.52, 10.55, 10.45, 10.47, 300)]
+    assert pt.find_flag(bars(weak + flag), T0) is not None and pt.find_flag_v2(bars(weak + flag), T0) is None
+
+
+def test_v2_rejects_a_gappy_pole():
+    """NXTT/PFSA/JL: a pole that traded in only some of its minutes is not a pole."""
+    gappy = bars(POLE10 + FLAG10, gaps=(1, 2, 3))                                 # 3 empty minutes inside the pole
+    assert pt.find_flag(gappy, T0) is not None and pt.find_flag_v2(gappy, T0) is None
+
+
+def test_v2_rejects_a_recovery_below_the_day_high():
+    """SAGT: a run-up that only recovers part of an earlier selloff does not end at a new high of day."""
+    early = [(12.0, 12.5, 11.9, 12.4, 900), (12.4, 12.4, 10.0, 10.1, 3000)]        # earlier high 12.5, then a crash
+    day = bars(early + [(10.1, 10.2, 10.0, 10.0, 500)] * 20 + POLE10 + FLAG10)     # high 12.5 beyond the 15-bar pole
+    start = T0 + 22 * pt.BAR
+    assert pt.find_flag(day, start) is not None and pt.find_flag_v2(day, start) is None
+
+
+def test_v2_compares_flag_volume_with_the_push_not_the_whole_pole():
+    """ATNF (missed by v1): a quiet start drags the pole's average volume below the flag's."""
+    pole = [(10.0, 10.05, 10.0, 10.05, 50)] * 6 + [(10.05, 10.4, 10.05, 10.4, 1500), (10.4, 10.8, 10.4, 10.8, 1600),
+                                                  (10.8, 11.2, 10.8, 11.2, 1700)]
+    flag = [(11.15, 11.18, 11.0, 11.05, 900), (11.05, 11.1, 10.9, 10.95, 800)]    # heavier than the pole's mean
+    assert pt.find_flag(bars(pole + flag), T0) is None and pt.find_flag_v2(bars(pole + flag), T0) is not None
+
+
+def test_v2_no_peeking():
+    rows = POLE10 + FLAG10 + [(10.95, 11.4, 10.9, 11.3, 900)] + [(11.3, 13.0, 9.0, 9.5, 99_000)] * 10
+    full = bars(rows)
+    for s in pt.bull_flag_v2(full, T0):
+        again = [x for x in pt.bull_flag_v2(full[full.ts < s.ready], T0) if x.kind == s.kind]
+        assert again and again[0] == s
