@@ -61,3 +61,26 @@ def test_ai_test_queue_counts_until_reviewed(db):
     assert journal.pending_tests(db) == 1
     journal.mark_reviewed(db)
     assert journal.pending_tests(db) == 0
+
+
+def add_longs(db, nets):
+    with db.tx() as c:
+        for i, n in enumerate(nets):
+            c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, weight, net, created_at) VALUES "
+                      "(?,?,?,?,?,?,?,?)", (i, f"L{i}", "2026-11-10", "L4a", "settled", 0.05, n, "x"))
+
+
+def test_long_book_judged_against_its_tested_first_fill_rule(db):
+    """Owner 2026-11-10 option A: the live paper long book is compared with what the test said (-2.29%/trade)."""
+    book = [b for b in lm.BOOKS if b.name == "long book (paper)"][0]
+    assert book.expectancy == pytest.approx(-0.0229)
+    add_longs(db, [0.04, -0.03, -0.02, -0.05, 0.05, -0.04, -0.03, -0.02] * 4)       # about the tested mean
+    r = lm.check_trade_book(db, book)
+    assert r["n"] == 32 and r["alarms"] == []
+    assert lm.lines([r])[0].startswith("long book (paper): 32 live trades") and "tested -2.29%" in lm.lines([r])[0]
+
+
+def test_long_book_drift_alarm_when_far_worse(db):
+    book = [b for b in lm.BOOKS if b.name == "long book (paper)"][0]
+    add_longs(db, [-0.12, -0.10, -0.15, -0.09, -0.11] * 8)
+    assert lm.check_trade_book(db, book)["alarms"]
