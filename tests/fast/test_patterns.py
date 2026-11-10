@@ -128,3 +128,18 @@ def test_simulate_short_mirror():
     assert (t.entry, t.reason, t.exit) == (10.0, "target", 9.0) and t.gross == pytest.approx(0.10)
     t = pt.simulate(bars([(10.2, 10.3, 9.9, 10.0, 1), (10.6, 10.8, 10.5, 10.7, 1)]), s)
     assert (t.reason, t.exit) == ("stop", 10.6) and t.gross == pytest.approx(-0.06)
+
+
+@pytest.mark.parametrize("setup", [pt.Setup("L4a", "long", T0, None, 9.5), pt.Setup("L4b", "long", T0, 10.3, 9.5),
+                                   pt.Setup("S2", "short", T0, 9.9, 10.6)])
+def test_simulate_no_peeking(setup):
+    """Red-team F3: the trade is the same when every bar after its exit bar is removed or replaced."""
+    rows = [(10.0, 10.2, 9.8, 10.1, 1), (10.1, 10.4, 9.85, 10.3, 1), (10.3, 10.5, 10.0, 10.1, 1),
+            (10.1, 10.2, 9.7, 9.8, 1), (9.8, 10.0, 9.6, 9.9, 1)] + [(9.9, 10.1, 9.8, 10.0, 1)] * 40
+    full = bars(rows)
+    t = pt.simulate(full, setup)
+    assert t is not None
+    cut = full[full.ts <= t.exit_ts]
+    assert pt.simulate(cut, setup) == t
+    wild = pd.concat([cut, bars([(50.0, 99.0, 0.01, 1.0, 9)] * 30, start=t.exit_ts + pt.BAR)], ignore_index=True)
+    assert pt.simulate(wild, setup) == t

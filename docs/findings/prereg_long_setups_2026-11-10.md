@@ -38,6 +38,11 @@ bootstrap means (seed 20261110) <= 0; Holm step-down at family alpha 0.05; n >= 
 CONFIRMED if held-out mean > 0 with one-sided bootstrap p < 0.05. CONFIRMED setups go to a paper forward book
 (longs before shorts); proof as always: 300 live trades with the 95% CI of mean net > 0.
 
+## Amendment A1 (2026-11-10, before any run; red-team review of commit 93769f6)
+- Holm runs over all 7 tests: a test below its n floor stays in the family with p = 1 (it cannot pass).
+- Held-out CONFIRMED also needs held-out n >= 30 (L7: n >= 15).
+- Added a no-peeking test for the fill/exit simulator. No detector, fill or parameter changed.
+
 ## Secondary (reported, never decides)
 30 vs 15 / 60 minute holds; 1.5R / 3R targets; trigger rate per event; news vs no-news; time of day; risk size
 distribution (stop distance); same-event comparison with the short fade; a "longs first" book (the first confirmed

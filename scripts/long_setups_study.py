@@ -25,6 +25,7 @@ SEED, N_BOOT, FAMILY_ALPHA, CONFIRM_ALPHA, LOCATE = 20261110, 10_000, 0.05, 0.05
 D_STAR = "2026-07-01"
 TESTS = ("L4a", "L4b", "L5", "L6", "L7a", "L7b", "S2")
 MIN_N = {k: (60 if k.startswith("L7") else 100) for k in TESTS}
+HOLDOUT_MIN_N = {k: (15 if k.startswith("L7") else 30) for k in TESTS}   # amendment A1 (red-team F2)
 SECONDARY = {"hold15": {"hold": pd.Timedelta(minutes=15)}, "hold60": {"hold": pd.Timedelta(minutes=60)},
              "rr1.5": {"rr": 1.5}, "rr3": {"rr": 3.0}}
 
@@ -105,8 +106,10 @@ def main() -> int:
     t.to_csv(OUT / "trades.csv", index=False)
 
     train = {k: stats(t[(t.kind == k) & (t.split == "train")]) for k in TESTS}
-    eligible = {k: v["p"] for k, v in train.items() if v.get("n", 0) >= MIN_N[k]}
-    passed = holm(eligible, FAMILY_ALPHA)
+    # amendment A1 (red-team F1): Holm over all 7 pre-registered tests; an under-powered test keeps its place in the
+    # family with p = 1 (it cannot pass), so dropping it never loosens the others' thresholds.
+    family = {k: (v["p"] if v.get("n", 0) >= MIN_N[k] else 1.0) for k, v in train.items()}
+    passed = holm(family, FAMILY_ALPHA)
     out = {"train": train, "holm_pass": passed, "holdout": {}, "secondary": {}}
     for k in TESTS:
         part = t[t.kind == k]
@@ -115,7 +118,7 @@ def main() -> int:
                                **{c: float(part[part.split == "train"][f"net_{c}"].mean()) for c in SECONDARY}}
         if passed.get(k):
             h = stats(part[part.split == "holdout"])
-            h["confirmed"] = bool(h.get("n", 0) and h["mean"] > 0 and h["p"] < CONFIRM_ALPHA)
+            h["confirmed"] = bool(h.get("n", 0) >= HOLDOUT_MIN_N[k] and h["mean"] > 0 and h["p"] < CONFIRM_ALPHA)
             out["holdout"][k] = h
     for k in TESTS:
         r = train[k]
