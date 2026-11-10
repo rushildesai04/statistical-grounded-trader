@@ -64,7 +64,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 18. **Real stop fills cost ~1% per stop; only no-news alerts survive them.** SIP trades at every historical stop:
    slippage +0.82% / +1.44% mean (median ~0.35%). Net with real stops: no-news **+1.70% / +1.77%** (lower bounds
    +0.88% / +0.47%), news **-0.20% / -0.60%**; with a 1.5% locate no-news stays +0.70% / +0.77%
-   (`prereg_fade_stop_slippage_2026-11-09`). Longs on the same alerts all lose (`prereg_long_family_2026-11-09`).
+   (`prereg_fade_stop_slippage_2026-11-09`). Longs on the same alerts all lose (`prereg_long_family_2026-11-09`), including the trader's setups:
+   first red candle, bull flag breakout, break of structure, halt reopen (`prereg_long_setups_2026-11-10`).
 17. **Halts right after the alert were a live-only loss.** The tested rule enters at the first bar after alert + 10 s
    within 5 minutes; a halt means no such bar, so the backtest never traded those alerts, but the live book shorted
    the last pre-halt print. Those events: -4.9% / -7.4% per trade, median -21% (5-8% of alerts). Corrected for live
@@ -106,6 +107,13 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG every alert (5% stop, +5% target, 15 min; also +3/+8%, 30 min) | -1.65% (51% stopped) | -1.72% | prereg_long_family_2026-11-09 |
 | LONG calm alerts (the quintile that loses as a short) | -0.87% | -1.11% | same |
 | LONG the reopen after a halt | -2.12% (63% stopped) | -3.52% | same |
+| LONG the first red candle after the alert (next open / break of its high) | -1.19% / -2.44% | -1.27% / -2.36% | prereg_long_setups_2026-11-10 |
+| LONG the bull flag breakout (5% pole, 2-4 bar flag, >= 2 red, <= 50% retrace, lighter volume) | -1.72% (gross -0.82%) | -1.55% | same |
+| LONG a break of structure (close over the last swing high after a higher low) | -1.85% | -2.72% | same |
+| LONG the first red candle after a halt reopen | -1.87% / -2.83% | -0.19% / -7.01% | same |
+| SHORT the failed bull flag (break below the flag low) | -1.38% | -0.74% | same |
+| fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
+| fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
 | skip when >= 3 fades in the prior 30 min (burst) | +0.07% skipped (n.s.) | +1.65% skipped | same |
 | fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
