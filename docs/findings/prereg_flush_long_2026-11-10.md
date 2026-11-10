@@ -28,3 +28,19 @@ the runner (our scanner detecting drops live); real money only after 300 forward
 ## Secondary (reported only)
 Fall 3% / 10%; volume 3x / 10x; without the new-low condition; by entry window; 15-minute hold.
 Trial ledger run ids `flush-long-2026-11-10-dev`, `flush-long-2026-11-10-holdout`.
+
+## Result (2026-11-10, training run once, trial ledger `flush-long-2026-11-10-dev`) — FAIL; held-out stays sealed
+| | value |
+|---|---|
+| events (primary: -5% in 5 min, 5x volume, new low) | 379 |
+| mean net / gross | **+0.32%** / +1.07% |
+| hit rate / stopped | 54% / 3.7% |
+| day-cluster lower 95% | -0.39% (gate: > 0) |
+| halves (split 2025-06-01) | +0.74% / -0.09% (gate: both > 0) |
+| top month share | 57% (gate: <= 50%) |
+Secondary (report only): fall 3% -0.02% (n 669), fall 10% **+1.06%** (n 95), volume 3x -0.43%, volume 10x +0.09%,
+no new-low +0.05%; before 11:00 +0.70%, 11-14 +0.52%, after 14:00 -0.81%; 15-minute hold -0.57%.
+Reading: sudden drops in small caps DO bounce (+1.07% before costs, the only clearly positive long so far), but
+after the ~0.75% round trip the edge is too small and uneven to pass: concentrated in one month and gone in the second
+half. Bigger flushes look stronger (fall >= 10%, n 95) but that cell was seen here, so it can only be tested on data
+not yet looked at (its own pre-registration, held-out or forward). Nothing promoted; held-out sealed.
