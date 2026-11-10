@@ -22,3 +22,8 @@ positive (split 2026-06-01); no month > 50% of the total. If n < 50 the test is 
 PASS -> a paper long book on the runner (our scanner detecting 10% drops live, paper only); proof at 300 forward trades
 with the 95% CI above zero. FAIL -> written up; buying drops is closed.
 Reported only: hit rate, median, stopped share, by entry window, 15-minute hold.
+
+## Result (2026-11-10, held-out run once, vault unlocked at 1aa5211, trial ledger `big-flush-2026-11-10-holdout`) — FAIL
+n 87 (2026-01..10), mean net **-2.15%**, gross -1.41%, lower 95% -4.02%, win 47%, median -0.22%, 15% stopped;
+halves +0.96% / -3.87%; before 11:00 +0.70% (n 19), 11-14 -0.42% (n 38), after 14:00 -6.15% (n 30); 15-minute hold
+-1.23%. The training bounce did not hold on unseen months. Buying sudden drops is closed; no paper book.
