@@ -359,7 +359,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
     assert body.split("\n") == [
         f"🔻 {bold('SHORT XYZ')} @ {bold('$4.20')}",
         "💬 Short $5,000 of XYZ: we make money if it falls",
-        f"🎲 Win chance {bold('52%')} · earnings news today: {italic('avg +0.1%/trade; 55% sure that average is positive')}",
+        f"🎲 Win chance {bold('52%')} · earnings news today: {italic('avg +0.1%/trade over 266 past trades')}",
         "📰 “XYZ raises guidance”",
         "📣 halt resumed · up 85% today · +12% from open",
         f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
@@ -372,6 +372,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
     quiet = {"news_any": False, "news_own": False, "news_earn": False, "news_n": 0, "headline": None}
     clean = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {"news": quiet}, "")
     assert f"🎲 Win chance {bold('58%')} · no company news" in clean and "📰" not in clean
+    assert "sure" not in clean and "sure" not in body          # owner 2026-11-10: no "X% sure" in trade texts
     bare = fade.ask_text("XYZ", "news", None, 5000.0, {}, "")
     assert "📣 news\n" in bare and "🏦 borrow unknown" in bare and "stop +20%" in bare
     assert "📊" not in bare and "📈" not in bare and "@ market" in bare
