@@ -96,3 +96,28 @@ def test_beta_failure_never_costs_the_stop_checks(db, monkeypatch):
     now = datetime(2026, 11, 10, 15, 30, tzinfo=timezone.utc)
     fl._scan_detect(None, db, st, now, now.astimezone(fl.ET))
     assert st.universe == ["AAA", "BBB"] and st.beta == {}
+
+
+def test_missing_market_frame_is_not_cached(db):
+    """Review F-1: a fetch without SPY must not store every symbol as unknown for the rest of the day."""
+    no_mkt = {k: v for k, v in FRAMES.items() if k != "SPY"}
+    assert beta.betas(db, ["HIGH"], "2026-11-12", lambda s: no_mkt) == {"HIGH": None}
+    assert beta.betas(db, ["HIGH"], "2026-11-12", lambda s: FRAMES)["HIGH"] == pytest.approx(3.5, abs=0.15)
+
+
+def test_scanner_ranking_is_time_budgeted(db, monkeypatch):
+    """Review F-3: a slow beta fetch never holds up the scanner; the late result still fills the cache."""
+    import time
+
+    import fade_live as fl
+    monkeypatch.setattr(fl, "SCAN_BETA_BUDGET", 0.2)
+
+    def slow(syms):
+        time.sleep(0.8)
+        return FRAMES
+    t0 = time.monotonic()
+    uni, b = fl.ranked_universe(db, ["LOW", "HIGH"], "2026-11-13", slow)
+    assert time.monotonic() - t0 < 0.6 and uni == ["LOW", "HIGH"] and b == {}
+    time.sleep(1.0)                                                       # the background fetch finishes and caches
+    uni, b = fl.ranked_universe(db, ["LOW", "HIGH"], "2026-11-13", lambda s: pytest.fail("cached"))
+    assert uni == ["HIGH", "LOW"]

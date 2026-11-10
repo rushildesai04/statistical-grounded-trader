@@ -52,6 +52,9 @@ def betas(db: OpsStore, symbols: list[str], session: str, fetch: Daily) -> dict[
         except Exception as exc:  # noqa: BLE001 - priority only: never block the scanner; logged, retried next call
             log.warning("beta fetch failed for %d symbols: %s", len(missing), type(exc).__name__)
             return {s: have.get(s) for s in syms}
+        if daily.get(MARKET) is None or daily[MARKET].empty:   # review F-1: never cache "unknown" for a missing market
+            log.warning("beta: %s missing from the fetch; not cached, retried next call", MARKET)
+            return {s: have.get(s) for s in syms}
         now = iso(utcnow())
         with db.tx() as c:
             for s, (b, n) in compute(daily, missing).items():
