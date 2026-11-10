@@ -29,6 +29,11 @@ BOOKS = (
     # F6 live rule (no-news alerts only), from the first session it ran; real SIP stop fills, training no-news fades.
     TradeBook("alert fade (no-news)", "SELECT net FROM fade_trades WHERE status='settled' AND session>='2026-11-10' "
               "ORDER BY session, id", 0.0170, 0.1735, 0.578, "prereg_fade_stop_slippage_2026-11-09"),
+    # Live paper long book (owner 2026-11-10 option A): the first long setup to fill per alert, official nets from the
+    # shadow. Expectation = that exact first-fill rule on the training events of prereg_long_setups_2026-11-10
+    # (n 2,190; held-out -2.39%, n 703). Expected NEGATIVE: the monitor alarms if live is even worse.
+    TradeBook("long book (paper)", "SELECT net FROM long_trades WHERE status='settled' ORDER BY session, id",
+              -0.0229, 0.0739, 0.179, "prereg_long_setups_2026-11-10 (first-fill rule)"),
     # Scanner experiment: the self-spike rule's training result (it failed: expected NEGATIVE).
     TradeBook("scanner (experiment)", "SELECT net FROM scan_trades WHERE status='settled' ORDER BY session, id",
               -0.0118, 0.1201, 0.532, "prereg_self_fade_2026-11-06"),
