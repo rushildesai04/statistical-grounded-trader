@@ -240,6 +240,14 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             lines.append(f"{bold('scanner')} " + sl.removeprefix("scanner "))
     except Exception:  # noqa: BLE001
         lines.append("scanner: record unavailable")
+    try:                                              # owner 2026-11-10: paper-run the longs
+        from sgt.fast import long_shadow
+
+        ls = long_shadow.record_line(db)
+        if ls:
+            lines.append(f"{bold('long shadow')} " + ls.removeprefix("long shadow "))
+    except Exception:  # noqa: BLE001 - informational line
+        lines.append("long shadow: record unavailable")
     lines += [f"{bold('live vs tested')}: {r}" for r in record]
     try:
         lines += [f"{bold('fade exec')}: " + x.removeprefix("fade exec: ") for x in realism.lines(db)]
