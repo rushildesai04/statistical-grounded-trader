@@ -35,3 +35,15 @@ A rule that passes becomes a paper rule for the live fade (texted as "flag broke
 Earlier early-cover exits (trail, VWAP, EMA cross, failed pullback, breakeven) all lost: they covered on bounces right
 before the second leg down (PLAYBOOK finding 3). A flag breakout is a stricter bounce signal, but it can be the same
 trap. X2 may be small and noisy.
+
+## Result (2026-11-10, run once, trial ledger `fade-flag-2026-11-10`) — X1 FAIL, X2 FAIL
+Baseline reproduced the stored fade nets (max difference 1.1e-16 over 3,109 events).
+| rule | deciding data | n / fired | effect | p | verdict |
+|---|---|---|---|---|---|
+| X1 cover on flag breakout | held-out | 764 / 148 | +0.05% per fade (no-news -0.002%) | 0.38 | FAIL |
+| X1 (training, report) | training | 2,345 / 562 | +0.09% (no-news -0.009%) | 0.21 | - |
+| X2 skip after a pre-alert flag | training | 300 skipped | skipped fades -0.87% (kept +1.24%) | 0.17 | FAIL |
+| X2 (held-out, report) | held-out | 94 skipped | skipped fades +2.91% (the reverse) | - | - |
+Reading: when a flag breaks upward the short is usually already deep under water (fades on those events -5.6% /
+-4.9%); covering at the breakout saves only ~0.3-0.4% of that, i.e. ~0.05-0.09% per fade overall. A flag right
+before the alert does not mark a bad short. The bull flag carries no usable information for these shorts either.
