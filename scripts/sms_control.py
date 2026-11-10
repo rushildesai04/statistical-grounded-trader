@@ -382,7 +382,8 @@ def cmd_digest(db: OpsStore) -> int:
                                   digest.challenger_research(Path("reports/learning"))])
     sms = Sms()
     try:
-        sms.send(text)
+        for part in digest.parts(text):             # 2026-11-09: one SMS cut the digest at SMS_MAX characters
+            sms.send(part)
     finally:
         sms.close()
     print(text)

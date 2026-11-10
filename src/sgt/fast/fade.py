@@ -535,20 +535,46 @@ def channel_health(db: OpsStore, session: str) -> list[str]:
     return []
 
 
-def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[str]:
-    s = day.isoformat()
+def digest_warnings(db: OpsStore, day: date, now: datetime | None = None) -> list[str]:
+    """Listener down / channel quiet: lines the owner must see first."""
     beat = db.flag("fade_heartbeat")
     down = beat and (now or utcnow()) - datetime.fromisoformat(beat) > HEARTBEAT_STALE
     warn = [f"! fade listener DOWN since {datetime.fromisoformat(beat).astimezone(ET):%m-%d %H:%M} ET"] if down else []
-    warn += channel_health(db, s)
+    return warn + channel_health(db, day.isoformat())
+
+
+def _record(db: OpsStore) -> tuple[int, float | None, tuple, list[tuple[str, int, float]]]:
+    """(settled trades, mean net, (IBKR-borrowable n, mean), [(news label, n, mean)]) over the live record."""
     with db.tx() as c:
-        rows = c.execute("SELECT status, net FROM fade_trades WHERE session=?", (s,)).fetchall()
-        n_all = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status='settled'").fetchone()[0]
+        n_all, mean = c.execute("SELECT COUNT(*), AVG(net) FROM fade_trades WHERE status='settled'").fetchone()
         ib = c.execute("SELECT COUNT(*), AVG(net) FROM fade_trades WHERE status='settled' AND ib_avail > 0").fetchone()
         # RAYA review 2026-11-06: news-type alerts or company news earned ~0 historically; owner kept trading them,
-        # so the live record shows the split nightly for the n >= 300 decision.
-        nw = c.execute("SELECT (alert_type='news' OR news_own=1) AS nw, COUNT(*), AVG(net) FROM fade_trades "
-                       "WHERE status='settled' GROUP BY nw").fetchall()
+        # so the live record shows the split nightly for the n >= 300 decision. 2026-11-09: trades from before news
+        # was recorded (news_own NULL, not a news alert) are "news unknown"; they used to overwrite the no-news group.
+        nw = c.execute("SELECT CASE WHEN alert_type='news' OR news_own=1 THEN 'news' WHEN news_own=0 THEN 'no-news' "
+                       "ELSE 'news unknown' END AS g, COUNT(*), AVG(net) FROM fade_trades WHERE status='settled' "
+                       "GROUP BY g").fetchall()
+    order = {"news": 0, "no-news": 1, "news unknown": 2}
+    return n_all, mean, tuple(ib), sorted(((r[0], r[1], r[2]) for r in nw), key=lambda x: order[x[0]])
+
+
+def record_line(db: OpsStore) -> str | None:
+    """Digest RECORD line: the live fade record, its book, and the splits that decide the n >= 300 review."""
+    n_all, mean, ib, groups = _record(db)
+    if not n_all:
+        return None
+    v = nav(db)
+    line = f"fade {n_all} trade{'s' * (n_all != 1)}, avg {mean:+.2%}/trade, book ${v:,.0f} ({v / NAV0 - 1:+.2%} since start)"
+    line += "; " + ", ".join(f"{g} {n} avg {m:+.2%}" for g, n, m in groups)
+    return line + f"; IBKR-borrowable {ib[0]}" + (f" avg {ib[1]:+.2%}" if ib[0] else "")
+
+
+def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[str]:
+    s = day.isoformat()
+    warn = digest_warnings(db, day, now)
+    with db.tx() as c:
+        rows = c.execute("SELECT status, net FROM fade_trades WHERE session=?", (s,)).fetchall()
+    n_all, _, ib, groups = _record(db)
     if not rows and not n_all:
         return warn
     st = [r for r in rows if r["status"] == "settled"]
@@ -561,7 +587,5 @@ def digest_lines(db: OpsStore, day: date, now: datetime | None = None) -> list[s
     line += (f", {sk} skipped" if sk else "") + (f", {wait} unsettled" if wait else "")
     if n_all:                                 # the subset that could really be shorted (IBKR had shares)
         line += f"; IBKR-borrowable {ib[0]} trades" + (f" avg {ib[1]:+.2%}" if ib[0] else "")
-        split = {bool(r[0]): (r[1], r[2]) for r in nw}
-        line += "; " + ", ".join(f"{lab} {split[k][0]} avg {split[k][1]:+.2%}" for k, lab in
-                                 ((True, "news"), (False, "no-news")) if k in split)
+        line += "; " + ", ".join(f"{g} {n} avg {m:+.2%}" for g, n, m in groups)
     return [line] + warn

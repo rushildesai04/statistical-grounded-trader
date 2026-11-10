@@ -78,58 +78,216 @@ def book_lines(db: OpsStore, today: date) -> list[str]:
     return out
 
 
+# Owner 2026-11-09: "format the digest better". Layout: the day's dollars first, then what needs the owner, then
+# one line per book, then the record. Plain GSM-7 characters only: one unicode character (a middle dot, a real
+# minus, an emoji) switches the whole SMS to UCS-2 and ~2.3x the segments. Long digests are sent as numbered parts.
+NAMES = {"etf:B_6040": "60/40", "etf:F1_dual_momentum": "dual momentum", "etf:F2_6040_trend": "60/40 trend",
+         "megacap": "megacap", "megacap_overlay": "megacap overlay", "megacap_ext": "megacap 15"}
+
+
+# GSM 03.38 basic + extension characters: anything else forces UCS-2 for the whole SMS.
+_GSM = set("@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5_\u00c6\u00e6\u00df\u00c9 !\"#\u00a4%&'()*+,-./0123456789:;<=>?"
+           "\u00a1ABCDEFGHIJKLMNOPQRSTUVWXYZ\u00c4\u00d6\u00d1\u00dc\u00a7\u00bfabcdefghijklmnopqrstuvwxyz\u00e4\u00f6\u00f1\u00fc\u00e0"
+           "^{}\\[~]|\u20ac")
+_ASCII = {"\u00b1": "+/-", "\u2212": "-", "\u2013": "-", "\u2014": "-", "\u00b7": ";", "\u2192": "->", "\u2026": "...",
+          "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2264": "<=", "\u2265": ">="}
+
+
+def gsm(text: str) -> str:
+    """Plain GSM-7 text: known symbols spelled out, anything else (emoji, math letters) becomes '?'."""
+    return "".join(ch if ch in _GSM else _ASCII.get(ch, "?") for ch in text)
+
+
+def usd(x: float) -> str:
+    return f"{'-' if x < -0.5 else '+'}${abs(x):,.0f}"
+
+
+def name(strategy: str) -> str:
+    return NAMES.get(strategy, strategy.removeprefix("etf:"))
+
+
+def holdings(h: dict[str, float]) -> str:
+    """{'META': -.25, 'MSFT': -.25, 'NVDA': -.2} -> 'short META+MSFT 25%, NVDA 20%'."""
+    out = []
+    for side, sign in (("long", 1), ("short", -1)):
+        legs = sorted(((s, abs(w)) for s, w in h.items() if w * sign > 1e-6), key=lambda x: (-x[1], x[0]))
+        if not legs:
+            continue
+        groups: list[tuple[list[str], float]] = []
+        for s, w in legs:
+            if groups and round(groups[-1][1] * 100) == round(w * 100):
+                groups[-1][0].append(s)
+            else:
+                groups.append(([s], w))
+        out.append(f"{side} " + ", ".join(f"{'+'.join(g)} {w:.0%}" for g, w in groups))
+    return "; ".join(out) or "flat"
+
+
+def model_books(db: OpsStore, day: date) -> tuple[list[str], dict[str, float]]:
+    """One line per daily book (model books first, then ETF) and today's dollars per group."""
+    out, total = [], {"models": 0.0, "ETF": 0.0}
+    with db.tx() as c:
+        strategies = [r[0] for r in c.execute("SELECT DISTINCT strategy FROM book_nav ORDER BY strategy")]
+        for s in sorted(strategies, key=lambda x: (x.startswith("etf:"), x)):
+            rows = c.execute("SELECT session, nav, ret, holdings FROM book_nav WHERE strategy=? ORDER BY session",
+                             (s,)).fetchall()
+            last = rows[-1]
+            month0 = next((r["nav"] / (1 + r["ret"]) for r in rows if r["session"][:7] == last["session"][:7]),
+                          last["nav"])
+            mtd = last["nav"] / month0 - 1
+            h = json.loads(last["holdings"] or "{}")
+            if last["session"] == day.isoformat():
+                today = last["nav"] - last["nav"] / (1 + last["ret"])
+                total["ETF" if s.startswith("etf:") else "models"] += today
+                head = f"{name(s)} {usd(today)} ({last['ret']:+.2%})"
+            else:
+                head = f"{name(s)} no close yet (last {last['session'][5:]})"
+            out.append(f"{head}, month {mtd:+.1%}, ${last['nav']:,.0f}: {holdings(h)}")
+    return out, total
+
+
+def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
+    s = day.isoformat()
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, status, net FROM fade_trades WHERE session=? AND status IN "
+                         "('settled','void','open','pending','est_closed') ORDER BY id", (s,)).fetchall()
+    if not rows:
+        return [], 0.0
+    today = fade.nav(db, day) - fade.nav(db, day - timedelta(days=1))
+    st = [r for r in rows if r["status"] == "settled"]
+    bits = [f"{r['symbol']} {r['net']:+.1%}" for r in st]
+    bits += [f"{r['symbol']} void" for r in rows if r["status"] == "void"]
+    wait = sum(r["status"] != "settled" and r["status"] != "void" for r in rows)
+    line = f"fade {usd(today)}, {len(st)} trades: " + ", ".join(bits) + (f" ({wait} not settled yet)" if wait else "")
+    return [line], today
+
+
+def scanner_today(db: OpsStore, day: date) -> tuple[list[str], float]:
+    from sgt.fast import scanner
+
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, weight, net FROM scan_trades WHERE session=? AND status='settled' "
+                         "ORDER BY id", (day.isoformat(),)).fetchall()
+    if not rows:
+        return [], 0.0
+    g = sum(r["weight"] * r["net"] for r in rows)
+    v = scanner.nav(db)
+    today = v - v / (1 + g)                      # close enough for display: one compounding step
+    return [f"scanner {usd(today)} (experiment, 0.5%/trade): " + ", ".join(f"{r['symbol']} {r['net']:+.1%}" for r in rows)], today
+
+
+def _safe(fn, fallback: str, *a):
+    try:
+        return fn(*a)
+    except Exception:  # noqa: BLE001 - one digest section must never block the digest
+        return [fallback], 0.0
+
+
 def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[str],
           broker: str | None, research: list[str]) -> str:
-    lines = [f"[SGT] {now_et:%a %m-%d} digest" + ("  ** PAUSED **" if db.paused() else "")]
-    lines += ["Your book:"] + (book_lines(db, now_et.date()) or ["  (no approved positions yet)"])
-    lines += fade.digest_lines(db, now_et.date(), now_et)
-    try:
-        from sgt.fast import scanner                  # experiment book (prereg_scanner_book_2026-11-09)
+    day = now_et.date()
+    books, by_group = _safe(model_books, "books: unavailable", db, day)
+    fl, fade_usd = _safe(fade_today, "fade: today unavailable", db, day)
+    sc, scan_usd = _safe(scanner_today, "scanner: today unavailable", db, day)
+    groups = {**(by_group if isinstance(by_group, dict) else {}), "fade": fade_usd, "scanner": scan_usd}
+    total = sum(groups.values())
 
-        sl = scanner.summary(db, now_et.date().isoformat())
+    needs = (["PAUSED: no new trades until RESUME"] if db.paused() else [])
+    needs += [w.removeprefix("! ") for w in fade.digest_warnings(db, day, now_et)]
+    for p in approvals.pending(db):
+        needs.append(f"pending {p['strategy']}: OK {p['code']} by {approvals.fmt_et(datetime.fromisoformat(p['expires_at']))}")
+    stuck = approvals.attention(db, now_et - timedelta(hours=24))
+    needs += [f"approval #{r['id']} {r['strategy']} {r['status']}" for r in stuck]
+    fails = job_failures(now_et, LOGS)
+    if fails:
+        needs.append("jobs FAILED: " + ", ".join(fails))
+    needs += list(problems)
+    record: list[str] = []
+    try:                                              # learning-loop audit F1: live vs tested, per book
+        from sgt.learning import live_monitor
+
+        res = live_monitor.check_all(db)
+        for r, ln in zip([r for r in res if r["n"]], live_monitor.lines(res)):
+            if r["alarms"]:
+                needs.append(ln.removeprefix("! "))
+            elif "expected" in r and not r["book"].startswith("scanner"):     # scanner: its RECORD line says it
+                record.append(ln)
+        live_monitor.new_alarms(db, res, day)
+    except Exception:  # noqa: BLE001
+        needs.append("live monitor unavailable")
+
+    split = ", ".join(f"{k} {usd(v)}" for k, v in sorted(groups.items(), key=lambda kv: -abs(kv[1])) if abs(v) >= 0.5)
+    lines = [f"[SGT] {now_et:%a %m-%d}: {usd(total)} today (paper)" + (f": {split}" if split else "")]
+    lines += (["", "NEEDS YOU"] + [f"- {n}" for n in needs]) if needs else ["Nothing needs you. Jobs OK (24h)."]
+    lines += ["", "TODAY"] + fl + sc + books
+    lines += ["", "RECORD"]
+    fr = fade.record_line(db)
+    if fr:
+        lines.append(fr)
+    try:
+        from sgt.fast import scanner
+
+        sl = scanner.record_line(db)
         if sl:
             lines.append(sl)
+    except Exception:  # noqa: BLE001
+        lines.append("scanner: record unavailable")
+    lines += [f"live vs tested: {r}" for r in record]
+    try:
+        lines += realism.lines(db)
     except Exception:  # noqa: BLE001 - one digest line must never block the digest
-        lines.append("scanner: summary unavailable")
-    st = db.flag("analyst_status")
-    if st:
-        lines.append(f"AI analyst (last night): {st} (Notes tab)")
-    rs = db.flag("ai_review_status")
-    if rs:
-        lines.append(f"AI trade reviews: {rs}")
+        lines.append("fade exec: unavailable")
+    ai = [x for x in (db.flag("analyst_status") and f"report {db.flag('analyst_status')}",
+                      db.flag("ai_review_status") and f"reviews {db.flag('ai_review_status')}") if x]
     try:
         from sgt.ops import journal
 
         pt = journal.pending_tests(db)
         if pt:
-            lines.append(f"AI: {pt} proposed tests await the agent's review (reports/insights/latest.md)")
+            ai.append(f"{pt} proposed tests to review")
     except Exception:  # noqa: BLE001 - informational line
         pass
-    try:                                              # learning-loop audit F1: live vs tested, per book
-        from sgt.learning import live_monitor
+    if ai:
+        lines.append("AI: " + "; ".join(ai))
+    rs = [r for r in research if r]
+    if rs:
+        lines += ["", "RESEARCH"] + rs
+    final: dict[tuple[str, str], dict] = {}
+    for f in fills:                                   # several fills per symbol: the last one is the position held
+        final[(f["strategy"], f["symbol"])] = f
+    if final:
+        by: dict[str, list[str]] = {}
+        for (strat, sym), f in final.items():
+            w = f["target"]
+            by.setdefault(name(strat), []).append(
+                f"{sym} {'flat' if abs(w) < 1e-6 else ('long' if w > 0 else 'short') + f' {abs(w):.0%}'} @{f['price']:.2f}")
+        lines += ["", "Filled at close: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in by.items())]
 
-        res = live_monitor.check_all(db)
-        mon = live_monitor.lines(res)
-        if mon:
-            lines += ["Live vs tested:"] + [f"  {m}" for m in mon]
-        live_monitor.new_alarms(db, res, now_et.date())
-    except Exception:  # noqa: BLE001 - one digest section must never block the digest
-        lines.append("live monitor: unavailable")
-    lines += realism.lines(db)
-    if fills:
-        lines.append("Fills: " + "; ".join(f"{f['strategy']} {f['symbol']} -> {f['target']:+.0%} @ {f['price']:.2f}"
-                                           for f in fills))
     if broker:
-        lines.append(broker)
-    lines += [r for r in research if r]
-    pend = approvals.pending(db)
-    if pend:
-        lines.append("Pending: " + "; ".join(f"{p['strategy']} OK {p['code']} by {approvals.fmt_et(datetime.fromisoformat(p['expires_at']))}"
-                                             for p in pend))
-    stuck = approvals.attention(db, now_et - timedelta(hours=24))
-    if stuck:
-        lines.append("Attention: " + "; ".join(f"#{r['id']} {r['strategy']} {r['status']}" for r in stuck))
-    fails = job_failures(now_et)
-    lines.append("Jobs: " + ("FAILED " + ", ".join(fails) if fails else "all OK (24h)"))
-    lines += [f"! {p}" for p in problems]
-    return "\n".join(lines)
+        lines += ["", broker]
+    return gsm("\n".join(lines))
+
+
+def parts(text: str, limit: int = 1490) -> list[str]:
+    """Split at line breaks into SMS-sized parts marked (i/n). Nothing is dropped (Sms.send truncates at SMS_MAX, which
+    cut the 11-09 digest); a single over-long line is hard-wrapped. Header and NEEDS YOU lead ``build``, so part 1."""
+    chunks: list[str] = []
+    cur = ""
+    for ln in text.split("\n"):
+        while len(ln) > limit:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(ln[:limit])
+            ln = ln[limit:]
+        cand = f"{cur}\n{ln}" if cur else ln
+        if len(cand) > limit and cur:
+            chunks.append(cur)
+            cur = ln
+        else:
+            cur = cand
+    if cur:
+        chunks.append(cur)
+    if len(chunks) <= 1:
+        return chunks
+    return [f"({i}/{len(chunks)}) {c}" for i, c in enumerate(chunks, 1)]

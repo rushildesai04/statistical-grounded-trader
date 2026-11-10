@@ -171,6 +171,16 @@ def book(db: OpsStore, rid: int, expect: str, res: dict | None, now: datetime) -
     return _set(db, rid, expect, status="settled", settled_at=iso(now), **res)
 
 
+def record_line(db: OpsStore) -> str | None:
+    """Digest RECORD line for the experiment (prereg_scanner_book_2026-11-09)."""
+    with db.tx() as c:
+        nets = [r[0] for r in c.execute("SELECT net FROM scan_trades WHERE status='settled' AND net IS NOT NULL")]
+    if not nets:
+        return None
+    return (f"scanner {len(nets)} trade{'s' * (len(nets) != 1)}, avg {sum(nets) / len(nets):+.2%}/trade, book ${nav(db):,.0f}; "
+            "tested -1.2%/trade, decide at 300")
+
+
 def summary(db: OpsStore, session: str) -> str | None:
     """One line for the daily digest (owner: no per-trade texts for the experiment)."""
     with db.tx() as c:

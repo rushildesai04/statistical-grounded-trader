@@ -49,6 +49,8 @@ def summary(df: pd.DataFrame) -> dict:
 
 
 def _dur(s: float) -> str:
+    if s is None or s != s:                    # 2026-11-09: no entry timestamps -> NaN median crashed the digest
+        return "n/a"
     return f"{int(s // 60)}m{int(s % 60):02d}s"
 
 
