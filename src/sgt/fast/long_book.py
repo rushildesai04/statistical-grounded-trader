@@ -36,6 +36,10 @@ TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31
 MAX_OPEN = 40
 GRACE = pd.Timedelta(minutes=pt.TRIGGER_BARS + 2)          # after WATCH: the last setup's order can still fill
 MARGIN = pd.Timedelta(minutes=15)                           # candidates outlive the window so the "none" marker lands
+# 2026-11-10: after the 11:45 deploy the book booked KULR's 10:39 fill and texted entry + exit at once. A fill whose
+# bar started longer ago than this was not seen live (restart, outage): recorded as 'missed', never traded or texted.
+# Normal detection is the fill bar's close + one 30 s pass, well inside it. The official record is the shadow anyway.
+LIVE_LAG = pd.Timedelta(minutes=5)
 LiveBars = Callable[[str, datetime], pd.DataFrame]          # (symbol, now) -> today's 1-minute bars (ts = start, UTC)
 
 
@@ -103,6 +107,10 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
                     _insert(db, row, None, None, "none", now)
                 continue
             s, t = hit
+            if pd.Timestamp(now) - t.entry_ts > LIVE_LAG:
+                _insert(db, row, s, t, "missed", now)
+                log.info("long %s %s filled %s, before the book saw it: missed", row["symbol"], s.kind, t.entry_ts)
+                continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
                 send(entry_text(db, row["symbol"], s, t))
@@ -260,7 +268,7 @@ def today_line(db: OpsStore, session: str) -> str | None:
     """Digest TODAY line for the long book (estimates until settled)."""
     with db.tx() as c:
         rows = c.execute("SELECT symbol, kind, status, est_entry, est_exit, net, weight FROM long_trades WHERE "
-                         "session=? AND status NOT IN ('none') ORDER BY id", (session,)).fetchall()
+                         "session=? AND status NOT IN ('none','missed') ORDER BY id", (session,)).fetchall()
     # review F-2: a void long has no official result: say so instead of showing its estimate
     if not rows:
         return None
