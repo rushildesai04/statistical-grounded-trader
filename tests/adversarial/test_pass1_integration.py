@@ -110,8 +110,9 @@ def test_scan_official_no_entry_bar_is_void():
     assert scan_official({"bar_ts": t.isoformat(), "symbol": "ABCD"}, _bars(rows), _cost()) is None
 
 
-def test_scanner_record_step_settle_idempotent(tmp_path):
+def test_scanner_record_step_settle_idempotent(tmp_path, monkeypatch):
     from sgt.fast import scanner
+    monkeypatch.setattr(scanner, "ACTIVE", True)        # paused since amendment A2; the trading path stays tested
     db = OpsStore(tmp_path / "ops.db")
     bar = datetime(2026, 11, 9, 15, 0, tzinfo=UTC)
     ev = {"bar_ts": pd.Timestamp(bar), "signal_px": 10.0}

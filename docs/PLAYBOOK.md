@@ -17,7 +17,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
 | stop | 20% above entry (worst case inside a bar) | prereg_alert_fade (10/20/30/none explored on train) |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
-| beta (F7) | no short when the stock's beta >= 3 (owner 2026-11-10; past: >= 3 -2.14%/trade, < 1.5 +1.86%). The scanner follows the same rule since 11-10 (its skipped spikes are still scored: digest line) | fade.py, prereg_alert_fade F7; scanner.py, prereg_scanner_book A1 |
+| beta (F7) | no short when the stock's beta >= 3 (owner 2026-11-10; past: >= 3 -2.14%/trade, < 1.5 +1.86%). The scanner followed the same rule on 11-10 and is paused since 11-11 (owner: longs first; it still records and scores spikes: digest line) | fade.py, prereg_alert_fade F7; scanner.py, prereg_scanner_book A1 |
 | size | 5% of book NAV per trade by default; text `SIZE 10000` sets dollars per trade ($500 to 25% of the book; raising needs a code). Runaway guards only: 40 open, 200% of the book short. No daily cap or loss stop (F6) | fade.py, owner 2026-11-09 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
@@ -133,7 +133,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | NWGL 2026-11-09 -20% (live est) | alert 10:25:37; short $4.38 at 10:26:31 (54 s); already +15% in 5 min, 14% over VWAP, RSI 75, 5x volume; stopped 6 min later; no halt; IBKR 0 shares | rule loss (stop), no-news | none new: 'wait for a breakdown' tested -0.08%/trade |
 | FISN 2026-11-09 -20% (live est) | live entry $2.32 was a STALE IEX print: SIP traded $2.41-2.44 that minute; the live stop ($2.78) came from it (tested stop ~$2.92) | execution (stale thin-IEX price) | live entry now needs a print inside the tested bar (F6 branch); IEX-only stops lag on thin names -> paid SIP feed before real money |
 | CKX 2026-11-09 +15.6% (live est) | news trade (company news), spike failed and broke down | rule win, news | no-news rule (F6) would have skipped it; news fades -0.20% / -0.60% over 1,384 trades; partial-profit idea tested -0.50% |
-| AMIX 2026-11-10 -24.5% fade, -20.1% scanner (live est) | alert 09:42:25, no news; shorted 09:43 (fade) and 09:44 (scanner spike); stopped. Beta 4.8 | rule loss under the rules then live; rule F7 (no shorts at beta >= 3) went live 11:45 the same day and the scanner had no beta rule | F7 would have skipped the fade; scanner amendment A1 now skips it too (skipped spikes still scored nightly) |
+| AMIX 2026-11-10 -21.8% fade and -21.8% scanner (official SIP) | alert 09:42:25, no news; shorted 09:43 (fade) and 09:44 (scanner spike); stopped. Beta 4.8 | rule loss under the rules then live; rule F7 (no shorts at beta >= 3) went live 11:45 the same day and the scanner had no beta rule | F7 would have skipped the fade; scanner amendment A1 skipped it too, then A2 paused the scanner (owner: longs first; spikes still scored nightly) |
 Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
 AI reviews: since 2026-11-10 the per-trade review, the nightly brain and the Notes tab include the long book (before, longs never reached them).
 

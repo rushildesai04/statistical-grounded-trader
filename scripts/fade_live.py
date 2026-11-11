@@ -720,7 +720,8 @@ def settle_scanner(db: OpsStore, now: datetime | None = None) -> list[str]:
             res = scan_official(r, f, cost)
             if scanner.book(db, int(r["id"]), r["status"], res, now):
                 lines.append(f"{r['symbol']} " + ("void" if res is None else f"{res['net']:+.2%}")
-                             + (" (skipped: beta >= 3)" if r["status"] == "filtered" else ""))
+                             + ((" (skipped: beta >= 3)" if r["reason"] == scanner.BETA_REASON else " (paused)")
+                                if r["status"] == "filtered" else ""))
     return lines
 
 
