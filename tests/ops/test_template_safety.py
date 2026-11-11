@@ -32,3 +32,15 @@ def test_copy_buttons_put_plain_text_on_the_clipboard():
         assert label in js, label
     for box in ('"Luna review"', '"Your notes"', '"Timeline (ET)"', '"What the agent knew"', '"X catalyst posts (24h)"'):
         assert f"jnHead({box}" in js, box
+
+
+def test_notes_links_on_the_fade_tab_are_routed_from_page_load():
+    # owner 2026-11-11: the fade cards' "Notes & Luna review" link did nothing, because the #notes hash listener was
+    # only registered when the Notes tab first opened. The router must be set up in boot(), not in jnBoot().
+    js = TEMPLATE.read_text()
+    boot = js[js.index("function boot() {"):js.index("if (window.LightweightCharts && DATA) boot();")]
+    jn = js[js.index("async function jnBoot() {"):js.index("function showTab(name) {")]
+    assert 'addEventListener("hashchange"' in boot and 'showTab("notes")' in boot
+    assert 'addEventListener("hashchange"' not in jn
+    assert js.count('addEventListener("hashchange"') == 1
+    assert 'n.href = "#notes/" + t.key' in js

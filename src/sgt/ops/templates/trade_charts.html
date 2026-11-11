@@ -1170,7 +1170,6 @@ async function jnBoot() {
   document.getElementById("jn-date").addEventListener("change", ev => jnSetDay(ev.target.value));
   document.getElementById("jn-q").addEventListener("input", jnBrowse);
   document.getElementById("jn-day-acts").append(jnCopyBtn("Copy day", jnDayMd));
-  window.addEventListener("hashchange", () => { if (location.hash.startsWith("#notes")) { showTab("notes"); } });
   const days = jnDays();
   try { const r = await fetch(jnApi()); if (r.ok) { const j = await r.json(); jnNotes = j.notes || {}; jnRev = j.reviews || {}; jnInsights(j.insights || []); }
         else document.getElementById("jn-ai-sub").textContent = "notes server unavailable (" + r.status + ")"; }
@@ -1194,6 +1193,14 @@ function boot() {
   if (!(DATA.models && (DATA.models.tickers || []).length)) document.getElementById("tab-models").hidden = true;
   ["fade", "models", "notes"].forEach(n => document.getElementById("tab-" + n).addEventListener("click", () => {
     showTab(n); history.replaceState(null, "", "#" + n); }));
+  // 2026-11-11 (owner: the "Notes & Luna review" link on the fade cards did nothing): the hash router lives here, from
+  // page load. It used to be registered only when the Notes tab first opened, so a #notes/<key> link clicked on the
+  // Fade tab changed the URL and nothing listened.
+  window.addEventListener("hashchange", () => {
+    if (location.hash.startsWith("#notes")) showTab("notes");
+    else if (location.hash === "#models") showTab("models");
+    else if (location.hash === "#fade") showTab("fade");
+  });
   learning();
   document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
   const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
