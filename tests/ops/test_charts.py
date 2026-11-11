@@ -151,3 +151,14 @@ def test_long_trades_rows_use_the_official_result_once_settled(tmp_path, monkeyp
     assert r["usd"] == pytest.approx(0.031 * 0.05 * 100_000)
     v = charts.trade_view(r, bars(), r["usd"], side="long")
     assert v["official"] and v["entry"] == 4.01 and v["exit"] == 4.19 and v["ret"] == pytest.approx(0.031)
+
+
+def test_view_says_where_the_candles_end_and_when_the_exit_was():
+    """Owner note on CISS 2026-11-10: the chart ended at 10:24 but the exit was 10:32 (intraday bars lag ~16 min).
+    The view carries both so the page can say so instead of looking like a missing exit."""
+    v = charts.trade_view(TRADE, bars(n=70))                     # bars to 15:39 UTC, exit 16:13 UTC
+    assert v["exit_at"] == charts.et_epoch("2026-11-05T16:13:00Z")
+    assert v["bars_end"] == charts.et_epoch("2026-11-05T15:39:00Z") and v["exit_at"] - v["bars_end"] > 90
+    full = charts.trade_view(TRADE, bars())
+    assert full["bars_end"] >= full["exit_at"] - 60
+    assert charts.trade_view({**TRADE, "est_exit_at": None}, bars())["exit_at"] is None

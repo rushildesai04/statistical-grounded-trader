@@ -22,3 +22,13 @@ def test_markdown_libraries_are_pinned():
     js = TEMPLATE.read_text()
     assert "unpkg.com/marked@12.0.2/" in js and "unpkg.com/dompurify@3.1.6/" in js
     assert js.count('"sha384-') >= 2 and 'crossOrigin = "anonymous"' in js            # F-7: SRI on both
+
+
+def test_copy_buttons_put_plain_text_on_the_clipboard():
+    # owner 2026-11-11: every Notes block copies as Markdown text; the clipboard never receives HTML
+    js = TEMPLATE.read_text()
+    assert "navigator.clipboard.writeText(text)" in js and "clipboard.write(" not in js and "text/html" not in js
+    for label in ('"Copy everything"', '"Copy day"', '"Copy report"', '"Copy brain"', '"Insert template"'):
+        assert label in js, label
+    for box in ('"Luna review"', '"Your notes"', '"Timeline (ET)"', '"What the agent knew"', '"X catalyst posts (24h)"'):
+        assert f"jnHead({box}" in js, box

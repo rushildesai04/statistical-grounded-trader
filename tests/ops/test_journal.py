@@ -96,3 +96,16 @@ def test_notes_save_on_a_long_trade_and_reject_unknown_long_ids(db):
     for bad in ("long:999", "long:0", "longs:1", "long:1;DROP"):
         with pytest.raises(ValueError):
             journal.save(db, bad, "x", NOW)
+
+
+def test_long_entries_carry_what_the_agent_knew_about_the_alert(db):
+    """2026-11-11: a long's Notes page showed an empty 'What the agent knew' box and Luna never saw the alert's news,
+    filings or social buzz for longs. They come from the alert's own row; borrow fields stay short-only."""
+    lid = _long(db, "est_closed")
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET news_own=1, news_head='Phase 2 data', filing_dilution=0, st_n60=12, "
+                  "x_n60=3, x_cat24=1, x_cat_posts='[]', rd_rank=40, rd_mentions=7, ib_avail=0 "
+                  "WHERE id=(SELECT fade_id FROM long_trades WHERE id=?)", (lid,))
+    e = {x["key"]: x for x in journal.entries(db)}[f"long:{lid}"]
+    assert (e["news_own"], e["news_head"], e["st_n60"], e["x_cat24"], e["rd_mentions"]) == (1, "Phase 2 data", 12, 1, 7)
+    assert "ib_avail" not in e and "alp_shortable" not in e

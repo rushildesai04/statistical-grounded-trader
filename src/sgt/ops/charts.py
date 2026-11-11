@@ -113,6 +113,9 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
         "stop": _num(t.get("stop")) if long else (entry * (1 + STOP) if entry else None),
         "target": _num(t.get("target")) if long else None,
         "ret": ret, "official": official is not None, "usd": usd,
+        # owner note on CISS 2026-11-10: the candles stopped before the exit. Intraday the page only has bars to
+        # about 16 minutes ago (SIP delay); the Notes page says so when the exit is past the last candle.
+        "exit_at": et_epoch(exited) if exited is not None else None, "bars_end": times[-1] if times else None,
         "conf": t.get("conf"), "news": bool(t.get("news_own")), "headline": t.get("news_head"),
         "candles": candles, "volume": volume, "vwap": vwap, **ema, "rsi": rsi, "macd": macd, "signals": sig,
         "markers": [m for m in markers if m["time"] is not None],

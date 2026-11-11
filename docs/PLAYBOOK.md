@@ -41,8 +41,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    A chart review of any loser will find a "best exit"; that is not a rule.
 7. **Underwater trades that come back usually keep falling.** Fades that went 5% against us and returned to the entry
    then earned +2.30% (train) / +4.21% (held-out) more by holding.
-8. **The stop is a trade-off, not a free fix.** No stop +2.31%/trade on train but with -78% worst cases; 20% stop
-   +1.47% (exploration on train). About 25% of fades lose more than 15%. RAYA (2026-11-06) was stopped at the top of
+8. **The stop is a trade-off, not a free fix.** No stop +2.31%/trade on train but with -78% worst cases; 10% stop
+   +0.74%, 20% stop +1.47%, 30% stop +1.74% (exploration on train): a tighter stop halves the edge. About 25% of fades lose more than 15%. RAYA (2026-11-06) was stopped at the top of
    its squeeze and fell back below our entry 15 minutes later.
 9. **Borrow is the real-money question.** Names Alpaca can short lost -0.55%/trade held-out; live stamps show the
    biggest winners (CRIS, AEHL) had zero IBKR shares. Decided at forward n >= 300 on the IBKR-borrowable subset.
@@ -134,6 +134,28 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | FISN 2026-11-09 -20% (live est) | live entry $2.32 was a STALE IEX print: SIP traded $2.41-2.44 that minute; the live stop ($2.78) came from it (tested stop ~$2.92) | execution (stale thin-IEX price) | live entry now needs a print inside the tested bar (F6 branch); IEX-only stops lag on thin names -> paid SIP feed before real money |
 | CKX 2026-11-09 +15.6% (live est) | news trade (company news), spike failed and broke down | rule win, news | no-news rule (F6) would have skipped it; news fades -0.20% / -0.60% over 1,384 trades; partial-profit idea tested -0.50% |
 | AMIX 2026-11-10 -21.8% fade and -21.8% scanner (official SIP) | alert 09:42:25, no news; shorted 09:43 (fade) and 09:44 (scanner spike); stopped. Beta 4.8 | rule loss under the rules then live; rule F7 (no shorts at beta >= 3) went live 11:45 the same day and the scanner had no beta rule | F7 would have skipped the fade; scanner amendment A1 skipped it too, then A2 paused the scanner (owner: longs first; spikes still scored nightly) |
+**Owner notes review (2026-11-11; all 20 notes, trades 11-06 to 11-11).** The notes keep proposing the same five ideas.
+Each one is matched to evidence below:
+| idea in the notes | trades | evidence |
+|---|---|---|
+| short only after the spike fails: support break, then a failed bounce | FISN NWGL OMH RAYA STAK x2 TVRD CKX(scan) ZDGE | tested and lost: -0.08% / +0.24% vs +0.97% / +1.12%; entering 2-4 min late also lost |
+| take some profit into the first sharp drop, protect the rest | CKX SERV STAK NWGL(scan) CISS TTEC ZDGE AMIX | tested and lost: half at +3% / +5% -0.50% / -0.16%. Half at a target with the rest on the timer averages the target exit (15% target +0.23%) and the timer, so it is below the timer by construction |
+| exit when the first pullback fails or price retakes the earlier high | AMIX x2 RAYA OMH NWGL STAK FISN | tested and lost: +0.87% / +0.07%; findings 4 and 7 |
+| the 20% stop is too wide | NWGL OMH | 10% stop +0.74% vs 20% +1.47% vs 30% +1.74% (training, prereg_alert_fade); a tighter stop halves the edge |
+| LONG: sell part at the 2R target, let the rest run, exit on a break of the last pullback low | GEVO | **untested** (long exits so far: 1.5R/2R/3R targets, 15/30/60 min). The one open idea → a candidate prereg |
+| LONG: wait for the pullback to hold, then buy the turn up | ZDGE (long) | = L4b / L6 (break of the red candle's high, break of structure): tested and lost |
+The notes also flagged data and execution issues:
+| issue | finding | action |
+|---|---|---|
+| STAK 11-10 short: IBKR 0 shares, Alpaca not shortable | paper-only result | the Notes page flags it; the real-money call is on the IBKR-borrowable subset (finding 9) |
+| AMIX 11-10: posts describe a patent catalyst while company news = none | social catalyst outside the news check; Sol flagged the same | X catalyst posts recorded forward (prereg_fade_x A2) |
+| CISS: chart ends at 10:24, exit at 10:32 | intraday SIP bars lag about 16 min | the page now says where the candles end |
+| TVRD: live +0.7%, official -0.96% | round-trip costs plus SIP prices | the page labels live estimate vs official result |
+| GEVO: $1.975 sell vs $1.96 target | the target is skipped on the fill bar, then the next bar opened at $1.975 and the model fills at that open. If the fill bar traded $1.96 after the buy, a resting sell would have filled at $1.96 | small optimistic case in long_book._exit and patterns.simulate. Proposed fix: fill at the target when the fill bar already reached it |
+| ZDGE long: entry and stop in the same minute | the simulator counts it as a full stop (conservative), as tested | none |
+| AMIX: $2.81 stop, $2.92 live cover | live IEX one-minute stop monitor; official $2.784 (SIP stop level) | known (FISN row): IEX stops lag on thin names |
+Since 2026-11-11, Luna writes in this format and checks every idea (its own and the note's) against sections 3-4. The result is labelled "tested: lost", "untested" and so on. Luna re-reads a note once it is saved.
+
 Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
 AI reviews: since 2026-11-10 the per-trade review, the nightly brain and the Notes tab include the long book (before, longs never reached them).
 Long book official result (2026-11-11, owner: "real long scoring"): the live trade's OWN order (fill bar, buy-stop trigger, stop) replayed on SIP bars by the tested simulator, like the fade. Before, it was the shadow's SIP re-detection, which can be a different trade: KULR 11-10 lost live (IEX trigger $2.155, stopped -1.2%) but was recorded +1.63% (SIP trigger $2.115). Old rows are re-scored once. The long shadow stays as the rule's own measurement, so live vs tested = execution gap.

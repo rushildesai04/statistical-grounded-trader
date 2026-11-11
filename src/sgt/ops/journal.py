@@ -26,6 +26,9 @@ BOOK_COLS = ("strategy", "symbol", "fill_session", "target", "status", "fill_pri
 # only once settled; ``cover`` = the sell.
 LONG_SQL = ("SELECT t.id, t.symbol, t.session, t.kind, t.status, t.reason, t.trigger, t.stop, t.target, t.est_entry, "
             "t.entry_ts AS est_entry_at, t.est_exit, t.est_exit_at, t.net, f.posted_at, f.alert_type, "
+            # 2026-11-11: what the agent knew about the alert (news, filings, social) for the long's Notes page and Luna
+            "f.news_own, f.news_head, f.filing_dilution, f.filing_form, f.st_n60, f.x_n60, f.x_cat24, f.x_cat_posts, "
+            "f.rd_rank, f.rd_mentions, "
             "CASE WHEN t.status='settled' THEN t.entry END AS entry, CASE WHEN t.status='settled' THEN t.exit END AS cover, "
             "CASE WHEN t.status='settled' THEN t.exit_reason END AS official_exit "
             "FROM long_trades t JOIN fade_trades f ON f.id=t.fade_id "

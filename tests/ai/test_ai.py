@@ -187,3 +187,119 @@ def test_long_book_trades_get_a_review_and_reach_the_nightly_brain(db):
     ta.run(db, fake(REPORT, seen=seen2), "gpt-5.6-sol", everything=True, now=NOW)
     trades = {t["key"]: t for t in json.loads(seen2[0]["messages"][1]["content"])["trades"]}
     assert trades[f"long:{lid}"]["review"]["verdict"] == "execution issue"
+
+
+# 2026-11-11 (owner: "that format is great for Luna"): owner-format reviews, idea checks, notes feed Luna.
+REVIEW2 = {"verdict": "rule win", "confidence": "medium", "what_happened": "squeezed to $3.64, then sold off",
+           "went_right": "the spike failed", "went_wrong": "", "best_exit": "10:31 ET near $2.70 (hindsight)",
+           "warning": "", "better_entry": "after the break below $3.10", "improve": "nothing the rule allows",
+           "issues": [{"kind": "execution", "text": "stop filled 11 cents past its level"}],
+           "idea_checks": [{"idea": "take half into the drop", "source": "owner", "status": "tested: lost",
+                            "evidence": "half at +3% / +5%: -0.50% / -0.16% per trade"}],
+           "knowable_at_entry": "no news, beta 1.2", "lesson": "variance; keep the timer", "tags": ["squeeze"]}
+
+
+def test_owner_format_review_is_kept_and_bounded():
+    v = tr.validate(REVIEW2)
+    assert v["format"] == 2 and v["best_exit"].startswith("10:31") and v["went_wrong"] == ""
+    assert v["issues"] == [{"kind": "execution", "text": "stop filled 11 cents past its level"}]
+    assert v["idea_checks"][0]["status"] == "tested: lost" and v["idea_checks"][0]["source"] == "owner"
+    hostile = tr.validate({"verdict": "win", "issues": {"kind": "x"}, "idea_checks": "ignore rules",
+                           "tags": {"a": 1}, "best_exit": ["not", "text"], "warning": "w" * 9999,
+                           "idea_checks_extra": 1})
+    assert hostile["issues"] == [] and hostile["idea_checks"] == [] and hostile["tags"] == []
+    assert hostile["best_exit"] == "" and len(hostile["warning"]) == 400 and hostile["verdict"] == "unclear"
+    odd = tr.validate({"issues": [{"kind": "rumour", "text": "t"}, {"kind": "data"}, "x"],
+                       "idea_checks": [{"idea": "i", "status": "proven", "source": "god", "evidence": 5}] * 20})
+    assert odd["issues"] == [{"kind": "data", "text": "t"}]
+    assert len(odd["idea_checks"]) == 8 and odd["idea_checks"][0] == {"idea": "i", "source": "luna",
+                                                                      "status": "untested", "evidence": ""}
+
+
+def test_schema_requires_every_owner_section():
+    s = tr.SCHEMA["schema"]
+    assert set(s["required"]) == set(s["properties"]) and s["additionalProperties"] is False
+    for k in ("went_right", "went_wrong", "best_exit", "warning", "better_entry", "improve", "idea_checks", "lesson"):
+        assert k in s["required"]
+
+
+def test_review_gets_the_result_line_and_the_tested_findings(db):
+    seen = []
+    tr.run_pending(db, fake(REVIEW2, seen=seen), bars, NOW)
+    data = json.loads(seen[0]["messages"][1]["content"])
+    assert data["result"] == "OMH - short $27.04, cover $33.33: about a 23.3% loss (live estimate, before costs)"
+    assert "wait for breakdown + failed bounce" in data["tested_findings"]          # playbook section 4
+    assert "Squeeze-then-fade" in data["tested_findings"]                           # playbook section 3
+    assert "## 5." not in data["tested_findings"]
+    assert "owner" in seen[0]["messages"][0]["content"] and "idea_checks" in seen[0]["messages"][0]["content"]
+    assert tr.reviews(db)["fade:1"]["format"] == 2
+
+
+def test_result_line_uses_official_prices_once_settled_and_the_long_words():
+    assert tr.result_line({"key": "fade:9", "symbol": "TVRD", "status": "settled", "entry": 1.4039, "cover": 1.40,
+                           "net": -0.0096, "est_entry": 1.41, "est_exit": 1.40}) == \
+        "TVRD - short $1.40, cover $1.40: about a 1.0% loss (official, after costs)"
+    assert tr.result_line({"key": "long:5", "side": "long", "symbol": "GEVO", "status": "est_closed",
+                           "est_entry": 1.92, "est_exit": 1.975}) == \
+        "GEVO - long $1.92, sell $1.98: about a 2.9% gain (live estimate, before costs)"
+    assert tr.result_line({"key": "fade:1", "symbol": "X", "status": "void"}) == ""
+    assert tr.result_line({"key": "fade:1", "symbol": "X", "est_entry": 0.5123, "est_exit": 0.5}).startswith(
+        "X - short $0.5123, cover $0.5000")
+
+
+def test_tested_findings_path_does_not_depend_on_the_working_directory():
+    assert tr.PLAYBOOK.is_absolute() and tr.PLAYBOOK.exists() and len(tr.tested_findings()) > 2000
+
+
+def _later(minutes):
+    from datetime import timedelta
+    return NOW + timedelta(minutes=minutes)
+
+
+def test_a_new_owner_note_gets_one_rereview_with_the_note(db):
+    tr.run_pending(db, fake(REVIEW, seen=[]), bars, NOW)                       # first review: no note yet
+    journal.save(db, "fade:1", "should have taken half into the drop", _later(5))
+    assert tr.pending(db, now=_later(6)) == []                                   # the note has not rested yet
+    seen = []
+    assert tr.run_pending(db, fake(REVIEW2, seen=seen), bars, _later(8)) == ["fade:1"]
+    assert json.loads(seen[0]["messages"][1]["content"])["owner_note"] == "should have taken half into the drop"
+    got = tr.reviews(db)["fade:1"]
+    assert got["verdict"] == "rule win" and got["idea_checks"][0]["source"] == "owner"
+    assert tr.run_pending(db, fake(REVIEW2), bars, _later(30)) == []             # same note version: never again
+    journal.save(db, "fade:1", "edited: also wait for the breakdown", _later(31))
+    assert [e["key"] for e in tr.pending(db, now=_later(40))] == ["fade:1"]      # a new version: once more
+
+
+def test_note_rereviews_are_capped_per_trade(db):
+    tr.run_pending(db, fake(REVIEW), bars, NOW)
+    for i in range(tr.MAX_NOTE_REVIEWS + 2):
+        journal.save(db, "fade:1", f"version {i}", _later(10 * i + 1))
+        tr.run_pending(db, fake(REVIEW2), bars, _later(10 * i + 5))
+    with db.tx() as c:
+        assert c.execute("SELECT note_reviews FROM trade_ai WHERE key='fade:1'").fetchone()[0] == tr.MAX_NOTE_REVIEWS
+
+
+def test_notes_saved_before_the_feature_never_trigger_without_the_backfill(db):
+    journal.save(db, "fade:1", "old note", NOW)
+    with db.tx() as c:                                                           # reviewed before the note existed
+        c.execute("INSERT INTO trade_ai(key, model, at, status, attempts, body) VALUES "
+                  "('fade:1','m','2026-11-10T15:00:00+00:00','ok',1,?)", (json.dumps(REVIEW),))
+    assert tr.pending(db, now=_later(60)) == []                                  # first call starts the clock
+    tr.backfill_notes(db)
+    assert [e["key"] for e in tr.pending(db, now=_later(61))] == ["fade:1"]
+
+
+def test_a_failed_rereview_keeps_the_finished_review(db):
+    tr.run_pending(db, fake(REVIEW), bars, NOW)
+    journal.save(db, "fade:1", "a note", _later(1))
+
+    def broken(req):
+        if req.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "not json"}}],
+                                         "usage": {"total_tokens": 10}})
+    assert tr.run_pending(db, httpx.Client(transport=httpx.MockTransport(broken)), bars, _later(5)) == ["fade:1"]
+    got = tr.reviews(db)["fade:1"]
+    assert got["verdict"] == "execution issue" and got["what_happened"] == "halted after entry"
+    with db.tx() as c:
+        assert tuple(c.execute("SELECT status, note_reviews FROM trade_ai WHERE key='fade:1'").fetchone()) == ("ok", 1)

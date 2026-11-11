@@ -4,6 +4,7 @@ reviews and the owner's notes into a report and an updated knowledge base, the "
     python scripts/trade_analyst.py            # 22:58 ET weeknights on the runner; dormant without secret openai_key
     python scripts/trade_analyst.py --all      # first run / backfill: every past trade
     python scripts/trade_analyst.py --reviewed # agent: mark every proposed test so far as reviewed
+    python scripts/trade_analyst.py --luna-notes  # owner-approved: Luna re-reviews every noted trade once (backfill)
 
 Guardrails: model output is UNTRUSTED. It is validated against a fixed JSON shape, bounded, stored (trade_insights) and
 shown on the Notes tab and in reports/insights/*.md (brain.md = the current brain). It never changes a rule, a size or an
@@ -165,9 +166,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--all", action="store_true", help="review every past trade (first run)")
     ap.add_argument("--reviewed", action="store_true", help="agent: mark every proposed test so far as reviewed")
+    ap.add_argument("--luna-notes", action="store_true",
+                    help="owner-approved backfill: every existing note triggers one Luna re-review in the owner format")
     args = ap.parse_args()
     if args.reviewed:
         print(f"insights reviewed through id {journal.mark_reviewed(OpsStore())}")
+        return 0
+    if args.luna_notes:
+        trade_review.backfill_notes(OpsStore())
+        print("Luna will re-review every noted trade once (the listener's AI loop, a few per minute)")
         return 0
     client = oa.client()
     if client is None:
