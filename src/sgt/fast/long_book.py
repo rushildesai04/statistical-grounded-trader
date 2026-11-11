@@ -165,7 +165,7 @@ def _advance(db: OpsStore, bars: LiveBars, send, now: datetime) -> None:
 
 
 def _exit(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> pt.Trade | None:
-    """Exit of an open long on closed bars: stop first, then the 2R target (not on a stop-entry's fill bar), else a
+    """Exit of an open long on closed bars: stop first, then the 2R target (on the fill bar too: 2026-11-11), else a
     time exit at the last bar within HOLD (final only once the window has closed)."""
     entry, stop, tgt = float(r["est_entry"]), float(r["stop"]), float(r["target"])
     stop_entry = r["trigger"] is not None
@@ -175,8 +175,8 @@ def _exit(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> pt.Trade | None:
         if b.low <= stop:
             px = stop if first and stop_entry else min(stop, b.open)
             return pt.Trade(r["kind"], "long", entry_ts, entry, b.ts, px, "stop", px / entry - 1)
-        if b.high >= tgt and not (first and stop_entry):
-            px = max(tgt, b.open)
+        if b.high >= tgt:                    # fill bar reaching the target: filled there (patterns module doc)
+            px = tgt if first else max(tgt, b.open)
             return pt.Trade(r["kind"], "long", entry_ts, entry, b.ts, px, "target", px / entry - 1)
     if path.empty:
         return None

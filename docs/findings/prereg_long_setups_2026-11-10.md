@@ -75,3 +75,13 @@ triggers, the plain fade did badly: L5 bull-flag-breakout events -6.83% per fade
 vs the fade's +1.84% overall. The bull flag looks like a warning sign FOR SHORTS. That conditions on the future, so it
 is no entry filter; it motivates an exit rule (cover the short when the flag breaks out), pre-registered separately
 and decided on data not yet looked at.
+
+## Amendment A2 (2026-11-11, after the decision; changes no conclusion)
+Fill-bar target. The owner's GEVO note (live sell $1.975 vs the $1.96 target) showed that "no target on the fill bar of
+a stop-entry" was wrong, not conservative: the fill bar opened at or below the trigger, so it crossed the trigger before
+its high, and a high at or above the target means the resting target traded AFTER the entry. `patterns.simulate` (and
+the live `long_book._exit`) now fill the target on that bar at the target; a fill bar that also trades the stop is
+still stopped first. Re-simulating every frozen setup (reports/long_setups/trades.csv, old vs new simulator, same bars
+and costs): 29 of 6,529 fills change (23 target fills move to the target price, 6 later stop-outs become target wins);
+training means move by at most 0.01% (L4a -1.19% / -1.19%, L4b -2.44% / -2.43%, L5 -1.72% / -1.73%, L6 -1.85% /
+-1.85%, S2 -1.38% / -1.39%). Every decision above stands.
