@@ -194,3 +194,18 @@ def test_v2_no_peeking():
     for s in pt.bull_flag_v2(full, T0):
         again = [x for x in pt.bull_flag_v2(full[full.ts < s.ready], T0) if x.kind == s.kind]
         assert again and again[0] == s
+
+
+def test_fill_bar_that_reaches_the_target_sells_there():
+    """Owner on GEVO 2026-11-11 ("$1.96 target vs a $1.975 fill"): the buy-stop $1.92 (stop $1.90, 2R target $1.96)
+    filled in a bar that traded $1.97, and the next bar opened $1.975. The fill bar crossed the trigger before its
+    high, so the resting target filled on that bar at $1.96, not at the next open."""
+    s = pt.Setup("L4b", "long", T0, 1.92, 1.90)
+    t = pt.simulate(bars([(1.91, 1.97, 1.905, 1.96, 1), (1.975, 2.0, 1.97, 1.99, 1)]), s)
+    assert (t.reason, t.exit_ts) == ("target", T0) and t.exit == pytest.approx(1.96)
+    t = pt.simulate(bars([(1.91, 1.97, 1.905, 1.93, 1), (1.93, 1.93, 1.85, 1.86, 1)]), s)
+    assert t.reason == "target" and t.exit == pytest.approx(1.96)          # before: stopped on the next bar
+    t = pt.simulate(bars([(1.91, 1.97, 1.89, 1.95, 1)]), s)                # stop also traded: stop first (unchanged)
+    assert (t.reason, t.exit) == ("stop", 1.90)
+    short = pt.simulate(bars([(10.2, 10.3, 8.95, 9.1, 1)]), pt.Setup("S2", "short", T0, 10.0, 10.5))
+    assert (short.reason, short.exit_ts) == ("target", T0) and short.exit == pytest.approx(9.0)

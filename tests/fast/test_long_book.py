@@ -372,3 +372,13 @@ def test_a_fill_found_after_a_restart_is_missed_not_traded(db):
     alert_row(db, sym="EFGH")
     on_time = (fill_bar + lb.LIVE_LAG).to_pydatetime()            # the edge still counts as live
     assert lb.tick(db, feed(DAY), sent.append, now=on_time) == 1 and sent[0].startswith("[SGT] 🟢 LONG EFGH @ $10.55")
+
+
+def test_live_exit_sells_at_the_target_on_the_fill_bar():
+    """The live estimate uses the same fill-bar rule as the official replay (GEVO 2026-11-11: $1.975 -> $1.96)."""
+    t0 = pd.Timestamp("2026-11-11T14:35:00Z")
+    f = pd.DataFrame({"ts": [t0, t0 + pd.Timedelta(minutes=1)], "open": [1.91, 1.975], "high": [1.97, 2.0],
+                      "low": [1.905, 1.97], "close": [1.96, 1.99], "volume": [1000, 1000]})
+    r = {"kind": "L4b", "est_entry": 1.92, "stop": 1.90, "target": 1.96, "trigger": 1.92}
+    t = lb._exit(f, r, t0)
+    assert (t.reason, t.exit_ts) == ("target", t0) and t.exit == pytest.approx(1.96)

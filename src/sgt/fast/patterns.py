@@ -20,6 +20,10 @@ Setups (owner's trader: first red candle, bull flag, break of structure; "test a
 Exits (``simulate``): stop first, then a target at RR x the risk, else the close of the last bar within HOLD of the
 entry (or the session's last bar). A stop-entry long fills at max(trigger, bar open); if the same bar also trades at
 the stop it is filled AND stopped (conservative); a bar opening through the stop cancels the order.
+Fill bar and target (2026-11-11, owner on GEVO: "$1.96 target vs a $1.975 fill"): a stop-entry's fill bar that reaches
+the target traded it AFTER the entry (the bar opened at or below the trigger, so it crossed the trigger first), so the
+resting target fills on that bar at the target. Before, the fill bar's target was skipped and a later bar's higher
+open was taken (GEVO $1.975), or a later stop (a target the trade had already reached).
 """
 from __future__ import annotations
 
@@ -238,15 +242,15 @@ def simulate(bars: pd.DataFrame, s: Setup, hold: pd.Timedelta = HOLD, rr: float 
             if b.low <= s.stop:                             # same-bar entry and stop: stopped (conservative)
                 px = s.stop if first and s.trigger is not None else min(s.stop, b.open)
                 return Trade(s.kind, s.side, entry_ts, entry, b.ts, px, "stop", px / entry - 1)
-            if b.high >= target and not (first and s.trigger is not None):
-                px = max(target, b.open)
+            if b.high >= target:                            # fill bar: traded after the entry (module doc)
+                px = target if first else max(target, b.open)
                 return Trade(s.kind, s.side, entry_ts, entry, b.ts, px, "target", px / entry - 1)
         else:
             if b.high >= s.stop:
                 px = s.stop if first and s.trigger is not None else max(s.stop, b.open)
                 return Trade(s.kind, s.side, entry_ts, entry, b.ts, px, "stop", (entry - px) / entry)
-            if b.low <= target and not (first and s.trigger is not None):
-                px = min(target, b.open)
+            if b.low <= target:
+                px = target if first else min(target, b.open)
                 return Trade(s.kind, s.side, entry_ts, entry, b.ts, px, "target", (entry - px) / entry)
     last = path.iloc[-1]
     px = float(last.close)
