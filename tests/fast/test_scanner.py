@@ -22,6 +22,12 @@ def db(tmp_path):
     return OpsStore(tmp_path / "ops.db")
 
 
+@pytest.fixture(autouse=True)
+def active(monkeypatch):
+    """The trading rules stay tested for when the scanner resumes (paused since amendment A2; see the pause test)."""
+    monkeypatch.setattr(scanner, "ACTIVE", True)
+
+
 def tape(n=30, spike=True, start=OPEN):
     """Flat $5 tape for n bars; the last bar spikes +6% on 10x volume to a new high when ``spike``."""
     rows = [{"ts": start + pd.Timedelta(minutes=i), "open": 5.0, "high": 5.05, "low": 4.95, "close": 5.0,
@@ -181,3 +187,28 @@ def test_high_beta_spike_is_filtered_never_traded_but_still_scored(db):
     assert set(scanner.due(db, later).symbol) == {"LOW", "UNK"}                # never re-scored
     assert scanner.nav(db) == scanner.NAV0                                     # never part of the book
     assert scanner.record_line(db) == "scanner 0 trades; skipped at beta >= 3: 1, would have avg -21.50%"
+
+
+def test_paused_scanner_records_and_scores_spikes_but_never_trades(db, monkeypatch):
+    """Amendment A2 (owner 2026-11-10, "A: pause scanner"; longs first): every spike is filtered, nothing opens or
+    texts, the nightly SIP score still lands, the book stays flat and the digest says so."""
+    monkeypatch.setattr(scanner, "ACTIVE", False)
+    f = tape(n=100)
+    ev = {"bar_ts": f.ts.iloc[29], "signal_px": 5.0}
+    assert scanner.record(db, "LOW", ev, after(f), beta=1.1) and scanner.record(db, "HIB", ev, after(f), beta=4.8)
+    with db.tx() as c:
+        st = {r["symbol"]: (r["status"], r["reason"]) for r in c.execute("SELECT * FROM scan_trades")}
+    assert st == {"LOW": ("filtered", scanner.PAUSED_REASON), "HIB": ("filtered", scanner.PAUSED_REASON)}
+    sent = []
+    scanner.step(db, lambda s, since=None: 5.0, (ev["bar_ts"] + pd.Timedelta(minutes=1, seconds=5)).to_pydatetime(),
+                 sent.append)
+    assert sent == []
+    assert scanner.record_line(db) is None                                  # nothing scored yet: no digest line
+    later = datetime(2026, 11, 10, 2, 0, tzinfo=timezone.utc)
+    d = scanner.due(db, later)
+    assert set(d.symbol) == {"LOW", "HIB"}
+    res = {"entry_ts": "x", "entry": 5.0, "cover": 4.5, "cost_rt": 0.01, "gross": 0.1, "net": 0.085}
+    for rid in d.id:
+        assert scanner.book(db, int(rid), "filtered", res, later)
+    assert scanner.due(db, later).empty and scanner.nav(db) == scanner.NAV0
+    assert scanner.record_line(db) == "scanner 0 trades; paused (longs first): 2 spikes, would have avg +8.50%"

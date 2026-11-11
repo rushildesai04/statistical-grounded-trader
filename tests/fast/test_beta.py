@@ -73,7 +73,8 @@ def test_ranking_happens_before_the_universe_cap(db, monkeypatch):
     assert uni[0] == "LATE" and len(uni) == 3 and b["LATE"] == pytest.approx(3.5, abs=0.15)
 
 
-def test_scanner_stores_and_texts_the_beta(db):
+def test_scanner_stores_and_texts_the_beta(db, monkeypatch):
+    monkeypatch.setattr(scanner, "ACTIVE", True)                        # the rule for when the scanner resumes (A2)
     ev = {"bar_ts": pd.Timestamp("2026-11-10 15:00", tz="UTC"), "signal_px": 4.0}
     now = datetime(2026, 11, 10, 15, 0, 30, tzinfo=timezone.utc)
     assert scanner.record(db, "MID", ev, now, 2.44)

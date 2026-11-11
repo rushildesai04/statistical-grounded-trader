@@ -29,6 +29,11 @@ _SYM = re.compile(r"^[A-Z]{1,5}$")
 # Amendment A1 (2026-11-10, owner: shorts never on beta >= 3): the spike is still recorded and scored on SIP nightly
 # (status stays 'filtered'), so the original rule keeps being measured; it never trades, texts or moves the book.
 BETA_REASON = "beta >= 3 (no shorts on high beta, amendment A1)"
+# Amendment A2 (owner 2026-11-10, "A: pause scanner"): longs first, so the scanner opens no shorts. Spikes are still
+# detected, recorded 'filtered' and scored nightly like A1, so the rule keeps being measured. True resumes trading.
+ACTIVE = False
+PAUSED_REASON = "scanner paused (longs first, amendment A2)"
+SCORED = (BETA_REASON, PAUSED_REASON)      # filtered spikes that are still scored on SIP
 
 Quote = Callable[..., "float | None"]
 
@@ -75,12 +80,13 @@ def nav(db: OpsStore) -> float:
 def record(db: OpsStore, symbol: str, ev: dict, now: datetime, beta: float | None = None) -> bool:
     """Insert a pending trade (first event per symbol-day; caps). True when inserted. ``beta``: the symbol's beta
     (ground rule 2026-11-10), stored and shown in the entry text; >= 3 records the spike as filtered (amendment A1).
-    Unknown beta never blocks."""
+    Unknown beta never blocks. While the scanner is paused (ACTIVE False, amendment A2) every spike is filtered."""
     session = ev["bar_ts"].tz_convert(ET).date().isoformat()
     with db.tx() as c:
         n_day = c.execute("SELECT COUNT(*) FROM scan_trades WHERE session=? AND status!='void'", (session,)).fetchone()[0]
         n_open = c.execute("SELECT COUNT(*) FROM scan_trades WHERE status IN ('pending','open')").fetchone()[0]
-        status, reason = ("filtered", BETA_REASON) if beta is not None and beta >= HIGH_BETA_SKIP else \
+        status, reason = ("filtered", PAUSED_REASON) if not ACTIVE else \
+            ("filtered", BETA_REASON) if beta is not None and beta >= HIGH_BETA_SKIP else \
             ("skipped", "daily cap") if n_day >= MAX_DAY else \
             ("skipped", "runaway guard") if n_open >= MAX_OPEN else ("pending", "")
         cur = c.execute("INSERT OR IGNORE INTO scan_trades(symbol, session, bar_ts, detected_at, signal_px, status, reason,"
@@ -165,16 +171,16 @@ def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
 
 
 def due(db: OpsStore, now: datetime, after: timedelta = timedelta(minutes=80)) -> pd.DataFrame:
-    """Trades whose official 60-minute window is final on SIP, plus unscored beta-filtered spikes (amendment A1)."""
+    """Trades whose official 60-minute window is final on SIP, plus unscored filtered spikes (amendments A1, A2)."""
     with db.tx() as c:
         rows = c.execute("SELECT * FROM scan_trades WHERE (status IN ('open','est_closed') OR (status='filtered' AND "
-                         "reason=? AND settled_at IS NULL)) AND bar_ts <= ?", (BETA_REASON, iso(now - after))).fetchall()
+                         "reason IN (?,?) AND settled_at IS NULL)) AND bar_ts <= ?", (*SCORED, iso(now - after))).fetchall()
     return pd.DataFrame([dict(r) for r in rows])
 
 
 def book(db: OpsStore, rid: int, expect: str, res: dict | None, now: datetime) -> bool:
     """Write one official result (None -> void: no SIP entry bar). A filtered spike keeps its status: scored for the
-    record only (amendment A1), never part of the book."""
+    record only (amendments A1, A2), never part of the book."""
     if expect == "filtered":
         return _set(db, rid, expect, settled_at=iso(now), **(res or {}))
     if res is None:
@@ -188,12 +194,18 @@ def record_line(db: OpsStore) -> str | None:
         nets = [r[0] for r in c.execute("SELECT net FROM scan_trades WHERE status='settled' AND net IS NOT NULL")]
         hb = [r[0] for r in c.execute("SELECT net FROM scan_trades WHERE status='filtered' AND reason=? AND "
                                       "net IS NOT NULL", (BETA_REASON,))]
-    if not nets and not hb:
+        ps = [r[0] for r in c.execute("SELECT net FROM scan_trades WHERE status='filtered' AND reason=? AND "
+                                      "net IS NOT NULL", (PAUSED_REASON,))]
+    if not nets and not hb and not ps:
         return None
     line = (f"scanner {len(nets)} trade{'s' * (len(nets) != 1)}, avg {sum(nets) / len(nets):+.2%}/trade, "
             f"book ${nav(db):,.0f}; tested -1.2%/trade, decide at 300") if nets else "scanner 0 trades"
     if hb:                                      # amendment A1: what the skipped high-beta shorts would have made
         line += f"; skipped at beta >= 3: {len(hb)}, would have avg {sum(hb) / len(hb):+.2%}"
+    if ps:                                      # amendment A2: the paused scanner's spikes, scored for the record
+        line += f"; paused (longs first): {len(ps)} spikes, would have avg {sum(ps) / len(ps):+.2%}"
+    elif not ACTIVE:
+        line += "; paused (longs first)"
     return line
 
 

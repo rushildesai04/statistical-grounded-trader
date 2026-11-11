@@ -36,3 +36,12 @@ Measurement kept: filtered spikes are scored nightly on SIP exactly like trades 
 keep status `filtered`; the digest shows how many were skipped and what they would have averaged. The decision rule
 above is evaluated on settled trades (beta < 3 or unknown) from 2026-11-10; the pre-amendment trades stay in the record,
 and the secondary report adds the filtered spikes so the original rule can still be judged as registered.
+
+## Amendment A2 (2026-11-11): scanner paused, still measured
+Owner decision 2026-11-10 ("A: pause scanner"), after 11-10 had 7 shorts and 1 long: longs first, so the scanner opens
+no shorts. The scanner was a measurement of a rule that failed its training gate (-1.23%/trade); on 11-10 it added 4 of
+the day's 7 shorts. From the first run after this amendment (`scanner.ACTIVE = False`): every detected spike is recorded
+with status `filtered` (reason "scanner paused ...") and scored nightly on SIP exactly as in A1; nothing trades, texts or
+moves the book's NAV. The digest RECORD line says "paused (longs first)" and, once spikes are scored, what they would
+have averaged. The universe and its beta ranking keep running so the measurement continues. Resuming = setting ACTIVE
+back to True in a new commit, with the owner's OK.
