@@ -159,3 +159,5 @@ events, beta from the year before each alert): >= 3 -2.14%/trade (n 76, win 39%;
 (n 756), < 1.5 +1.86% (n 1,654), unknown +0.28% (n 623). Seen data, so the forward record re-checks it: the skipped
 alerts stay recorded (status filtered, reason "beta >= 3 ..."), and the long shadow book (`sgt.fast.long_shadow`) runs
 the long setups on them, as on every other research alert (longs first).
+
+F7 follow-up (owner 2026-11-11, report only, seen data; `scripts/beta_unknown_study.py`): does an UNKNOWN beta (< 60 daily returns, or no daily bars) need to block the short? Rule fixed before the run: block only if no-news unknown-beta shorts average < 0 and are worse than no-news beta < 3 at Welch p < 0.05. Result: no-news unknown +1.03%/trade (n 367, 95% CI -0.8% to +2.9%, win 57%) vs known < 3 (Welch p 0.36) -> KEEP (unknown never blocks). Watch item, not a rule: the 'short history' part (recent listings) is -0.67% (n 71, CI -4.8% to +3.5%). Caveat: local daily bars are not split-adjusted, so only the unknown bucket is comparable with the F7 basis (it matches: 622 vs 623 alerts).
