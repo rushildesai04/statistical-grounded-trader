@@ -725,11 +725,11 @@ def settle_scanner(db: OpsStore, now: datetime | None = None) -> list[str]:
     return lines
 
 
-def settle_long_shadow(db: OpsStore) -> list[str]:
-    """Owner 2026-11-10 "paper-run the longs": the tested long setups on today's settled alerts, paper only."""
+def sip_session_tools():
+    """SIP 1-minute RTH bars per (symbol, session), cached on disk, and the gapper round-trip cost: what the long shadow
+    and the long book's official result (2026-11-11) both use, so the two never price a bar differently."""
     from sgt.brokers.costs import GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT, GAPPER_REST_MULT
     from sgt.decision.features import CostModelAdapter
-    from sgt.fast import long_shadow
 
     store, fetch = ParquetBarStore(BARS), AlpacaHistoricalBars(feed="sip").fetch
     cost = CostModelAdapter(GAPPER_COST_MODEL, tag="gapper", open_hour_mult=GAPPER_OPEN_HOUR_MULT,
@@ -745,7 +745,15 @@ def settle_long_shadow(db: OpsStore) -> list[str]:
         return (f[f.segment == "rth"].assign(ts=lambda x: pd.to_datetime(x.ts, utc=True)).sort_values("ts")
                 .reset_index(drop=True)) if len(f) else f
 
-    return long_shadow.run(db, bars, lambda sym, ts, px: cost.round_trip(sym, ts, px)[0])
+    return bars, (lambda sym, ts, px: cost.round_trip(sym, ts, px)[0])
+
+
+def settle_long_shadow(db: OpsStore, tools=None) -> list[str]:
+    """Owner 2026-11-10 "paper-run the longs": the tested long setups on today's settled alerts, paper only."""
+    from sgt.fast import long_shadow
+
+    bars, cost = tools or sip_session_tools()
+    return long_shadow.run(db, bars, cost)
 
 
 def cmd_settle() -> int:
@@ -762,10 +770,10 @@ def cmd_settle() -> int:
         print("long shadow: " + (", ".join(ls) or "nothing new"))
     except Exception:  # noqa: BLE001 - the shadow must never block the fade's settlement; logged
         log.exception("long shadow failed")
-    try:                                         # live paper long book: official = the shadow row (option A)
+    try:                                         # live paper long book: official = its own order on SIP bars
         from sgt.fast import long_book
 
-        lb = long_book.settle(db)
+        lb = long_book.settle(db, *sip_session_tools())
         print("long book settle: " + (", ".join(lb) or "nothing due"))
     except Exception:  # noqa: BLE001 - review F-3: its own label; never blocks the fade's settlement
         log.exception("long book settle failed")

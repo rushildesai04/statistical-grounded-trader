@@ -75,7 +75,7 @@ def from_db(db: OpsStore) -> list[dict]:
 
 def long_rows(db: OpsStore | None) -> list[dict]:
     """Live paper long book trades shaped for charts.trade_view (owner 2026-11-10 option A: longs first). Settled
-    longs carry the official (shadow, SIP) entry/exit; others the live estimate."""
+    longs carry the official entry/exit (the live order replayed on SIP, 2026-11-11); others the live estimate."""
     if db is None:
         return []
     from sgt.fast import long_book
@@ -83,9 +83,9 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         rows = [dict(r) for r in c.execute(
             "SELECT t.id, t.symbol, t.session, t.kind, t.status, t.reason, t.stop, t.target, t.weight, t.net, "
             "t.est_entry, t.est_exit, t.est_exit_at, t.entry_ts AS est_entry_at, f.posted_at, f.alert_type, "
-            "s.entry, s.exit AS cover, s.entry_ts, s.exit_ts FROM long_trades t JOIN fade_trades f ON f.id=t.fade_id LEFT JOIN "
-            "long_shadow s ON s.fade_id=t.fade_id AND s.kind=t.kind WHERE t.status IN ('open','est_closed','settled') "
-            "ORDER BY t.id DESC LIMIT ?", (MAX_TRADES,))]
+            "t.entry, t.exit AS cover, t.fill_ts AS entry_ts, t.exit_ts FROM long_trades t JOIN fade_trades f "
+            "ON f.id=t.fade_id WHERE t.status IN ('open','est_closed','settled') ORDER BY t.id DESC LIMIT ?",
+            (MAX_TRADES,))]
     keep = sorted({r["session"] for r in rows}, reverse=True)[:MAX_SESSIONS]
     out = []
     for r in rows:

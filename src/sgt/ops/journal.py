@@ -22,12 +22,13 @@ SCAN_COLS = ("symbol", "session", "bar_ts", "status", "reason", "signal_px", "es
              "est_exit_at", "entry", "cover", "net")
 BOOK_COLS = ("strategy", "symbol", "fill_session", "target", "status", "fill_price", "label")
 # Live paper long book (2026-11-10: longs were missing from the journal, so the per-trade AI review, the nightly brain
-# and the Notes tab never saw them). Official entry/exit come from the long shadow once settled; ``cover`` = the sell.
+# and the Notes tab never saw them). Official entry/exit (the live order replayed on SIP, long_book.settle, 2026-11-11)
+# only once settled; ``cover`` = the sell.
 LONG_SQL = ("SELECT t.id, t.symbol, t.session, t.kind, t.status, t.reason, t.trigger, t.stop, t.target, t.est_entry, "
             "t.entry_ts AS est_entry_at, t.est_exit, t.est_exit_at, t.net, f.posted_at, f.alert_type, "
-            "CASE WHEN t.status='settled' THEN s.entry END AS entry, CASE WHEN t.status='settled' THEN s.exit END AS cover "
+            "CASE WHEN t.status='settled' THEN t.entry END AS entry, CASE WHEN t.status='settled' THEN t.exit END AS cover, "
+            "CASE WHEN t.status='settled' THEN t.exit_reason END AS official_exit "
             "FROM long_trades t JOIN fade_trades f ON f.id=t.fade_id "
-            "LEFT JOIN long_shadow s ON s.fade_id=t.fade_id AND s.kind=t.kind "
             "WHERE t.status IN ('open','est_closed','settled','void') ORDER BY t.id DESC LIMIT ?")
 
 

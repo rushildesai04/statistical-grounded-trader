@@ -53,8 +53,9 @@ def test_insights_round_trip(db):
     assert got[0]["model"] == "m" and got[0]["body"]["distilled"][0]["insight"] == "i"
 
 
-def _long(db, status, kind="L4a", net=None, shadow=None):
-    """A live long-book trade on a filtered alert (longs are considered on every research alert)."""
+def _long(db, status, kind="L4a", net=None, official=None, shadow=None):
+    """A live long-book trade on a filtered alert (longs are considered on every research alert). ``official`` =
+    (entry, exit) stored by long_book.settle; ``shadow`` = a long_shadow row of the same alert (never official)."""
     with db.tx() as c:
         fid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
                         "created_at) VALUES ('KULR','2026-11-10','volume_spike','2026-11-10T14:41:00+00:00','c',?,"
@@ -64,6 +65,8 @@ def _long(db, status, kind="L4a", net=None, shadow=None):
                         "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (fid, "KULR", "2026-11-10", kind, status, 4.31, 4.20, 4.53, 0.05, "2026-11-10T14:44:00+00:00",
                          4.32, 4.27, "2026-11-10T14:52:00+00:00", "stop", net, "x")).lastrowid
+        if official:
+            c.execute("UPDATE long_trades SET entry=?, exit=?, exit_reason='stop' WHERE id=?", (*official, lid))
         if shadow:
             c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, entry, exit, net, created_at) "
                       "VALUES (?,?,?,?,?,?,?,?,?)", (fid, "KULR", "2026-11-10", kind, "long", *shadow, net, "x"))
@@ -72,9 +75,10 @@ def _long(db, status, kind="L4a", net=None, shadow=None):
 
 def test_long_book_trades_are_journal_entries_with_official_prices_only_once_settled(db):
     """2026-11-10: the long book was missing from the journal, so the AI reviews, the nightly brain and the Notes tab
-    never saw a long. 'none' rows (no setup) are not trades; the shadow's prices count only once settled."""
-    est = _long(db, "est_closed", shadow=(4.33, 4.19))
-    settled = _long(db, "settled", kind="L5v2", net=-0.031, shadow=(4.33, 4.19))
+    never saw a long. 'none' rows (no setup) are not trades; official prices count only once settled, and they are
+    the trade's own (2026-11-11), never the shadow's re-detected setup."""
+    est = _long(db, "est_closed", official=(4.33, 4.19))
+    settled = _long(db, "settled", kind="L5v2", net=-0.031, official=(4.33, 4.19), shadow=(4.10, 4.60))
     _long(db, "none")
     keys = {e["key"]: e for e in journal.entries(db)}
     assert {k for k in keys if k.startswith("long:")} == {f"long:{est}", f"long:{settled}"}
@@ -83,6 +87,7 @@ def test_long_book_trades_are_journal_entries_with_official_prices_only_once_set
     assert e["posted_at"] == "2026-11-10T14:41:00+00:00" and e["est_entry_at"] == "2026-11-10T14:44:00+00:00"
     s = keys[f"long:{settled}"]
     assert (s["entry"], s["cover"], s["net"], s["trigger"], s["target"]) == (4.33, 4.19, -0.031, 4.31, 4.53)
+    assert s["official_exit"] == "stop" and e["official_exit"] is None
 
 
 def test_notes_save_on_a_long_trade_and_reject_unknown_long_ids(db):

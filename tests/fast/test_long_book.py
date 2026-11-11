@@ -131,23 +131,92 @@ def test_no_setup_window_closes_with_a_marker(db):
     assert [(t["status"], t["kind"]) for t in trades(db)] == [("none", None)]
 
 
-def test_settle_uses_the_shadow_row_and_voids_iex_only_fills(db):
-    fid = alert_row(db)
+NIGHT = datetime(2026, 11, 10, 1, 40, tzinfo=timezone.utc)      # 20:40 ET on 2026-11-09: the settle job
+COST = 0.01
+
+
+def sip(days: dict):
+    """Official SIP bars per symbol (the settle job's loader); unknown symbol = no bars yet."""
+    return lambda sym, session: days.get(sym, pd.DataFrame())
+
+
+def cost(sym, ts, px):
+    return COST
+
+
+def live_long(db, sym="ABCD"):
+    """A live L4b long on DAY (IEX): buy-stop 10.55 filled on the 15:03 bar, stop 10.20, then closed."""
+    fid = alert_row(db, sym)
     for k in range(0, 140):
         lb.tick(db, feed(DAY), [].append, now=at(0, 30 * k))
-    with db.tx() as c:
+    (t,) = [x for x in trades(db) if x["symbol"] == sym]
+    assert (t["kind"], t["trigger"], t["stop"], t["status"]) == ("L4b", 10.55, 10.2, "est_closed")
+    return fid, t
+
+
+def test_settle_replays_the_live_order_on_sip_bars(db):
+    """Owner 2026-11-11 "real long scoring": the official result is the live order (fill bar, trigger, stop) on SIP,
+    the 2R target from the SIP fill; never the shadow's re-detected setup."""
+    fid, _ = live_long(db)
+    with db.tx() as c:                                   # the shadow re-detected a different, winning trade
         c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, net, entry, created_at) VALUES "
-                  "(?,?,?,?,?,?,?,?)", (fid, "ABCD", "2026-11-09", "L4b", "long", 0.051, 10.55, POSTED.isoformat()))
-    assert lb.settle(db) == ["ABCD L4b +5.10%"] and trades(db)[0]["net"] == 0.051
-    assert lb.nav(db) == pytest.approx(100_000 * (1 + 0.05 * 0.051))
-    fid2 = alert_row(db, "IEXO", posted=POSTED)
-    for k in range(0, 140):
-        lb.tick(db, feed(DAY), [].append, now=at(0, 30 * k))
+                  "(?,?,?,?,?,?,?,?)", (fid, "ABCD", "2026-11-09", "L4b", "long", 0.30, 10.0, POSTED.isoformat()))
+    assert lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT) == ["ABCD L4b +5.64%"]
+    (t,) = trades(db)
+    tgt = 10.55 + pt.RR * (10.55 - 10.2)                 # 11.25, hit on the 15:04 bar (high 11.6, open 10.65)
+    assert (t["status"], t["entry"], t["exit"], t["exit_reason"]) == ("settled", 10.55, pytest.approx(tgt), "target")
+    assert t["fill_ts"] == (T1 + 2 * pt.BAR).isoformat() and t["cost_rt"] == COST
+    assert t["net"] == pytest.approx(tgt / 10.55 - 1 - COST) and t["settled_at"] == NIGHT.isoformat()
+    assert lb.nav(db) == pytest.approx(100_000 * (1 + 0.05 * t["net"]))
+    assert "long book (paper) 1 trades, avg +5.64%/trade" in lb.record_line(db)
+    assert lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT) == []          # settled once
+
+
+def test_live_loss_stays_a_loss_when_sip_would_have_found_a_winner(db):
+    """KULR 11-10: live IEX trigger stopped out (-1.2%), the shadow's SIP re-detection won (+1.63%). The live order on
+    SIP: the stop is hit, so the official result is a loss."""
+    live_long(db)
+    flush = DAY.copy()
+    flush.loc[3, ["open", "high", "low", "close"]] = [10.5, 10.6, 10.1, 10.15]   # 15:04 trades through the 10.20 stop
+    assert lb.settle(db, sip({"ABCD": flush}), cost, now=NIGHT) == [f"ABCD L4b {10.2 / 10.55 - 1 - COST:+.2%}"]
+    assert trades(db)[0]["exit_reason"] == "stop" and trades(db)[0]["net"] < 0
+
+
+def test_order_that_never_fills_on_sip_is_void(db):
+    live_long(db)
+    thru = DAY.copy()
+    thru.loc[2:8, ["open", "high", "low", "close"]] = [10.1, 10.15, 10.0, 10.1]   # opens through the stop: cancelled
+    assert lb.settle(db, sip({"ABCD": thru}), cost, now=NIGHT) == ["ABCD L4b void"]
+    assert (trades(db)[0]["status"], trades(db)[0]["reason"]) == ("void", lb.NO_FILL)
+
+
+def test_settle_waits_for_complete_sip_bars(db):
+    live_long(db)
+    early = datetime(2026, 11, 9, 21, 10, tzinfo=timezone.utc)               # 16:10 ET: SIP still 15 minutes late
+    assert lb.settle(db, sip({"ABCD": DAY}), cost, now=early) == [] and trades(db)[0]["status"] == "est_closed"
+
+
+def test_legacy_shadow_settled_long_is_rescored_once(db):
+    """Rows settled before 2026-11-11 (official = shadow re-detection, no official entry stored) are re-scored."""
+    live_long(db)
     with db.tx() as c:
-        c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, net, created_at) VALUES "
-                  "(?,?,?,?,?,?,?)", (fid2, "IEXO", "2026-11-09", "L4b", "long", None, POSTED.isoformat()))
-    assert lb.settle(db) == ["IEXO L4b void"]
-    assert "long book (paper) 1 trades, avg +5.10%/trade" in lb.record_line(db)
+        c.execute("UPDATE long_trades SET status='settled', net=0.0163")
+    (line,) = lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT)
+    assert line == "ABCD L4b +5.64% (re-scored, was +1.63%)" and trades(db)[0]["entry"] == 10.55
+    assert lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT) == []
+
+
+def test_one_failing_long_never_blocks_the_others(db, caplog):
+    live_long(db, "BAD")
+    live_long(db, "GOOD")
+
+    def bars_for(sym, session):
+        if sym == "BAD":
+            raise RuntimeError("sip down")
+        return DAY
+    assert lb.settle(db, bars_for, cost, now=NIGHT) == ["GOOD L4b +5.64%"]
+    assert "official result failed" in caplog.text
+    assert {t["symbol"]: t["status"] for t in trades(db)} == {"BAD": "est_closed", "GOOD": "settled"}
 
 
 def test_digest_lists_longs_first(db):
@@ -212,22 +281,25 @@ def _closed_long(db, kind="L7b", session="2026-11-09"):
     return fid
 
 
-def test_kind_mismatch_with_the_shadow_is_void_not_dropped(db):
-    """Review F-1: live L7 (IEX gap) vs a regular event on SIP must not hang as est_closed forever."""
+def test_kind_mismatch_with_the_shadow_no_longer_voids_a_live_long(db):
+    """Before 2026-11-11 a live L7 (IEX gap) with a regular event on SIP was void. Now the live order itself is
+    scored on SIP, whatever setup the shadow found."""
     fid = _closed_long(db)
     with db.tx() as c:
         c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, net, created_at) VALUES "
                   "(?,?,?,?,?,?,?)", (fid, "ORPH", "2026-11-09", "L4a", "long", -0.02, POSTED.isoformat()))
-    assert lb.settle(db, now=at(400)) == ["ORPH L7b void"]
+    flat = bars([(10.0, 10.1, 9.9, 10.0, 1)] * 80)                     # market entry at 10.00, time exit at 10.00
+    assert lb.settle(db, sip({"ORPH": flat}), cost, now=NIGHT) == [f"ORPH L7b {-COST:+.2%}"]
     t = [x for x in trades(db) if x["symbol"] == "ORPH"][0]
-    assert (t["status"], t["reason"]) == ("void", "official bars show a different setup (IEX vs SIP)")
+    assert (t["status"], t["entry"], t["exit_reason"]) == ("settled", 10.0, "time")
 
 
-def test_long_with_no_official_event_is_void_after_a_few_days(db):
+def test_long_with_no_official_bars_is_void_after_a_few_days(db):
     _closed_long(db, "L4a", session="2026-11-09")
-    assert lb.settle(db, now=at(60)) == []                                   # the shadow may still come tonight
+    assert lb.settle(db, sip({}), cost, now=NIGHT) == []                     # an outage day: retried next night
     later = datetime(2026, 11, 13, 2, 0, tzinfo=timezone.utc)
-    assert lb.settle(db, now=later) == ["ORPH L4a void"]
+    assert lb.settle(db, sip({}), cost, now=later) == ["ORPH L4a void"]
+    assert [x["reason"] for x in trades(db) if x["symbol"] == "ORPH"] == ["no official SIP bars"]
 
 
 def test_digest_line_says_void(db):
@@ -248,23 +320,24 @@ def test_long_book_settle_failure_is_logged_separately(tmp_path, monkeypatch, ca
     monkeypatch.setattr(fl, "settle_scanner", lambda db: [])
     monkeypatch.setattr(fl, "settle_long_shadow", lambda db: ["X L4a +1.00%"])
 
-    def boom(db):
+    monkeypatch.setattr(fl, "sip_session_tools", lambda: (sip({}), cost))
+
+    def boom(db, bars, cost_fn):
         raise RuntimeError("bad join")
     monkeypatch.setattr(lb, "settle", boom)
     assert fl.cmd_settle() == 0
     assert "long book settle failed" in caplog.text and "long shadow failed" not in caplog.text
 
 
-def test_open_long_from_an_earlier_session_is_settled_from_the_shadow(db):
+def test_open_long_from_an_earlier_session_gets_its_official_result(db):
     """Final pass F-1: listener down across the close; the next day the long gets its official result, not 'open'."""
-    fid = _closed_long(db, "L4a")
+    _closed_long(db, "L4a")
     with db.tx() as c:
         c.execute("UPDATE long_trades SET status='open'")
-        c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, net, created_at) VALUES "
-                  "(?,?,?,?,?,?,?)", (fid, "ORPH", "2026-11-09", "L4a", "long", -0.031, POSTED.isoformat()))
-    assert lb.settle(db, now=at(60)) == []                                       # same session: still trading
+    flat = bars([(10.0, 10.1, 9.9, 10.0, 1)] * 80)
+    assert lb.settle(db, sip({"ORPH": flat}), cost, now=at(60)) == []           # same session: still trading
     nxt = datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)
-    assert lb.settle(db, now=nxt) == ["ORPH L4a -3.10%"]
+    assert lb.settle(db, sip({"ORPH": flat}), cost, now=nxt) == [f"ORPH L4a {-COST:+.2%}"]
     t = [x for x in trades(db) if x["symbol"] == "ORPH"][0]
     assert t["status"] == "settled" and "listener missed the exit" in t["reason"]
 
