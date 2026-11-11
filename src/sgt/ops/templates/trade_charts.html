@@ -182,6 +182,46 @@ h1 em { font-style: normal; color: var(--accent); }
 .jn-ai { display: grid; gap: 8px; padding: 6px 2px; }
 .jn-ai p { margin: 0; font: 400 13.5px/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
 .jn-lesson { font: 400 12.5px/1.45 system-ui, sans-serif; color: var(--muted); overflow-wrap: anywhere; }
+/* 2026-11-11 (owner): Luna's review beside your notes, facts below, a Copy button on every block */
+.jn-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.jn-copy { font: 600 12px var(--mono); padding: 5px 10px; border-radius: 7px; border: 1px solid var(--rule); background: var(--panel);
+  color: var(--ink); cursor: pointer; white-space: nowrap; flex: none; }
+.jn-copy:hover { border-color: var(--accent); color: var(--accent); }
+.jn-copy.ok { border-color: var(--up); color: var(--up); }
+.jn-acts { display: inline-flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.jn-nav { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jn-title { display: grid; gap: 4px; }
+.jn-headline { margin: 0; font: 600 17px/1.35 var(--body); overflow-wrap: anywhere; }
+.jn-warn { font: 600 12.5px var(--mono); color: var(--alert); }
+.jn-pair { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 900px) { .jn-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.jn-facts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); min-width: 0; align-items: start; }
+.jn-luna { border-top: 3px solid var(--accent); } .jn-mine { border-top: 3px solid var(--ink); }
+.jn-rev { display: grid; gap: 8px; }
+.jn-rev p { margin: 0; font: 400 14px/1.55 var(--body); overflow-wrap: anywhere; }
+.jn-rev p b { font-weight: 600; }
+.jn-verdict { font: 700 12px var(--mono); text-transform: uppercase; letter-spacing: .05em; padding: 3px 9px; border-radius: 999px;
+  color: var(--muted); background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.jn-verdict.rule-win { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.jn-verdict.rule-loss { color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.jn-verdict.execution-issue { color: var(--alert); background: color-mix(in srgb, var(--alert) 16%, transparent); }
+.jn-chip { font: 600 11px var(--mono); padding: 2px 7px; border-radius: 5px; margin-right: 4px; white-space: nowrap;
+  color: var(--muted); background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.jn-chip.lost { color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.jn-chip.kept { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.jn-chip.untested { color: var(--accent); background: var(--accent-soft); }
+.jn-chip.live, .jn-chip.warn { color: var(--alert); background: color-mix(in srgb, var(--alert) 16%, transparent); }
+.jn-ideas { display: grid; gap: 6px; }
+.jn-ideas h4 { margin: 4px 0 0; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.jn-idea { display: grid; gap: 3px; padding: 8px 10px; border-radius: 8px; background: var(--bg); min-width: 0; }
+.jn-idea b { font: 600 13.5px var(--body); overflow-wrap: anywhere; }
+.jn-bottom { margin: 0; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0;
+  font: 500 14px/1.5 var(--body); overflow-wrap: anywhere; }
+.jn-tabs .jn-tpl { margin-left: auto; }
+.jn-ai-head { font-weight: 600; }
+.jn-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; font: 400 13.5px/1.45 var(--body); }
+.jn-list li { overflow-wrap: anywhere; }
+.jn-test { display: block; }
 .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--rule); }
 .tabs button { font: 600 14px var(--body); color: var(--muted); background: none; border: 0; padding: 8px 14px;
   border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
@@ -298,13 +338,10 @@ footer b { color: var(--ink); font-weight: 600; }
     <div class="head"><div>
       <h1>Trade <em>Journal</em></h1>
       <p class="lede">Every trade the agent took, day by day. Open a trade for its chart, timeline and everything the agent
-        knew, and write your read in Markdown. The nightly AI analyst reads your notes with the trades; its lessons are
-        proposals that each become a test before they can change a rule.</p>
+        knew, Luna's review in your note format, and your own read. Every block has a Copy button (Markdown). Luna re-reads
+        your note after you save it; the nightly analyst (Sol) reads every note. Their lessons are proposals that each
+        become a test before they can change a rule.</p>
     </div></div>
-    <section class="learn" id="jn-ai" aria-label="AI analyst">
-      <div class="learn-head"><span class="label">AI analyst: distilled lessons</span><span class="small" id="jn-ai-sub">loading…</span></div>
-      <div id="jn-ai-list" class="jn-ai"></div>
-    </section>
     <div id="jn-browse" class="pane">
       <div class="jn-bar">
         <button type="button" id="jn-prev" aria-label="Previous trading day">‹</button>
@@ -313,8 +350,14 @@ footer b { color: var(--ink); font-weight: 600; }
         <div class="jn-books" id="jn-books" role="group" aria-label="Book"></div>
         <input type="search" id="jn-q" placeholder="Filter by stock" aria-label="Filter by stock">
         <span class="small" id="jn-count"></span>
+        <span id="jn-day-acts"></span>
       </div>
       <div id="jn-grid" class="jn-grid"></div>
+      <section class="learn" id="jn-ai" aria-label="AI analyst">
+      <div class="learn-head"><span class="label">Sol · nightly desk report</span><span class="small" id="jn-ai-sub">loading…</span>
+        <span class="jn-acts" id="jn-ai-acts"></span></div>
+      <div id="jn-ai-list" class="jn-ai"></div>
+    </section>
     </div>
     <article id="jn-detail" class="jn-detail" hidden aria-live="polite"></article>
   </div>
@@ -520,11 +563,14 @@ function card(t, i) {
   const panes = el("div", "panes");
   panes.append(box, rbox, mbox);
   c.append(panes);
+  if (t.exit_at && t.bars_end && t.exit_at - t.bars_end > 90) c.append(el("div", "news", "Candles end at " + hhmm(t.bars_end)
+    + " ET, before the exit at " + hhmm(t.exit_at) + " ET (minute bars arrive about 16 minutes late)."));
   const links = el("div", "links");
   const a = el("a", null, "Open " + t.symbol + " in TradingView ↗");
   a.href = "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(t.symbol);
   a.target = "_blank"; a.rel = "noopener";
   links.append(a);
+  if (t.key) { const n = el("a", null, "Notes & Luna review →"); n.href = "#notes/" + t.key; links.append(n); }
   c.append(links);
   return [c, { main: box, rsi: rbox, macd: mbox }];
 }
@@ -766,29 +812,198 @@ function jnLoadMd() {                        // pinned libraries from unpkg (all
   return jnMd;
 }
 
+// Copy (owner 2026-11-11: "a button where I can copy it, in the best format"): every block copies as Markdown, which
+// pastes cleanly into ChatGPT, Notes or a message. Text only: the clipboard never receives HTML.
+async function jnCopy(btn, text) {
+  const label = btn.dataset.label;
+  const done = ok => { btn.textContent = ok ? "Copied ✓" : "Copy failed"; btn.classList.toggle("ok", ok); clearTimeout(btn._t);
+    btn._t = setTimeout(() => { btn.textContent = label; btn.classList.remove("ok"); }, 1600); };
+  try { await navigator.clipboard.writeText(text); done(true); return; } catch (err) { /* no clipboard API here: fall back */ }
+  const ta = el("textarea"); ta.value = text; ta.readOnly = true; ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+  document.body.append(ta); ta.select(); let ok = false;
+  try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+  ta.remove(); done(ok);
+}
+function jnCopyBtn(label, text) {
+  const b = el("button", "jn-copy", label); b.type = "button"; b.dataset.label = label;
+  b.addEventListener("click", ev => { ev.stopPropagation(); jnCopy(b, typeof text === "function" ? text() : String(text)); });
+  return b;
+}
+function jnHead(title, text) { const h = el("div", "jn-head"); h.append(el("h3", null, title)); if (text) h.append(jnCopyBtn("Copy", text)); return h; }
+const jnMdList = pairs => pairs.filter(([, x]) => x != null && x !== "").map(([k, x]) => "- " + k + ": " + x).join("\n");
+const jnCap = s => String(s || "").charAt(0).toUpperCase() + String(s || "").slice(1);
+
+// The owner's title line: "ZDGE — short $3.13, cover $2.82: about a 9.9% gain (live estimate)".
+function jnHeadline(e) {
+  const k = jnKind(e), long = jnSide(e) === "LONG", r = jnResult(e);
+  if (k === "book") return e.symbol + " — " + (e.strategy || "model") + " " + jnSide(e).toLowerCase() + (e.fill_price != null ? ", filled " + jnPx(e.fill_price) : "");
+  const off = e.status === "settled" && e.entry != null && e.cover != null;
+  const a = off ? e.entry : e.est_entry, b = off ? e.cover : e.est_exit;
+  let s = e.symbol + " — " + (long ? "long " : "short ") + (jnPx(a) || "–");
+  if (b != null) s += ", " + (long ? "sell " : "cover ") + jnPx(b);
+  if (r.ret != null) s += ": about a " + Math.abs(r.ret * 100).toFixed(1) + "% " + (r.ret > 0 ? "gain" : "loss") + (r.official ? " (official, after costs)" : " (live estimate)");
+  return s;
+}
+
+function jnBorrow(e) {          // owner note on STAK 2026-11-10: a short nobody could borrow is a paper-only result
+  if (jnKind(e) !== "fade") return null;
+  if (e.ib_avail === 0 && e.alp_shortable === 0) return "not shortable (IBKR 0 shares, Alpaca no): paper-only result";
+  if (e.ib_avail === 0) return "IBKR had 0 shares to borrow";
+  return null;
+}
+
+function jnTimeline(e) {
+  return [["alert", jnEt(e.posted_at)], ["spike bar", jnEt(e.bar_ts)], ["live entry", jnEt(e.est_entry_at)],
+    ["live exit", jnEt(e.est_exit_at)], ["filled", e.fill_session], ["alert type", e.alert_type], ["proposal", e.label],
+    ["setup", e.kind ? e.kind + (jnViews[e.key] && jnViews[e.key].setup ? " · " + jnViews[e.key].setup : "") : null],
+    ["buy trigger", jnPx(e.trigger)], ["target", jnKind(e) === "long" ? jnPx(e.target) : null]];
+}
+function jnKnew(e) {
+  return [["company news", e.news_own == null ? null : (e.news_own ? "yes" : "none found")], ["headline", e.news_head],
+    ["offering filed", e.filing_dilution == null ? null : (e.filing_dilution ? "yes (" + (e.filing_form || "") + ")" : "no")],
+    ["IBKR shares", e.ib_avail == null ? null : Number(e.ib_avail).toLocaleString("en-US")], ["Alpaca shortable", e.alp_shortable == null ? null : (e.alp_shortable ? "yes" : "no")],
+    ["StockTwits posts/h", e.st_n60], ["X posts/h", e.x_n60], ["X catalyst posts 24h", e.x_cat24],
+    ["Reddit rank", e.rd_rank], ["Reddit mentions 24h", e.rd_mentions], ["spike price", jnPx(e.signal_px)]];
+}
+function jnPrices(e) {
+  const v = jnViews[e.key], long = jnKind(e) === "long";
+  return [["entry (official)", jnPx(e.entry)], ["entry (live)", jnPx(e.est_entry)], [long ? "sell (official)" : "cover (official)", jnPx(e.cover)],
+    ["exit (live)", jnPx(e.est_exit)], ["exit reason", e.reason], ["status", e.status], ["stop", v && v.stop ? jnPx(v.stop) : jnPx(e.stop)],
+    ["weight", jnKind(e) === "book" && e.target != null ? (e.target * 100).toFixed(1) + "%" : null], ["fill", jnPx(e.fill_price)],
+    ["group score", e.conf]];
+}
+function jnXPosts(e) { let xp = []; try { xp = JSON.parse(e.x_cat_posts || "[]"); } catch (err) { xp = []; } return Array.isArray(xp) ? xp.slice(0, 5) : []; }
+const jnPostLine = p => String(p.at || "").slice(11, 16) + " UTC · " + (Number(p.likes) || 0) + " likes · " + String(p.text || "");
+
+// Luna's review in the owner's note format (2026-11-11); reviews written before that carry only what_happened,
+// knowable_at_entry, lesson and tags, and render with the same sections.
+const JN_REV = [["what_happened", "What happened"], ["went_right", "What went right"], ["went_wrong", "What went wrong"],
+  ["best_exit", "Best visible exit (hindsight)"], ["warning", "Warning visible at the time"], ["better_entry", "Better entry to test"],
+  ["improve", "How it could improve"], ["knowable_at_entry", "Knowable at entry"]];
+const JN_IDEA = { "tested: lost": "lost", "tested: kept": "kept", "untested": "untested", "live/forward": "live" };
+const jnRevMeta = rv => [rv.verdict, rv.confidence ? rv.confidence + " confidence" : null, rv.model, rv.at ? "reviewed " + jnEt(rv.at) : null].filter(Boolean).join(" · ");
+
+function jnReviewMd(rv) {
+  const L = ["**Luna review** (" + jnRevMeta(rv) + ")"];
+  JN_REV.forEach(([k, label]) => { if (rv[k]) L.push("- **" + label + ":** " + rv[k]); });
+  (rv.issues || []).forEach(i => L.push("- **" + jnCap(i.kind) + " issue:** " + i.text));
+  const ideas = rv.idea_checks || [];
+  if (ideas.length) { L.push("", "**Ideas vs tested evidence**");
+    ideas.forEach(i => L.push("- " + i.idea + " (" + (i.source === "owner" ? "my note" : "Luna") + "): **" + i.status + "**" + (i.evidence ? " — " + i.evidence : ""))); }
+  if (rv.lesson) L.push("", "**Bottom line:** " + rv.lesson);
+  if ((rv.tags || []).length) L.push("", "Tags: " + rv.tags.join(", "));
+  return L.join("\n");
+}
+
+function jnReviewBox(rv, e) {
+  const b = el("div", "jn-box jn-luna");
+  b.append(jnHead("Luna review", () => "## " + jnHeadline(e) + "\n\n" + jnReviewMd(rv)));
+  const top = el("div", "jn-row");
+  top.append(el("span", "jn-verdict " + String(rv.verdict || "unclear").replace(/[^a-z]+/g, "-"), rv.verdict || "unclear"),
+    el("span", "small", [rv.confidence ? rv.confidence + " confidence" : null, rv.model, rv.at ? "reviewed " + jnEt(rv.at) : null].filter(Boolean).join(" · ")));
+  b.append(top);
+  const body = el("div", "jn-rev");
+  JN_REV.forEach(([k, label]) => { if (!rv[k]) return; const p = el("p"); p.append(el("b", null, label + ": "), document.createTextNode(String(rv[k]))); body.append(p); });
+  (rv.issues || []).forEach(i => { const p = el("p"); p.append(el("span", "jn-chip warn", String(i.kind) + " issue"), document.createTextNode(" " + String(i.text))); body.append(p); });
+  b.append(body);
+  const ideas = rv.idea_checks || [];
+  if (ideas.length) {
+    const ib = el("div", "jn-ideas"); ib.append(el("h4", null, "Ideas vs tested evidence"));
+    ideas.forEach(i => { const d = el("div", "jn-idea"), row = el("div", "jn-row");
+      row.append(el("span", "jn-chip " + (JN_IDEA[i.status] || "untested"), String(i.status)), el("b", null, String(i.idea)),
+        el("span", "small", i.source === "owner" ? "from your note" : "from Luna"));
+      d.append(row); if (i.evidence) d.append(el("span", "jn-lesson", String(i.evidence))); ib.append(d); });
+    b.append(ib);
+  }
+  if (rv.lesson) { const p = el("p", "jn-bottom"); p.append(el("b", null, "Bottom line: "), document.createTextNode(String(rv.lesson))); b.append(p); }
+  if ((rv.tags || []).length) b.append(el("span", "jn-lesson", "Tags: " + rv.tags.join(", ")));
+  return b;
+}
+
+function jnTradeMd(e) {
+  const v = jnViews[e.key], r = jnResult(e), rv = jnRev[e.key], note = (jnNotes[e.key] || {}).text, ai = jnAI[e.key];
+  const L = ["## " + jnHeadline(e), [e.book, jnSide(e).toLowerCase(), v && v.setup ? v.setup : null, e.session].filter(Boolean).join(" · ")
+    + (r.usd != null ? " · " + money(r.usd) : "")];
+  const flag = jnBorrow(e); if (flag) L.push("Warning: " + flag);
+  const sec = (title, body) => { if (body) L.push("", "### " + title, body); };
+  sec("Prices", jnMdList(jnPrices(e)));
+  sec("Luna review", rv ? jnReviewMd(rv) : "");
+  sec("My notes", note || "");
+  sec("Timeline (ET)", jnMdList(jnTimeline(e)));
+  sec("What the agent knew", jnMdList(jnKnew(e)));
+  sec("X catalyst posts (24h)", jnXPosts(e).map(p => "- " + jnPostLine(p)).join("\n"));
+  if (ai) sec("Nightly report", jnMdList([["what happened", ai.what_happened], ["lesson", ai.lesson]]));
+  return L.join("\n");
+}
+
+function jnDayRows() {
+  const q = document.getElementById("jn-q").value.trim().toLowerCase();
+  const day = (DATA.journal || []).filter(e => e.session === jnDay && (jnBook === "all" || jnKind(e) === jnBook) && (!q || e.symbol.toLowerCase().includes(q)));
+  return day.sort((a, b) => String(a.est_entry_at || a.posted_at || a.bar_ts || "").localeCompare(String(b.est_entry_at || b.posted_at || b.bar_ts || "")));
+}
+function jnDayMd() {
+  const day = jnDayRows(), wins = day.filter(e => (jnResult(e).ret || 0) > 0).length;
+  if (!day.length) return "No trades on " + jnDay + ".";
+  return "# Trades on " + jnDay + " (" + day.length + ", " + wins + " won)\n\n" + day.map(jnTradeMd).join("\n\n---\n\n");
+}
+
+let jnRun = null;               // the latest nightly report (Sol), for its Copy buttons
+function jnReportMd() {
+  if (!jnRun) return "No nightly report yet.";
+  const b = jnRun.body || {}, L = ["# Desk report (" + jnRun.model + ", " + new Date(jnRun.run_at).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET)"];
+  if (b.headline) L.push("", "**" + b.headline + "**");
+  if (b.summary) L.push("", b.summary);
+  if ((b.per_book || []).length) { L.push("", "## Books"); b.per_book.forEach(x => L.push("- **" + x.book + ":** " + x.comment)); }
+  const pats = b.patterns || (b.distilled || []).map(d => ({ pattern: d.insight, evidence: d.evidence, proposed_test: d.proposed_test, confidence: d.confidence }));
+  if (pats.length) { L.push("", "## Patterns and proposed tests");
+    pats.forEach(p => { L.push("- **" + p.pattern + "**" + (p.confidence ? " (" + p.confidence + ")" : ""));
+      if (p.evidence) L.push("  - evidence: " + p.evidence); if (p.proposed_test) L.push("  - test: " + p.proposed_test); }); }
+  if ((b.questions || []).length) { L.push("", "## Questions for the owner"); b.questions.forEach(q => L.push("- " + q)); }
+  return L.join("\n");
+}
+let jnBrainRows = [];
+function jnBrainMd() {
+  if (!jnBrainRows.length) return "No brain yet.";
+  const L = ["# Brain (working principles; only confirmed ones are backed by a pre-registered test)"];
+  ["confirmed", "hypothesis", "retired"].forEach(st => { const rows = jnBrainRows.filter(b => b.status === st);
+    if (rows.length) { L.push("", "## " + jnCap(st)); rows.forEach(b => L.push("- " + b.principle + (b.evidence ? " (evidence: " + b.evidence + ")" : ""))); } });
+  return L.join("\n");
+}
+
 function jnInsights(list) {
-  const box = document.getElementById("jn-ai-list"), sub = document.getElementById("jn-ai-sub");
-  box.textContent = "";
+  const box = document.getElementById("jn-ai-list"), sub = document.getElementById("jn-ai-sub"), acts = document.getElementById("jn-ai-acts");
+  box.textContent = ""; acts.textContent = "";
+  list.forEach(run => ((run.body || {}).per_trade || []).forEach(t => { if (t && t.key && !jnAI[t.key]) jnAI[t.key] = t; }));
   if (!list.length) { sub.textContent = "no analysis yet (runs nightly once the OpenAI key works)"; return; }
-  sub.textContent = "latest " + new Date(list[0].run_at).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET · " + list[0].model;
-  const b0 = list[0].body || {};
-  if (b0.headline) box.append(el("p", null, String(b0.headline)));
+  jnRun = list[0];
+  jnBrainRows = (list.find(r => Array.isArray((r.body || {}).brain)) || { body: {} }).body.brain || [];
+  sub.textContent = "latest " + new Date(jnRun.run_at).toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET · " + jnRun.model;
+  acts.append(jnCopyBtn("Copy report", jnReportMd)); if (jnBrainRows.length) acts.append(jnCopyBtn("Copy brain", jnBrainMd));
+  const b0 = jnRun.body || {};
+  if (b0.headline) box.append(el("p", "jn-ai-head", String(b0.headline)));
   if (b0.summary) box.append(el("p", "jn-lesson", String(b0.summary)));
-  (b0.distilled || []).slice(0, 12).forEach(d => {
-    const p = el("p"); p.append(el("b", null, String(d.insight || "")));
-    if (d.evidence) p.append(document.createTextNode(" — " + String(d.evidence)));
-    if (d.proposed_test) p.append(el("span", "jn-lesson", " Test: " + String(d.proposed_test)));
-    box.append(p);
-  });
-  const brain = (list.find(r => Array.isArray((r.body || {}).brain)) || { body: {} }).body.brain || [];
-  if (brain.length) {
-    const bx = el("details"); bx.append(el("summary", "jn-lesson", "Brain: " + brain.filter(b => b.status === "confirmed").length
-      + " confirmed, " + brain.filter(b => b.status === "hypothesis").length + " hypotheses"));
-    brain.filter(b => b.status !== "retired").forEach(b => { const p = el("p"); p.append(el("b", null, "[" + b.status + "] "),
+  if ((b0.per_book || []).length) { const bx = el("details"), ul = el("ul", "jn-list");
+    bx.append(el("summary", "jn-lesson", "By book (" + b0.per_book.length + ")"));
+    b0.per_book.forEach(x => { const li = el("li"); li.append(el("b", null, String(x.book) + ": "), document.createTextNode(String(x.comment || ""))); ul.append(li); });
+    bx.append(ul); box.append(bx); }
+  const pats = (b0.distilled || []).slice(0, 12);
+  if (pats.length) { const bx = el("details"), ul = el("ul", "jn-list"); bx.open = true;
+    bx.append(el("summary", "jn-lesson", "Patterns and proposed tests (" + pats.length + ")"));
+    pats.forEach(d => { const li = el("li"); li.append(el("b", null, String(d.insight || "")));
+      if (d.confidence) li.append(el("span", "jn-chip", String(d.confidence)));
+      if (d.evidence) li.append(document.createTextNode(" — " + String(d.evidence)));
+      if (d.proposed_test) li.append(el("span", "jn-lesson jn-test", "Test: " + String(d.proposed_test)));
+      ul.append(li); });
+    bx.append(ul); box.append(bx); }
+  if ((b0.questions || []).length) { const bx = el("details"); bx.append(el("summary", "jn-lesson", "Questions for you (" + b0.questions.length + ")"));
+    b0.questions.forEach(q => bx.append(el("p", "jn-lesson", "• " + String(q)))); box.append(bx); }
+  if (jnBrainRows.length) {
+    const bx = el("details"); bx.append(el("summary", "jn-lesson", "Brain: " + jnBrainRows.filter(b => b.status === "confirmed").length
+      + " confirmed, " + jnBrainRows.filter(b => b.status === "hypothesis").length + " hypotheses"));
+    jnBrainRows.filter(b => b.status !== "retired").forEach(b => { const p = el("p"); p.append(el("b", null, "[" + b.status + "] "),
       document.createTextNode(String(b.principle)), el("span", "jn-lesson", " (" + String(b.evidence || "") + ")")); bx.append(p); });
     box.append(bx);
   }
-  list.forEach(run => (run.body.per_trade || []).forEach(t => { if (t && t.key && !jnAI[t.key]) jnAI[t.key] = t; }));
 }
 
 function jnCard(e) {
@@ -805,20 +1020,19 @@ function jnCard(e) {
   if (r.usd != null) prices.append(el("span", null, money(r.usd)));
   const flags = el("div", "meta");
   if ((jnNotes[e.key] || {}).text) flags.append(el("span", null, "📝 note"));
-  if (jnRev[e.key]) flags.append(el("span", null, "✦ AI: " + jnRev[e.key].verdict));
+  if (jnRev[e.key]) flags.append(el("span", null, "✦ Luna: " + jnRev[e.key].verdict));
   else if (jnAI[e.key]) flags.append(el("span", null, "✦ AI read"));
+  if (jnBorrow(e)) flags.append(el("span", "jn-warn", "⚠ " + (e.alp_shortable === 0 ? "no borrow" : "IBKR 0")));
   c.append(row1, meta, prices); if (flags.childElementCount) c.append(flags);
   c.addEventListener("click", () => { location.hash = "#notes/" + e.key; });
   return c;
 }
 
 function jnBrowse() {
-  const rows = DATA.journal || [], grid = document.getElementById("jn-grid"), q = document.getElementById("jn-q").value.trim().toLowerCase();
+  const grid = document.getElementById("jn-grid"), day = jnDayRows();
   grid.textContent = "";
-  const day = rows.filter(e => e.session === jnDay && (jnBook === "all" || jnKind(e) === jnBook) && (!q || e.symbol.toLowerCase().includes(q)));
-  day.sort((a, b) => String(a.est_entry_at || a.posted_at || a.bar_ts || "").localeCompare(String(b.est_entry_at || b.posted_at || b.bar_ts || "")));
   day.forEach(e => grid.append(jnCard(e)));
-  if (!day.length) grid.append(el("div", "jn-empty", "No trades on this day" + (jnBook !== "all" || q ? " for this filter." : ".")));
+  if (!day.length) grid.append(el("div", "jn-empty", "No trades on this day" + (jnBook !== "all" || document.getElementById("jn-q").value.trim() ? " for this filter." : ".")));
   const wins = day.filter(e => (jnResult(e).ret || 0) > 0).length;
   document.getElementById("jn-count").textContent = day.length + " trades" + (day.length ? " · " + wins + " won" : "");
 }
@@ -845,73 +1059,26 @@ function jnKV(pairs) {
   return dl;
 }
 
-function jnDetail(key) {
-  const e = (DATA.journal || []).find(x => x.key === key), box = document.getElementById("jn-detail");
-  document.getElementById("jn-browse").hidden = true; box.hidden = false; box.textContent = "";
-  if (!e) { box.append(el("div", "jn-empty", "That trade is not on this page any more.")); return; }
-  const v = jnViews[key], r = jnResult(e), st = r.ret == null ? "" : (r.ret > 0 ? "win" : "loss");
-  const back = el("button", "back", "← All trades on " + e.session); back.type = "button";
-  back.addEventListener("click", () => { location.hash = "#notes"; });
-  const hero = el("div", "jn-hero"), h2 = el("h2", null, e.symbol);
-  h2.append(el("span", "jn-badge", e.book), el("span", "jn-badge", jnSide(e)), el("span", "jn-lesson", e.session));
-  hero.append(h2, el("span", "big " + st, r.ret == null ? (e.status || "open") : (r.ret >= 0 ? "+" : "") + (r.ret * 100).toFixed(2) + "%"
-    + (r.usd != null ? "  " + money(r.usd) : "") + (r.official ? "" : " est")));
-  const stats = el("div", "jn-stats");
-  const stat = (k, val) => { if (val == null || val === "") return; const s2 = el("div", "jn-stat"); s2.append(el("span", null, k), el("b", null, String(val))); stats.append(s2); };
-  stat("entry (official)", jnPx(e.entry)); stat("entry (live)", jnPx(e.est_entry)); stat(jnKind(e) === "long" ? "sell (official)" : "cover (official)", jnPx(e.cover));
-  stat("exit (live)", jnPx(e.est_exit)); stat("exit reason", e.reason); stat("status", e.status);
-  stat("stop", v && v.stop ? jnPx(v.stop) : jnPx(e.stop)); stat("weight", jnKind(e) === "book" && e.target != null ? (e.target * 100).toFixed(1) + "%" : null);
-  stat("fill", jnPx(e.fill_price)); stat("group score", e.conf);
-  box.append(back, hero, stats);
-  if (v && v.candles && v.candles.length) {
-    const chartBox = el("div", "jn-box"); chartBox.append(el("h3", null, "Chart (1-minute, SIP) with alert, entry and exit"));
-    const main = el("div", "chart"), rsi = el("div", "sub rsi"), macd = el("div", "sub macd"), panes = el("div", "panes");
-    panes.append(main, rsi, macd); chartBox.append(panes);
-    if (v.signals) chartBox.append(chips(v.signals));
-    box.append(chartBox); draw({ main, rsi, macd }, v);
-  } else {
-    const nb = el("div", "jn-box"); nb.append(el("h3", null, "Chart"),
-      el("span", "jn-lesson", jnKind(e) === "book" ? "Daily model trade: see the Models tab and TradingView." : "Charts are kept for the last 10 trading days."));
-    box.append(nb);
-  }
-  const cols = el("div", "jn-cols");
-  const tl = el("div", "jn-box"); tl.append(el("h3", null, "Timeline"), jnKV([
-    ["alert", jnEt(e.posted_at)], ["spike bar", jnEt(e.bar_ts)], ["live entry", jnEt(e.est_entry_at)],
-    ["live exit", jnEt(e.est_exit_at)], ["filled", e.fill_session], ["alert type", e.alert_type], ["proposal", e.label],
-    ["setup", e.kind], ["buy trigger", jnPx(e.trigger)], ["target", jnKind(e) === "long" ? jnPx(e.target) : null]]));
-  const ctx = el("div", "jn-box"); ctx.append(el("h3", null, "What the agent knew"), jnKV([
-    ["company news", e.news_own == null ? null : (e.news_own ? "yes" : "none found")], ["headline", e.news_head],
-    ["offering filed", e.filing_dilution == null ? null : (e.filing_dilution ? "yes (" + (e.filing_form || "") + ")" : "no")],
-    ["IBKR shares", e.ib_avail], ["Alpaca shortable", e.alp_shortable == null ? null : (e.alp_shortable ? "yes" : "no")],
-    ["StockTwits posts/h", e.st_n60], ["X posts/h", e.x_n60], ["X catalyst posts 24h", e.x_cat24],
-    ["Reddit rank", e.rd_rank], ["Reddit mentions 24h", e.rd_mentions],
-    ["spike price", jnPx(e.signal_px)]]));
-  cols.append(tl, ctx);
-  let xp = []; try { xp = JSON.parse(e.x_cat_posts || "[]"); } catch (err) { xp = []; }
-  if (Array.isArray(xp) && xp.length) {               // untrusted post text: textContent only
-    const xb = el("div", "jn-box"); xb.append(el("h3", null, "X catalyst posts (24h, most relevant)"));
-    xp.slice(0, 5).forEach(p => { const q = el("p", "jn-lesson"); q.append(el("b", null, String(p.at || "").slice(11, 16) + " UTC · "
-      + (p.likes || 0) + " likes  "), document.createTextNode(String(p.text || ""))); xb.append(q); });
-    cols.append(xb);
-  }
-  const rv = jnRev[key];
-  if (rv) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "AI review · " + (rv.model || "")), jnKV([
-    ["verdict", rv.verdict + " (" + rv.confidence + " confidence)"], ["what happened", rv.what_happened],
-    ["knowable at entry", rv.knowable_at_entry], ["lesson", rv.lesson], ["tags", (rv.tags || []).join(", ")],
-    ["reviewed", jnEt(rv.at)]])); cols.append(ab); }
-  const ai = jnAI[key];
-  if (ai) { const ab = el("div", "jn-box"); ab.append(el("h3", null, "Nightly report"), jnKV([["what happened", ai.what_happened],
-    ["lesson", ai.lesson], ["tags", (ai.tags || []).join(", ")]])); cols.append(ab); }
-  box.append(cols);
-  const nb = el("div", "jn-box"); nb.append(el("h3", null, "Your notes (Markdown)"));
-  const tabs = el("div", "jn-tabs"), tw = el("button", null, "Write"), tp = el("button", null, "Preview");
-  [tw, tp].forEach(b => { b.type = "button"; b.setAttribute("role", "tab"); }); tabs.append(tw, tp);
+// The owner's own note format (2026-11-11), offered as a starting point in the editor.
+function jnTemplate(e) {
+  const r = jnResult(e), won = r.ret != null && r.ret > 0;
+  return "**" + jnHeadline(e) + "**\n- " + (won ? "What went right" : "What went wrong") + ": \n- Best visible exit: \n"
+    + "- Clearer warning to exit: \n- Better entry to test: \n- How it could improve: \n";
+}
+
+function jnNotesBox(e) {
+  const key = e.key, nb = el("div", "jn-box jn-mine");
+  nb.append(jnHead("Your notes", () => { const t = ta.value.trim(); return t ? "## " + jnHeadline(e) + "\n\n**My notes**\n" + t : ""; }));
+  const tabs = el("div", "jn-tabs"), tw = el("button", null, "Write"), tp = el("button", null, "Preview"), tt = el("button", null, "Insert template");
+  [tw, tp].forEach(b => { b.type = "button"; b.setAttribute("role", "tab"); }); tt.type = "button"; tt.className = "jn-tpl";
+  tabs.append(tw, tp, tt);
   const ta = el("textarea"); ta.maxLength = 5000; ta.value = (jnNotes[key] || {}).text || "";
-  ta.placeholder = "## What I saw\n- ...\n\n**Lesson:** ..."; ta.setAttribute("aria-label", "Notes in Markdown");
+  ta.placeholder = "Your read of the trade. \"Insert template\" starts it in your usual format."; ta.setAttribute("aria-label", "Notes in Markdown");
   const prev = el("div", "jn-md"); prev.hidden = true;
   const sel = w => { tw.setAttribute("aria-selected", String(w)); tp.setAttribute("aria-selected", String(!w)); ta.hidden = !w; prev.hidden = w;
     if (!w) { jnMarkdown(prev, ta.value); jnLoadMd().then(() => jnMarkdown(prev, ta.value)); } };
   tw.addEventListener("click", () => sel(true)); tp.addEventListener("click", () => sel(false));
+  tt.addEventListener("click", () => { sel(true); ta.value = ta.value.trim() ? ta.value.replace(/\s+$/, "") + "\n\n" + jnTemplate(e) : jnTemplate(e); ta.focus(); });
   const stt = el("span", "small", (jnNotes[key] || {}).updated_at ? "saved " + jnEt(jnNotes[key].updated_at) : "");
   const save = el("button", "save", "Save"); save.type = "button";
   save.addEventListener("click", async () => {
@@ -922,9 +1089,66 @@ function jnDetail(key) {
     } catch (err) { stt.textContent = "not saved: offline"; }
     save.disabled = false;
   });
-  const row = el("div", "jn-row"); row.append(save, stt, el("span", "jn-lesson", "Markdown: # heading, **bold**, - list, [link](https://…)"));
-  nb.append(tabs, ta, prev, row); box.append(nb);
+  const row = el("div", "jn-row"); row.append(save, stt);
+  nb.append(tabs, ta, prev, row, el("span", "jn-lesson", "Markdown works (**bold**, - list, [link](https://…)). After you save, Luna "
+    + "reads your note within a few minutes, checks each idea against what was already tested, and updates its review."));
   sel(!(jnNotes[key] || {}).text);
+  return nb;
+}
+
+function jnDetail(key) {
+  const e = (DATA.journal || []).find(x => x.key === key), box = document.getElementById("jn-detail");
+  document.getElementById("jn-browse").hidden = true; box.hidden = false; box.textContent = "";
+  if (!e) { box.append(el("div", "jn-empty", "That trade is not on this page any more.")); return; }
+  const v = jnViews[key], r = jnResult(e), st = r.ret == null ? "" : (r.ret > 0 ? "win" : "loss");
+  const nav = el("div", "jn-nav"), back = el("button", "back", "← All trades on " + e.session); back.type = "button";
+  back.addEventListener("click", () => { location.hash = "#notes"; });
+  nav.append(back, jnCopyBtn("Copy everything", () => jnTradeMd(e)));
+  const hero = el("div", "jn-hero"), h2 = el("h2", null, e.symbol);
+  h2.append(el("span", "jn-badge", e.book), el("span", "jn-badge", jnSide(e)), el("span", "jn-lesson", e.session));
+  hero.append(h2, el("span", "big " + st, r.ret == null ? (e.status || "open") : (r.ret >= 0 ? "+" : "") + (r.ret * 100).toFixed(2) + "%"
+    + (r.usd != null ? "  " + money(r.usd) : "") + (r.official ? "" : " est")));
+  const head = el("div", "jn-title"); head.append(el("p", "jn-headline", jnHeadline(e)));
+  if (jnKind(e) !== "book") head.append(el("span", "jn-lesson", r.official ? "Official: the tested rule's fills on SIP bars, after costs."
+    : "Live estimate from the listener's prices, before costs. The official result replaces it after the 20:40 ET settle."));
+  const flag = jnBorrow(e); if (flag) head.append(el("span", "jn-warn", "⚠ " + flag));
+  const stats = el("div", "jn-stats");
+  jnPrices(e).forEach(([k, val]) => { if (val == null || val === "") return; const s2 = el("div", "jn-stat"); s2.append(el("span", null, k), el("b", null, String(val))); stats.append(s2); });
+  box.append(nav, hero, head, stats);
+  if (v && v.candles && v.candles.length) {
+    const chartBox = el("div", "jn-box"); chartBox.append(jnHead("Chart (1-minute, SIP) with alert, entry and exit"));
+    const main = el("div", "chart"), rsi = el("div", "sub rsi"), macd = el("div", "sub macd"), panes = el("div", "panes");
+    panes.append(main, rsi, macd); chartBox.append(panes);
+    if (v.exit_at && v.bars_end && v.exit_at - v.bars_end > 90) chartBox.append(el("span", "jn-lesson", "Candles end at " + hhmm(v.bars_end)
+      + " ET, before the exit at " + hhmm(v.exit_at) + " ET: minute bars arrive about 16 minutes late and the page rebuilds every 10 minutes."));
+    if (v.signals) chartBox.append(chips(v.signals));
+    box.append(chartBox); draw({ main, rsi, macd }, v);
+  } else {
+    const nb = el("div", "jn-box"); nb.append(jnHead("Chart"),
+      el("span", "jn-lesson", jnKind(e) === "book" ? "Daily model trade: see the Models tab and TradingView." : "Charts are kept for the last 10 trading days."));
+    box.append(nb);
+  }
+  const pair = el("div", "jn-pair"), rv = jnRev[key];
+  if (rv) pair.append(jnReviewBox(rv, e));
+  else { const ab = el("div", "jn-box jn-luna"); ab.append(jnHead("Luna review"), el("span", "jn-lesson", jnKind(e) === "book"
+      ? "Model-book trades are not reviewed one by one." : "Luna reviews each trade a few minutes after it closes.")); pair.append(ab); }
+  pair.append(jnNotesBox(e));
+  box.append(pair);
+  const facts = el("div", "jn-facts");
+  const tl = el("div", "jn-box"); tl.append(jnHead("Timeline (ET)", () => "**" + e.symbol + " " + e.session + " timeline (ET)**\n" + jnMdList(jnTimeline(e))), jnKV(jnTimeline(e)));
+  const ctx = el("div", "jn-box"); ctx.append(jnHead("What the agent knew", () => "**" + e.symbol + " " + e.session + ": what the agent knew**\n" + jnMdList(jnKnew(e))), jnKV(jnKnew(e)));
+  [tl, ctx].forEach(b => { if (b.querySelector("dd")) facts.append(b); });      // no empty boxes
+  const xp = jnXPosts(e);
+  if (xp.length) {                                   // untrusted post text: textContent only
+    const xb = el("div", "jn-box"); xb.append(jnHead("X catalyst posts (24h)", () => "**" + e.symbol + " X catalyst posts (24h)**\n" + xp.map(p => "- " + jnPostLine(p)).join("\n")));
+    xp.forEach(p => { const q = el("p", "jn-lesson"); q.append(el("b", null, String(p.at || "").slice(11, 16) + " UTC · "
+      + (Number(p.likes) || 0) + " likes  "), document.createTextNode(String(p.text || ""))); xb.append(q); });
+    facts.append(xb);
+  }
+  const ai = jnAI[key];
+  if (ai) { const ab = el("div", "jn-box"); ab.append(jnHead("Nightly report", () => jnMdList([["what happened", ai.what_happened], ["lesson", ai.lesson]])),
+    jnKV([["what happened", ai.what_happened], ["lesson", ai.lesson], ["tags", (ai.tags || []).join(", ")]])); facts.append(ab); }
+  box.append(facts);
   window.scrollTo(0, 0);
 }
 
@@ -945,6 +1169,7 @@ async function jnBoot() {
   document.getElementById("jn-next").addEventListener("click", () => jnStep(1));
   document.getElementById("jn-date").addEventListener("change", ev => jnSetDay(ev.target.value));
   document.getElementById("jn-q").addEventListener("input", jnBrowse);
+  document.getElementById("jn-day-acts").append(jnCopyBtn("Copy day", jnDayMd));
   window.addEventListener("hashchange", () => { if (location.hash.startsWith("#notes")) { showTab("notes"); } });
   const days = jnDays();
   try { const r = await fetch(jnApi()); if (r.ok) { const j = await r.json(); jnNotes = j.notes || {}; jnRev = j.reviews || {}; jnInsights(j.insights || []); }
