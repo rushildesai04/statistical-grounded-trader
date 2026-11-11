@@ -46,3 +46,18 @@ Minimum: 100 training target trades, else the test is under-powered and recorded
 ## Not done
 No parameter search (2R target, 2-bar swing lows and the half split are the owner's words or the live book's existing
 values). Held-out is opened once, only for a training pass.
+
+## Result (run once, 2026-11-11; `reports/long_runner/result.json`) - FAIL
+Training (sessions before 2026-07-01): the live book's construction gives **2,242 trades, BASE -2.29% per trade**
+(matches the long book's known first-fill figure), 337 of them reach the 2R target.
+| exit | training mean net per trade |
+|---|---|
+| BASE (live: stop, 2R target, 30 min) | -2.29% |
+| **R1 (half at target, half trails the latest swing low)** | **-2.42%** (difference -0.13%, p 0.97; win 15%) |
+| R_ALL (whole position runs after the target) | -2.55% |
+| R1_60 (runner capped at 60 min) | -2.41% |
+| TRAIL (no target, trail from entry) | -2.40% |
+On the 337 target trades the 2R exit earned +8.78% net; the runner earned +7.08%: 336 of 337 runners were sold by the
+trail (the next pullback low), giving back more than the continuation added. Training fails, so held-out stays
+closed. Not adopted; the long book keeps its 2R target. The book loses before the exit (only 15% of trades reach
+2R), so an exit change cannot rescue it.
