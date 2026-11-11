@@ -87,6 +87,9 @@ COLUMNS = {
         "beta": "REAL",                      # amendment F7 (2026-11-10): beta at entry; >= 3 is not shorted
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
+    "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
+        "entry": "REAL", "fill_ts": "TEXT", "exit": "REAL", "exit_ts": "TEXT", "exit_reason": "TEXT", "gross": "REAL",
+        "cost_rt": "REAL", "settled_at": "TEXT"},
 }
 
 

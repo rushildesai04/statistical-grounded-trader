@@ -136,6 +136,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | AMIX 2026-11-10 -21.8% fade and -21.8% scanner (official SIP) | alert 09:42:25, no news; shorted 09:43 (fade) and 09:44 (scanner spike); stopped. Beta 4.8 | rule loss under the rules then live; rule F7 (no shorts at beta >= 3) went live 11:45 the same day and the scanner had no beta rule | F7 would have skipped the fade; scanner amendment A1 skipped it too, then A2 paused the scanner (owner: longs first; spikes still scored nightly) |
 Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
 AI reviews: since 2026-11-10 the per-trade review, the nightly brain and the Notes tab include the long book (before, longs never reached them).
+Long book official result (2026-11-11, owner: "real long scoring"): the live trade's OWN order (fill bar, buy-stop trigger, stop) replayed on SIP bars by the tested simulator, like the fade. Before, it was the shadow's SIP re-detection, which can be a different trade: KULR 11-10 lost live (IEX trigger $2.155, stopped -1.2%) but was recorded +1.63% (SIP trigger $2.115). Old rows are re-scored once. The long shadow stays as the rule's own measurement, so live vs tested = execution gap.
 
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.

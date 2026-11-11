@@ -6,8 +6,9 @@ skipped for news or beta >= 3), the tested detectors and fill simulator (`sgt.fa
 `prereg_long_setups_2026-11-10`) run on today's CLOSED 1-minute bars. The simulator never looks ahead, so the live entry
 and exit are what the test computes on the same bars. One long per alert: the first long setup to fill (ties: bull flag,
 red-candle break, break of structure, red-candle close). A halt after the alert (no bar within 5 minutes) uses the
-reopen versions (L7). Live bars are IEX (SIP is 15 minutes late on this plan); the OFFICIAL result is the long shadow
-row of the same alert and setup (SIP, nightly), exactly as the fade's estimate vs settle.
+reopen versions (L7). Live bars are IEX (SIP is 15 minutes late on this plan); the OFFICIAL result (nightly, settle)
+replays the live trade's own order on SIP bars, as the fade's estimate vs settle (2026-11-11; it was the shadow's
+re-detection of the setup before).
 
 Honest label: every long setup LOST on past alerts (-1.2% to -2.8% per trade); this book exists to show live whether
 that holds. Respects PAUSE / DISARM; no entry after the last entry minute; at most MAX_OPEN open longs.
@@ -38,7 +39,7 @@ GRACE = pd.Timedelta(minutes=pt.TRIGGER_BARS + 2)          # after WATCH: the la
 MARGIN = pd.Timedelta(minutes=15)                           # candidates outlive the window so the "none" marker lands
 # 2026-11-10: after the 11:45 deploy the book booked KULR's 10:39 fill and texted entry + exit at once. A fill whose
 # bar started longer ago than this was not seen live (restart, outage): recorded as 'missed', never traded or texted.
-# Normal detection is the fill bar's close + one 30 s pass, well inside it. The official record is the shadow anyway.
+# Normal detection is the fill bar's close + one 30 s pass, well inside it. A missed fill is never scored officially.
 LIVE_LAG = pd.Timedelta(minutes=5)
 LiveBars = Callable[[str, datetime], pd.DataFrame]          # (symbol, now) -> today's 1-minute bars (ts = start, UTC)
 
@@ -196,12 +197,11 @@ def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
 
 
 def nav(db: OpsStore, through: date | None = None) -> float:
-    """Official long book value: each settled long's official (shadow) net at its own weight; ``through`` = only
+    """Official long book value: each settled long's official net (settle) at its own weight; ``through`` = only
     sessions up to that date (the value before a later day's trades, as fade.nav)."""
     with db.tx() as c:
-        rows = c.execute("SELECT t.weight, s.net FROM long_trades t JOIN long_shadow s ON s.fade_id=t.fade_id AND "
-                         "s.kind=t.kind WHERE t.status='settled' AND s.net IS NOT NULL"
-                         + (" AND t.session<=?" if through else "") + " ORDER BY t.id",
+        rows = c.execute("SELECT weight, net FROM long_trades WHERE status='settled' AND net IS NOT NULL"
+                         + (" AND session<=?" if through else "") + " ORDER BY id",
                          ((through.isoformat(),) if through else ())).fetchall()
     v = fade.NAV0
     for r in rows:
@@ -209,40 +209,65 @@ def nav(db: OpsStore, through: date | None = None) -> float:
     return v
 
 
-STALE_DAYS = 3                                     # a closed long with no official event after this is void
+STALE_DAYS = 3                                     # a closed long with no official SIP bars after this is void
+SIP_DELAY = pd.Timedelta(minutes=20)               # free-plan SIP bars are 15 minutes late: score after close + this
+SipBars = Callable[[str, str], pd.DataFrame]       # (symbol, session) -> that session's SIP RTH 1-minute bars (UTC ts)
+Cost = Callable[[str, datetime, float], float]     # round-trip cost fraction at (symbol, entry time, entry price)
+NO_FILL = "live order did not fill on SIP bars"
 
 
-def settle(db: OpsStore, now: datetime | None = None) -> list[str]:
-    """After the shadow run: book each closed live long at its official shadow net (same alert, same setup). Void,
-    never left hanging (review F-1: a silent drop would bias the record, mostly losing L7 trades): a matching setup
-    that did not fill on SIP; an event the shadow processed without that setup (e.g. IEX gaps looked like a halt
-    live, SIP had none); a long whose alert never became an official event within STALE_DAYS."""
+def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = None) -> list[str]:
+    """Official result of each closed live long (owner 2026-11-11, "real long scoring"): the live trade's OWN order
+    replayed on the session's SIP bars by the tested simulator - from the live fill bar, with the live buy-stop trigger
+    and stop; the 2R target from the SIP fill, as the rule sets it. The fade's method (official = SIP prices at the
+    live entry). Before 2026-11-11 the official result was the shadow's SIP RE-DETECTION of the setup, which can be a
+    different trade (KULR 11-10 lost live at the IEX trigger 2.155; the shadow's SIP trigger 2.115 won +1.63%); rows
+    settled that way (no official entry stored) are re-scored once. The shadow stays as the rule's own measurement.
+    Void, never left hanging (review F-1): the order did not fill on SIP; no SIP bars within STALE_DAYS."""
     now = now or utcnow()
     today = now.astimezone(ET).date().isoformat()
     with db.tx() as c:                    # final pass F-1: a long still open from an earlier session (listener down
         c.execute("UPDATE long_trades SET status='est_closed', reason='closed by settle (listener missed the exit)' "
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
-            "SELECT t.id, t.symbol, t.kind, s.net, s.entry FROM long_trades t JOIN long_shadow s ON s.fade_id=t.fade_id "
-            "AND s.kind=t.kind WHERE t.status='est_closed'")]
-        orphans = [dict(r) for r in c.execute(
-            "SELECT t.id, t.symbol, t.kind, t.session, EXISTS(SELECT 1 FROM long_shadow s WHERE s.fade_id=t.fade_id) "
-            "AS seen FROM long_trades t WHERE t.status='est_closed' AND NOT EXISTS (SELECT 1 FROM long_shadow s WHERE "
-            "s.fade_id=t.fade_id AND s.kind=t.kind)")]
+            "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net FROM long_trades WHERE "
+            "status='est_closed' OR (status='settled' AND entry IS NULL) ORDER BY id")]
     out = []
     stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
-    for r in orphans:
-        why = ("official bars show a different setup (IEX vs SIP)" if r["seen"] else
-               "no official event" if r["session"] <= stale else None)
-        if why and _set(db, r["id"], "est_closed", status="void", reason=why):
-            out.append(f"{r['symbol']} {r['kind']} void")
     for r in rows:
-        if r["net"] is None:
-            _set(db, r["id"], "est_closed", status="void", reason="setup did not fill on SIP bars")
-            out.append(f"{r['symbol']} {r['kind']} void")
-        elif _set(db, r["id"], "est_closed", status="settled", net=float(r["net"])):
-            out.append(f"{r['symbol']} {r['kind']} {float(r['net']):+.2%}")
+        if pd.Timestamp(now) < pd.Timestamp(default_close(r["session"])) + SIP_DELAY:
+            continue                                   # the session's SIP bars are not complete yet
+        try:
+            line = _score(db, r, bars, cost_fn, now, stale)
+        except Exception:  # noqa: BLE001 - one trade failing never blocks the others; logged, retried next run
+            log.exception("long %s official result failed", r["id"])
+            continue
+        if line:
+            out.append(line)
     return out
+
+
+def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, stale: str) -> str | None:
+    """One long's official result (see settle). None = nothing changed (bars not there yet)."""
+    f = bars(r["symbol"], r["session"])
+    if f is None or not len(f):
+        if r["session"] <= stale and _set(db, r["id"], r["status"], status="void", reason="no official SIP bars"):
+            return f"{r['symbol']} {r['kind']} void"
+        return None                                    # review F-1 (shadow): an outage day is retried, never final
+    trigger = None if r["trigger"] is None else float(r["trigger"])
+    s = pt.Setup(r["kind"], "long", pd.Timestamp(r["entry_ts"]), trigger, float(r["stop"]))
+    t = pt.simulate(f, s, latest=long_shadow._latest(r["session"]))
+    if t is None:
+        return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], status="void", reason=NO_FILL) \
+            else None
+    rt = float(cost_fn(r["symbol"], t.entry_ts.to_pydatetime(), t.entry))
+    net = t.gross - rt
+    if not _set(db, r["id"], r["status"], status="settled", entry=t.entry, fill_ts=iso(t.entry_ts.to_pydatetime()),
+                exit=t.exit, exit_ts=iso(t.exit_ts.to_pydatetime()), exit_reason=t.reason, gross=t.gross, cost_rt=rt,
+                net=net, settled_at=iso(now)):
+        return None
+    was = f" (re-scored, was {float(r['net']):+.2%})" if r["status"] == "settled" and r["net"] is not None else ""
+    return f"{r['symbol']} {r['kind']} {net:+.2%}{was}"
 
 
 def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:

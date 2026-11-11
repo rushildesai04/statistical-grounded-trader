@@ -137,12 +137,14 @@ def test_long_trades_rows_use_the_official_result_once_settled(tmp_path, monkeyp
                         "created_at) VALUES ('KULR','2026-11-05','volume_spike','2026-11-05T15:11:54+00:00','-1',1,"
                         "'filtered','x')").lastrowid
         c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, target, weight, entry_ts, "
-                  "est_entry, est_exit, est_exit_at, net, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  "est_entry, est_exit, est_exit_at, net, created_at, entry, exit, fill_ts, exit_ts) VALUES "
+                  "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                   (fid, "KULR", "2026-11-05", "L4b", "settled", 3.9, 4.2, 0.05, "2026-11-05T15:13:00+00:00", 4.0, 4.2,
-                   "2026-11-05T15:20:00+00:00", 0.031, "x"))
+                   "2026-11-05T15:20:00+00:00", 0.031, "x", 4.01, 4.19, "2026-11-05T15:14:00+00:00",
+                   "2026-11-05T15:21:00+00:00"))
         c.execute("INSERT INTO long_shadow(fade_id, symbol, session, kind, side, entry, exit, entry_ts, exit_ts, net, "
-                  "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (fid, "KULR", "2026-11-05", "L4b", "long", 4.01, 4.19,
-                  "2026-11-05T15:14:00+00:00", "2026-11-05T15:21:00+00:00", 0.031, "x"))
+                  "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (fid, "KULR", "2026-11-05", "L4b", "long", 3.50, 4.90,
+                  "2026-11-05T15:30:00+00:00", "2026-11-05T15:40:00+00:00", 0.4, "x"))   # never the official prices
     (r,) = tc.long_rows(db)
     assert (r["entry"], r["cover"], r["est_exit_at"], r["setup"]) == (4.01, 4.19, "2026-11-05T15:21:00+00:00",
                                                                        "red-candle break")
