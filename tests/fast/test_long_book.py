@@ -282,3 +282,20 @@ def test_long_dollars_use_the_long_book(db):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     assert "$5,000 (paper)" in sent[0]
     assert "(+$332 est, paper)" in sent[1]                                 # 0.05 x 100,000 x +6.64%
+
+
+def test_a_fill_found_after_a_restart_is_missed_not_traded(db):
+    """2026-11-10: after the 11:45 deploy the book booked KULR's 10:39 fill and texted entry and exit at once. A fill
+    older than LIVE_LAG was not seen live: recorded as 'missed', no text, never opened, not in the digest."""
+    alert_row(db)
+    sent = []
+    fill_bar = T1 + pd.Timedelta(minutes=2)                      # L4b fills in the 15:03 bar
+    late = (fill_bar + lb.LIVE_LAG + pd.Timedelta(seconds=1)).to_pydatetime()
+    assert lb.tick(db, feed(DAY), sent.append, now=late) == 0 and sent == []
+    (t,) = trades(db)
+    assert (t["status"], t["kind"], t["est_entry"]) == ("missed", "L4b", 10.55)
+    assert lb.tick(db, feed(DAY), sent.append, now=at(40)) == 0 and len(trades(db)) == 1     # never retried
+    assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None
+    alert_row(db, sym="EFGH")
+    on_time = (fill_bar + lb.LIVE_LAG).to_pydatetime()            # the edge still counts as live
+    assert lb.tick(db, feed(DAY), sent.append, now=on_time) == 1 and sent[0].startswith("[SGT] 🟢 LONG EFGH @ $10.55")
