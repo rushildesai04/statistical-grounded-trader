@@ -116,4 +116,43 @@ C2 = 229, C3 = 270 raw breakout days (non-overlapping count determined at run ti
 ---
 
 ## Result
-*(Appended after the single run of `scripts/aaoi_swing_study.py`. Empty until then.)*
+Run once on 2026-11-12 (`scripts/aaoi_swing_study.py`, seed 20261112, local data through the
+2026-10-30 session). Output: `reports/aaoi_swing/result.json` + `trades_*.csv`.
+
+**VERDICT: all three candidates FAIL.** Each has a positive training mean net, but its day-clustered
+bootstrap lower bound is well below zero — even the plain one-sided 95% bound, before Bonferroni — so
+none clears the training gate and the held-out window was not opened for any of them.
+
+### Training (entry_date ≤ 2024-12-31), primary cost 0.10% round trip
+| candidate | hold | n | mean net | mean net @0.04% | gross | win | Bonferroni LB (α=0.0167) | plain 95% LB | gate: n≥100 / mean>0 / LB>0 | all-day hold bench (same horizon) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C1 momentum continuation | 1 d | 298 | +0.220% | +0.280% | +0.320% | 47% | **−0.438%** | −0.301% | ✓ / ✓ / ✗ → FAIL | −0.031% (n 2245) |
+| C2 oversold bounce | 1 d | 229 | +0.440% | +0.500% | +0.540% | 52% | **−0.346%** | −0.176% | ✓ / ✓ / ✗ → FAIL | −0.031% (n 2245) |
+| C3 20-d Donchian breakout | 3 d | 123 | +0.462% | +0.522% | +0.562% | 52% | **−1.531%** | −1.079% | ✓ / ✓ / ✗ → FAIL | +0.322% (n 2226) |
+
+Held-out (2025-01-02 .. 2026-10-30) was **not opened** for any candidate (none passed training).
+
+### Buy-and-hold comparison (the honest benchmark)
+| period | AAOI buy-and-hold total return |
+|---|---|
+| training 2016-01-04 → 2024-12-31 | **+117.2%** |
+| held-out 2025-01-02 → 2026-10-30 | **+92.0%** |
+
+### Plain-language reading
+The owner's "$5 swing every day" is a real description of AAOI *today* — at ~$108 a share the median
+day really does travel ~$10.65 and 84% of 2026 days span ≥ $5 — but it is not money. The same stock in
+2024 (~$14) swung ~$1.10 on a median day; the $5 figure grew because the price grew, while the *percent*
+swing stayed ~8-10% every year. A range is only profit if you know the direction and the timing of the
+high and low in advance, and the typical day actually drifts slightly **down** open-to-close.
+
+We pre-registered the three most defensible ways to turn that daily movement into a directional long
+bet — ride a strong up-close, buy an oversold drop, and ride a 20-day breakout — and tested them exactly
+once out of sample under real costs. All three show a small positive *average* in training, but the
+bootstrap says that average is indistinguishable from luck: the lower edge of the confidence interval is
+negative in every case, so we cannot claim any of them makes money. The momentum and bounce rules barely
+beat simply being in the stock on random days (which itself loses −0.03%), and the breakout rule does not
+beat it meaningfully. Crucially, **just holding AAOI returned +117% over the training span and +92% over
+the held-out span** — vastly more than any per-trade swing rule, and with no trading. Consistent with
+PLAYBOOK finding 10 (chart signals carry ~0 edge) and the two prior AAOI studies, there is no evidence
+here for a tradeable daily AAOI swing edge. AAOI already sits in the live 15-name paper forward book;
+nothing in this study changes that, and no new money or data is warranted.
