@@ -27,7 +27,7 @@ MAX_ATTEMPTS, PER_TICK, MAX_OUT = 3, 4, 3000
 BarsFn = Callable[[str, datetime, datetime], pd.DataFrame]   # IEX 1-minute bars (ts UTC) in [start, end)
 # /app/src/sgt/ai -> /app/docs on Fly (Dockerfile copies docs/PLAYBOOK.md), repo docs/ locally
 PLAYBOOK = Path(__file__).resolve().parents[3] / "docs" / "PLAYBOOK.md"
-TESTED_CHARS = 12_000
+TESTED_CHARS = 16_000                      # 2026-11-12: sections 3-4 reached 12.3k; a test guards silent truncation
 NOTE_SETTLE = timedelta(minutes=2)         # the owner saves in bursts: review a note once it has rested
 MAX_NOTE_REVIEWS = 3                       # per trade, however often the note is edited
 NOTE_START = "ai_note_review_start"        # notes saved before this instant never trigger a re-review (no backfill)
