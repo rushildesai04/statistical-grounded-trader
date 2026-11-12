@@ -26,3 +26,10 @@ repeat flag.
 
 ## Not done
 No other lookbacks (1, 3, 10, 20 days) or thresholds; no sizing variant.
+
+## Result (run once, 2026-11-12; `reports/price_runner/result.json`) - FAIL
+Training, F8-kept no-news fades: kept (ret5 <= +14.2%) +2.49% (n 767) vs runners +2.69% (n 251); diff -0.20%,
+p 0.57; runners' total +6.76 (skipping them would lose money). Held-out stays closed.
+Secondary: on ALL no-news fades (F8 not applied) runners lose (+0.37% vs +2.48%, p 0.011), and 77% of the price
+runners are F8 repeats. Reading: F8 already captures the multi-day-runner effect; what predicts a bad short is the
+channel alerting the stock again, not the price run itself. Once F8 is applied, price runs add nothing.
