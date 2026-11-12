@@ -146,7 +146,7 @@ def event_rows(ev: pd.DataFrame, bars: Bars, halt: bool) -> tuple[list[dict], li
                    "reason": t.reason, "net": t.gross - cost, **gate(cond, fill_i)}
             xm, why = t.gross, "not_target"
             if t.reason == "target":
-                xm, why = xm_exit(f, cond.hist.to_numpy(float), s.stop, t.entry, t.gross, bar_index(f, t.exit_ts))
+                xm, why = xm_exit(f, cond["hist"].to_numpy(float), s.stop, t.entry, t.gross, bar_index(f, t.exit_ts))
             row.update(xm=xm - cost, xm_why=why)
             base.append(row)
         s5 = t5_setup(f, cond, t0)

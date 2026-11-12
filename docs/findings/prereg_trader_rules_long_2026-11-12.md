@@ -71,3 +71,8 @@ No parameter search: 9/24, 5x volume over 10 bars within 5 bars, 12/26/9, 0.02/0
 trader's words or the existing encodings. The three candidates are the only three tested. Held-out is opened once per
 candidate, only for a training pass. Note: the held-out window was already used for the base long setups
 (prereg_long_setups_2026-11-10); it is unused for these three rules.
+
+## Amendment A1 (2026-11-12, before any result)
+The first launch crashed on the first target trade, before writing any output (`cond.hist` resolved to the pandas
+plot method, not the histogram column). Fixed to `cond["hist"]`, with an end-to-end per-event test and a stats-path
+test added. No rule, parameter or threshold changed; no result was seen. The single run follows this commit.

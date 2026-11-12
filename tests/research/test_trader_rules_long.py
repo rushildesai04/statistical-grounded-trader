@@ -140,3 +140,33 @@ def test_cross_is_only_the_bar_where_ema9_first_closes_above_ema24():
     first = int(np.flatnonzero((e9 > e24).to_numpy() & (np.arange(80) > 40))[0])
     assert list(np.flatnonzero(c.cross.to_numpy())) == [first]
     assert c.c1.iloc[first:].all()
+
+
+def test_event_rows_runs_end_to_end_on_a_target_trade(monkeypatch):
+    """Smoke over the per-event path (the first run crashed on ``cond.hist``, the DataFrame plot method)."""
+    f = bars(np.r_[np.linspace(10, 9.6, 30), np.linspace(9.6, 11, 60)], [1000.0] * 40 + [9000.0] + [1000.0] * 49)
+    s = pt.Setup("L4b", "long", f.ts.iloc[40], 9.9, 9.7)
+    t = pt.simulate(f, s)
+    assert t is not None and t.reason == "target"
+    monkeypatch.setattr(tr, "first_fill", lambda *a, **k: (s, t))
+    ev = pd.DataFrame({"symbol": ["X"], "session": ["2026-03-02"], "cost_rt": [0.01], "t0": [f.ts.iloc[30]]})
+    base, t5 = tr.event_rows(ev, lambda sym, ses: f, False)
+    assert len(base) == 1 and base[0]["xm_why"] in {"target", "macd", "stop", "close"}
+    assert base[0]["net"] == pytest.approx(t.gross - 0.01) and isinstance(base[0]["all5"], bool)
+    assert all(set(r) >= {"net", "nostop30", "reason"} for r in t5)
+
+
+def test_stats_and_decision_path_runs_on_a_small_book():
+    rng = np.random.default_rng(1)
+    n = 60
+    b = pd.DataFrame({"session": [f"2026-0{1 + i % 5}-0{1 + i % 7}" for i in range(n)], "net": rng.normal(-0.02, 0.05, n),
+                      "reason": ["target" if i % 4 == 0 else "stop" for i in range(n)]})
+    for c in (*tr.COND, "all5"):
+        b[c] = rng.random(n) > 0.5
+    b["xm"] = b.net + np.where(b.reason == "target", 0.01, 0.0)
+    b["xm_why"] = np.where(b.reason == "target", "macd", "not_target")
+    x = b[["session", "net", "reason"]].assign(nostop30=b.net)
+    f5, t5, xm = tr.f5_stats(b), tr.t5_stats(x, b), tr.xm_stats(b)
+    assert f5["n_kept"] + f5["n_skipped"] == n and 0 <= f5["p"] <= 1
+    assert t5["diff"] == pytest.approx(0.0) and xm["diff"] > 0 and xm["targets"] == 15
+    assert not any(tr.train_pass(k, v) for k, v in {"F5": f5, "T5": t5, "XM": xm}.items())   # under 100: no pass
