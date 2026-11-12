@@ -49,6 +49,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 10. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
    setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs (`ema_cross_check_2026-11-05`,
    `docs/research/signals_research_2026-11-05.md`). They are shown in texts as context, never as filters.
+   On the alert long book the trader's five rules (9/24 cross, volume spike, MACD+, PSAR green, above VWAP) pick WORSE
+   trades: all five true -3.13% vs -2.02% otherwise; each rule alone also worse (`prereg_trader_rules_long_2026-11-12`).
 11. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
    volume, new high; 517 in training) fade only +0.11% before costs, -1.23% after; the 4% the channel also alerted
    earned +4.7% (`prereg_self_fade_2026-11-06`). The book depends on that channel staying as it is.
@@ -117,6 +119,9 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | BUY a sudden drop we detect (-5% in 5 min, 5x volume, new low; 20% stop, 60 min) | +0.32% (gross +1.07%; lower95 -0.39%, 2nd half -0.09%, top month 57%) | sealed | prereg_flush_long_2026-11-10 |
 | BUY a big sudden drop (>= 10% in 5 min; idea from the row above) | +1.06% (seen, n 95; 2nd half -0.72%) | **-2.15%** (n 87, decided here) | prereg_big_flush_2026-11-10 |
 | LONG book: sell half at the 2R target, trail the rest under the latest swing low (owner's GEVO note) | -2.42% vs live -2.29% (n 2,242; diff p 0.97); whole runner -2.55%, trail from entry -2.40% | not opened | prereg_long_runner_2026-11-11 |
+| LONG book gated by the trader's five rules (9/24 EMA, 5x volume, MACD hist > 0, PSAR green, above VWAP) | kept -3.13% vs skipped -2.02% (n 546 / 1,696; p 0.997) | not opened | prereg_trader_rules_long_2026-11-12 |
+| LONG the trader's own entry on alerts (fresh 9/24 cross + the other four, 30 min) | +0.60% but n 15 (p 0.075 vs book; no stop -0.67%) | not opened | same |
+| LONG book: hold a 2R winner while MACD is positive (trader on GEVO) | -2.50% vs -2.29% (p 0.96); target trades +7.41% vs +8.78% | not opened | same |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
@@ -144,6 +149,7 @@ Each one is matched to evidence below:
 | exit when the first pullback fails or price retakes the earlier high | AMIX x2 RAYA OMH NWGL STAK FISN | tested and lost: +0.87% / +0.07%; findings 4 and 7 |
 | the 20% stop is too wide | NWGL OMH | 10% stop +0.74% vs 20% +1.47% vs 30% +1.74% (training, prereg_alert_fade); a tighter stop halves the edge |
 | LONG: sell part at the 2R target, let the rest run, exit on a break of the last pullback low | GEVO | tested 2026-11-11 (owner OK) and lost: -2.42% vs -2.29% per trade; the trail gives back more than the move adds (prereg_long_runner) |
+| LONG: only buy when 9/24 cross, volume spike, MACD+, PSAR green, above VWAP; hold while MACD positive (the trader, via the owner, GEVO) | GEVO | tested 2026-11-12 and lost: all five true picks worse longs (-3.13% vs -2.02%); his entry almost never fires after an alert (15 training trades vs the book's 2,242); holding for MACD -2.50% vs -2.29% (prereg_trader_rules_long) |
 | LONG: wait for the pullback to hold, then buy the turn up | ZDGE (long) | = L4b / L6 (break of the red candle's high, break of structure): tested and lost |
 The notes also flagged data and execution issues:
 | issue | finding | action |
