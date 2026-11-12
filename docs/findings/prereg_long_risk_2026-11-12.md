@@ -59,3 +59,21 @@ and mean; the same four on held-out only when the candidate passes training.
 No threshold search: D80, D50, `g > 1` and "close below entry" are fixed here before any outcome is seen. No other
 candidates. Note: the held-out window was already used for the base long setups (prereg_long_setups_2026-11-10); it is
 unused for these four rules.
+
+## Result (run once, 2026-11-12; `reports/long_risk/result.json`) - R and E ADOPT-eligible (better, still losing); W, G FAIL
+Training: the live book's construction gives 2,242 trades, BASE -2.29% per trade (as in prereg_long_runner). Bonferroni
+alpha 0.0125. Thresholds from training `d` only: D80 = 7.09%, D50 = 2.68%.
+| candidate | training | held-out (opened only on a pass) | verdict |
+|---|---|---|---|
+| **W** skip stop distance > 7.09% | kept -2.01% vs skipped -3.44% (n 1,793 / 449; diff +1.43%, p 0.033) | closed | FAIL (p above 0.0125) |
+| **R** size by risk, w = min(1, 2.68% / d) | per dollar -1.96% vs -2.29% (diff +0.33%, p 0.0037; mean size 0.74x) | -1.96% vs -2.37% (diff +0.40%, n 724) | ADOPT-eligible; not profitable |
+| **G** skip fills > 1R above the trigger | 1 trade of 2,242 (on SIP bars a fill almost never opens past 1R) | closed | FAIL (under-powered) |
+| **E** sell next open when the fill candle closes below entry | -2.09% vs -2.29% (diff +0.20%, p 0.0072); 473 trades changed: -3.76% -> -2.80% | -2.22% vs -2.37% (diff +0.15%; 168 changed) | ADOPT-eligible; not profitable |
+Secondary (training, never decides): mean net by stop-distance quintile -1.27%, -1.65%, -2.26%, -2.85%, -3.44% (wider
+stop, worse trade). Gap fills (open above the buy-stop) are 0.18% of SIP trades.
+Reading: the owner's two lessons hold on 2,242 past trades: wide stops are the worst longs, and a fill candle that
+closes red usually keeps failing. Sizing by risk and leaving after a red fill candle each cut the loss a little, and
+both held on the held-out months. Neither makes the long book profitable: it still loses about -2% per trade, so both
+are loss reducers, not an edge. RETO's 11% gap fill was an IEX-bar artifact: on SIP bars it filled at 8.82 and hit its
+target (official +11%). R and E were tested separately; using both together is a new combination (not tested here).
+Adoption in the live paper book needs the owner's OK.

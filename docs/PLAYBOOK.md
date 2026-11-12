@@ -51,6 +51,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    `docs/research/signals_research_2026-11-05.md`). They are shown in texts as context, never as filters.
    On the alert long book the trader's five rules (9/24 cross, volume spike, MACD+, PSAR green, above VWAP) pick WORSE
    trades: all five true -3.13% vs -2.02% otherwise; each rule alone also worse (`prereg_trader_rules_long_2026-11-12`).
+   Shorting while EMA 9 > EMA 21 IS the fade: 92-97% of alerts have 9 > 21 at entry, and those shorts made +0.73% /
+   +0.94% (no-news +1.42% / +1.31%) train / held-out; buying there is the losing side (-1.65%, L1).
 11. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
    volume, new high; 517 in training) fade only +0.11% before costs, -1.23% after; the 4% the channel also alerted
    earned +4.7% (`prereg_self_fade_2026-11-06`). The book depends on that channel staying as it is.
@@ -122,6 +124,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG book gated by the trader's five rules (9/24 EMA, 5x volume, MACD hist > 0, PSAR green, above VWAP) | kept -3.13% vs skipped -2.02% (n 546 / 1,696; p 0.997) | not opened | prereg_trader_rules_long_2026-11-12 |
 | LONG the trader's own entry on alerts (fresh 9/24 cross + the other four, 30 min) | +0.60% but n 15 (p 0.075 vs book; no stop -0.67%) | not opened | same |
 | LONG book: hold a 2R winner while MACD is positive (trader on GEVO) | -2.50% vs -2.29% (p 0.96); target trades +7.41% vs +8.78% | not opened | same |
+| LONG book: skip stops wider than 7.09% (owner, POAS 11-12) | kept -2.01% vs skipped -3.44% (p 0.033 > 0.0125) | not opened | prereg_long_risk_2026-11-12 |
+| LONG book: size by risk, w = min(1, 2.68% / stop distance) | per $ -1.96% vs -2.29% (p 0.004) | -1.96% vs -2.37% | same: passes, still losing |
+| LONG book: sell at the next open when the fill candle closes below entry (owner, POAS/ZDGE) | -2.09% vs -2.29% (p 0.007) | -2.22% vs -2.37% | same: passes, still losing |
+| LONG book: skip fills opening > 1R above the trigger (RETO) | 1 of 2,242 on SIP bars: an IEX-bar effect, not a rule | - | same |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
 | stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
@@ -140,6 +146,9 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | FISN 2026-11-09 -20% (live est) | live entry $2.32 was a STALE IEX print: SIP traded $2.41-2.44 that minute; the live stop ($2.78) came from it (tested stop ~$2.92) | execution (stale thin-IEX price) | live entry now needs a print inside the tested bar (F6 branch); IEX-only stops lag on thin names -> paid SIP feed before real money |
 | CKX 2026-11-09 +15.6% (live est) | news trade (company news), spike failed and broke down | rule win, news | no-news rule (F6) would have skipped it; news fades -0.20% / -0.60% over 1,384 trades; partial-profit idea tested -0.50% |
 | AMIX 2026-11-10 -21.8% fade and -21.8% scanner (official SIP) | alert 09:42:25, no news; shorted 09:43 (fade) and 09:44 (scanner spike); stopped. Beta 4.8 | rule loss under the rules then live; rule F7 (no shorts at beta >= 3) went live 11:45 the same day and the scanner had no beta rule | F7 would have skipped the fade; scanner amendment A1 skipped it too, then A2 paused the scanner (owner: longs first; spikes still scored nightly) |
+| RETO 2026-11-12 short -21% (live est) | alert 09:46:49 (resumed); short $8.10 at 09:47:43, a real post-alert print inside the SIP 09:47 bar ($8.00-9.12), not a pre-halt print; then 5 LULD halts in 40 min, stop | rule loss (stop); resumed alerts are the BEST fade cell (+3.16% held-out, n 218) | none: skipping resumed alerts is contradicted |
+| POAS 2026-11-12 short skipped | SIP traded 981k shares in the 09:36 entry bar; live saw no usable IEX print until the 90 s stale guard (halt 09:37); tested short would have stopped ~-20% | live/test divergence (saved a loss) | log quote-attempt times [VERIFY cause] |
+| Longs 2026-11-12: ADXN, XLAB, POAS, RETO | live IEX est +6.0 / +5.9 / -13.2 / -10.7%; official SIP replay -3.0 / -4.3 / -13.2 / +11.0% (ADXN, XLAB same-bar stops on SIP; RETO filled 8.82 on SIP, not 9.33) | book as tested (-2.29%); IEX texts disagree with SIP per trade on halting names | lessons tested: prereg_long_risk (risk sizing and red-fill-candle exit pass, still losing) |
 **Owner notes review (2026-11-11; all 20 notes, trades 11-06 to 11-11).** The notes keep proposing the same five ideas.
 Each one is matched to evidence below:
 | idea in the notes | trades | evidence |
