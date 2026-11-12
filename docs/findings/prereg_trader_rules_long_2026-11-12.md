@@ -76,3 +76,22 @@ candidate, only for a training pass. Note: the held-out window was already used 
 The first launch crashed on the first target trade, before writing any output (`cond.hist` resolved to the pandas
 plot method, not the histogram column). Fixed to `cond["hist"]`, with an end-to-end per-event test and a stats-path
 test added. No rule, parameter or threshold changed; no result was seen. The single run follows this commit.
+
+## Result (run once, 2026-11-12; `reports/trader_rules_long/result.json`) - FAIL (all three)
+Training (sessions before 2026-07-01): the live book's construction gives 2,242 trades, BASE -2.29% per trade (as in
+prereg_long_runner). Bonferroni alpha 0.0167.
+| candidate | training result | verdict |
+|---|---|---|
+| **F5** gate: all five rules true before the fill | kept 546 trades **-3.13%** vs skipped 1,696 **-2.02%** (diff -1.11%, p 0.997) | FAIL: the rules pick WORSE trades |
+| **T5** his entry (fresh 9/24 cross + the other four, within 30 min of the alert) | **15 trades** +0.60% (win 47%; lower95 -2.64%); vs BASE +2.89%, p 0.075; without a stop -0.67% | FAIL: under-powered (100 needed), p above alpha |
+| **XM** hold past the 2R target while the MACD histogram is positive | -2.50% vs -2.29% (diff -0.21%, p 0.96); on the 337 target trades +7.41% vs +8.78% | FAIL |
+Held-out stays closed (no training pass). Nothing adopted.
+Secondary (training, never decides): every rule alone also picks worse trades (kept vs skipped): 9 EMA above 24
+-2.36% vs -1.00%; volume spike -3.05% vs -1.97%; MACD positive -2.40% vs -1.29%; PSAR green -2.34% vs -2.01%;
+above VWAP -2.33% vs -2.09%. XM on the 337 target trades: 52 sold at the target (MACD not positive), 195 held and sold
+when the histogram turned, 89 held into the setup stop, 1 to the close.
+Reading: on channel alerts the trader's bullish conditions mark an extended move; buying when all five line up buys
+later and higher, so the stop is hit more. His entry almost never happens here (the 9/24 cross is usually already
+behind the alert: 15 training trades vs the book's 2,242), and holding a 2R winner for MACD to turn gives back more than the continuation
+adds (same answer as the runner exit). Skipping the "all five" trades is not a fix either: the skipped trades still
+lose -2.02%. The long book loses before any filter or exit can help.
