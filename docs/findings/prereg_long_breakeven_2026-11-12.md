@@ -31,3 +31,9 @@ ADOPT (paper long book, owner's OK) only if training statistic > 0 with p < 0.05
 
 ## Not done
 No other trigger levels (+0.5R, +1.5R) or trails: +1R and the entry price are fixed here.
+
+## Result (run once, 2026-11-12; `reports/long_risk/breakeven.json`) - FAIL
+Training per dollar: BE -1.86% vs A2 -1.88% (diff +0.03%, p 0.12; 162 of 2,242 trades changed, 13% armed). The A2
+column reproduces addendum A2 (-1.884%), so the replay matches the adopted rule. Held-out stays closed. Reading: few
+long trades ever reach +1R, and those that do and come back would mostly have hit the 2R target or timed out near
+the entry anyway; protecting at breakeven changes little.

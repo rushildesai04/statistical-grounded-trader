@@ -27,3 +27,17 @@ Secondary (never decides): all fades (news included); repeats within 1-3 days.
 
 ## Not done
 No other windows (1-3, 14, 30 days decide nothing). No sizing variant.
+
+## Result (run once, 2026-11-12; `reports/fade_repeat_days/result.json`) - PASS, ADOPTED as amendment F8
+| no-news fades | kept (no alert in prior 7 days) | skipped (repeat) | difference | p |
+|---|---|---|---|---|
+| training | +2.54% (n 1,018) | -1.01% (n 317; total -3.20) | +3.55% | 0.0001 |
+| held-out | +2.55% (n 371) | -1.33% (n 133; total -1.77) | +3.88% | 0.005 |
+Secondary: all fades (news included) training +1.36% vs -0.68% (p 0.006); repeats within 1-3 days only +1.92% vs
++0.39% (p 0.11): the 4-7-day repeats carry the effect too, so the 7-day window stays as registered.
+Reading: a stock the channel already alerted in the past week is a multi-day runner; shorting it again loses on
+average, and skipping those trades raises the book's total in both periods. Live (Nov 4-12, partial history): F8
+would have skipped STAK 11-06 (-5.0%), STAK 11-10 (-8.8%) and RETO 11-12 (-21.0%); the 18 kept fades average -2.0%.
+Live rule (owner: "improve the algorithm in any way possible only if it makes sense"; adopted with the PR merge):
+`fade.prior_alert` counts alerts that were tested events (passed the cell, window and price filters and had an entry
+bar, including those the short skipped for news, beta or F8); the long book still treats F8-skipped alerts as events.

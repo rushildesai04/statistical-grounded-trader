@@ -73,6 +73,12 @@ NEWS_REASON = "news (no-news rule, amendment F6)"
 # only, beta from the year before each alert): >= 3 -2.14%/trade (n 76; no-news -6.67%, n 29), < 1.5 +1.86% (n 1,654).
 HIGH_BETA_SKIP = 3.0
 BETA_REASON = "beta >= 3 (no shorts on high beta, amendment F7)"
+# Amendment F8 (prereg_fade_repeat_days_2026-11-12, deep review of the 11-12 losses): no short on a stock the channel
+# alerted 1-7 calendar days earlier (a multi-day runner). No-news fades: kept +2.54% vs repeats -1.01% (training,
+# n 1,018 / 317), held-out +2.55% vs -1.33% (n 371 / 133). The long book still treats these alerts as events.
+NO_REPEAT, REPEAT_DAYS = True, 7
+REPEAT_REASON = "alerted in the prior 7 days (multi-day runner, amendment F8)"
+NO_PRINT_REASON = "no trade print within 5 min (halted or no quote)"
 
 Quote = Callable[[str], "float | None"]
 # A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
@@ -161,6 +167,19 @@ def last_entry(session: date) -> time:
     return min(LAST_ENTRY, (close - timedelta(minutes=1)).time())
 
 
+def prior_alert(db: OpsStore, symbol: str, day: date) -> str | None:
+    """F8: the latest session 1..REPEAT_DAYS calendar days before ``day`` with a research event on ``symbol`` (an alert
+    that passed the cell, window and price filters and had an entry bar: the tested definition), else None. Alerts the
+    short skipped for news, beta or F8 count (they were events); price/window filters and no-print skips do not."""
+    lo, hi = (day - timedelta(days=REPEAT_DAYS)).isoformat(), (day - timedelta(days=1)).isoformat()
+    with db.tx() as c:
+        r = c.execute("SELECT MAX(session) FROM fade_trades WHERE symbol=? AND session BETWEEN ? AND ? AND ("
+                      "status IN ('ask','pending','open','est_closed','settled') OR (status='skipped' AND reason!=?) "
+                      "OR (status='filtered' AND reason IN (?,?,?)))",
+                      (symbol, lo, hi, NO_PRINT_REASON, NEWS_REASON, BETA_REASON, REPEAT_REASON)).fetchone()
+    return r[0] if r else None
+
+
 def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     """Classify one parsed alert. Returns what happened (for logs); texts nothing (``monitor`` does)."""
     now = now or utcnow()
@@ -180,6 +199,9 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     if NO_NEWS and a.alert_type == "news":                         # amendment F6 (owner 2026-11-09)
         _insert(db, a, session, "filtered", NEWS_REASON, now)
         return "filtered: news"
+    if NO_REPEAT and prior_alert(db, a.symbol, et.date()) is not None:     # amendment F8 (owner 2026-11-12)
+        _insert(db, a, session, "filtered", REPEAT_REASON, now)
+        return "filtered: repeat"
     if now - a.posted_at > MAX_ENTRY_DELAY:
         _insert(db, a, session, "skipped", "alert received late", now)
         return "skipped: late"
@@ -329,7 +351,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
     if px is None or not px > 0:
         if now - posted > MAX_ENTRY_DELAY:          # the tested rule: no bar within 5 minutes -> no trade (halts)
-            _set(db, r["id"], "pending", status="skipped", reason="no trade print within 5 min (halted or no quote)")
+            _set(db, r["id"], "pending", status="skipped", reason=NO_PRINT_REASON)
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
