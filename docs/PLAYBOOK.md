@@ -134,6 +134,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG book (A2): breakeven stop after +1R (owner, RETO 11-12) | per $ -1.86% vs -1.88% (p 0.12; 162 of 2,242 changed) | not opened | prereg_long_breakeven_2026-11-12 |
 | LONG book (A2): only on repeat alerts (multi-day runners) | per $ -1.78% vs first-time -1.91% (p 0.20) | not opened | prereg_repeat_regime_2026-11-12 R1 |
 | fade (F8 kept): skip after hot-tape days (prior session > 9 alerts) | hot +1.72% vs not +2.90% (p 0.14); hot still profitable | not opened | same, R2 |
+| fade (F8 kept): skip 5-day price runners (> +14.2%, split-adjusted) | runners +2.69% vs kept +2.49% (p 0.57); without F8 runners lose, and 77% of them are F8 repeats | not opened | prereg_price_runner_2026-11-12 |
 | LONG book: skip fills opening > 1R above the trigger (RETO) | 1 of 2,242 on SIP bars: an IEX-bar effect, not a rule | - | same |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
