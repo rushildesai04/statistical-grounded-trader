@@ -91,3 +91,11 @@ def test_cap_rechecked_when_the_code_comes_back(db):
                   "0.5,-0.2,'2026-10-30T16:00:00+00:00','x')")
     out = sc.handle(db, sms, ap.parse(f"SIZE {usd} {code}"), "SM2")
     assert out.startswith("SIZE not changed") and db.flag(fade.SIZE_FLAG) is None
+
+
+def test_size_reply_says_when_the_drift_guard_halved_new_fades(db):
+    from sgt.fast import fade
+    from sgt.learning import live_monitor as lm
+    assert "drift guard" not in sc.size_line(db)
+    db.set_flag(lm.SCALE_FLAG + fade.BOOK, "0.5")
+    assert sc.size_line(db).endswith("default; drift guard: new fades at 50% of it)")

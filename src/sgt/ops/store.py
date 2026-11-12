@@ -89,7 +89,8 @@ COLUMNS = {
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
         "entry": "REAL", "fill_ts": "TEXT", "exit": "REAL", "exit_ts": "TEXT", "exit_reason": "TEXT", "gross": "REAL",
-        "cost_rt": "REAL", "settled_at": "TEXT"},
+        "cost_rt": "REAL", "settled_at": "TEXT",
+        "rules": "TEXT"},                    # 2026-11-12: the long-book rule version a trade opened under (None = before A2)
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

@@ -19,6 +19,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
 | beta (F7) | no short when the stock's beta >= 3 (owner 2026-11-10; past: >= 3 -2.14%/trade, < 1.5 +1.86%). The scanner followed the same rule on 11-10 and is paused since 11-11 (owner: longs first; it still records and scores spikes: digest line) Unknown beta still shorts: tested 2026-11-11, no-news unknown +1.03%/trade (n 367), not worse than beta < 3 (p 0.36) | fade.py, prereg_alert_fade F7; scanner.py, prereg_scanner_book A1 |
 | size | 5% of book NAV per trade by default; text `SIZE 10000` sets dollars per trade ($500 to 25% of the book; raising needs a code). Runaway guards only: 40 open, 200% of the book short. No daily cap or loss stop (F6) | fade.py, owner 2026-11-09 |
+| drift guard | nightly: a live-monitor alarm (one-sided CUSUM k 0.5 / h 5 sd vs the tested expectancy, or win rate below tested at p < 0.01 after 20 trades) halves that book's size for NEW trades (floor 25%); never raises size, never closes a trade; restored only on the owner's word. Fade and long book | sgt.learning.live_monitor, owner 2026-11-12 |
+| long book (paper) | first long setup to fill per alert; stop, 2R target, 30 min; since A2 (2026-11-12): size x min(1, 2.68% / stop distance) and out at the next open when the fill candle closes below the entry (tested -1.88% vs -2.29% per dollar: still losing) | prereg_long_risk_2026-11-12 A2 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
 | texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |
@@ -181,6 +183,7 @@ Long book official result (2026-11-11, owner: "real long scoring"): the live tra
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
   (entry delay, holds, exits, brain sizing, time-of-day sizing, confidence sizing, price sizing, calm skip, vol-up sizing; StockTwits buzz recorded).
+- **Drift guard** (2026-11-12): the live monitor compares each live book with its tested expectancy every night; an alarm halves that book's size for new trades and texts the owner (section 2).
 - The **learning scoreboard** (`scripts/learning_report.py`, nightly 22:05 ET, `reports/learning/scoreboard.md`, digest
   line) scores each challenger against the live rule on forward trades and marks it READY at n >= 300.
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as

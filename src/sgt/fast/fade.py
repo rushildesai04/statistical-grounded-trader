@@ -105,7 +105,7 @@ class LiveAlert:
 
 
 def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, now: datetime) -> int | None:
-    w = trade_weight(db) if status in ("pending", "ask") else None      # fixed at entry; settle uses the row's weight
+    w = trade_weight(db) * drift_scale(db) if status in ("pending", "ask") else None   # fixed at entry; settle uses it
     with db.tx() as c:
         if status != "filtered" and c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND "
                                               "status!='filtered'", (a.symbol, session)).fetchone():
@@ -265,7 +265,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
         ctx = _context(db, r, context)
-        summary = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), at=now)
+        summary = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), at=now)
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -343,7 +343,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         with db.tx() as c:                            # the beta stamped by the F7 check, for the text (2026-11-10)
             ctx = {**ctx, "beta": c.execute("SELECT beta FROM fade_trades WHERE id=?", (r["id"],)).fetchone()[0]}
         how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
-        send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db),
+        send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db),
                                  out_at=out, at=now) + how)
 
 
@@ -387,7 +387,7 @@ def _context(db: OpsStore, r, context) -> dict:
 def _veto_text(db: OpsStore, send, r, px: float, now: datetime, out: datetime, context) -> None:
     """F5 entry text: the full trade card + "NO <code> = exit now" (approval kind 'fadeexit', open until the exit)."""
     ctx = _context(db, r, context)
-    body = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), out_at=out,
+    body = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), out_at=out,
                     at=now)
     approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fadeexit", period=r["session"], summary=body,
                       payload={"fade_id": r["id"], "symbol": r["symbol"]}, expires_at=out, now=now)
@@ -526,9 +526,23 @@ def trade_weight(db: OpsStore, v: float | None = None) -> float:
 
 
 def notional(db: OpsStore) -> float:
-    """Dollar size of one new fade trade: trade_weight x current official book value."""
+    """The SIZE setting in dollars: trade_weight x current official book value (the SMS SIZE command compares to it)."""
     v = nav(db)
     return trade_weight(db, v) * v
+
+
+BOOK = "alert fade (no-news)"                    # sgt.learning.live_monitor book name
+
+
+def drift_scale(db: OpsStore) -> float:
+    """The live monitor's size multiplier for new fades (1.0 unless a drift alarm halved it; 2026-11-12)."""
+    from sgt.learning import live_monitor
+    return live_monitor.scale(db, BOOK)
+
+
+def entry_notional(db: OpsStore) -> float:
+    """Dollar size of one new fade trade as booked: the SIZE setting x the drift scale."""
+    return notional(db) * drift_scale(db)
 
 
 def nav(db: OpsStore, through: date | None = None) -> float:

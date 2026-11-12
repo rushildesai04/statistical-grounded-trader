@@ -41,6 +41,25 @@ MARGIN = pd.Timedelta(minutes=15)                           # candidates outlive
 # bar started longer ago than this was not seen live (restart, outage): recorded as 'missed', never traded or texted.
 # Normal detection is the fill bar's close + one 30 s pass, well inside it. A missed fill is never scored officially.
 LIVE_LAG = pd.Timedelta(minutes=5)
+# prereg_long_risk_2026-11-12 addendum A2 (owner chose "both, test the combination first"; it passed): size each long
+# by its risk, w = min(1, RISK_D50 / stop distance), and sell at the next open when the fill candle closes below the
+# entry (patterns.simulate red_exit). Training per dollar -1.88% vs -2.29%, held-out -1.91% vs -2.37%: still losing.
+RISK_D50 = 0.02679                   # training median of (entry - stop) / entry, fixed in the prereg
+BOOK = "long book (paper)"           # sgt.learning.live_monitor book name (drift scale)
+RULES = "A2"                         # long_trades.rules for trades opened under these rules: the red exit applies only to
+                                     # them, live and official, so trades opened before the deploy keep their own rule
+
+
+def risk_weight(entry: float, stop: float) -> float:
+    """R: share of the full size for a long with this stop distance (never above 1; no positive risk -> 0)."""
+    d = (entry - stop) / entry if entry > 0 else 0.0
+    return min(1.0, RISK_D50 / d) if d > 0 else 0.0
+
+
+def weight(db: OpsStore, s: pt.Setup, t: pt.Trade, v: float) -> float:
+    """Share of the long book for this fill: the SIZE setting x the risk weight x the drift scale (live_monitor)."""
+    from sgt.learning import live_monitor
+    return fade.trade_weight(db, v) * risk_weight(t.entry, s.stop) * live_monitor.scale(db, BOOK)
 LiveBars = Callable[[str, datetime], pd.DataFrame]          # (symbol, now) -> today's 1-minute bars (ts = start, UTC)
 
 
@@ -123,14 +142,14 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
 
 def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime) -> bool:
     v = nav(db)
-    w = fade.trade_weight(db, v) if t is not None else None     # the SIZE setting against the LONG book's value
+    w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
     with db.tx() as c:
         return c.execute(
             "INSERT OR IGNORE INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
-            "entry_ts, est_entry, est_last, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "entry_ts, est_entry, est_last, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
              s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
-             t.entry if t else None, t.entry if t else None, iso(now))).rowcount == 1
+             t.entry if t else None, t.entry if t else None, iso(now), RULES)).rowcount == 1
 
 
 def target(s: pt.Setup, t: pt.Trade) -> float:
@@ -178,6 +197,12 @@ def _exit(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> pt.Trade | None:
         if b.high >= tgt:                    # fill bar reaching the target: filled there (patterns module doc)
             px = tgt if first else max(tgt, b.open)
             return pt.Trade(r["kind"], "long", entry_ts, entry, b.ts, px, "target", px / entry - 1)
+        if first and r.get("rules") == RULES and b.close < entry:   # red fill candle (prereg_long_risk E): next open
+            nxt = f[f.ts > b.ts]
+            if nxt.empty:
+                return None                  # the next bar has not closed yet (last entry 15:45: one always follows)
+            px = float(nxt.iloc[0].open)
+            return pt.Trade(r["kind"], "long", entry_ts, entry, nxt.iloc[0].ts, px, "red", px / entry - 1)
     if path.empty:
         return None
     last = path.iloc[-1]
@@ -230,7 +255,7 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
         c.execute("UPDATE long_trades SET status='est_closed', reason='closed by settle (listener missed the exit)' "
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
-            "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net FROM long_trades WHERE "
+            "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules FROM long_trades WHERE "
             "status='est_closed' OR (status='settled' AND entry IS NULL) ORDER BY id")]
     out = []
     stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
@@ -256,7 +281,7 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
         return None                                    # review F-1 (shadow): an outage day is retried, never final
     trigger = None if r["trigger"] is None else float(r["trigger"])
     s = pt.Setup(r["kind"], "long", pd.Timestamp(r["entry_ts"]), trigger, float(r["stop"]))
-    t = pt.simulate(f, s, latest=long_shadow._latest(r["session"]))
+    t = pt.simulate(f, s, latest=long_shadow._latest(r["session"]), red_exit=r.get("rules") == RULES)
     if t is None:
         return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], status="void", reason=NO_FILL) \
             else None
@@ -272,10 +297,11 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
 
 def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
     v = nav(db)
-    usd = fade.trade_weight(db, v) * v
+    usd = weight(db, s, t, v) * v                                      # the size actually booked (_insert)
+    sized = " (sized to the stop)" if risk_weight(t.entry, s.stop) < 1 else ""
     risk = (t.entry - s.stop) / t.entry
     out = min(t.entry_ts + pt.HOLD, pd.Timestamp(default_close(t.entry_ts.tz_convert(ET).date().isoformat())))
-    return (f"[SGT] 🟢 LONG {symbol} @ ${t.entry:.2f} · ${usd:,.0f} (paper)\n"
+    return (f"[SGT] 🟢 LONG {symbol} @ ${t.entry:.2f} · ${usd:,.0f} (paper){sized}\n"
             f"Setup: {NAMES.get(s.kind, s.kind)} · stop ${s.stop:.2f} ({-risk:.1%}) · target ${target(s, t):.2f} "
             f"(+{pt.RR * risk:.1%}) · out by {out.tz_convert(ET):%H:%M} ET\n"
             f"Tested on past alerts: {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} "
@@ -284,7 +310,8 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
 
 def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
     usd = (r["weight"] or fade.WEIGHT) * nav(db) * t.gross           # final pass F-2: the long book's own value
-    word = {"stop": "stopped", "target": "target hit", "time": "time exit"}[t.reason]
+    word = {"stop": "stopped", "target": "target hit", "time": "time exit",
+            "red": "fill candle closed red, out at the next open"}.get(t.reason, t.reason)
     return (f"[SGT] 🟢 LONG OUT {r['symbol']} · {'made' if t.gross > 0 else 'lost'} {t.gross:+.1%} "
             f"({'+' if usd >= 0 else '-'}${abs(usd):,.0f} est, paper) · {word} · ${t.entry:.2f} -> ${t.exit:.2f}")
 
