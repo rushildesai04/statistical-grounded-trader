@@ -132,3 +132,26 @@ def test_stats_path_runs_on_a_small_book_without_passing():
 
 def test_p_counts_undefined_resamples_against_the_candidate():
     assert lr._p(np.array([0.1, np.nan, 0.2, -0.1])) == pytest.approx(0.5)
+
+
+def test_combo_weights_the_e_exit_and_compares_with_the_equal_size_base():
+    b = pd.DataFrame({"session": ["a", "b", "c", "d"], "net": [0.02, 0.02, -0.10, -0.10],
+                      "e_net": [0.02, 0.02, -0.05, -0.10], "d": [0.02, 0.02, 0.2, 0.2]})
+    st = lr.r_stats(b, 0.02, "e_net")                 # weights 1, 1, 0.1, 0.1 on e_net; base = mean net
+    assert st["sized"] == pytest.approx((0.02 + 0.02 - 0.005 - 0.01) / 2.2)
+    assert st["base"] == pytest.approx(-0.04) and st["diff"] == pytest.approx(st["sized"] + 0.04)
+    assert lr.r_stats(b, 0.02)["sized"] == pytest.approx((0.02 + 0.02 - 0.01 - 0.01) / 2.2)   # R unchanged
+
+
+def test_combo_opens_held_out_only_on_a_training_pass():
+    rng = np.random.default_rng(5)
+    n = 300
+    b = pd.DataFrame({"session": [f"2026-0{1 + i % 9}-{1 + i % 27:02d}" for i in range(n)], "net": rng.normal(-0.02, 0.03, n),
+                      "d": rng.uniform(0.01, 0.1, n), "split": ["train"] * 200 + ["holdout"] * 100})
+    b["e_net"] = b.net                                 # no improvement: no pass, held-out stays closed
+    b.loc[b.d > 0.05, "e_net"] = b.net - 0.01
+    out = lr.combo(b)
+    assert out["train_pass"] is False and out["holdout"] is None and out["adopt_both"] is False
+    tr_ = b[b.split == "train"]
+    w = np.minimum(1.0, tr_.d.quantile(0.5) / tr_.d)
+    assert out["train"]["sized"] == pytest.approx(float((w * tr_.e_net).sum() / w.sum()))   # e_net, train rows only

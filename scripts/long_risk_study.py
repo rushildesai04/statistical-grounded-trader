@@ -98,18 +98,35 @@ def weights(d: pd.Series, d50: float) -> pd.Series:
     return np.minimum(1.0, d50 / d)
 
 
-def r_stats(b: pd.DataFrame, d50: float) -> dict:
-    """Return per dollar deployed under w = min(1, D50/d) minus the equal-size mean (paired, sessions resampled)."""
-    w, r = weights(b.d, d50).to_numpy(float), b.net.to_numpy(float)
+def r_stats(b: pd.DataFrame, d50: float, col: str = "net") -> dict:
+    """Return per dollar deployed under w = min(1, D50/d) on ``col`` (R: net; A2 RE: e_net) minus the equal-size
+    BASE mean net (paired, sessions resampled)."""
+    w, x, r = weights(b.d, d50).to_numpy(float), b[col].to_numpy(float), b.net.to_numpy(float)
     u, inv = np.unique(b.session.to_numpy(), return_inverse=True)
-    swr, sw = np.bincount(inv, w * r, len(u)), np.bincount(inv, w, len(u))
+    swx, sw = np.bincount(inv, w * x, len(u)), np.bincount(inv, w, len(u))
     sr, n = np.bincount(inv, r, len(u)), np.bincount(inv, minlength=len(u)).astype(float)
     idx = _rng_idx(len(u))
-    per_dollar = swr[idx].sum(1) / sw[idx].sum(1)
+    per_dollar = swx[idx].sum(1) / sw[idx].sum(1)
     dist = per_dollar - sr[idx].sum(1) / n[idx].sum(1)
-    sized = float((w * r).sum() / w.sum())
+    sized = float((w * x).sum() / w.sum())
     return {"d50": d50, "n": len(b), "base": float(r.mean()), "sized": sized, "diff": sized - float(r.mean()),
             "p": _p(dist), "sized_lower95": float(np.quantile(per_dollar, 0.05)), "mean_weight": float(w.mean())}
+
+
+def combo(base: pd.DataFrame) -> dict:
+    """Addendum A2: R weights on the E exit, from the single run's rows (D50 from training d, as in the run)."""
+    bt, bh = base[base.split == "train"], base[base.split == "holdout"]
+    d50 = float(bt.d.quantile(Q_RISK))
+    train = r_stats(bt, d50, "e_net")
+    out = {"addendum": "A2", "alpha": ALPHA, "train": train, "train_pass": train_pass("R", train), "holdout": None,
+           "adopt_both": False, "profitable": False}
+    if out["train_pass"]:
+        h = r_stats(bh, d50, "e_net")
+        out["holdout"] = h
+        out["adopt_both"] = power("R", h, MIN_HOLD) and h["diff"] > 0
+        out["profitable"] = bool(out["adopt_both"] and train["sized"] > 0 and train["sized_lower95"] > 0
+                                 and h["sized"] > 0)
+    return out
 
 
 def e_stats(b: pd.DataFrame) -> dict:
@@ -154,6 +171,12 @@ def secondary(bt: pd.DataFrame) -> dict:
 
 
 def main() -> int:
+    if "--combo" in sys.argv[1:]:                    # addendum A2: no bars re-read, the single run's rows
+        base = pd.read_csv(OUT / "base.csv", dtype={"session": str})
+        out = combo(base)
+        print(json.dumps(out, indent=2, default=str))
+        (OUT / "combo.json").write_text(json.dumps(out, indent=2, default=str))
+        return 0
     bars = Bars()
     fe = fade_events().sort_values(["symbol", "session"]).reset_index(drop=True)
     he = halt_events(bars)
