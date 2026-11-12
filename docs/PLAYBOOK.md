@@ -127,6 +127,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG book: skip stops wider than 7.09% (owner, POAS 11-12) | kept -2.01% vs skipped -3.44% (p 0.033 > 0.0125) | not opened | prereg_long_risk_2026-11-12 |
 | LONG book: size by risk, w = min(1, 2.68% / stop distance) | per $ -1.96% vs -2.29% (p 0.004) | -1.96% vs -2.37% | same: passes, still losing |
 | LONG book: sell at the next open when the fill candle closes below entry (owner, POAS/ZDGE) | -2.09% vs -2.29% (p 0.007) | -2.22% vs -2.37% | same: passes, still losing |
+| LONG book: both together (risk size + red-candle exit), adopted 2026-11-12 | per $ -1.88% vs -2.29% (p 0.002) | -1.91% vs -2.37% | same, A2: ADOPTED, still losing |
 | LONG book: skip fills opening > 1R above the trigger (RETO) | 1 of 2,242 on SIP bars: an IEX-bar effect, not a rule | - | same |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |

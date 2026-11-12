@@ -86,3 +86,7 @@ Adoption in the live paper book needs the owner's OK.
 conservative). ADOPT both R and E in the live paper long book only if training statistic > 0 with p < 0.0125 AND the
 held-out statistic > 0 (n >= 30). Otherwise adopt only R (the stronger single result). PROFITABLE as above.
 Script: `scripts/long_risk_study.py --combo` (reads base.csv; prints and writes `reports/long_risk/combo.json`).
+**A2 result (computed once, `reports/long_risk/combo.json`): ADOPT both R and E** (better, still losing). Training
+per dollar -1.88% vs BASE -2.29% (diff +0.41%, p 0.0017; mean size 0.74x); held-out -1.91% vs -2.37% (diff +0.45%,
+n 724). Not profitable (lower 95% -1.99%). The live paper long book takes both (owner chose "both, test the
+combination first", 2026-11-12).
