@@ -29,3 +29,24 @@ Live adoption of either needs the owner's OK. PROFITABLE label for R1 as in prer
 ## Not done
 No other windows, thresholds or regime measures (index trend, breadth). Secondary only: R2 on all no-news fades
 (F8 not applied); the counts above.
+
+## Result (run once, 2026-11-12; `reports/repeat_regime/result.json`) - both FAIL
+| candidate | training | verdict |
+|---|---|---|
+| R1 longs on repeat alerts | A2 per dollar -1.78% (n 437) vs first-time -1.91% (n 1,805); diff +0.13%, p 0.20 | FAIL |
+| R2 shorts after hot-tape days (prior session > 9 events) | not hot +2.90% (n 705) vs hot +1.72% (n 313); p 0.14; hot total +5.38 (skipping lowers the total) | FAIL |
+Secondary: R2 on all no-news fades (F8 not applied) +2.17% vs +0.69% (p 0.064). Held-out stays closed.
+Reading: multi-day runners are bad shorts (F8) but not good longs: the long book loses on repeats and first-time
+alerts alike. Hot-tape days are weaker for shorts but still profitable, so skipping them gives up money.
+
+## Validation of what runs live (descriptive, 2026-11-12)
+- F8 by period (no-news, kept vs repeat): training A (to 2025-06) +3.03% vs -2.23%; training B +2.35% vs -0.53%;
+  held-out +2.55% vs -1.33%; 2025 and 2026 both; price $2-5, $5-10, $10+ all +3% to +5% in favour. Repeats exactly
+  one day back +1.73% (n 81) vs 2-3 days -1.84% and 4-7 days -3.18%: seen after the run, not acted on (the registered
+  window stays 1-7 days; a forward question).
+- A2 (longs) by period: +0.49% (training A), +0.37% (training B), +0.45% (held-out) per dollar vs the old rule.
+- Drift guard replayed on history (CUSUM k 0.5 h 5 vs +1.70%, win rate p < 0.01): 0 alarms on 1,839 no-news fades;
+  1 alarm on the 1,389 F8-kept fades (2026-09-24, a weak month: no-news September -0.19%). One halving in two years,
+  in a weak stretch.
+- Forward champion (Oct 30 - Nov 11, n 60): -2.77%; F8 would keep 54 at -3.00% and skip 6 at -0.70%: the recent
+  weakness is not explained by repeats. The guard watches it.
