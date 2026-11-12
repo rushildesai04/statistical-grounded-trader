@@ -218,7 +218,7 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
                 needs.append(ln.removeprefix("! "))
             elif "expected" in r and not r["book"].startswith("scanner"):     # scanner: its RECORD line says it
                 record.append(ln)
-        live_monitor.new_alarms(db, res, day)
+        needs += live_monitor.guard_lines(db, res, day)      # size cuts and standing guard state (never silent)
     except Exception:  # noqa: BLE001
         needs.append("live monitor unavailable")
 

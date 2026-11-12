@@ -97,3 +97,14 @@ def test_gross_guard_with_large_trades(db, monkeypatch):
     assert fade.on_alert(db, alert("II", 9), now=T10) == "skipped: runaway guard: 200% of the book already short"
     db.set_flag(fade.SIZE_FLAG, "")                          # back to the default: still blocked (200% + 5%)
     assert fade.caps(db, "2026-11-02") is not None
+
+
+def test_a_drift_alarm_halves_new_fades_only(db):
+    """2026-11-12: the live monitor's scale applies to NEW fades; booked weights and the SIZE setting are untouched."""
+    from sgt.learning import live_monitor as lm
+    ap.arm(db, T10)
+    fade.on_alert(db, alert("AAA", 1), now=T10)
+    db.set_flag(lm.SCALE_FLAG + fade.BOOK, "0.5")
+    fade.on_alert(db, alert("BBB", 2), now=T10)
+    assert weights(db) == [pytest.approx(0.05), pytest.approx(0.025)]
+    assert fade.notional(db) == pytest.approx(5_000.0) and fade.entry_notional(db) == pytest.approx(2_500.0)

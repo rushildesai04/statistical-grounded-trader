@@ -251,6 +251,13 @@ def test_tested_findings_path_does_not_depend_on_the_working_directory():
     assert tr.PLAYBOOK.is_absolute() and tr.PLAYBOOK.exists() and len(tr.tested_findings()) > 2000
 
 
+def test_playbook_sections_3_4_fit_the_cap_so_the_newest_rows_are_never_cut():
+    text = tr.PLAYBOOK.read_text()
+    a, b = text.find("\n## 3."), text.find("\n## 5.")
+    assert 0 <= a < b and len(text[a:b].strip()) <= tr.TESTED_CHARS      # grow the cap (or condense), never truncate
+    assert tr.tested_findings().endswith(text[a:b].strip()[-200:])
+
+
 def _later(minutes):
     from datetime import timedelta
     return NOW + timedelta(minutes=minutes)

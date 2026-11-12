@@ -181,7 +181,9 @@ def size_line(db: OpsStore) -> str:
     w = fade.trade_weight(db, v)
     how = "default" if usd is None else (f"set ${usd:,.0f}, capped at {fade.MAX_WEIGHT:.0%}" if w * v < usd - 0.5
                                         else "set")
-    return f"fade size: ${w * v:,.0f}/trade ({w:.1%} of the ${v:,.0f} paper book, {how})"
+    k = fade.drift_scale(db)                      # 2026-11-12: a live-monitor alarm halves new fades
+    guard = f"; drift guard: new fades at {k:.0%} of it" if k < 1 else ""
+    return f"fade size: ${w * v:,.0f}/trade ({w:.1%} of the ${v:,.0f} paper book, {how}{guard})"
 
 
 def size_command(db: OpsStore, sms: Sms, usd: int | None, sid: str) -> str:

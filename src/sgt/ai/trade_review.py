@@ -27,8 +27,15 @@ MAX_ATTEMPTS, PER_TICK, MAX_OUT = 3, 4, 3000
 BarsFn = Callable[[str, datetime, datetime], pd.DataFrame]   # IEX 1-minute bars (ts UTC) in [start, end)
 # /app/src/sgt/ai -> /app/docs on Fly (Dockerfile copies docs/PLAYBOOK.md), repo docs/ locally
 PLAYBOOK = Path(__file__).resolve().parents[3] / "docs" / "PLAYBOOK.md"
-TESTED_CHARS = 12_000
+TESTED_CHARS = 16_000                      # 2026-11-12: sections 3-4 reached 12.3k; a test guards silent truncation
 NOTE_SETTLE = timedelta(minutes=2)         # the owner saves in bursts: review a note once it has rested
+# 2026-11-12 (owner: the analyses were wrong): the minute path is SIP (all venues), free 15 minutes late, so a first
+# review waits until SIP covers the whole window (exit + 10 min path tail + 16 min). IEX-only paths showed RETO's
+# post-alert 09:47 entry bar as a halt gap ("pre-halt print"), which was false.
+REVIEW_DELAY = timedelta(minutes=26)
+ET_ZONE = "America/New_York"
+TIME_KEYS = ("posted_at", "est_entry_at", "est_exit_at", "entry_ts", "fill_ts", "exit_ts", "settled_at", "created_at",
+             "bar_ts", "detected_at", "ready")
 MAX_NOTE_REVIEWS = 3                       # per trade, however often the note is edited
 NOTE_START = "ai_note_review_start"        # notes saved before this instant never trigger a re-review (no backfill)
 
@@ -161,6 +168,16 @@ def _note_due(note: dict | None, row, start: str, now: datetime) -> bool:
         return False
 
 
+def _path_complete(e: dict, now: datetime) -> bool:
+    """SIP (15 minutes late) covers the review window: exit + REVIEW_DELAY has passed. No exit time: no wait."""
+    end = e.get("est_exit_at") or e.get("exit_ts")
+    try:
+        t = datetime.fromisoformat(str(end)) if end else None
+    except ValueError:
+        return True
+    return t is None or t.tzinfo is None or now >= t + REVIEW_DELAY
+
+
 def pending(db: OpsStore, limit: int = PER_TICK, now: datetime | None = None) -> list[dict]:
     """Closed trades to review (newest first): never reviewed, failed under MAX_ATTEMPTS, or reviewed before the
     owner's latest note."""
@@ -174,6 +191,8 @@ def pending(db: OpsStore, limit: int = PER_TICK, now: datetime | None = None) ->
         if e["key"].startswith("book:") or e.get("status") not in ("est_closed", "settled"):
             continue
         row = state.get(e["key"])
+        if row is None and not _path_complete(e, now):
+            continue                                       # wait until SIP bars cover the whole review window
         if row is None or (row["status"] != "ok" and row["attempts"] < MAX_ATTEMPTS):
             out.append(e)
         elif row["status"] == "ok" and _note_due(notes.get(e["key"]), row, start, now):
@@ -208,9 +227,27 @@ def gaps(bars: pd.DataFrame, min_minutes: int = 3) -> list[dict]:
     return out
 
 
+def et_time(v) -> str | None:
+    """A stored UTC ISO time as 'YYYY-MM-DD HH:MM:SS ET'. 2026-11-12: the model converted UTC itself with the summer
+    offset (16:53 UTC -> '12:53 ET' in November) and reported false timestamp conflicts. None when not a time."""
+    try:
+        t = pd.Timestamp(str(v))
+    except (ValueError, TypeError):
+        return None
+    if t is pd.NaT or t.tzinfo is None:
+        return None
+    return t.tz_convert(ET_ZONE).strftime("%Y-%m-%d %H:%M:%S ET")
+
+
 def facts(e: dict, bars: pd.DataFrame, note: str | None, tested: str | None = None) -> dict:
     keep = {k: v for k, v in e.items() if v is not None and k not in ("book", "_note_rereview")}
+    for k in TIME_KEYS:                        # every time the model sees is already in ET, like the minute path
+        if k in keep:
+            keep[k] = et_time(keep[k]) or keep[k]
+    feed = "IEX" if bars is None or bars.empty else (bars.attrs.get("feed") or "IEX")
     return {"trade": keep, "book": e["book"], "result": result_line(e), "minute_path_ET_o_h_l_c_v": path(bars),
+            "minute_path_feed": f"{feed} 1-minute bars" + ("" if feed == "SIP" else
+                                                            " (one exchange only: a missing minute may still have traded)"),
             "gaps_without_prints": gaps(bars), "owner_note": note,
             "tested_findings": tested_findings() if tested is None else tested}
 
