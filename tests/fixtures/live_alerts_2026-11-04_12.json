@@ -1,0 +1,2081 @@
+[
+{
+"id": 1,
+"symbol": "CRIS",
+"session": "2026-11-04",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-04T12:19:51+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 2,
+"symbol": "FTCI",
+"session": "2026-11-04",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-04T12:54:10+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 3,
+"symbol": "FTCI",
+"session": "2026-11-04",
+"alert_type": "news",
+"posted_at": "2026-11-04T12:54:21+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 4,
+"symbol": "RIOT",
+"session": "2026-11-04",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-04T13:30:45+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 5,
+"symbol": "RIOT",
+"session": "2026-11-04",
+"alert_type": "news",
+"posted_at": "2026-11-04T13:30:56+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 6,
+"symbol": "CMTG",
+"session": "2026-11-04",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-04T14:32:41+00:00",
+"status": "skipped",
+"reason": "not approved in time"
+},
+{
+"id": 7,
+"symbol": "CRIS",
+"session": "2026-11-04",
+"alert_type": "resumed",
+"posted_at": "2026-11-04T14:39:09+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 8,
+"symbol": "OMH",
+"session": "2026-11-04",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-04T14:47:58+00:00",
+"status": "skipped",
+"reason": "not approved in time"
+},
+{
+"id": 9,
+"symbol": "WORX",
+"session": "2026-11-04",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-04T14:55:06+00:00",
+"status": "skipped",
+"reason": "not approved in time"
+},
+{
+"id": 10,
+"symbol": "LBGJ",
+"session": "2026-11-04",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-04T15:11:15+00:00",
+"status": "skipped",
+"reason": "not approved in time"
+},
+{
+"id": 11,
+"symbol": "CHSN",
+"session": "2026-11-04",
+"alert_type": "new_high",
+"posted_at": "2026-11-04T16:30:15+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 12,
+"symbol": "PMAX",
+"session": "2026-11-04",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-04T20:18:02+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 13,
+"symbol": "OMH",
+"session": "2026-11-04",
+"alert_type": "new_high",
+"posted_at": "2026-11-04T20:47:00+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 14,
+"symbol": "OMH",
+"session": "2026-11-04",
+"alert_type": "new_high",
+"posted_at": "2026-11-04T20:49:28+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 15,
+"symbol": "OMH",
+"session": "2026-11-04",
+"alert_type": "new_high",
+"posted_at": "2026-11-04T20:50:47+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 16,
+"symbol": "ADMA",
+"session": "2026-11-04",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-04T21:17:58+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 17,
+"symbol": "ADMA",
+"session": "2026-11-04",
+"alert_type": "news",
+"posted_at": "2026-11-04T21:18:09+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 18,
+"symbol": "PLCE",
+"session": "2026-11-04",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-04T21:33:20+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 19,
+"symbol": "JLHL",
+"session": "2026-11-04",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-04T21:38:29+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 20,
+"symbol": "AEHL",
+"session": "2026-11-04",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-04T22:19:31+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 21,
+"symbol": "ELPW",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T11:01:11+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 22,
+"symbol": "ELPW",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T11:01:22+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 23,
+"symbol": "ZNB",
+"session": "2026-11-05",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-05T11:17:24+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 24,
+"symbol": "SMX",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T11:35:48+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 25,
+"symbol": "SMX",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T11:35:59+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 26,
+"symbol": "RUN",
+"session": "2026-11-05",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-05T12:22:55+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 27,
+"symbol": "RUN",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T12:23:06+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 28,
+"symbol": "AEHL",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T12:54:09+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 29,
+"symbol": "MASK",
+"session": "2026-11-05",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-05T13:04:00+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 30,
+"symbol": "MASK",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T13:04:11+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 31,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T13:30:55+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 32,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T13:31:44+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 33,
+"symbol": "FLYE",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T14:08:22+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 34,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T14:31:10+00:00",
+"status": "filtered",
+"reason": "price 0.4497 outside $1-50"
+},
+{
+"id": 35,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-05T14:32:46+00:00",
+"status": "filtered",
+"reason": "price 0.5547 outside $1-50"
+},
+{
+"id": 36,
+"symbol": "AMTX",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T14:32:50+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 37,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T15:08:05+00:00",
+"status": "filtered",
+"reason": "price 0.6300 outside $1-50"
+},
+{
+"id": 38,
+"symbol": "DNUT",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T15:11:54+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 39,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T15:14:12+00:00",
+"status": "filtered",
+"reason": "price 0.7507 outside $1-50"
+},
+{
+"id": 40,
+"symbol": "BDMD",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T15:18:21+00:00",
+"status": "filtered",
+"reason": "price 0.1431 outside $1-50"
+},
+{
+"id": 41,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "resumed",
+"posted_at": "2026-11-05T15:20:52+00:00",
+"status": "filtered",
+"reason": "price 0.8098 outside $1-50"
+},
+{
+"id": 42,
+"symbol": "LABT",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T15:26:07+00:00",
+"status": "filtered",
+"reason": "price 0.8062 outside $1-50"
+},
+{
+"id": 43,
+"symbol": "AEHL",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T15:44:24+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 44,
+"symbol": "NTCL",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T16:02:06+00:00",
+"status": "filtered",
+"reason": "price 0.5095 outside $1-50"
+},
+{
+"id": 45,
+"symbol": "NTCL",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T16:04:46+00:00",
+"status": "filtered",
+"reason": "price 0.6499 outside $1-50"
+},
+{
+"id": 46,
+"symbol": "NTCL",
+"session": "2026-11-05",
+"alert_type": "new_high",
+"posted_at": "2026-11-05T16:06:59+00:00",
+"status": "filtered",
+"reason": "price 0.8293 outside $1-50"
+},
+{
+"id": 47,
+"symbol": "NTCL",
+"session": "2026-11-05",
+"alert_type": "resumed",
+"posted_at": "2026-11-05T16:13:03+00:00",
+"status": "void",
+"reason": "outside research filters (window / $1-50)"
+},
+{
+"id": 48,
+"symbol": "HUHU",
+"session": "2026-11-05",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-05T16:43:50+00:00",
+"status": "filtered",
+"reason": "price 0.6274 outside $1-50"
+},
+{
+"id": 49,
+"symbol": "HUHU",
+"session": "2026-11-05",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-05T16:44:59+00:00",
+"status": "filtered",
+"reason": "price 0.4800 outside $1-50"
+},
+{
+"id": 50,
+"symbol": "STAK",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T20:16:19+00:00",
+"status": "settled",
+"reason": "close"
+},
+{
+"id": 51,
+"symbol": "SERV",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T21:07:33+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 52,
+"symbol": "DFNS",
+"session": "2026-11-05",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-05T21:10:21+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 53,
+"symbol": "DFNS",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T21:10:59+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 54,
+"symbol": "SERV",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T21:12:53+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 55,
+"symbol": "CIIT",
+"session": "2026-11-05",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-05T22:11:31+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 56,
+"symbol": "CIIT",
+"session": "2026-11-05",
+"alert_type": "news",
+"posted_at": "2026-11-05T22:11:42+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 57,
+"symbol": "DBGI",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T11:04:27+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 58,
+"symbol": "CIIT",
+"session": "2026-11-06",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-06T13:05:54+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 59,
+"symbol": "CIIT",
+"session": "2026-11-06",
+"alert_type": "news",
+"posted_at": "2026-11-06T13:06:04+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 60,
+"symbol": "VIVK",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T13:50:19+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 61,
+"symbol": "CDT",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T14:25:00+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 62,
+"symbol": "CDT",
+"session": "2026-11-06",
+"alert_type": "news",
+"posted_at": "2026-11-06T14:27:27+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 63,
+"symbol": "RAYA",
+"session": "2026-11-06",
+"alert_type": "news",
+"posted_at": "2026-11-06T14:39:44+00:00",
+"status": "settled",
+"reason": "stop"
+},
+{
+"id": 64,
+"symbol": "VIVK",
+"session": "2026-11-06",
+"alert_type": "new_high",
+"posted_at": "2026-11-06T14:45:33+00:00",
+"status": "filtered",
+"reason": "price 0.7889 outside $1-50"
+},
+{
+"id": 65,
+"symbol": "SDA",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T14:52:00+00:00",
+"status": "filtered",
+"reason": "price 0.2599 outside $1-50"
+},
+{
+"id": 66,
+"symbol": "SDA",
+"session": "2026-11-06",
+"alert_type": "news",
+"posted_at": "2026-11-06T14:52:26+00:00",
+"status": "filtered",
+"reason": "price 0.2754 outside $1-50"
+},
+{
+"id": 67,
+"symbol": "SDA",
+"session": "2026-11-06",
+"alert_type": "new_high",
+"posted_at": "2026-11-06T15:00:19+00:00",
+"status": "filtered",
+"reason": "price 0.3706 outside $1-50"
+},
+{
+"id": 68,
+"symbol": "STAK",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T15:07:22+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 69,
+"symbol": "SERV",
+"session": "2026-11-06",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-06T15:17:38+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 70,
+"symbol": "SNT",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T19:00:41+00:00",
+"status": "skipped",
+"reason": "no quote within 5 min"
+},
+{
+"id": 71,
+"symbol": "STAK",
+"session": "2026-11-06",
+"alert_type": "new_high",
+"posted_at": "2026-11-06T20:49:18+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 72,
+"symbol": "CLRO",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T21:10:46+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 73,
+"symbol": "OMH",
+"session": "2026-11-06",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-06T21:19:45+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 74,
+"symbol": "JDZG",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T21:56:24+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 75,
+"symbol": "TGE",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-06T22:52:48+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 76,
+"symbol": "TGE",
+"session": "2026-11-06",
+"alert_type": "news",
+"posted_at": "2026-11-06T22:53:11+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 77,
+"symbol": "NWGL",
+"session": "2026-11-06",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-07T00:33:59+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 78,
+"symbol": "EDSA",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T11:25:33+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 79,
+"symbol": "EDSA",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T11:25:43+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 80,
+"symbol": "CKX",
+"session": "2026-11-09",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-09T14:14:17+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 81,
+"symbol": "CKX",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T14:14:28+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 82,
+"symbol": "HRTX",
+"session": "2026-11-09",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-09T14:37:41+00:00",
+"status": "filtered",
+"reason": "price 0.3901 outside $1-50"
+},
+{
+"id": 83,
+"symbol": "OMH",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T14:38:18+00:00",
+"status": "void",
+"reason": "no_entry"
+},
+{
+"id": 84,
+"symbol": "HRTX",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T14:38:28+00:00",
+"status": "filtered",
+"reason": "price 0.3936 outside $1-50"
+},
+{
+"id": 85,
+"symbol": "XHLD",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T14:47:31+00:00",
+"status": "filtered",
+"reason": "price 0.6502 outside $1-50"
+},
+{
+"id": 86,
+"symbol": "CKX",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T15:05:43+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 87,
+"symbol": "XHLD",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T15:09:05+00:00",
+"status": "filtered",
+"reason": "price 0.8500 outside $1-50"
+},
+{
+"id": 88,
+"symbol": "FISN",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T15:12:06+00:00",
+"status": "settled",
+"reason": "stop"
+},
+{
+"id": 89,
+"symbol": "XHLD",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T15:13:57+00:00",
+"status": "filtered",
+"reason": "price 0.9621 outside $1-50"
+},
+{
+"id": 90,
+"symbol": "NWGL",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T15:25:37+00:00",
+"status": "settled",
+"reason": "stop"
+},
+{
+"id": 91,
+"symbol": "GPUS",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T17:02:05+00:00",
+"status": "filtered",
+"reason": "price 0.2061 outside $1-50"
+},
+{
+"id": 92,
+"symbol": "GPUS",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T17:02:52+00:00",
+"status": "filtered",
+"reason": "price 0.2095 outside $1-50"
+},
+{
+"id": 93,
+"symbol": "WCT",
+"session": "2026-11-09",
+"alert_type": "resumed",
+"posted_at": "2026-11-09T18:46:44+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 94,
+"symbol": "WCT",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T18:52:28+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 95,
+"symbol": "WCT",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T18:53:18+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 96,
+"symbol": "WCT",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T18:57:29+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 97,
+"symbol": "WCT",
+"session": "2026-11-09",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-09T19:07:25+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 98,
+"symbol": "TVRD",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T20:42:49+00:00",
+"status": "settled",
+"reason": "close"
+},
+{
+"id": 99,
+"symbol": "TVRD",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T20:43:15+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 100,
+"symbol": "TVRD",
+"session": "2026-11-09",
+"alert_type": "new_high",
+"posted_at": "2026-11-09T20:53:35+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 101,
+"symbol": "TTD",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T21:02:00+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 102,
+"symbol": "TTD",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T21:02:30+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 103,
+"symbol": "FGL",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T21:11:18+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 104,
+"symbol": "SMX",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T21:25:32+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 105,
+"symbol": "TANH",
+"session": "2026-11-09",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-09T21:45:19+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 106,
+"symbol": "CISS",
+"session": "2026-11-09",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-09T22:03:58+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 107,
+"symbol": "CODX",
+"session": "2026-11-09",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-09T23:38:05+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 108,
+"symbol": "CODX",
+"session": "2026-11-09",
+"alert_type": "news",
+"posted_at": "2026-11-09T23:38:51+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 109,
+"symbol": "PEPG",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T12:39:57+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 110,
+"symbol": "PEPG",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T12:40:08+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 111,
+"symbol": "SECZ",
+"session": "2026-11-10",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-10T13:17:24+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 112,
+"symbol": "SECZ",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T13:17:35+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 113,
+"symbol": "SMX",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T13:18:40+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 114,
+"symbol": "SMX",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T13:18:51+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 115,
+"symbol": "PXLW",
+"session": "2026-11-10",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-10T13:21:00+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 116,
+"symbol": "PXLW",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T13:21:11+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 117,
+"symbol": "PDYN",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T13:22:16+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 118,
+"symbol": "PDYN",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T13:22:26+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 119,
+"symbol": "BYAH",
+"session": "2026-11-10",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-10T14:25:26+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 120,
+"symbol": "SECZ",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T14:30:49+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 121,
+"symbol": "CISS",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T14:31:01+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 122,
+"symbol": "BYAH",
+"session": "2026-11-10",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-10T14:31:16+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 123,
+"symbol": "AMIX",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T14:32:53+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 124,
+"symbol": "HUMA",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T14:34:35+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 125,
+"symbol": "HUMA",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T14:35:22+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 126,
+"symbol": "PEPG",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T14:35:53+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 127,
+"symbol": "AMIX",
+"session": "2026-11-10",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-10T14:42:25+00:00",
+"status": "settled",
+"reason": "stop"
+},
+{
+"id": 128,
+"symbol": "AACG",
+"session": "2026-11-10",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-10T14:50:20+00:00",
+"status": "filtered",
+"reason": "price 0.6747 outside $1-50"
+},
+{
+"id": 129,
+"symbol": "TTEC",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T14:53:12+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 130,
+"symbol": "TTEC",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T14:53:38+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 131,
+"symbol": "SECZ",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T15:15:42+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 132,
+"symbol": "NCI",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T15:17:55+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 133,
+"symbol": "NNOX",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T15:19:03+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 134,
+"symbol": "NNOX",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T15:19:28+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 135,
+"symbol": "NCI",
+"session": "2026-11-10",
+"alert_type": "resumed",
+"posted_at": "2026-11-10T15:22:05+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 136,
+"symbol": "NNOX",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T15:27:09+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 137,
+"symbol": "KULR",
+"session": "2026-11-10",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-10T15:33:55+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 138,
+"symbol": "KULR",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T15:34:42+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 139,
+"symbol": "STAK",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T15:36:13+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 140,
+"symbol": "TTEC",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T15:40:50+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 141,
+"symbol": "NCI",
+"session": "2026-11-10",
+"alert_type": "resumed",
+"posted_at": "2026-11-10T15:48:23+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 142,
+"symbol": "TTEC",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T16:55:43+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 143,
+"symbol": "AACG",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T17:19:50+00:00",
+"status": "filtered",
+"reason": "price 0.7979 outside $1-50"
+},
+{
+"id": 144,
+"symbol": "OMH",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T17:29:48+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 145,
+"symbol": "OMH",
+"session": "2026-11-10",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-10T17:56:03+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 146,
+"symbol": "OMH",
+"session": "2026-11-10",
+"alert_type": "resumed",
+"posted_at": "2026-11-10T18:05:56+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 147,
+"symbol": "INLF",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T18:26:15+00:00",
+"status": "filtered",
+"reason": "price 0.4299 outside $1-50"
+},
+{
+"id": 148,
+"symbol": "INLF",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T20:00:22+00:00",
+"status": "filtered",
+"reason": "price 0.5632 outside $1-50"
+},
+{
+"id": 149,
+"symbol": "INLF",
+"session": "2026-11-10",
+"alert_type": "new_high",
+"posted_at": "2026-11-10T20:19:20+00:00",
+"status": "filtered",
+"reason": "price 0.6223 outside $1-50"
+},
+{
+"id": 150,
+"symbol": "GEVO",
+"session": "2026-11-10",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-10T21:03:22+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 151,
+"symbol": "WKSP",
+"session": "2026-11-10",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-10T21:06:42+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 152,
+"symbol": "WKSP",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T21:07:29+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 153,
+"symbol": "GEVO",
+"session": "2026-11-10",
+"alert_type": "news",
+"posted_at": "2026-11-10T21:11:51+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 154,
+"symbol": "SHFS",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T13:17:13+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 155,
+"symbol": "CHSN",
+"session": "2026-11-11",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-11T13:19:45+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 156,
+"symbol": "CHSN",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T13:21:01+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 157,
+"symbol": "BRAI",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T14:27:09+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 158,
+"symbol": "BRAI",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T14:27:20+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 159,
+"symbol": "PEPG",
+"session": "2026-11-11",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-11T14:29:47+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 160,
+"symbol": "PEPG",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T14:30:13+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 161,
+"symbol": "GEVO",
+"session": "2026-11-11",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-11T14:33:12+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 162,
+"symbol": "GEVO",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T14:33:58+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 163,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T14:40:25+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 164,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T14:42:22+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 165,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T14:48:24+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 166,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-11T14:49:53+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 167,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T14:51:52+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 168,
+"symbol": "SCKT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T14:54:50+00:00",
+"status": "filtered",
+"reason": "price 0.4408 outside $1-50"
+},
+{
+"id": 169,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T14:57:06+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 170,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T15:02:59+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 171,
+"symbol": "SCKT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T15:05:05+00:00",
+"status": "filtered",
+"reason": "price 0.6141 outside $1-50"
+},
+{
+"id": 172,
+"symbol": "NUAI",
+"session": "2026-11-11",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-11T15:08:01+00:00",
+"status": "filtered",
+"reason": "beta >= 3 (no shorts on high beta, amendment F7)"
+},
+{
+"id": 173,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T15:08:18+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 174,
+"symbol": "SCKT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T15:08:51+00:00",
+"status": "filtered",
+"reason": "price 0.6004 outside $1-50"
+},
+{
+"id": 175,
+"symbol": "BURU",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T15:15:57+00:00",
+"status": "filtered",
+"reason": "price 0.2793 outside $1-50"
+},
+{
+"id": 176,
+"symbol": "BURU",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T15:16:41+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 177,
+"symbol": "NCT",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T15:20:17+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 178,
+"symbol": "NCT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T15:21:58+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 179,
+"symbol": "ZDGE",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T15:24:53+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 180,
+"symbol": "NCT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T15:27:18+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 181,
+"symbol": "PEPG",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T15:28:21+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 182,
+"symbol": "MI",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T15:59:10+00:00",
+"status": "filtered",
+"reason": "price 0.5191 outside $1-50"
+},
+{
+"id": 183,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T16:05:33+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 184,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T16:11:24+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 185,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T16:29:10+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 186,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T16:34:59+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 187,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T16:36:18+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 188,
+"symbol": "YMT",
+"session": "2026-11-11",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-11T16:47:48+00:00",
+"status": "filtered",
+"reason": "price 0.7609 outside $1-50"
+},
+{
+"id": 189,
+"symbol": "YMT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T16:50:32+00:00",
+"status": "filtered",
+"reason": "price 0.7800 outside $1-50"
+},
+{
+"id": 190,
+"symbol": "SMTK",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T16:52:01+00:00",
+"status": "filtered",
+"reason": "price 0.4985 outside $1-50"
+},
+{
+"id": 191,
+"symbol": "YMT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T16:56:36+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 192,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T16:58:36+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 193,
+"symbol": "PLCE",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T17:08:26+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 194,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T17:09:08+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 195,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T17:19:34+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 196,
+"symbol": "SFWL",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T18:00:18+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 197,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T18:30:31+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 198,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "resumed",
+"posted_at": "2026-11-11T18:40:56+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 199,
+"symbol": "WHLR",
+"session": "2026-11-11",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-11T18:44:29+00:00",
+"status": "filtered",
+"reason": "price 0.9674 outside $1-50"
+},
+{
+"id": 200,
+"symbol": "RETO",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T18:53:41+00:00",
+"status": "settled",
+"reason": "60 min"
+},
+{
+"id": 201,
+"symbol": "RKDA",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T20:46:22+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 202,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "testing_high",
+"posted_at": "2026-11-11T21:12:55+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 203,
+"symbol": "NXXT",
+"session": "2026-11-11",
+"alert_type": "new_high",
+"posted_at": "2026-11-11T21:22:02+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 204,
+"symbol": "ADXN",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T21:44:28+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 205,
+"symbol": "ADXN",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T21:44:54+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 206,
+"symbol": "POAS",
+"session": "2026-11-11",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-11T22:31:26+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 207,
+"symbol": "ICMB",
+"session": "2026-11-11",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-11T23:35:57+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 208,
+"symbol": "ICMB",
+"session": "2026-11-11",
+"alert_type": "news",
+"posted_at": "2026-11-11T23:36:08+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 209,
+"symbol": "DPU",
+"session": "2026-11-12",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-12T11:17:11+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 210,
+"symbol": "DPU",
+"session": "2026-11-12",
+"alert_type": "news",
+"posted_at": "2026-11-12T11:17:22+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 211,
+"symbol": "PLCE",
+"session": "2026-11-12",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-12T12:24:56+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 212,
+"symbol": "PLCE",
+"session": "2026-11-12",
+"alert_type": "news",
+"posted_at": "2026-11-12T12:25:56+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 213,
+"symbol": "PARA",
+"session": "2026-11-12",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-12T12:26:40+00:00",
+"status": "filtered",
+"reason": "outside 09:30-15:44"
+},
+{
+"id": 214,
+"symbol": "ADXN",
+"session": "2026-11-12",
+"alert_type": "news",
+"posted_at": "2026-11-12T14:34:18+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 215,
+"symbol": "POAS",
+"session": "2026-11-12",
+"alert_type": "resumed",
+"posted_at": "2026-11-12T14:35:56+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 216,
+"symbol": "ADXN",
+"session": "2026-11-12",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-12T14:35:57+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 217,
+"symbol": "ADXN",
+"session": "2026-11-12",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-12T14:45:57+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 218,
+"symbol": "RETO",
+"session": "2026-11-12",
+"alert_type": "resumed",
+"posted_at": "2026-11-12T14:46:49+00:00",
+"status": "est_closed",
+"reason": "stop"
+},
+{
+"id": 219,
+"symbol": "GMM",
+"session": "2026-11-12",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-12T14:55:23+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 220,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-12T15:04:21+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 221,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "news",
+"posted_at": "2026-11-12T15:04:47+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 222,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "new_high",
+"posted_at": "2026-11-12T15:07:34+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 223,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "resumed",
+"posted_at": "2026-11-12T15:12:50+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 224,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "new_high",
+"posted_at": "2026-11-12T15:14:30+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 225,
+"symbol": "MERC",
+"session": "2026-11-12",
+"alert_type": "gaining_volume",
+"posted_at": "2026-11-12T15:18:17+00:00",
+"status": "filtered",
+"reason": "price 0.2942 outside $1-50"
+},
+{
+"id": 226,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "resumed",
+"posted_at": "2026-11-12T15:25:23+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 227,
+"symbol": "GP",
+"session": "2026-11-12",
+"alert_type": "volume_spike",
+"posted_at": "2026-11-12T15:31:10+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 228,
+"symbol": "GMEX",
+"session": "2026-11-12",
+"alert_type": "volume_increasing",
+"posted_at": "2026-11-12T15:36:09+00:00",
+"status": "skipped",
+"reason": "no trade print within 5 min (halted or no quote)"
+},
+{
+"id": 229,
+"symbol": "AIMD",
+"session": "2026-11-12",
+"alert_type": "resumed",
+"posted_at": "2026-11-12T15:40:21+00:00",
+"status": "filtered",
+"reason": "news (no-news rule, amendment F6)"
+},
+{
+"id": 230,
+"symbol": "OPTT",
+"session": "2026-11-12",
+"alert_type": "intraday_high",
+"posted_at": "2026-11-12T15:48:16+00:00",
+"status": "filtered",
+"reason": "beta >= 3 (no shorts on high beta, amendment F7)"
+},
+{
+"id": 231,
+"symbol": "XLAB",
+"session": "2026-11-12",
+"alert_type": "gaining_momentum",
+"posted_at": "2026-11-12T16:43:10+00:00",
+"status": "est_closed",
+"reason": "stop"
+}
+]
