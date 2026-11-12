@@ -3,11 +3,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import sys
+from pathlib import Path
+
 import httpx
 import pandas as pd
 import pytest
 
-import fade_live
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))     # review F4: runnable alone
+import fade_live  # noqa: E402
 from sgt.ai import trade_review as tr
 from sgt.ops.store import OpsStore
 

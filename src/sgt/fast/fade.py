@@ -79,6 +79,8 @@ BETA_REASON = "beta >= 3 (no shorts on high beta, amendment F7)"
 NO_REPEAT, REPEAT_DAYS = True, 7
 REPEAT_REASON = "alerted in the prior 7 days (multi-day runner, amendment F8)"
 NO_PRINT_REASON = "no trade print within 5 min (halted or no quote)"
+# Skips that show the alert had no tested entry bar (not an event); "no quote within 5 min" is the pre-11-09 wording.
+NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed before entry")
 
 Quote = Callable[[str], "float | None"]
 # A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
@@ -168,15 +170,21 @@ def last_entry(session: date) -> time:
 
 
 def prior_alert(db: OpsStore, symbol: str, day: date) -> str | None:
-    """F8: the latest session 1..REPEAT_DAYS calendar days before ``day`` with a research event on ``symbol`` (an alert
-    that passed the cell, window and price filters and had an entry bar: the tested definition), else None. Alerts the
-    short skipped for news, beta or F8 count (they were events); price/window filters and no-print skips do not."""
+    """F8: the latest session 1..REPEAT_DAYS calendar days before ``day`` on which the channel alerted ``symbol`` in a
+    tested cell inside the entry window, else None. The research counted every such alert with an entry bar priced
+    $1-50, whatever we did with it. Live counts the alerts we traded, those the short skipped for news, beta or F8, and
+    operational skips (paused, late, not approved): real alerts whose price and entry bar were never checked, so the
+    live set can be slightly larger than the tested one (review 2026-11-12: 4 of 100 live decisions, all OMH, a true
+    multi-day runner). It never counts alerts shown not to be events: price/window filters and NOT_EVENT_SKIPS. A row
+    that settlement later voids still counts until then (rare; same conservative direction)."""
     lo, hi = (day - timedelta(days=REPEAT_DAYS)).isoformat(), (day - timedelta(days=1)).isoformat()
+    marks = ",".join("?" * len(NOT_EVENT_SKIPS))
     with db.tx() as c:
         r = c.execute("SELECT MAX(session) FROM fade_trades WHERE symbol=? AND session BETWEEN ? AND ? AND ("
-                      "status IN ('ask','pending','open','est_closed','settled') OR (status='skipped' AND reason!=?) "
+                      "status IN ('ask','pending','open','est_closed','settled') "
+                      f"OR (status='skipped' AND reason NOT IN ({marks})) "
                       "OR (status='filtered' AND reason IN (?,?,?)))",
-                      (symbol, lo, hi, NO_PRINT_REASON, NEWS_REASON, BETA_REASON, REPEAT_REASON)).fetchone()
+                      (symbol, lo, hi, *NOT_EVENT_SKIPS, NEWS_REASON, BETA_REASON, REPEAT_REASON)).fetchone()
     return r[0] if r else None
 
 

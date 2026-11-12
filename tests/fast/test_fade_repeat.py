@@ -54,6 +54,10 @@ def test_a_stock_alerted_yesterday_is_not_shorted_and_says_why(db):
     ("2026-11-11", "filtered", fade.REPEAT_REASON, True),                 # chains: a runner keeps being skipped
     ("2026-11-11", "skipped", "alert received late", True),
     ("2026-11-11", "skipped", fade.NO_PRINT_REASON, False),               # no entry bar: not a tested event
+    ("2026-11-11", "skipped", "no quote within 5 min", False),            # the pre-11-09 wording of the same
+    ("2026-11-11", "skipped", "session closed before entry", False),      # entry bar past the window
+    ("2026-11-11", "skipped", "not approved in time", True),              # a real alert we chose not to trade
+    ("2026-11-11", "void", "not a research event", False),
     ("2026-11-11", "filtered", "price 0.5000 outside $1-50", False),
     ("2026-11-11", "filtered", "outside 09:30-15:44", False),
 ])

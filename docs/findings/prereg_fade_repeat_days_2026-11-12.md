@@ -39,5 +39,8 @@ Reading: a stock the channel already alerted in the past week is a multi-day run
 average, and skipping those trades raises the book's total in both periods. Live (Nov 4-12, partial history): F8
 would have skipped STAK 11-06 (-5.0%), STAK 11-10 (-8.8%) and RETO 11-12 (-21.0%); the 18 kept fades average -2.0%.
 Live rule (owner: "improve the algorithm in any way possible only if it makes sense"; adopted with the PR merge):
-`fade.prior_alert` counts alerts that were tested events (passed the cell, window and price filters and had an entry
-bar, including those the short skipped for news, beta or F8); the long book still treats F8-skipped alerts as events.
+`fade.prior_alert` counts channel alerts in a tested cell inside the entry window: traded ones, those the short
+skipped for news, beta or F8, and operational skips (paused, late, not approved). Their price and entry bar were never
+checked live, so the live set can be slightly larger than the tested one (review 2026-11-12 F1: 4 of 100 live
+decisions differ, all OMH, a true multi-day runner); alerts shown not to be events (price/window filters, no entry
+print, session closed) never count. The long book still treats F8-skipped alerts as events.
