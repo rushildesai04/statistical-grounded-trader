@@ -107,6 +107,9 @@ def test_needs_you_leads_and_lists_everything(db, monkeypatch, tmp_path):
     needs = text.split(bold("TODAY"))[0]
     assert bold("NEEDS YOU") in needs and "PAUSED" in needs and "\u2022 jobs FAILED: megacap " in needs
     assert "\u2022 x: missing close" in needs and "DRIFT" in needs and "alert fade (no-news)" in needs
+    from sgt.fast import fade                                              # 2026-11-12: the alarm halves new fades
+    assert "size for new trades cut to 50% (was 100%). Ask Claude to restore it." in needs   # and says so (F-1)
+    assert fade.drift_scale(db) == 0.5
     code = ap.pending(db)[0]["code"]
     assert f"\u2022 pending tom: OK {code} by " in needs                    # reply code stays plain ASCII digits
     assert "Nothing needs you" not in text

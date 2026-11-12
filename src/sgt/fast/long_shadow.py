@@ -39,12 +39,12 @@ def _latest(session: str) -> pd.Timestamp:
 
 # Owner 2026-11-10 ("longs first"): longs are considered on every research alert, including the ones the SHORT
 # skipped for company news (F6) or high beta (F7); those never settle as fades, so they are taken from 'filtered'.
-SHORT_SKIPS = (fade.NEWS_REASON, fade.BETA_REASON)
+SHORT_SKIPS = (fade.NEWS_REASON, fade.BETA_REASON, fade.REPEAT_REASON)     # F8 2026-11-12: still a long event
 
 
 # A research event for the long books: any channel alert that passed the research filters, whatever the short did.
 QUALIFY = ("(status IN ('pending','open','est_closed','settled','skipped') OR (status='void' AND reason=?) OR "
-           "(status='filtered' AND reason IN (?,?)))")
+           "(status='filtered' AND reason IN (?,?,?)))")
 QUALIFY_ARGS = (HALT_REASON, *SHORT_SKIPS)
 # The research is first event per symbol-session (repeat alerts of a stock the short skipped are new rows; replay of
 # 2026-11-09 gave WCT five longs): only the earliest qualifying row of a symbol-session is an event.

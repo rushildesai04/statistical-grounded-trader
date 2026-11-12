@@ -167,7 +167,9 @@ def test_settle_replays_the_live_order_on_sip_bars(db):
     assert (t["status"], t["entry"], t["exit"], t["exit_reason"]) == ("settled", 10.55, pytest.approx(tgt), "target")
     assert t["fill_ts"] == (T1 + 2 * pt.BAR).isoformat() and t["cost_rt"] == COST
     assert t["net"] == pytest.approx(tgt / 10.55 - 1 - COST) and t["settled_at"] == NIGHT.isoformat()
-    assert lb.nav(db) == pytest.approx(100_000 * (1 + 0.05 * t["net"]))
+    w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))     # A2: sized to the 3.3% stop (0.81x)
+    assert t["weight"] == pytest.approx(w) and t["rules"] == lb.RULES
+    assert lb.nav(db) == pytest.approx(100_000 * (1 + w * t["net"]))
     assert "long book (paper) 1 trades, avg +5.64%/trade" in lb.record_line(db)
     assert lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT) == []          # settled once
 
@@ -353,8 +355,9 @@ def test_long_dollars_use_the_long_book(db):
     sent = []
     for k in range(0, 140):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
-    assert "$5,000 (paper)" in sent[0]
-    assert "(+$332 est, paper)" in sent[1]                                 # 0.05 x 100,000 x +6.64%
+    w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))           # A2 risk size: $4,038 of the long book
+    assert f"${w * 100_000:,.0f} (paper) (sized to the stop)" in sent[0]
+    assert f"(+${w * 100_000 * 0.0664:,.0f} est, paper)" in sent[1]       # w x 100,000 x +6.64%
 
 
 def test_a_fill_found_after_a_restart_is_missed_not_traded(db):
@@ -382,3 +385,66 @@ def test_live_exit_sells_at_the_target_on_the_fill_bar():
     r = {"kind": "L4b", "est_entry": 1.92, "stop": 1.90, "target": 1.96, "trigger": 1.92}
     t = lb._exit(f, r, t0)
     assert (t.reason, t.exit_ts) == ("target", t0) and t.exit == pytest.approx(1.96)
+
+
+# ---- 2026-11-12 A2 rules (prereg_long_risk addendum A2): risk size + red-fill-candle exit -------------------------
+# 15:03 trades through the 10.55 buy-stop but CLOSES 10.45 (red fill candle, no stop at 10.20, no 11.25 target);
+# 15:04 opens 10.40 -> the A2 exit sells there. Without A2 the trade runs on and hits the target at 15:05.
+RED_DAY = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.45, 500),
+                (10.40, 10.6, 10.35, 10.5, 300), (10.5, 11.6, 10.5, 11.5, 800)] + [(11.5, 11.6, 11.4, 11.5, 100)] * 50)
+
+
+def test_risk_weight_caps_at_one_and_shrinks_wide_stops():
+    assert lb.risk_weight(10.0, 9.9) == 1.0                                   # 1% stop: tighter than the median
+    assert lb.risk_weight(10.0, 9.0) == pytest.approx(lb.RISK_D50 / 0.10)     # 10% stop: 0.27x
+    assert lb.risk_weight(10.0, 10.0) == 0.0 and lb.risk_weight(10.0, 10.5) == 0.0 and lb.risk_weight(0.0, -1) == 0.0
+
+
+def test_a2_long_sells_at_the_next_open_after_a_red_fill_candle(db):
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(RED_DAY), sent.append, now=at(3)) == 1                # filled on the 15:03 bar
+    (t,) = trades(db)
+    assert (t["kind"], t["est_entry"], t["rules"]) == ("L4b", 10.55, lb.RULES)
+    lb.tick(db, feed(RED_DAY), sent.append, now=at(3, 30))                        # 15:04 not closed: still open
+    assert trades(db)[0]["status"] == "open"
+    lb.tick(db, feed(RED_DAY), sent.append, now=at(4))
+    (t,) = trades(db)
+    assert (t["status"], t["reason"], t["est_exit"]) == ("est_closed", "red", 10.40)
+    assert "fill candle closed red, out at the next open" in sent[-1] and "$10.55 -> $10.40" in sent[-1]
+
+
+def test_a_long_opened_before_a2_keeps_its_old_exit_live_and_official(db):
+    """Trades opened before the deploy (rules NULL) are never re-judged by the new exit."""
+    r = {"kind": "L4b", "est_entry": 10.55, "stop": 10.2, "target": 11.25, "trigger": 10.55, "rules": None}
+    t = lb._exit(lb.rth(RED_DAY, at(60)), r, T1 + 2 * pt.BAR)
+    assert t.reason == "target"                                               # the old rule: target on 15:05
+    t2 = lb._exit(lb.rth(RED_DAY, at(60)), {**r, "rules": lb.RULES}, T1 + 2 * pt.BAR)
+    assert (t2.reason, t2.exit) == ("red", 10.40)
+
+
+def test_settle_applies_the_red_exit_only_to_a2_trades(db):
+    for sym, rules in (("NEWR", lb.RULES), ("OLDR", None)):
+        fid = alert_row(db, sym)
+        with db.tx() as c:
+            c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
+                      "entry_ts, est_entry, est_last, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (fid, sym, "2026-11-09", "L4b", "est_closed", 10.55, 10.2, 11.25, 0.04,
+                       (T1 + 2 * pt.BAR).isoformat(), 10.55, 10.4, POSTED.isoformat(), rules))
+    out = lb.settle(db, sip({"NEWR": RED_DAY, "OLDR": RED_DAY}), cost, now=NIGHT)
+    got = {t["symbol"]: (t["exit_reason"], t["exit"]) for t in trades(db)}
+    assert got["NEWR"] == ("red", 10.40) and got["OLDR"] == ("target", pytest.approx(11.25)) and len(out) == 2
+
+
+def test_exit_text_never_fails_on_an_unknown_reason(db):
+    t = pt.Trade("L4b", "long", T1, 10.0, T1, 9.9, "something-new", -0.01)
+    assert "something-new" in lb.exit_text(db, {"symbol": "X", "weight": 0.05}, t)
+
+
+def test_long_size_follows_the_drift_scale(db):
+    from sgt.learning import live_monitor as lm
+    db.set_flag(lm.SCALE_FLAG + lb.BOOK, "0.5")
+    alert_row(db)
+    lb.tick(db, feed(DAY), [].append, now=at(3))
+    w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55)) * 0.5
+    assert trades(db)[0]["weight"] == pytest.approx(w)

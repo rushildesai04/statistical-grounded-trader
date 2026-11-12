@@ -18,7 +18,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | stop | 20% above entry (worst case inside a bar) | prereg_alert_fade (10/20/30/none explored on train) |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
 | beta (F7) | no short when the stock's beta >= 3 (owner 2026-11-10; past: >= 3 -2.14%/trade, < 1.5 +1.86%). The scanner followed the same rule on 11-10 and is paused since 11-11 (owner: longs first; it still records and scores spikes: digest line) Unknown beta still shorts: tested 2026-11-11, no-news unknown +1.03%/trade (n 367), not worse than beta < 3 (p 0.36) | fade.py, prereg_alert_fade F7; scanner.py, prereg_scanner_book A1 |
+| repeat (F8) | no short on a stock the channel alerted 1-7 calendar days earlier (multi-day runner; owner 2026-11-12 deep review). No-news: kept +2.54% vs repeats -1.01% (train), +2.55% vs -1.33% (held-out). Longs still trade these alerts | prereg_fade_repeat_days_2026-11-12 |
 | size | 5% of book NAV per trade by default; text `SIZE 10000` sets dollars per trade ($500 to 25% of the book; raising needs a code). Runaway guards only: 40 open, 200% of the book short. No daily cap or loss stop (F6) | fade.py, owner 2026-11-09 |
+| drift guard | nightly: a live-monitor alarm (one-sided CUSUM k 0.5 / h 5 sd vs the tested expectancy, or win rate below tested at p < 0.01 after 20 trades) halves that book's size for NEW trades (floor 25%); never raises size, never closes a trade; restored only on the owner's word. Fade and long book | sgt.learning.live_monitor, owner 2026-11-12 |
+| long book (paper) | first long setup to fill per alert; stop, 2R target, 30 min; since A2 (2026-11-12): size x min(1, 2.68% / stop distance) and out at the next open when the fill candle closes below the entry (tested -1.88% vs -2.29% per dollar: still losing) | prereg_long_risk_2026-11-12 A2 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
 | texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |
@@ -128,6 +131,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG book: size by risk, w = min(1, 2.68% / stop distance) | per $ -1.96% vs -2.29% (p 0.004) | -1.96% vs -2.37% | same: passes, still losing |
 | LONG book: sell at the next open when the fill candle closes below entry (owner, POAS/ZDGE) | -2.09% vs -2.29% (p 0.007) | -2.22% vs -2.37% | same: passes, still losing |
 | LONG book: both together (risk size + red-candle exit), adopted 2026-11-12 | per $ -1.88% vs -2.29% (p 0.002) | -1.91% vs -2.37% | same, A2: ADOPTED, still losing |
+| LONG book (A2): breakeven stop after +1R (owner, RETO 11-12) | per $ -1.86% vs -1.88% (p 0.12; 162 of 2,242 changed) | not opened | prereg_long_breakeven_2026-11-12 |
 | LONG book: skip fills opening > 1R above the trigger (RETO) | 1 of 2,242 on SIP bars: an IEX-bar effect, not a rule | - | same |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
@@ -150,6 +154,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | RETO 2026-11-12 short -21% (live est) | alert 09:46:49 (resumed); short $8.10 at 09:47:43, a real post-alert print inside the SIP 09:47 bar ($8.00-9.12), not a pre-halt print; then 5 LULD halts in 40 min, stop | rule loss (stop); resumed alerts are the BEST fade cell (+3.16% held-out, n 218) | none: skipping resumed alerts is contradicted |
 | POAS 2026-11-12 short skipped | SIP traded 981k shares in the 09:36 entry bar; live saw no usable IEX print until the 90 s stale guard (halt 09:37); tested short would have stopped ~-20% | live/test divergence (saved a loss) | log quote-attempt times [VERIFY cause] |
 | Longs 2026-11-12: ADXN, XLAB, POAS, RETO | live IEX est +6.0 / +5.9 / -13.2 / -10.7%; official SIP replay -3.0 / -4.3 / -13.2 / +11.0% (ADXN, XLAB same-bar stops on SIP; RETO filled 8.82 on SIP, not 9.33) | book as tested (-2.29%); IEX texts disagree with SIP per trade on halting names | lessons tested: prereg_long_risk (risk sizing and red-fill-candle exit pass, still losing) |
+| XLAB 2026-11-12 short -20.9% (live est, ~-$1,045) | alert 11:43:10 (gaining_momentum); short $1.29 at 11:44:13 (tested: the 11:44 open $1.28); a 45-minute grind up on rising volume to $1.58, stop 12:29; borrow fee 481%, dilution filing flag, 18.5% over VWAP, RSI 80, EMA 9 > 21 | rule loss (stop): the rise came after the entry | the note's lessons are tested: exit when price reclaims the entry (+0.87% / +0.07% vs champion), tighter stop (10% halves the edge), dilution filings (flip sign, prereg_fade_filings); EMA 9 > 21 at entry is where the fade's profit is (finding 10) |
 **Owner notes review (2026-11-11; all 20 notes, trades 11-06 to 11-11).** The notes keep proposing the same five ideas.
 Each one is matched to evidence below:
 | idea in the notes | trades | evidence |
@@ -171,6 +176,7 @@ The notes also flagged data and execution issues:
 | GEVO: $1.975 sell vs $1.96 target | the fill bar traded the target AFTER the buy (it crossed the trigger first), but the simulator skipped it and took the next bar's $1.975 open | **fixed 2026-11-11** (owner OK): the fill bar sells at the target in patterns.simulate and long_book._exit. On the 6,529 historical setup fills 29 change (23 target fills drop to the target price, 6 later stop-outs become target wins); every setup's mean moves <= 0.01%, no conclusion changes |
 | ZDGE long: entry and stop in the same minute | the simulator counts it as a full stop (conservative), as tested | none |
 | AMIX: $2.81 stop, $2.92 live cover | live IEX one-minute stop monitor; official $2.784 (SIP stop level) | known (FISN row): IEX stops lag on thin names |
+| RETO 11-12 "pre-halt entry" and XLAB 11-12 "timestamp conflict" (Luna) | both false: the review saw IEX bars only (RETO's 09:47 entry bar had no IEX prints) and converted UTC with the summer offset (16:53 UTC is 11:53 ET in November) | **fixed 2026-11-12**: reviews get ET times and SIP bars (IEX only as fallback), and wait until SIP covers the trade |
 Since 2026-11-11, Luna writes in this format and checks every idea (its own and the note's) against sections 3-4. The result is labelled "tested: lost", "untested" and so on. Luna re-reads a note once it is saved.
 
 Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL DATE`.
@@ -181,6 +187,7 @@ Long book official result (2026-11-11, owner: "real long scoring"): the live tra
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
   (entry delay, holds, exits, brain sizing, time-of-day sizing, confidence sizing, price sizing, calm skip, vol-up sizing; StockTwits buzz recorded).
+- **Drift guard** (2026-11-12): the live monitor compares each live book with its tested expectancy every night; an alarm halves that book's size for new trades and texts the owner (section 2).
 - The **learning scoreboard** (`scripts/learning_report.py`, nightly 22:05 ET, `reports/learning/scoreboard.md`, digest
   line) scores each challenger against the live rule on forward trades and marks it READY at n >= 300.
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as

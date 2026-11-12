@@ -63,24 +63,75 @@ def test_ai_test_queue_counts_until_reviewed(db):
     assert journal.pending_tests(db) == 0
 
 
-def add_longs(db, nets):
+def add_longs(db, nets, rules="A2"):
     with db.tx() as c:
-        for i, n in enumerate(nets):
-            c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, weight, net, created_at) VALUES "
-                      "(?,?,?,?,?,?,?,?)", (i, f"L{i}", "2026-11-10", "L4a", "settled", 0.05, n, "x"))
+        base = c.execute("SELECT COUNT(*) FROM long_trades").fetchone()[0]          # fade_id is UNIQUE
+        for i, n in enumerate(nets, start=base):
+            c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, weight, net, created_at, rules) "
+                      "VALUES (?,?,?,?,?,?,?,?,?)", (i, f"L{i}", "2026-11-13", "L4a", "settled", 0.05, n, "x", rules))
 
 
-def test_long_book_judged_against_its_tested_first_fill_rule(db):
-    """Owner 2026-11-10 option A: the live paper long book is compared with what the test said (-2.29%/trade)."""
+def test_long_book_judged_against_its_tested_rule(db):
+    """Owner 2026-11-10 option A, rules A2 since 2026-11-12: the live paper long book is compared with what the test
+    said for the adopted rule (-2.09%/trade); trades opened before A2 are not judged against it."""
     book = [b for b in lm.BOOKS if b.name == "long book (paper)"][0]
-    assert book.expectancy == pytest.approx(-0.0229)
+    assert book.expectancy == pytest.approx(-0.0209)
+    add_longs(db, [-0.30] * 5, rules=None)                                            # before A2: ignored
     add_longs(db, [0.04, -0.03, -0.02, -0.05, 0.05, -0.04, -0.03, -0.02] * 4)       # about the tested mean
     r = lm.check_trade_book(db, book)
     assert r["n"] == 32 and r["alarms"] == []
-    assert lm.lines([r])[0].startswith("long book (paper): 32 live trades") and "tested -2.29%" in lm.lines([r])[0]
+    assert lm.lines([r])[0].startswith("long book (paper): 32 live trades") and "tested -2.09%" in lm.lines([r])[0]
 
 
 def test_long_book_drift_alarm_when_far_worse(db):
     book = [b for b in lm.BOOKS if b.name == "long book (paper)"][0]
     add_longs(db, [-0.12, -0.10, -0.15, -0.09, -0.11] * 8)
     assert lm.check_trade_book(db, book)["alarms"]
+
+
+# ---- 2026-11-12: a drift alarm halves the book's size for new trades (owner: learning must kick in) ------------------
+def test_scale_is_one_until_an_alarm_and_fails_closed_on_a_bad_flag(db):
+    assert lm.scale(db, "long book (paper)") == 1.0
+    for raw in ("abc", "nan", "inf", "-0.5", "1.5", ""):
+        db.set_flag(lm.SCALE_FLAG + "long book (paper)", raw)
+        assert lm.scale(db, "long book (paper)") == lm.MIN_SCALE            # never raises size
+    db.set_flag(lm.SCALE_FLAG + "long book (paper)", "0.5")
+    assert lm.scale(db, "long book (paper)") == 0.5
+
+
+def test_a_new_alarm_halves_the_book_once_and_floors_at_min_scale(db):
+    from datetime import date
+    res = [{"book": "long book (paper)", "n": 40, "alarms": ["CUSUM 5.20 > h=5 (first)"]}]
+    msgs = lm.new_alarms(db, res, date(2026, 11, 13))
+    assert lm.scale(db, "long book (paper)") == 0.5 and "cut to 50% (was 100%)" in msgs[0]
+    assert lm.new_alarms(db, res, date(2026, 11, 14)) == [] and lm.scale(db, "long book (paper)") == 0.5   # same alarm
+    for k in range(3):
+        lm.new_alarms(db, [{"book": "long book (paper)", "n": 60, "alarms": [f"CUSUM 5.{k} > h=5 (later {k})"]}],
+                      date(2026, 11, 20))
+    assert lm.scale(db, "long book (paper)") == lm.MIN_SCALE                # 0.25 floor, never zero
+
+
+def test_only_the_live_books_are_scaled(db):
+    from datetime import date
+    lm.new_alarms(db, [{"book": "scanner (experiment)", "n": 30, "alarms": ["CUSUM 6 > h=5"]}], date(2026, 11, 13))
+    assert db.flag(lm.SCALE_FLAG + "scanner (experiment)") is None
+
+
+def test_book_names_match_the_trading_code():
+    from sgt.fast import fade, long_book
+    names = {b.name for b in lm.BOOKS}
+    assert fade.BOOK in names and long_book.BOOK in names and set(lm.AUTO_BOOKS) == {fade.BOOK, long_book.BOOK}
+
+
+def test_guard_lines_announce_a_cut_once_then_keep_a_standing_line(db):
+    """Review 2026-11-12 F-1: the cut text reached nobody; the digest now shows it, then a standing line."""
+    from datetime import date
+    res = [{"book": "long book (paper)", "n": 40, "alarms": ["CUSUM 5.20 > h=5 (first)"]},
+           {"book": "scanner (experiment)", "n": 30, "alarms": ["CUSUM 6 > h=5"]}]
+    first = lm.guard_lines(db, res, date(2026, 11, 13))
+    assert len(first) == 1 and "cut to 50% (was 100%). Ask Claude to restore it." in first[0]
+    assert lm.guard_lines(db, res, date(2026, 11, 14)) == [
+        "long book (paper): drift guard holds new trades at 50% of size (ask Claude to restore)"]
+    assert lm.guard_lines(db, [], date(2026, 11, 15))[0].endswith("(ask Claude to restore)")
+    db.set_flag(lm.SCALE_FLAG + "long book (paper)", "1")
+    assert lm.guard_lines(db, [], date(2026, 11, 16)) == []

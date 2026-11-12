@@ -73,6 +73,14 @@ NEWS_REASON = "news (no-news rule, amendment F6)"
 # only, beta from the year before each alert): >= 3 -2.14%/trade (n 76; no-news -6.67%, n 29), < 1.5 +1.86% (n 1,654).
 HIGH_BETA_SKIP = 3.0
 BETA_REASON = "beta >= 3 (no shorts on high beta, amendment F7)"
+# Amendment F8 (prereg_fade_repeat_days_2026-11-12, deep review of the 11-12 losses): no short on a stock the channel
+# alerted 1-7 calendar days earlier (a multi-day runner). No-news fades: kept +2.54% vs repeats -1.01% (training,
+# n 1,018 / 317), held-out +2.55% vs -1.33% (n 371 / 133). The long book still treats these alerts as events.
+NO_REPEAT, REPEAT_DAYS = True, 7
+REPEAT_REASON = "alerted in the prior 7 days (multi-day runner, amendment F8)"
+NO_PRINT_REASON = "no trade print within 5 min (halted or no quote)"
+# Skips that show the alert had no tested entry bar (not an event); "no quote within 5 min" is the pre-11-09 wording.
+NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed before entry")
 
 Quote = Callable[[str], "float | None"]
 # A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
@@ -105,7 +113,7 @@ class LiveAlert:
 
 
 def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, now: datetime) -> int | None:
-    w = trade_weight(db) if status in ("pending", "ask") else None      # fixed at entry; settle uses the row's weight
+    w = trade_weight(db) * drift_scale(db) if status in ("pending", "ask") else None   # fixed at entry; settle uses it
     with db.tx() as c:
         if status != "filtered" and c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND "
                                               "status!='filtered'", (a.symbol, session)).fetchone():
@@ -161,6 +169,25 @@ def last_entry(session: date) -> time:
     return min(LAST_ENTRY, (close - timedelta(minutes=1)).time())
 
 
+def prior_alert(db: OpsStore, symbol: str, day: date) -> str | None:
+    """F8: the latest session 1..REPEAT_DAYS calendar days before ``day`` on which the channel alerted ``symbol`` in a
+    tested cell inside the entry window, else None. The research counted every such alert with an entry bar priced
+    $1-50, whatever we did with it. Live counts the alerts we traded, those the short skipped for news, beta or F8, and
+    operational skips (paused, late, not approved): real alerts whose price and entry bar were never checked, so the
+    live set can be slightly larger than the tested one (review 2026-11-12: 4 of 100 live decisions, all OMH, a true
+    multi-day runner). It never counts alerts shown not to be events: price/window filters and NOT_EVENT_SKIPS. A row
+    that settlement later voids still counts until then (rare; same conservative direction)."""
+    lo, hi = (day - timedelta(days=REPEAT_DAYS)).isoformat(), (day - timedelta(days=1)).isoformat()
+    marks = ",".join("?" * len(NOT_EVENT_SKIPS))
+    with db.tx() as c:
+        r = c.execute("SELECT MAX(session) FROM fade_trades WHERE symbol=? AND session BETWEEN ? AND ? AND ("
+                      "status IN ('ask','pending','open','est_closed','settled') "
+                      f"OR (status='skipped' AND reason NOT IN ({marks})) "
+                      "OR (status='filtered' AND reason IN (?,?,?)))",
+                      (symbol, lo, hi, *NOT_EVENT_SKIPS, NEWS_REASON, BETA_REASON, REPEAT_REASON)).fetchone()
+    return r[0] if r else None
+
+
 def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     """Classify one parsed alert. Returns what happened (for logs); texts nothing (``monitor`` does)."""
     now = now or utcnow()
@@ -180,6 +207,9 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     if NO_NEWS and a.alert_type == "news":                         # amendment F6 (owner 2026-11-09)
         _insert(db, a, session, "filtered", NEWS_REASON, now)
         return "filtered: news"
+    if NO_REPEAT and prior_alert(db, a.symbol, et.date()) is not None:     # amendment F8 (owner 2026-11-12)
+        _insert(db, a, session, "filtered", REPEAT_REASON, now)
+        return "filtered: repeat"
     if now - a.posted_at > MAX_ENTRY_DELAY:
         _insert(db, a, session, "skipped", "alert received late", now)
         return "skipped: late"
@@ -265,7 +295,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
         ctx = _context(db, r, context)
-        summary = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), at=now)
+        summary = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), at=now)
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -329,7 +359,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
     if px is None or not px > 0:
         if now - posted > MAX_ENTRY_DELAY:          # the tested rule: no bar within 5 minutes -> no trade (halts)
-            _set(db, r["id"], "pending", status="skipped", reason="no trade print within 5 min (halted or no quote)")
+            _set(db, r["id"], "pending", status="skipped", reason=NO_PRINT_REASON)
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
@@ -343,7 +373,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         with db.tx() as c:                            # the beta stamped by the F7 check, for the text (2026-11-10)
             ctx = {**ctx, "beta": c.execute("SELECT beta FROM fade_trades WHERE id=?", (r["id"],)).fetchone()[0]}
         how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
-        send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db),
+        send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db),
                                  out_at=out, at=now) + how)
 
 
@@ -387,7 +417,7 @@ def _context(db: OpsStore, r, context) -> dict:
 def _veto_text(db: OpsStore, send, r, px: float, now: datetime, out: datetime, context) -> None:
     """F5 entry text: the full trade card + "NO <code> = exit now" (approval kind 'fadeexit', open until the exit)."""
     ctx = _context(db, r, context)
-    body = ask_text(r["symbol"], r["alert_type"], px, notional(db), ctx, borrow_note(r), record(db), out_at=out,
+    body = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), out_at=out,
                     at=now)
     approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fadeexit", period=r["session"], summary=body,
                       payload={"fade_id": r["id"], "symbol": r["symbol"]}, expires_at=out, now=now)
@@ -526,9 +556,23 @@ def trade_weight(db: OpsStore, v: float | None = None) -> float:
 
 
 def notional(db: OpsStore) -> float:
-    """Dollar size of one new fade trade: trade_weight x current official book value."""
+    """The SIZE setting in dollars: trade_weight x current official book value (the SMS SIZE command compares to it)."""
     v = nav(db)
     return trade_weight(db, v) * v
+
+
+BOOK = "alert fade (no-news)"                    # sgt.learning.live_monitor book name
+
+
+def drift_scale(db: OpsStore) -> float:
+    """The live monitor's size multiplier for new fades (1.0 unless a drift alarm halved it; 2026-11-12)."""
+    from sgt.learning import live_monitor
+    return live_monitor.scale(db, BOOK)
+
+
+def entry_notional(db: OpsStore) -> float:
+    """Dollar size of one new fade trade as booked: the SIZE setting x the drift scale."""
+    return notional(db) * drift_scale(db)
 
 
 def nav(db: OpsStore, through: date | None = None) -> float:
