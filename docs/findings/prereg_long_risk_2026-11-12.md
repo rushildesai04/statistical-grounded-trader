@@ -77,3 +77,12 @@ both held on the held-out months. Neither makes the long book profitable: it sti
 are loss reducers, not an edge. RETO's 11% gap fill was an IEX-bar artifact: on SIP bars it filled at 8.82 and hit its
 target (official +11%). R and E were tested separately; using both together is a new combination (not tested here).
 Adoption in the live paper book needs the owner's OK.
+
+## Addendum A2 (2026-11-12, owner chose "both, test the combination first"; frozen before computing it)
+**RE combined**: the E exit and the R weights together: per-trade net `e_net` weighted by `w = min(1, D50 / d)` (D50 =
+2.68%, the training median fixed above). Statistic: `sum(w x e_net) / sum(w)` minus the equal-size BASE mean net
+(paired, sessions resampled; same bootstrap, seed and 10,000 resamples). Computed from `reports/long_risk/base.csv`
+(the rows of the single run above; `d` and `e_net` are already there, no bars re-read). Alpha 0.0125 (the same family;
+conservative). ADOPT both R and E in the live paper long book only if training statistic > 0 with p < 0.0125 AND the
+held-out statistic > 0 (n >= 30). Otherwise adopt only R (the stronger single result). PROFITABLE as above.
+Script: `scripts/long_risk_study.py --combo` (reads base.csv; prints and writes `reports/long_risk/combo.json`).
