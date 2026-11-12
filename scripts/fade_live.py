@@ -391,18 +391,30 @@ def _scan_detect(client: httpx.Client, db: OpsStore, state: ScanState, now: date
 AI_EVERY, AI_RECHECK = 60, timedelta(hours=1)
 
 
-def ai_bars(client: httpx.Client, symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
-    """IEX 1-minute bars for one trade's window (free feed), for the per-trade AI review."""
+SIP_LAG = timedelta(minutes=16)                # free SIP data ends 15 minutes before now (request refused past it)
+
+
+def ai_bars(client: httpx.Client, symbol: str, start: datetime, end: datetime,
+            now=lambda: datetime.now(timezone.utc)) -> pd.DataFrame:
+    """1-minute bars for one trade's window, for the per-trade AI review. 2026-11-12: SIP (all venues; free, 15 min
+    late, end capped) first, IEX only when SIP has nothing; the feed is in ``attrs["feed"]``. IEX alone showed RETO's
+    09:47 entry bar as a halt gap, and the review called a real post-alert entry a pre-halt print."""
     if not _SYMBOL.match(symbol):
         return pd.DataFrame()
-    r = client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe": "1Min", "start": start.isoformat(),
-                                                        "end": end.isoformat(), "feed": "iex", "limit": 400})
-    rows = (r.json() or {}).get("bars") if r.status_code == 200 else None
-    if not isinstance(rows, list) or not rows:
-        return pd.DataFrame()
-    f = pd.DataFrame([x for x in rows if isinstance(x, dict)]).rename(
-        columns={"t": "ts", "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
-    return f.assign(ts=pd.to_datetime(f.ts, utc=True))[["ts", "open", "high", "low", "close", "volume"]]
+    for feed, stop in (("sip", min(end, now() - SIP_LAG)), ("iex", end)):
+        if stop <= start:
+            continue
+        r = client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe": "1Min", "start": start.isoformat(),
+                                                            "end": stop.isoformat(), "feed": feed, "limit": 400})
+        rows = (r.json() or {}).get("bars") if r.status_code == 200 else None
+        if not isinstance(rows, list) or not rows:
+            continue
+        f = pd.DataFrame([x for x in rows if isinstance(x, dict)]).rename(
+            columns={"t": "ts", "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
+        f = f.assign(ts=pd.to_datetime(f.ts, utc=True))[["ts", "open", "high", "low", "close", "volume"]]
+        f.attrs["feed"] = feed.upper()
+        return f
+    return pd.DataFrame()
 
 
 class AIState:
