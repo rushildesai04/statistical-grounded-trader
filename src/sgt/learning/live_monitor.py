@@ -150,3 +150,15 @@ def new_alarms(db: OpsStore, results: list[dict], today: date) -> list[str]:
                             f"{now:.0%} (was {was:.0%}). Ask Claude to restore it.")
                 out.append(msg)
     return out
+
+
+def guard_lines(db: OpsStore, results: list[dict], today: date) -> list[str]:
+    """Digest NEEDS YOU lines (review 2026-11-12 F-1): tonight's new alarms with their size cut, plus a standing line
+    for every live book still below full size, so a cut is never silent."""
+    new = [m for m in new_alarms(db, results, today) if m.split(":", 1)[0] in AUTO_BOOKS]
+    out = list(new)
+    for book in AUTO_BOOKS:
+        k = scale(db, book)
+        if k < 1 and not any(m.startswith(book + ":") for m in new):
+            out.append(f"{book}: drift guard holds new trades at {k:.0%} of size (ask Claude to restore)")
+    return out

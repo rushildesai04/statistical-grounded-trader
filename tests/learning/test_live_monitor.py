@@ -121,3 +121,17 @@ def test_book_names_match_the_trading_code():
     from sgt.fast import fade, long_book
     names = {b.name for b in lm.BOOKS}
     assert fade.BOOK in names and long_book.BOOK in names and set(lm.AUTO_BOOKS) == {fade.BOOK, long_book.BOOK}
+
+
+def test_guard_lines_announce_a_cut_once_then_keep_a_standing_line(db):
+    """Review 2026-11-12 F-1: the cut text reached nobody; the digest now shows it, then a standing line."""
+    from datetime import date
+    res = [{"book": "long book (paper)", "n": 40, "alarms": ["CUSUM 5.20 > h=5 (first)"]},
+           {"book": "scanner (experiment)", "n": 30, "alarms": ["CUSUM 6 > h=5"]}]
+    first = lm.guard_lines(db, res, date(2026, 11, 13))
+    assert len(first) == 1 and "cut to 50% (was 100%). Ask Claude to restore it." in first[0]
+    assert lm.guard_lines(db, res, date(2026, 11, 14)) == [
+        "long book (paper): drift guard holds new trades at 50% of size (ask Claude to restore)"]
+    assert lm.guard_lines(db, [], date(2026, 11, 15))[0].endswith("(ask Claude to restore)")
+    db.set_flag(lm.SCALE_FLAG + "long book (paper)", "1")
+    assert lm.guard_lines(db, [], date(2026, 11, 16)) == []
