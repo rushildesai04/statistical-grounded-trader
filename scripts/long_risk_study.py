@@ -170,7 +170,98 @@ def secondary(bt: pd.DataFrame) -> dict:
             "share_gap_fill": float(((bt.trigger.notna()) & (bt.g > 0)).mean())}
 
 
+def be_gross(f: pd.DataFrame, s: pt.Setup, t: pt.Trade, arm: bool = True) -> tuple[float, bool]:
+    """prereg_long_breakeven_2026-11-12: the A2 trade (red-fill-candle exit) with the stop moved to the entry from the
+    bar AFTER the first closed bar whose high reaches entry + 1R. Returns (gross, armed). ``arm=False`` is plain A2
+    (equals patterns.simulate(red_exit=True))."""
+    entry, stop0 = t.entry, float(s.stop)
+    r = entry - stop0
+    target = entry + pt.RR * r
+    path = f[(f.ts >= t.entry_ts) & (f.ts < t.entry_ts + pt.HOLD)]
+    armed = False
+    for k, b in enumerate(path.itertuples()):
+        first = k == 0
+        if armed and b.low <= entry:
+            return min(entry, float(b.open)) / entry - 1, True
+        if not armed and b.low <= stop0:
+            px = stop0 if first and s.trigger is not None else min(stop0, float(b.open))
+            return px / entry - 1, False
+        if b.high >= target:
+            px = target if first else max(target, float(b.open))
+            return px / entry - 1, armed
+        if first and b.close < entry:                # A2 E: red fill candle -> the next bar's open
+            nxt = f[f.ts > b.ts]
+            px = float(nxt.iloc[0].open) if len(nxt) else float(b.close)
+            return px / entry - 1, False
+        if arm and not armed and b.high >= entry + r:
+            armed = True                             # effective from the next bar (order inside this bar unknown)
+    last = path.iloc[-1]
+    return float(last.close) / entry - 1, armed
+
+
+def be_rows(ev: pd.DataFrame, bars: Bars, halt: bool) -> list[dict]:
+    rows = []
+    for r in ev.itertuples():
+        f = bars(r.symbol, r.session)
+        if not len(f):
+            continue
+        hit = first_fill(f, pd.Timestamp(r.t0), halt, latest(r.session))
+        if hit is None:
+            continue
+        s, t = hit
+        cost = float(r.cost_rt)
+        a2, _ = be_gross(f, s, t, arm=False)
+        be, armed = be_gross(f, s, t)
+        rows.append({"symbol": r.symbol, "session": r.session, "halt": halt, "d": (t.entry - s.stop) / t.entry,
+                     "a2_net": a2 - cost, "be_net": be - cost, "armed": armed, "changed": abs(be - a2) > 1e-12})
+    return rows
+
+
+def be_stats(b: pd.DataFrame, d50: float) -> dict:
+    """Per dollar (A2 weights) BE minus per dollar A2, paired, sessions resampled."""
+    w = weights(b.d, d50).to_numpy(float)
+    x, y = b.be_net.to_numpy(float), b.a2_net.to_numpy(float)
+    u, inv = np.unique(b.session.to_numpy(), return_inverse=True)
+    sx, sy, sw = (np.bincount(inv, w * x, len(u)), np.bincount(inv, w * y, len(u)), np.bincount(inv, w, len(u)))
+    idx = _rng_idx(len(u))
+    dist = (sx[idx].sum(1) - sy[idx].sum(1)) / sw[idx].sum(1)
+    ch = b[b.changed]
+    be_pd, a2_pd = float((w * x).sum() / w.sum()), float((w * y).sum() / w.sum())
+    return {"n": len(b), "changed": int(b.changed.sum()), "armed": float(b.armed.mean()), "a2": a2_pd, "be": be_pd,
+            "diff": be_pd - a2_pd, "p": _p(dist),
+            "be_lower95": float(np.quantile(sx[idx].sum(1) / sw[idx].sum(1), 0.05)),
+            "changed_a2": float(ch.a2_net.mean()) if len(ch) else None,
+            "changed_be": float(ch.be_net.mean()) if len(ch) else None}
+
+
+def breakeven() -> dict:
+    bars = Bars()
+    fe = fade_events().sort_values(["symbol", "session"]).reset_index(drop=True)
+    he = halt_events(bars)
+    b = pd.DataFrame(be_rows(fe, bars, False) + be_rows(he, bars, True))
+    b["split"] = np.where(b.session < D_STAR, "train", "holdout")
+    b.to_csv(OUT / "breakeven.csv", index=False)
+    bt, bh = b[b.split == "train"], b[b.split == "holdout"]
+    d50 = float(bt.d.quantile(Q_RISK))
+    train = be_stats(bt, d50)
+    ok = train["changed"] >= MIN_TRAIN and train["diff"] > 0 and train["p"] < 0.05
+    out = {"prereg": "docs/findings/prereg_long_breakeven_2026-11-12.md", "train": train, "train_pass": ok,
+           "holdout": None, "adopt": False, "profitable": False}
+    if ok:
+        h = be_stats(bh, d50)
+        out["holdout"] = h
+        out["adopt"] = h["changed"] >= MIN_HOLD and h["diff"] > 0
+        out["profitable"] = bool(out["adopt"] and train["be"] > 0 and train["be_lower95"] > 0 and h["be"] > 0)
+    return out
+
+
 def main() -> int:
+    if "--breakeven" in sys.argv[1:]:                # prereg_long_breakeven_2026-11-12, run once
+        OUT.mkdir(parents=True, exist_ok=True)
+        out = breakeven()
+        print(json.dumps(out, indent=2, default=str))
+        (OUT / "breakeven.json").write_text(json.dumps(out, indent=2, default=str))
+        return 0
     if "--combo" in sys.argv[1:]:                    # addendum A2: no bars re-read, the single run's rows
         base = pd.read_csv(OUT / "base.csv", dtype={"session": str})
         out = combo(base)

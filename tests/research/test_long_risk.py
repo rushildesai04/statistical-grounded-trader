@@ -155,3 +155,72 @@ def test_combo_opens_held_out_only_on_a_training_pass():
     tr_ = b[b.split == "train"]
     w = np.minimum(1.0, tr_.d.quantile(0.5) / tr_.d)
     assert out["train"]["sized"] == pytest.approx(float((w * tr_.e_net).sum() / w.sum()))   # e_net, train rows only
+
+
+# ---- prereg_long_breakeven_2026-11-12 ---------------------------------------------------------------------------
+BE_S = pt.Setup("L4b", "long", T0 + 3 * pt.BAR, 10.1, 9.9)       # entry 10.10 (trigger), R 0.20, +1R 10.30, 2R 10.50
+BE_FLAT = [(10.0, 10.05, 9.95, 10.0)] * 3
+
+
+def _be(rows):
+    f = frame(BE_FLAT + rows)
+    t = pt.simulate(f, BE_S)
+    assert t is not None
+    return f, t
+
+
+def test_breakeven_arms_after_plus_1r_and_exits_at_entry_from_the_next_bar():
+    f, t = _be([(10.0, 10.2, 10.0, 10.15), (10.15, 10.35, 10.12, 10.3), (10.3, 10.32, 10.05, 10.1)]
+               + [(10.1, 10.2, 10.0, 10.1)] * 30)
+    g, armed = lr.be_gross(f, BE_S, t)
+    assert armed and g == pytest.approx(0.0)                    # sold at the entry, 10.10 (open 10.30 above it)
+    a2, _ = lr.be_gross(f, BE_S, t, arm=False)
+    assert a2 == pytest.approx(pt.simulate(f, BE_S, red_exit=True).gross)
+
+
+def test_breakeven_never_uses_the_arming_bar_itself_and_takes_a_gap_at_the_open():
+    f, t = _be([(10.0, 10.2, 10.0, 10.15), (10.15, 10.35, 10.08, 10.2), (9.95, 10.0, 9.92, 9.95)]
+               + [(9.95, 10.0, 9.92, 9.95)] * 30)
+    g, armed = lr.be_gross(f, BE_S, t)                         # arming bar dipped to 10.08: not an exit
+    assert armed and g == pytest.approx(9.95 / 10.1 - 1)       # next bar opened below entry: sold at the open
+
+
+def test_breakeven_keeps_the_target_and_matches_a2_when_never_armed():
+    f, t = _be([(10.0, 10.2, 10.0, 10.15), (10.15, 10.35, 10.15, 10.3), (10.3, 10.6, 10.3, 10.5)]
+               + [(10.5, 10.6, 10.4, 10.5)] * 30)
+    assert lr.be_gross(f, BE_S, t) == (pytest.approx(10.5 / 10.1 - 1), True)
+    f2, t2 = _be([(10.0, 10.2, 10.0, 10.15)] + [(10.15, 10.25, 10.0, 10.1)] * 40)
+    assert lr.be_gross(f2, BE_S, t2)[0] == pytest.approx(lr.be_gross(f2, BE_S, t2, arm=False)[0])
+    assert lr.be_gross(f2, BE_S, t2)[1] is False
+
+
+def test_breakeven_plain_a2_equals_the_live_simulator_on_random_paths():
+    rng = np.random.default_rng(13)
+    n = 0
+    for _ in range(300):
+        c = 10 + np.cumsum(rng.normal(0, 0.06, 60))
+        o = np.r_[c[0], c[:-1]] + rng.normal(0, 0.02, 60)
+        f = pd.DataFrame({"ts": [T0 + i * pt.BAR for i in range(60)], "open": o,
+                          "high": np.maximum(o, c) + rng.uniform(0, 0.08, 60),
+                          "low": np.minimum(o, c) - rng.uniform(0, 0.08, 60), "close": c, "volume": 1000.0})
+        s = pt.Setup("L4b", "long", f.ts[3], float(c[2]) + 0.05, float(c[2]) - 0.15)
+        t = pt.simulate(f, s)
+        if t is None:
+            continue
+        assert lr.be_gross(f, s, t, arm=False)[0] == pytest.approx(pt.simulate(f, s, red_exit=True).gross)
+        n += 1
+    assert n > 150
+
+
+def test_be_stats_pairs_per_dollar_and_counts_changed():
+    b = pd.DataFrame({"session": ["a", "b", "c"], "d": [0.02, 0.02, 0.2], "a2_net": [-0.05, 0.02, -0.10],
+                      "be_net": [-0.01, 0.02, -0.10], "armed": [True, False, True], "changed": [True, False, False]})
+    st = lr.be_stats(b, 0.02)                                  # weights 1, 1, 0.1
+    assert st["changed"] == 1 and st["diff"] == pytest.approx(0.04 / 2.1) and st["changed_be"] == pytest.approx(-0.01)
+
+
+def test_breakeven_exits_when_a_later_bar_touches_the_entry_exactly():
+    f, t = _be([(10.0, 10.2, 10.0, 10.15), (10.15, 10.35, 10.15, 10.3), (10.3, 10.32, 10.10, 10.2),
+                (10.2, 10.6, 10.2, 10.5)] + [(10.5, 10.6, 10.4, 10.5)] * 30)
+    assert lr.be_gross(f, BE_S, t) == (pytest.approx(0.0), True)          # low 10.10 = entry: out at 10.10
+    assert lr.be_gross(f, BE_S, t, arm=False)[0] == pytest.approx(10.5 / 10.1 - 1)   # A2 rides to the target
