@@ -129,6 +129,14 @@ def load_models(month: str, *, root: Path | None = None) -> tuple[dict, dict]:
 
 
 # ---------------------------------------------------------------------------- decisions
+# 2026-11-13 (the 15-name set made no power-hour decision: RDDT had 186 one-minute bars on the free IEX feed, under
+# the research floor of 195, and one unusable name crashed the whole set). Live floor: a name needs prints in at least
+# LIVE_MIN_BARS minutes and one within LIVE_STALE of the market's last bar; a name that still cannot be built is FLAT
+# that day with the reason recorded, and the other names are decided (amendments in the three megacap pre-registrations).
+LIVE_MIN_BARS = 60
+LIVE_STALE = pd.Timedelta(minutes=30)
+
+
 def today_row(today: date, intraday: dict[str, pd.DataFrame], daily: dict[str, pd.DataFrame], sym: str) -> pd.Series:
     """Feature row for ``today`` from daily bars through yesterday + today's bars to 15:49 ET.
 
@@ -139,14 +147,16 @@ def today_row(today: date, intraday: dict[str, pd.DataFrame], daily: dict[str, p
             raise LiveError(f"{s}: today's daily bar (official open) unavailable; fail closed")
         if intraday[s].empty:
             raise LiveError(f"{s}: no intraday bars today")
+        if intraday[s].ts.max() < intraday["SPY"].ts.max() - LIVE_STALE:
+            raise LiveError(f"{s}: last intraday bar is more than {LIVE_STALE.seconds // 60} min behind the market")
         d = daily[s][daily[s].index < today]
         row = pd.DataFrame({"open": [float(daily[s].loc[today].open)], "high": [np.nan], "low": [np.nan],
                             "close": [np.nan], "volume": [np.nan]}, index=[today])
         return pd.concat([d, row])
 
     rows = build_daily(intraday[sym], with_today(sym), intraday["SPY"], with_today("SPY"), intraday["QQQ"],
-                       with_today("QQQ"), require_label=False, live_session=today)
-    r = rows[rows.session == today]
+                       with_today("QQQ"), require_label=False, live_session=today, live_min_bars=LIVE_MIN_BARS)
+    r = rows[rows.session == today] if len(rows) else rows
     if r.empty:
         raise LiveError(f"{sym}: could not build today's row")
     return r.iloc[0]
@@ -176,8 +186,16 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
     models, meta = load_models(f"{today:%Y-%m}", root=root)
     out = {"date": str(today), "written_at": None, "mode": mode,
            "model_month": meta["month"], "positions": {}}
+    skipped = {}
     for s in syms:
-        x = today_row(today, intraday, daily, s)
+        try:
+            x = today_row(today, intraday, daily, s)
+        except LiveError as e:                               # this name is flat today; the set still decides
+            skipped[s] = str(e)
+            th = meta["tickers"][s]
+            out["positions"][s] = {"pred": None, "position": 0, "q_lo": th["q_lo"], "q_hi": th["q_hi"],
+                                   "features": {}, "skipped": str(e)}
+            continue
         pred = float(models[s].predict(pd.DataFrame([x[list(DAILY_FEATURES)].astype(float)]))[0])
         th = meta["tickers"][s]
         pos = 1 if pred >= th["q_hi"] else (-1 if pred <= th["q_lo"] else 0)
@@ -186,6 +204,8 @@ def decide(today: date, now_et: datetime, intraday: dict, daily: dict, *, mode: 
     # 2026-11-09 (adversarial passes 3-4, F-13/F-14): the stamp is the write time from an injectable clock. Pass 3
     # stamped now_et, which hid a decision written at 15:57 after a slow fetch (pass 4); the untestable wall clock
     # before that made the suite (and the gated deploy) fail after 15:55 ET.
+    if len(skipped) == len(syms):                            # nothing could be built (e.g. no SPY/QQQ): fail closed
+        raise LiveError("no name could be decided: " + "; ".join(sorted(set(skipped.values())))[:300])
     written = (clock or (lambda: datetime.now(timezone.utc)))()
     if written.tzinfo is None:
         raise LiveError("clock must be timezone-aware")

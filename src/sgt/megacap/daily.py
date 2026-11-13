@@ -61,10 +61,11 @@ def _today(a: dict | None) -> tuple[float, float, float, float]:
 
 def build_daily(bars: pd.DataFrame, daily: pd.DataFrame, spy_bars: pd.DataFrame, spy_daily: pd.DataFrame,
                 qqq_bars: pd.DataFrame, qqq_daily: pd.DataFrame, *, require_label: bool = True,
-                live_session=None) -> pd.DataFrame:
+                live_session=None, live_min_bars: int | None = None) -> pd.DataFrame:
     """Rows for every session with intraday bars. ``require_label=False`` (live decision) keeps the
     last session, whose next close does not exist yet (label NaN)."""
-    grid, sg, qg = to_grid(bars), to_grid(spy_bars), to_grid(qqq_bars)
+    floor = live_min_bars if live_session is not None else None      # research sessions keep the default floor
+    grid, sg, qg = to_grid(bars, floor), to_grid(spy_bars, floor), to_grid(qqq_bars, floor)
     if live_session is not None:
         # Session still open at 15:50: the cutoff comes from the exchange close, not the last bar seen.
         for g in (grid, sg, qg):

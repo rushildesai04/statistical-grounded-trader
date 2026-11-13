@@ -105,3 +105,62 @@ def test_month_summaries_only_completed_months_cumulative():
     assert out["2026-11"]["days"] == 3                               # cumulative since the start
     assert out["2026-11"]["cum_net"] == pytest.approx(1.01 * 0.995 * 1.002 - 1)
     assert month_summaries(port, date(2026, 10, 31)) == {}           # month end day itself: not over yet
+
+
+# --- 2026-11-13: one unusable name must not cancel the whole 15:50 decision (RDDT, 186 IEX bars) ---
+def _bars(day, minutes, px=100.0):
+    ts = [pd.Timestamp(f"{day} 09:30", tz=ET).tz_convert("UTC") + pd.Timedelta(minutes=int(k)) for k in minutes]
+    c = px * (1 + 0.0001 * np.arange(len(ts)))
+    return pd.DataFrame({"ts": ts, "open": c, "high": c * 1.001, "low": c * 0.999, "close": c, "volume": 1000.0})
+
+
+def _daily(day, n=300):
+    idx = [d.date() for d in pd.bdate_range(end=day, periods=n)]
+    c = 100 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.01, n))
+    return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99, "close": c, "volume": 1e6}, index=idx)
+
+
+def _live_inputs(day, sparse=None, stale=None):
+    full = range(380)                                   # 09:30 .. 15:49
+    intraday = {s: _bars(day, full) for s in (*live.TICKERS, "SPY", "QQQ")}
+    if sparse:
+        intraday[sparse[0]] = _bars(day, np.linspace(0, 379, sparse[1]).astype(int))
+    if stale:
+        intraday[stale] = _bars(day, range(300))        # last print 80 minutes before the market's last bar
+    return intraday, {s: _daily(day) for s in (*live.TICKERS, "SPY", "QQQ")}
+
+
+def test_a_thin_feed_name_is_still_decided_above_the_live_floor(root):
+    day = date(2026, 3, 18)
+    intraday, daily = _live_inputs(day, sparse=(live.TICKERS[0], 186))       # under the research floor of 195
+    row = live.today_row(day, intraday, daily, live.TICKERS[0])
+    assert row.session == day and np.isfinite(row.t_r_intraday)
+
+
+@pytest.mark.parametrize("kind", ["too few bars", "stale"])
+def test_an_unusable_name_is_flat_with_a_reason_and_the_set_still_decides(root, kind):
+    live.train_month("2026-03", {s: _features() for s in live.TICKERS})
+    day, bad = date(2026, 3, 18), live.TICKERS[0]
+    intraday, daily = _live_inputs(day, sparse=(bad, live.LIVE_MIN_BARS - 1)) if kind == "too few bars" \
+        else _live_inputs(day, stale=bad)
+    dec = json.loads(live.decide(day, datetime(2026, 3, 18, 15, 50, tzinfo=ET), intraday, daily).read_text())
+    assert dec["positions"][bad]["position"] == 0 and dec["positions"][bad]["skipped"]
+    others = [v for s, v in dec["positions"].items() if s != bad]
+    assert len(others) == len(live.TICKERS) - 1 and all("skipped" not in v and v["pred"] is not None for v in others)
+
+
+def test_no_market_context_decides_nothing(root):
+    live.train_month("2026-03", {s: _features() for s in live.TICKERS})
+    day = date(2026, 3, 18)
+    intraday, daily = _live_inputs(day)
+    intraday["SPY"] = intraday["SPY"].iloc[:0]
+    with pytest.raises(live.LiveError, match="no name could be decided"):
+        live.decide(day, datetime(2026, 3, 18, 15, 50, tzinfo=ET), intraday, daily)
+    assert not (root / "decisions" / f"{day}.json").exists()
+
+
+def test_research_floor_is_unchanged():
+    from sgt.megacap.features import to_grid
+    day = date(2026, 3, 18)
+    thin = _bars(day, np.linspace(0, 379, 186).astype(int))
+    assert day not in to_grid(thin) and day in to_grid(thin, live.LIVE_MIN_BARS)

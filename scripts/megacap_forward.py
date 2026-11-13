@@ -151,6 +151,9 @@ def do_decide(cfg: ForwardSet) -> int:
     path = decide(today, now, intraday, daily, tickers=cfg.tickers, root=cfg.root, clock=lambda: datetime.now(ET))
     pos = json.loads(path.read_text())["positions"]
     print(f"{today} decisions -> {path}: " + ", ".join(f"{s} {v['position']:+d}" for s, v in pos.items()))
+    for s, v in pos.items():
+        if v.get("skipped"):
+            print(f"  {s} flat today (not decided): {v['skipped']}")
     return 0
 
 

@@ -53,3 +53,12 @@ Start date 2026-11-09 (the day this file is committed). The first decision is ma
 the 1-minute store accepts that session (post_close 20:00 ET + 16 min) from the November models (trained
 on sessions < 2026-11-01) and filled close t -> close t+1. No forward decision or forward price had been
 seen when this was written.
+
+## Amendment A1 (2026-11-13, before the 2026-11-16 decision): a name that cannot be decided is flat that day
+On 2026-11-13 the 15-name set made no live 15:50 decision: RDDT had 186 one-minute bars on the free real-time feed,
+under the research floor of 195 (half the session), and that one name stopped the whole set (the six-name set decided
+normally: all flat). From 2026-11-16, for the live decision of every set: a name needs prints in at least 60 minutes
+of the session and one within 30 minutes of the market's last bar; a name that still cannot be built is FLAT that day
+with the reason recorded in the decision file, and the other names are decided as before. If no name can be built
+(for example no SPY / QQQ context) no decision is written, as before. Nothing else changes: models, features,
+thresholds, costs, fills, evaluation. The research floor (195) is unchanged for training and the out-of-sample record.
