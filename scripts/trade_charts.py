@@ -156,8 +156,12 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     except Exception:  # noqa: BLE001 - the page must render even if the journal query fails; logged
         log.exception("journal entries failed")
         entries = []
+    summary = None
+    if db is not None:
+        from sgt.ops import overview
+        summary = overview.build(db, now, learning)      # Overview tab (owner 2026-11-13); sections fail to None
     return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries,
-                         scan_views=scan_views)
+                         scan_views=scan_views, overview=summary)
 
 
 def scan_rows(db: OpsStore | None) -> list[dict]:
