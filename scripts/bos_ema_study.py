@@ -41,13 +41,16 @@ class Sig:                       # the fields the bull flag study's exits read
     strength: float = 0.0
 
 
+OWNER = False                    # prereg A1: --owner uses the owner's Pine labelling
+
+
 def signals(f: pd.DataFrame, t0: pd.Timestamp, session: str) -> list[tuple[str, bool, Sig]]:
     """Counted bullish breaks (bar at/after t0, closing by 15:30 ET) with a stop: (kind, EMA gate, signal)."""
     close = f.close.to_numpy(float)
     ema9, ema21 = bf.ema(close, 9), bf.ema(close, 21)
     cutoff = bfs.et_bar(session, 15, 30)
     out = []
-    for b in st.bullish_breaks(f):
+    for b in st.bullish_breaks(f, owner=OWNER):
         ts = f.ts.iloc[b.i]
         if ts < t0 or ts + bfs.BAR > cutoff or b.stop is None:
             continue
@@ -96,6 +99,9 @@ def diff_p(g: pd.DataFrame, col: str) -> dict:
 
 
 def main() -> int:
+    global OWNER
+    OWNER = "--owner" in sys.argv
+    tag = "_owner" if OWNER else ""
     full = bfs.FullBars()
     fe = fade_events().sort_values(["symbol", "session"]).reset_index(drop=True).assign(halt=False)
     ev = pd.concat([fe[["symbol", "session", "t0", "cost_rt", "halt"]], halt_events(Bars()).assign(halt=True)],
@@ -104,13 +110,13 @@ def main() -> int:
     t = pd.DataFrame(rows)
     t["split"] = np.select([t.session < bfs.D_STAR, t.session <= bfs.HOLD_END], ["train", "holdout"], "forward")
     OUT.mkdir(parents=True, exist_ok=True)
-    t.to_csv(OUT / "trades.csv", index=False)
+    t.to_csv(OUT / f"trades{tag}.csv", index=False)
 
     def part(c, split):
         return t[(t.candidate == c) & (t.split == split)]
 
     train = {c: bfs.stats(part(c, "train")) for c in CANDIDATES}
-    out = {"prereg": "docs/findings/prereg_bos_ema_2026-11-13.md", "alpha": ALPHA, "train": train,
+    out = {"prereg": "docs/findings/prereg_bos_ema_2026-11-13.md", "owner_pine": OWNER, "alpha": ALPHA, "train": train,
            "train_pass": {c: bool(s.get("n", 0) >= MIN_TRAIN and s.get("mean", 0) > 0 and s.get("p", 1) < ALPHA)
                           for c, s in train.items()}, "holdout": {}, "adopt": None}
     ok = []
@@ -129,10 +135,10 @@ def main() -> int:
         "2_train": {c: bfs.stats(part(c, "train")) for c in SECONDARY},
         "3_forward": {c: bfs.stats(part(c, "forward")) for c in CANDIDATES}}
     print(json.dumps(out, indent=2, default=str))
-    (OUT / "result.json").write_text(json.dumps(out, indent=2, default=str))
+    (OUT / f"result{tag}.json").write_text(json.dumps(out, indent=2, default=str))
     init_db()
     with get_session() as s:
-        trial_ledger.record_trial(s, run_id="bos-ema-2026-11-13", kind="bos-ema", params={"prereg": out["prereg"]},
+        trial_ledger.record_trial(s, run_id="bos-ema-2026-11-13" + tag.replace("_", "-"), kind="bos-ema", params={"prereg": out["prereg"]},
                                   metrics=out)
     return 0
 

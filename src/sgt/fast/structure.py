@@ -32,8 +32,10 @@ def pivots(high: np.ndarray, low: np.ndarray, n: int = LEN) -> tuple[np.ndarray,
     return ph, pl
 
 
-def bullish_breaks(f: pd.DataFrame, n: int = LEN) -> list[Break]:
-    """Every bullish break in time order. Bearish breaks only update the trend. Both on one bar: bearish first."""
+def bullish_breaks(f: pd.DataFrame, n: int = LEN, owner: bool = False) -> list[Break]:
+    """Every bullish break in time order. Bearish breaks only update the trend. Both on one bar: bearish first.
+    ``owner=True`` (prereg A1, the owner's Pine script): a bullish break is a CHoCH only when the trend is down (so the
+    day's first break is a BOS), and on a bar that breaks both levels the bullish break is applied first."""
     high, low, close = (f[c].to_numpy(float) for c in ("high", "low", "close"))
     ph, pl = pivots(high, low, n)
     out: list[Break] = []
@@ -46,9 +48,13 @@ def bullish_breaks(f: pd.DataFrame, n: int = LEN) -> list[Break]:
                 last_high = float(high[j])
             if pl[j]:
                 last_low = stop = float(low[j])
-        if last_low is not None and close[i] < last_low:
+        bear = last_low is not None and close[i] < last_low
+        if bear and not owner:
             trend, last_low = "down", None
         if last_high is not None and close[i] > last_high:
-            out.append(Break(i, "BOS" if trend == "up" else "CHOCH", last_high, stop))
+            bos = trend != "down" if owner else trend == "up"
+            out.append(Break(i, "BOS" if bos else "CHOCH", last_high, stop))
             trend, last_high = "up", None
+        if bear and owner:
+            trend, last_low = "down", None
     return out
