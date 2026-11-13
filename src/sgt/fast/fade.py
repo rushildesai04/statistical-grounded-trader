@@ -301,6 +301,9 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
     posted = datetime.fromisoformat(r["posted_at"])
     deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
     a = _approval(db, r["id"])
+    if a is None and is_off(db):                      # review 2026-11-12: an ask row from before the switch never
+        _set(db, r["id"], "ask", status="pending", reason=VETO)      # texts a request; _enter classifies it as off
+        return
     if a is None:
         if now >= deadline:
             _set(db, r["id"], "ask", status="skipped", reason="no time left to ask")

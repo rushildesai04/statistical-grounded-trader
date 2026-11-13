@@ -96,3 +96,15 @@ def test_ask_first_never_asks_for_a_short_while_off(db, monkeypatch, flag, statu
     db.set_flag(fade.OFF_FLAG, flag)
     fade.on_alert(db, fade.LiveAlert("ASKX", "volume_spike", T10 - timedelta(seconds=10), "-1", 1, None), now=T10)
     assert last(db)["status"] == status
+
+
+def test_an_ask_row_from_before_the_switch_never_texts_a_request(db, monkeypatch):
+    monkeypatch.setattr(fade, "ASK_FIRST", True)
+    db.set_flag("fast_armed", "")
+    fade.on_alert(db, fade.LiveAlert("OLDQ", "volume_spike", T10 - timedelta(seconds=10), "-1", 1, None), now=T10)
+    assert last(db)["status"] == "ask"
+    db.set_flag(fade.OFF_FLAG, "1")
+    sent = []
+    for k in (5, 20):                                      # ask -> pending, then the off check at the entry
+        fade.monitor(db, sent.append, lambda s, **kw: 4.0, now=T10 + timedelta(seconds=k))
+    assert sent == [] and (last(db)["status"], last(db)["reason"]) == ("filtered", fade.OFF_REASON)
