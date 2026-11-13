@@ -150,6 +150,44 @@ def model_books(db: OpsStore, day: date) -> tuple[list[str], dict[str, float]]:
     return out, total
 
 
+HOLD_SETS = (("megacap", "megacap_forward/marks.csv"), ("megacap 15", "megacap_ext/marks.csv"))
+MAX_MARKS_BYTES = 5_000_000
+
+
+def hold_lines(db: OpsStore) -> list[str]:
+    """RECORD lines: each daily model's forward ledger next to simply holding the same names (review 2026-11-13: a
+    +4% model fortnight means little without what holding did; the model beat holding on none of 20 names in its
+    2018-2026 record). Equal weight, compounded per session, from the forward marks (ret = hold, net = model after
+    costs). A missing file gives no line; an unreadable one says so."""
+    import csv
+
+    out = []
+    root = Path(db.path).resolve().parent.parent
+    for label, rel in HOLD_SETS:
+        p = root / rel
+        if not p.exists():
+            continue
+        try:
+            if p.stat().st_size > MAX_MARKS_BYTES:
+                raise ValueError("too large")
+            days: dict[str, list[tuple[float, float]]] = {}
+            with p.open(newline="") as fh:
+                for r in csv.DictReader(fh):
+                    if r["void"] == "True":
+                        continue
+                    days.setdefault(r["date"], []).append((float(r["net"]), float(r["ret"])))
+            model = hold = 1.0
+            for d in sorted(days):
+                model *= 1 + sum(x[0] for x in days[d]) / len(days[d])
+                hold *= 1 + sum(x[1] for x in days[d]) / len(days[d])
+            if days:
+                out.append(f"{bold(label)} vs holding the same names, {len(days)} sessions since {min(days)[5:]}: "
+                           f"model {model - 1:+.1%}, holding {hold - 1:+.1%}")
+        except (OSError, KeyError, ValueError, csv.Error):
+            out.append(f"{label} vs holding: unavailable")
+    return out
+
+
 def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     s = day.isoformat()
     with db.tx() as c:
@@ -264,6 +302,7 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             lines.append(f"{bold('long book')} " + lr.removeprefix("long book "))
     except Exception:  # noqa: BLE001 - informational line
         lines.append("long book: record unavailable")
+    lines += hold_lines(db)
     fr = fade.record_line(db)
     if fr:
         lines.append(f"{bold('fade')} " + fr.removeprefix("fade "))

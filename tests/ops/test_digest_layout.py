@@ -229,3 +229,23 @@ def test_fade_off_line_and_forward_record_problems_reach_the_digest(tmp_path, mo
     assert lines[i + 1].startswith(f"⏸️ {bold('fade')} {italic('OFF')} (owner 11-12, shorts deprioritized): "
                                    "1 alerts not shorted today")
     assert f"• fade forward record (every alert): forward record unreadable (KeyError)" in lines
+
+
+def test_model_books_are_shown_next_to_holding(tmp_path, monkeypatch):
+    # review 2026-11-13: the megacap ledger reads against holding the same names (compounded, equal weight, no voids)
+    monkeypatch.chdir(tmp_path)
+    db = OpsStore(tmp_path / "ops" / "ops.db")
+    assert digest.hold_lines(db) == []                                   # no marks yet: no line
+    p = tmp_path / "megacap_forward" / "marks.csv"
+    p.parent.mkdir()
+    p.write_text("date,symbol,position,ret,void,net\n"
+                 "2026-10-30,AAA,1,0.02,False,0.0196\n2026-10-30,BBB,0,-0.04,False,0.0\n"
+                 "2026-11-02,AAA,-1,-0.03,False,0.0296\n2026-11-02,BBB,0,0.01,False,0.0\n"
+                 "2026-11-03,AAA,1,0.50,True,0.4996\n")
+    model = (1 + 0.0196 / 2) * (1 + 0.0296 / 2) - 1
+    hold = (1 - 0.01) * (1 - 0.01) - 1
+    want = f"{bold('megacap')} vs holding the same names, 2 sessions since 10-30: model {model:+.1%}, holding {hold:+.1%}"
+    assert digest.hold_lines(db) == [want]
+    assert want in digest.build(db, NOW, fills=[], problems=[], broker=None, research=[]).splitlines()
+    p.write_text("date,symbol,position,ret,void\n2026-10-30,AAA,1,0.02,False\n")
+    assert digest.hold_lines(db) == ["megacap vs holding: unavailable"]

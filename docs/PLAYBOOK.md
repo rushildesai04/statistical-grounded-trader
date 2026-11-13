@@ -241,6 +241,11 @@ As a TIMING OVERLAY (hold, but step aside on its short days; `prereg_megacap_ove
 14 of 21 names and cuts drawdowns on all six development names (NVDA 1.11 -> 1.23), but only 7 of 12 unseen names:
 a nightly forward shadow decides at 300 symbol-days. The live forward test on the original six (since 2026-10-30) took 11 calls in
 5 sessions, 10 profitable (+1.6% average); far too few to judge. Kept as a forward test, not a money strategy.
+Review 2026-11-13 (10 sessions): 17 calls, 14 profitable, ledger +4.44% while holding the six made about 0%. Its own
+2018-2026 record has a 10-day stretch that good 3.9% of the time and 14 of 17 winners 2.4% of the time: luck until
+proven otherwise. In that record longs earn +0.33% per call and SHORTS +0.01% (n 1,448): the short calls carry no
+tested edge, yet most of the recent gain came from them. No look-ahead (every decision was written the same evening).
+Do not size up; the fixed decision points stand. The digest now shows each model set next to holding the same names.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
