@@ -94,6 +94,43 @@ def test_today_lines_dollars_and_header_total(db):
     assert lines[i + 4].startswith(f"\u23F8\uFE0F {bold('60/40 trend')} {italic('no close yet')} (last 11-06)")  # no dollars invented
 
 
+def long_row(db, sym, session, status, net=None, weight=0.05, i=[0]):
+    i[0] += 1
+    with db.tx() as c:
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, weight, est_entry, est_exit, net, "
+                  "created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  (10_000 + i[0], sym, session, "L4b", status, weight, 5.0, 5.2, net, f"{session}T15:00:00+00:00"))
+
+
+def test_long_day_has_its_colour_and_dollars_in_the_total(db):
+    # regression 2026-11-12 night: 4 longs settled -13% summed, the line was green and the -$650 sat outside the total
+    from sgt.fast import long_book
+    long_row(db, "OLD", "2026-11-06", "settled", 0.10)                  # before today: never today's dollars
+    for sym, net in (("ADXN", -0.0379), ("POAS", -0.1446), ("RETO", 0.1023), ("XLAB", -0.0503)):
+        long_row(db, sym, "2026-11-09", "settled", net)
+    fade_row(db, "CKX", "2026-11-09", "settled", 0.10)
+    text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    long_usd = long_book.nav(db, DAY) - long_book.nav(db, DAY - timedelta(days=1))
+    fade_usd = fade.nav(db, DAY) - fade.nav(db, DAY - timedelta(days=1))
+    assert long_usd < -600
+    head, split = text.splitlines()[:2]
+    assert f"{bold(digest.usd(long_usd + fade_usd))} today" in head and f"longs {digest.usd(long_usd)}" in split
+    lines = text.splitlines()
+    i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
+    assert lines[i + 1] == (f"\U0001F534 {bold('longs')} {digest.usd(long_usd)}, (paper) 4 trades: ADXN red-candle "
+                            "break -3.8%, POAS red-candle break -14.5%, RETO red-candle break +10.2%, XLAB red-candle "
+                            "break -5.0%")
+
+
+def test_long_day_with_estimates_only_invents_no_dollars(db):
+    long_row(db, "OPEN", "2026-11-09", "est_closed")
+    text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    lines = text.splitlines()
+    i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
+    assert lines[i + 1] == f"⚪ {bold('longs')} (paper) 1 trades: OPEN red-candle break +4.0%"
+    assert "longs" not in text.splitlines()[1]                          # $0 is not part of the split
+
+
 def test_needs_you_leads_and_lists_everything(db, monkeypatch, tmp_path):
     log = tmp_path / "x.log"
     log.write_text(f"=== {NOW - timedelta(minutes=5):%Y-%m-%d %H:%M:%S} job\n!!! exit 2\n")
