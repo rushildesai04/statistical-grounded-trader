@@ -81,6 +81,20 @@ REPEAT_REASON = "alerted in the prior 7 days (multi-day runner, amendment F8)"
 NO_PRINT_REASON = "no trade print within 5 min (halted or no quote)"
 # Skips that show the alert had no tested entry bar (not an event); "no quote within 5 min" is the pre-11-09 wording.
 NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed before entry")
+# Owner 2026-11-12 night (option A after the adversarial validation): new shorts OFF. The November forward record lost
+# -3.44%/trade (win 39%, n 61; a 9-session stretch of held-out days is this bad 1.1% of the time) and two independent
+# checks found no code or backtest bias; owner: shorting is deprioritized (borrowed shares, unlimited loss, margin).
+# Flag ``fade_off``: "0" or absent = on, anything else = off (fail closed: no new shorts). Checked at the tested entry
+# AFTER the news, beta and price checks, so an off row is exactly an alert the fade would have shorted: F8 still counts
+# it and the long book still trades it. The forward record (alert_fade_forward, fade_challengers) keeps scoring every
+# alert, so the edge is still measured while the book is off.
+OFF_FLAG = "fade_off"
+OFF_REASON = "fade off (owner 2026-11-12: November forward break; shorting deprioritized)"
+
+
+def is_off(db: OpsStore) -> bool:
+    v = db.flag(OFF_FLAG)
+    return v is not None and v != "0"
 
 Quote = Callable[[str], "float | None"]
 # A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
@@ -183,8 +197,9 @@ def prior_alert(db: OpsStore, symbol: str, day: date) -> str | None:
         r = c.execute("SELECT MAX(session) FROM fade_trades WHERE symbol=? AND session BETWEEN ? AND ? AND ("
                       "status IN ('ask','pending','open','est_closed','settled') "
                       f"OR (status='skipped' AND reason NOT IN ({marks})) "
-                      "OR (status='filtered' AND reason IN (?,?,?)))",
-                      (symbol, lo, hi, *NOT_EVENT_SKIPS, NEWS_REASON, BETA_REASON, REPEAT_REASON)).fetchone()
+                      "OR (status='filtered' AND reason IN (?,?,?,?)))",
+                      (symbol, lo, hi, *NOT_EVENT_SKIPS, NEWS_REASON, BETA_REASON, REPEAT_REASON,
+                       OFF_REASON)).fetchone()
     return r[0] if r else None
 
 
@@ -219,7 +234,7 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
         status = "skipped"
     elif approvals.armed(db, now):
         status, reason = "pending", ""
-    elif ASK_FIRST:
+    elif ASK_FIRST and not is_off(db):                 # never text an approval request for a short while off
         status, reason = "ask", "awaiting approval"
     else:
         status, reason = "pending", VETO
@@ -363,6 +378,9 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
+        return
+    if is_off(db):                                    # owner 2026-11-12: a would-be short, not taken (no text)
+        _set(db, r["id"], "pending", status="filtered", reason=OFF_REASON)
         return
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
         out = _exit_at(r["session"], now)[0].astimezone(ET)

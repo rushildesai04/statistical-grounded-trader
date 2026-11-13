@@ -5,6 +5,17 @@ study and every loss review (owner, 2026-11-06: "distill all of it ... keep maki
 the file that produced them; "train" = 2,349 fades 2025-01..2026-06, "held-out" = 764 fades 2026-07..10 never used to
 build the rule.
 
+## 0. Standing rules (owner)
+**Longs first; shorting is deprioritized (owner 2026-11-12 night).** A short sells BORROWED shares: the broker owns them,
+so every cent the stock rises above the entry is the short seller's loss with no ceiling (XLAB 11-12 went +95% after
+the alert; a long can lose at most what was paid). Shorting needs a margin account and collateral beyond the trade
+(Reg T: 150% of the short's value at entry; FINRA 4210 maintenance for shorts under $5: $2.50/share or 100% of
+value, whichever is greater [VERIFY at the chosen broker]), pays a borrow fee on hard-to-borrow names (XLAB 482%/yr),
+can be force-covered when the lender recalls the shares (buy-in), and many brokers refuse small-cap shorts outright.
+Our paper fade charged only costs + a 0.5% locate and assumed shares were always there. So: no short rule goes live
+or back on without (a) real borrow availability and fees inside its test, (b) a hard loss cap per trade, and (c) the
+owner's explicit OK. New strategy work goes to the long side.
+
 ## 1. What we trade and why it works
 Short small caps ($1-50) right after a MetaTradings momentum alert. Mechanism: retail-attention buying sprees in small
 caps are followed by falling prices (Barber, Huang, Odean, Schwarz, "Attention Induced Trading and Returns"); the alert
@@ -20,7 +31,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | beta (F7) | no short when the stock's beta >= 3 (owner 2026-11-10; past: >= 3 -2.14%/trade, < 1.5 +1.86%). The scanner followed the same rule on 11-10 and is paused since 11-11 (owner: longs first; it still records and scores spikes: digest line) Unknown beta still shorts: tested 2026-11-11, no-news unknown +1.03%/trade (n 367), not worse than beta < 3 (p 0.36) | fade.py, prereg_alert_fade F7; scanner.py, prereg_scanner_book A1 |
 | repeat (F8) | no short on a stock the channel alerted 1-7 calendar days earlier (multi-day runner; owner 2026-11-12 deep review). No-news: kept +2.54% vs repeats -1.01% (train), +2.55% vs -1.33% (held-out). Longs still trade these alerts | prereg_fade_repeat_days_2026-11-12 |
 | size | 5% of book NAV per trade by default; text `SIZE 10000` sets dollars per trade ($500 to 25% of the book; raising needs a code). Runaway guards only: 40 open, 200% of the book short. No daily cap or loss stop (F6) | fade.py, owner 2026-11-09 |
-| drift guard | nightly: a live-monitor alarm (one-sided CUSUM k 0.5 / h 5 sd vs the tested expectancy, or win rate below tested at p < 0.01 after 20 trades) halves that book's size for NEW trades (floor 25%); never raises size, never closes a trade; restored only on the owner's word. Fade and long book | sgt.learning.live_monitor, owner 2026-11-12 |
+| **fade switch** | **OFF since 2026-11-12 night** (owner, option A after the adversarial validation, finding 20). Flag `fade_off` (absent or "0" = on, anything else = off). The off check runs at the tested entry after the news / beta / price checks, so an off row is exactly a would-be short: no order, no text, F8 still counts it, the long book still trades it. The forward record keeps scoring every alert. Back on only by the owner's word, under section 0 | fade.py OFF_FLAG, owner 2026-11-12 |
+| drift guard | nightly: a live-monitor alarm (one-sided CUSUM k 0.5 / h 5 sd vs the tested expectancy, or win rate below tested at p < 0.01 after 20 trades) halves that book's size for NEW trades (floor 25%); never raises size, never closes a trade; restored only on the owner's word. Fade and long book. Since 2026-11-12 night it also judges the fade's FORWARD record (every alert, frozen rule, SIP; tested +1.12%, win 57.3%): an alarm there cuts the fade book. Read one session late (the record is written 21:20, the digest runs 20:50) | sgt.learning.live_monitor, owner 2026-11-12 |
 | long book (paper) | first long setup to fill per alert; stop, 2R target, 30 min; since A2 (2026-11-12): size x min(1, 2.68% / stop distance) and out at the next open when the fill candle closes below the entry (tested -1.88% vs -2.29% per dollar: still losing) | prereg_long_risk_2026-11-12 A2 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
@@ -69,6 +81,18 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 19. **Two red weeks mean nothing; check for look-ahead first.** Even with the edge intact 36% of 2-week windows are
    negative (45.5% of days). A promising split (entering at a fresh high: -0.59% vs +1.99%) used the entry bar's own
    high, which happens after the entry: with point-in-time data it vanished (`docs/research/architecture_audit_2026-11-09.md`).
+20. **November 2026: the fade stopped working, and it is not a bug.** Forward record (every alert, same code and same
+   channel-history source as the held-out test) Nov 2-12: **-3.44%/trade, win 39%, n 61**, against 57-58% wins in
+   every held-out month; a 9-session stretch of held-out days is this bad 1.1% of the time (session bootstrap). Live
+   paper agrees (21 trades, -3.39%). Adversarial validation 2026-11-12 night: an independent re-implementation from
+   raw data reproduced held-out 764/764 and November 61/61 trades exactly; a red-team found no look-ahead or
+   survivorship bias >= 1%/trade (edited alerts +0.03% / -0.11%, news strictly before the alert, raw unadjusted bars,
+   0 missing bars, stop fills conservative, deletions would remove fade winners). November alerts look the same (type,
+   price, cost, timing); only the outcome flipped: gross +2.52% -> -1.60%, stopped 25% -> 33% (no-stop hour still
+   +2.33%). The held-out mean was thinner than it looked: September -0.15% after costs, the +1.1% rests on July and
+   October. Reading: real-but-gone or a long bad patch; undecidable at n 61. The live drift guard missed it because it
+   watched 7 live no-news trades; on the forward record its win-rate test would have alarmed on 11-10. Action: shorts
+   OFF (section 2), guard reads the forward record (section 6).
 18. **Real stop fills cost ~1% per stop; only no-news alerts survive them.** SIP trades at every historical stop:
    slippage +0.82% / +1.44% mean (median ~0.35%). Net with real stops: no-news **+1.70% / +1.77%** (lower bounds
    +0.88% / +0.47%), news **-0.20% / -0.60%**; with a 1.5% locate no-news stays +0.70% / +0.77%
@@ -179,6 +203,7 @@ The notes also flagged data and execution issues:
 | GEVO: $1.975 sell vs $1.96 target | the fill bar traded the target AFTER the buy (it crossed the trigger first), but the simulator skipped it and took the next bar's $1.975 open | **fixed 2026-11-11** (owner OK): the fill bar sells at the target in patterns.simulate and long_book._exit. On the 6,529 historical setup fills 29 change (23 target fills drop to the target price, 6 later stop-outs become target wins); every setup's mean moves <= 0.01%, no conclusion changes |
 | ZDGE long: entry and stop in the same minute | the simulator counts it as a full stop (conservative), as tested | none |
 | AMIX: $2.81 stop, $2.92 live cover | live IEX one-minute stop monitor; official $2.784 (SIP stop level) | known (FISN row): IEX stops lag on thin names |
+| XLAB 11-12, owner's chart (night) | "easy 10%"; EMA 9 stayed above 21 all afternoon; two bull flags (owner's Clean Bull Flag Finder, strength 77.19 near $1.80 and 86.11 near $2.25). Facts: flat/down 09:30-11:00 ($1.05 -> $1.00), run from 11:15, alert 11:43 at $1.28, high $2.50 at 14:15; our LONG book bought it too (L4b $1.36, stopped $1.32, -5.0%) | both books lost on a +95% day: the short by design, the long on a tight stop at the first dip | shorts OFF (finding 20); the owner's indicator is pre-registered as a long setup watching the whole session (prereg_bull_flag_finder_2026-11-13); BoS / CHoCH next once its Pine source arrives |
 | RETO 11-12 "pre-halt entry" and XLAB 11-12 "timestamp conflict" (Luna) | both false: the review saw IEX bars only (RETO's 09:47 entry bar had no IEX prints) and converted UTC with the summer offset (16:53 UTC is 11:53 ET in November) | **fixed 2026-11-12**: reviews get ET times and SIP bars (IEX only as fallback), and wait until SIP covers the trade |
 Since 2026-11-11, Luna writes in this format and checks every idea (its own and the note's) against sections 3-4. The result is labelled "tested: lost", "untested" and so on. Luna re-reads a note once it is saved.
 
@@ -190,7 +215,7 @@ Long book official result (2026-11-11, owner: "real long scoring"): the live tra
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
   (entry delay, holds, exits, brain sizing, time-of-day sizing, confidence sizing, price sizing, calm skip, vol-up sizing; StockTwits buzz recorded).
-- **Drift guard** (2026-11-12): the live monitor compares each live book with its tested expectancy every night; an alarm halves that book's size for new trades and texts the owner (section 2).
+- **Drift guard** (2026-11-12): the live monitor compares each live book with its tested expectancy every night; an alarm halves that book's size for new trades and texts the owner (section 2). It also judges the fade's forward record (every alert), which is ~10x more trades than the live book and would have caught the November break on 11-10.
 - The **learning scoreboard** (`scripts/learning_report.py`, nightly 22:05 ET, `reports/learning/scoreboard.md`, digest
   line) scores each challenger against the live rule on forward trades and marks it READY at n >= 300.
 - A READY challenger that beats the live rule is proposed to the owner with its numbers; with an OK it is written as
@@ -218,7 +243,11 @@ a nightly forward shadow decides at 300 symbol-days. The live forward test on th
   spending (paid data, AI beyond ~$1/month) until a book is proven. Tracked nightly in the digest "Live vs tested".
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
   time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`); X buzz hypothesis (`prereg_fade_x_2026-11-08`, A1 cheap collection); Reddit buzz hypothesis (`prereg_fade_reddit_2026-11-08`).
-- Real money only on a strategy proven on unseen data and tradeable at a broker (borrow).
+- Real money only on a strategy proven on unseen data and tradeable at a broker (borrow). Shorts also need section 0.
+- **Fade back on?** Owner's call only, under section 0. Evidence to bring: the forward record recovering (win rate back
+  near 57% over 100+ new forward trades) AND a borrow-aware test. Until then the forward record keeps scoring nightly.
+- **Long side (owner's focus):** the owner's Clean Bull Flag Finder (prereg_bull_flag_finder_2026-11-13, run once);
+  BoS / CHoCH with EMA 9 > 21 (owner: "nowhere to go but up") once the Pine source arrives.
 - Broker path (`docs/research/broker_borrow_2026-11-06.md`): IBKR has no locate fee and no borrow fee on same-day
   shorts [VERIFY] but often no shares; locate brokers (TradeZero, Cobra, CenterPoint) can short them for a per-share
   fee. Break-even locate = 1.6% of price (e.g. $0.04/share at $2.50); two thirds of trades are under $5.

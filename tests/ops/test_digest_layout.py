@@ -172,3 +172,23 @@ def test_cmd_digest_sends_every_part(db, monkeypatch):
     monkeypatch.setattr(sc.digest, "build", lambda *a, **k: big)
     assert sc.cmd_digest(db) == 0
     assert len(sent) == 3 and sent[0].startswith("(1/3)") and "line 29" in sent[-1]
+
+
+def test_fade_off_line_and_forward_record_problems_reach_the_digest(tmp_path, monkeypatch):
+    # owner 2026-11-12 night: shorts off -> the digest says so every night; a broken forward record is a NEEDS YOU line
+    from sgt.learning import live_monitor
+    monkeypatch.chdir(tmp_path)
+    db = OpsStore(tmp_path / "ops" / "ops.db")
+    db.set_flag(fade.OFF_FLAG, "1")
+    fade_row(db, "OFFX", "2026-11-09", "filtered")
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET reason=? WHERE symbol='OFFX'", (fade.OFF_REASON,))
+    p = live_monitor.forward_path(db)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("symbol,session,wrong\nA,2026-11-02,0.1\n")
+    text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    lines = text.splitlines()
+    i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
+    assert lines[i + 1].startswith(f"⏸️ {bold('fade')} {italic('OFF')} (owner 11-12, shorts deprioritized): "
+                                   "1 alerts not shorted today")
+    assert f"• fade forward record (every alert): forward record unreadable (KeyError)" in lines
