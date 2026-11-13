@@ -119,6 +119,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | idea | train per trade (champion +0.97%) | held-out (champion +1.12%) | file |
 |---|---|---|---|
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
+| regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): the gate adds +0.05% / costs -0.19% per trade (p 0.36 / 0.83); session results have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would have skipped 5 of 10 sessions (skipped trades -4.7%) | prereg_fade_regime_gate_2026-11-13 |
 | LONG: owner's Clean Bull Flag Finder (exact port, EMA 9 > 21, whole session after the alert); 2R / 30 min, or hold while 9 > 21 | -1.60% / -1.78% (n 5,250 / 4,661; stopped at the flag low 55%); strength >= 75: 68 trades, noise | not opened; Nov 2026 -1.42% / -1.22% | prereg_bull_flag_finder_2026-11-13 |
 | LONG: break of structure (pivot 5) while EMA 9 > 21; same two exits | -1.45% / -1.56% (n 5,017 / 4,531). Next bar after a BoS: up 1%+ 21.4% vs 17.3% usual, mean +0.08%: true but a tenth of the cost | not opened; Nov 2026 -0.13% / -0.04% | prereg_bos_ema_2026-11-13 (A1: the owner's own Pine script, same result -1.45% / -1.59%) |
 | cover on VWAP reclaim | +0.52% | +0.22% | same |
@@ -240,6 +241,11 @@ As a TIMING OVERLAY (hold, but step aside on its short days; `prereg_megacap_ove
 14 of 21 names and cuts drawdowns on all six development names (NVDA 1.11 -> 1.23), but only 7 of 12 unseen names:
 a nightly forward shadow decides at 300 symbol-days. The live forward test on the original six (since 2026-10-30) took 11 calls in
 5 sessions, 10 profitable (+1.6% average); far too few to judge. Kept as a forward test, not a money strategy.
+Review 2026-11-13 (10 sessions): 17 calls, 14 profitable, ledger +4.44% while holding the six made about 0%. Its own
+2018-2026 record has a 10-day stretch that good 3.9% of the time and 14 of 17 winners 2.4% of the time: luck until
+proven otherwise. In that record longs earn +0.33% per call and SHORTS +0.01% (n 1,448): the short calls carry no
+tested edge, yet most of the recent gain came from them. No look-ahead (every decision was written the same evening).
+Do not size up; the fixed decision points stand. The digest now shows each model set next to holding the same names.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
