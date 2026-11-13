@@ -119,6 +119,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | idea | train per trade (champion +0.97%) | held-out (champion +1.12%) | file |
 |---|---|---|---|
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
+| regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): the gate adds +0.05% / costs -0.19% per trade (p 0.36 / 0.83); session results have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would have skipped 5 of 10 sessions (skipped trades -4.7%) | prereg_fade_regime_gate_2026-11-13 |
 | LONG: owner's Clean Bull Flag Finder (exact port, EMA 9 > 21, whole session after the alert); 2R / 30 min, or hold while 9 > 21 | -1.60% / -1.78% (n 5,250 / 4,661; stopped at the flag low 55%); strength >= 75: 68 trades, noise | not opened; Nov 2026 -1.42% / -1.22% | prereg_bull_flag_finder_2026-11-13 |
 | LONG: break of structure (pivot 5) while EMA 9 > 21; same two exits | -1.45% / -1.56% (n 5,017 / 4,531). Next bar after a BoS: up 1%+ 21.4% vs 17.3% usual, mean +0.08%: true but a tenth of the cost | not opened; Nov 2026 -0.13% / -0.04% | prereg_bos_ema_2026-11-13 (A1: the owner's own Pine script, same result -1.45% / -1.59%) |
 | cover on VWAP reclaim | +0.52% | +0.22% | same |

@@ -42,3 +42,18 @@ the training statistic > 0 with p < 0.025 and the minimum met, AND the held-out 
 
 ## Not done
 No other thresholds, no intraday gate, no market-wide indicators (none is recorded point-in-time in this project).
+
+## Result (run once, 2026-11-13; `reports/fade_regime_gate/result.json`) - both FAIL on training
+| gate | sessions skipped | trades skipped | skipped mean | kept mean | statistic | p |
+|---|---|---|---|---|---|---|
+| G1 win share < 50% over the prior 5 sessions | 71 of 354 | 511 | -0.24% (win 52%) | +1.31% | +0.05% per trade | 0.36 |
+| G2 mean net < 0 over the prior 5 sessions | 127 of 354 | 924 | **+0.47%** (win 55%) | +1.30% | -0.19% per trade | 0.83 |
+
+Held-out stays closed. Session mean net has almost no memory (lag-1 correlation +0.06): after a poor week the next
+session is nearly as good as any other, so G2 throws away winning trades. Look-backs of 3 and 10 sessions: no better
+(best: 10 sessions G1, +0.22% per trade, p 0.08). November 2026 (descriptive, 66 forward fades): G1 would have stood
+aside from 11-06 on (5 of 10 sessions, skipped trades -4.69% each; gated -0.76% per trade vs -3.04% ungated); G2 from
+the first forward day. Reading: in 18 months of history a poor recent record was noise, so the gate has no tested
+basis; it would have helped in November only because November is the first time the fade actually broke. The fade is
+off by the owner's decision, and the drift guard on the forward record (cumulative, not a 5-session window) is the
+tested-monitor way to react to a real break.
