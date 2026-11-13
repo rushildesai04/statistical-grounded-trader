@@ -155,8 +155,12 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     with db.tx() as c:
         rows = c.execute("SELECT symbol, status, net FROM fade_trades WHERE session=? AND status IN "
                          "('settled','void','open','pending','est_closed') ORDER BY id", (s,)).fetchall()
+        off = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason=?",
+                        (s, fade.OFF_REASON)).fetchone()[0]
+    head = ([f"⏸️ {bold('fade')} {italic('OFF')} (owner 11-12, shorts deprioritized): {off} alerts not "
+             "shorted today; the forward record still scores every alert"] if fade.is_off(db) or off else [])
     if not rows:
-        return [], 0.0
+        return head, 0.0
     today = fade.nav(db, day) - fade.nav(db, day - timedelta(days=1))
     st = [r for r in rows if r["status"] == "settled"]
     bits = [f"{r['symbol']} {r['net']:+.1%}" for r in st]
@@ -164,7 +168,7 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     wait = sum(r["status"] != "settled" and r["status"] != "void" for r in rows)
     line = (f"{dot(today)} {bold('fade')} {usd(today)}, {len(st)} trades: " + ", ".join(bits)
             + (f" ({italic(f'{wait} not settled yet')})" if wait else ""))
-    return [line], today
+    return head + [line], today
 
 
 def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
@@ -231,8 +235,11 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         from sgt.learning import live_monitor
 
         res = live_monitor.check_all(db)
-        for r, ln in zip([r for r in res if r["n"]], live_monitor.lines(res)):
-            if r["alarms"]:
+        for r in res:
+            ln = live_monitor.line(r)
+            if ln is None:
+                continue
+            if r["alarms"] or r.get("error"):
                 needs.append(ln.removeprefix("! "))
             elif "expected" in r and not r["book"].startswith("scanner"):     # scanner: its RECORD line says it
                 record.append(ln)

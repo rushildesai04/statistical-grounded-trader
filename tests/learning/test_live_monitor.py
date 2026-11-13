@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -135,3 +136,72 @@ def test_guard_lines_announce_a_cut_once_then_keep_a_standing_line(db):
     assert lm.guard_lines(db, [], date(2026, 11, 15))[0].endswith("(ask Claude to restore)")
     db.set_flag(lm.SCALE_FLAG + "long book (paper)", "1")
     assert lm.guard_lines(db, [], date(2026, 11, 16)) == []
+
+
+# --- forward record (owner 2026-11-12 night, option A: the guard also reads the fade's forward research record) ---
+FWD = Path(__file__).resolve().parents[2] / "reports" / "alert_fade" / "forward.csv"
+
+
+@pytest.fixture()
+def fdb(tmp_path):
+    return OpsStore(tmp_path / "ops" / "ops.db")          # forward record at tmp_path / fade_challengers / shadow.csv
+
+
+def write_forward(db, nets, column="net_champion"):
+    p = lm.forward_path(db)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(f"symbol,session,{column}\n" + "".join(f"S{i},2026-11-0{1 + i % 9},{x}\n" for i, x in enumerate(nets)))
+    return p
+
+
+def test_forward_record_path_sits_next_to_the_ops_dir(fdb, tmp_path):
+    assert lm.forward_path(fdb) == (tmp_path / "fade_challengers" / "shadow.csv").resolve()
+
+
+def test_no_forward_record_yet_is_silent(fdb):
+    r = lm.check_forward(fdb)
+    assert r["n"] == 0 and lm.line(r) is None and lm.guard_lines(fdb, [r], date(2026, 11, 13)) == []
+
+
+@pytest.mark.skipif(not FWD.exists(), reason="local forward record not present")
+def test_real_november_record_alarms_and_cuts_the_fade_book(fdb):
+    import csv
+    nets = [float(r["net"]) for r in csv.DictReader(FWD.open())]
+    assert len(nets) >= 61
+    write_forward(fdb, nets)
+    r = lm.check_forward(fdb)
+    assert r["alarms"] and r["alarms"][-1].startswith("win rate") and r["mean"] < -0.02
+    assert lm.line(r).startswith(f"! DRIFT fade forward record (every alert): {len(nets)} forward trades")
+    msgs = lm.guard_lines(fdb, [r], date(2026, 11, 13))
+    assert len(msgs) == 1 and "size for new trades of alert fade (no-news) cut to 50% (was 100%)" in msgs[0]
+    assert lm.scale(fdb, "alert fade (no-news)") == 0.5 and lm.scale(fdb, "long book (paper)") == 1.0
+    assert lm.guard_lines(fdb, [r], date(2026, 11, 14)) == [   # same alarm: no second cut, a standing line
+        "alert fade (no-news): drift guard holds new trades at 50% of size (ask Claude to restore)"]
+
+
+def test_forward_record_matching_the_test_is_quiet(fdb):
+    write_forward(fdb, [0.04, -0.03, 0.05, 0.02, -0.06, 0.03, 0.01] * 10)     # win 71%, mean +0.86%
+    r = lm.check_forward(fdb)
+    assert r["n"] == 70 and r["alarms"] == [] and "tested +1.12%" in lm.line(r)
+
+
+@pytest.mark.parametrize("body", ["symbol,session,other\nA,2026-11-02,0.1\n", "symbol,session,net_champion\nA,x,abc\n"])
+def test_unreadable_forward_record_is_shown_and_never_cuts(fdb, body):
+    p = lm.forward_path(fdb)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body)
+    r = lm.check_forward(fdb)
+    assert r["error"].startswith("forward record unreadable") and r["alarms"] == []
+    assert lm.line(r).startswith("! fade forward record (every alert): forward record unreadable")
+    assert lm.guard_lines(fdb, [r], date(2026, 11, 13)) == [] and lm.scale(fdb, "alert fade (no-news)") == 1.0
+
+
+def test_oversized_forward_record_is_refused(fdb, monkeypatch):
+    write_forward(fdb, [0.01] * 50)
+    monkeypatch.setattr(lm, "MAX_FORWARD_BYTES", 100)
+    assert "unreadable (ValueError)" in lm.check_forward(fdb)["error"]
+
+
+def test_check_all_includes_the_forward_record(fdb):
+    write_forward(fdb, [0.01] * 5)
+    assert any(r["book"] == lm.FORWARD.name and r["n"] == 5 for r in lm.check_all(fdb))

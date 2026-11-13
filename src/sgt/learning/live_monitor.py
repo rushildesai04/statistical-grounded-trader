@@ -12,10 +12,12 @@ one-sided CUSUM (k 0.5, h 5 standard deviations) and the binomial win-rate test 
 """
 from __future__ import annotations
 
+import csv
 import logging
 import math
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 from sgt.learning.decay import Action, CusumMonitor, WinRateMonitor
 from sgt.ops.store import OpsStore
@@ -61,13 +63,38 @@ def _ci(nets: list[float]) -> tuple[float, float]:
     return m, 1.96 * sd / math.sqrt(n)
 
 
-def check_trade_book(db: OpsStore, b: TradeBook) -> dict:
-    with db.tx() as c:
-        nets = [float(r[0]) for r in c.execute(b.sql) if r[0] is not None]
-    out = {"book": b.name, "n": len(nets), "expected": b.expectancy, "alarms": []}
+@dataclass(frozen=True, slots=True)
+class ForwardBook:
+    """A forward research record judged like a book: every channel alert scored by the frozen rule on SIP bars, so it
+    sees the edge on far more trades than the live book (2026-11-12 night: the live no-news book had 7 trades while the
+    forward record had 61 at -3.44%/trade; its win-rate test would have alarmed on 11-10). An alarm cuts ``scales``."""
+    name: str
+    rel_path: str                    # relative to the reports dir that holds ops/ops.db
+    column: str
+    expectancy: float
+    std: float
+    win_rate: float
+    scales: str                      # the live book whose new-trade size an alarm halves
+    source: str
+
+
+FORWARD = ForwardBook("fade forward record (every alert)", "fade_challengers/shadow.csv", "net_champion",
+                      0.0112, 0.1765, 0.573, "alert fade (no-news)",
+                      "prereg_alert_fade_2026-11-01 held-out, 764 trades (reports/alert_fade/trades.csv)")
+MAX_FORWARD_BYTES = 5_000_000        # the record is ~100 bytes/trade: far above years of alerts, bounds a bad file
+
+
+def forward_path(db: OpsStore, b: ForwardBook = FORWARD) -> Path:
+    """reports/ops/ops.db -> reports/<rel_path>. Written nightly at 21:20 (fadechallengers), so the 20:50 digest
+    judges the record through the previous session."""
+    return Path(db.path).resolve().parent.parent / b.rel_path
+
+
+def _judge(out: dict, nets: list[float], expectancy: float, std: float, win_rate: float) -> dict:
+    out["n"] = len(nets)
     if not nets:
         return out
-    cusum, wins = CusumMonitor(b.expectancy, b.std), WinRateMonitor(b.win_rate)
+    cusum, wins = CusumMonitor(expectancy, std), WinRateMonitor(win_rate)
     for x in nets:
         for mon in (cusum, wins):
             sig = mon.update(x)
@@ -76,6 +103,32 @@ def check_trade_book(db: OpsStore, b: TradeBook) -> dict:
     out["mean"], out["half_width"] = _ci(nets)
     out["win"] = sum(x > 0 for x in nets) / len(nets)
     return out
+
+
+def check_trade_book(db: OpsStore, b: TradeBook) -> dict:
+    with db.tx() as c:
+        nets = [float(r[0]) for r in c.execute(b.sql) if r[0] is not None]
+    return _judge({"book": b.name, "expected": b.expectancy, "alarms": []}, nets, b.expectancy, b.std, b.win_rate)
+
+
+def check_forward(db: OpsStore, b: ForwardBook = FORWARD) -> dict:
+    """No file yet -> n 0 (no line). A file that is too large or unreadable -> ``error`` (a NEEDS YOU line, no size
+    cut: a broken file is not evidence about the edge). Non-finite values are dropped."""
+    out = {"book": b.name, "n": 0, "expected": b.expectancy, "alarms": [], "scales": b.scales,
+           "unit": "forward trades"}
+    p = forward_path(db, b)
+    if not p.exists():
+        return out
+    try:
+        if p.stat().st_size > MAX_FORWARD_BYTES:
+            raise ValueError(f"over {MAX_FORWARD_BYTES:,} bytes")
+        with p.open(newline="") as fh:
+            nets = [float(r[b.column]) for r in csv.DictReader(fh)]
+    except (OSError, KeyError, ValueError, TypeError, csv.Error) as e:
+        log.error("forward record %s unreadable: %s", p, e)
+        out["error"] = f"forward record unreadable ({type(e).__name__})"
+        return out
+    return _judge(out, [x for x in nets if math.isfinite(x)], b.expectancy, b.std, b.win_rate)
 
 
 def check_model_book(db: OpsStore, strategy: str) -> dict:
@@ -94,23 +147,28 @@ def check_model_book(db: OpsStore, strategy: str) -> dict:
 
 
 def check_all(db: OpsStore) -> list[dict]:
-    return [check_trade_book(db, b) for b in BOOKS] + [check_model_book(db, s) for s in MODEL_BOOKS]
+    return ([check_trade_book(db, b) for b in BOOKS] + [check_forward(db)]
+            + [check_model_book(db, s) for s in MODEL_BOOKS])
+
+
+def line(r: dict) -> str | None:
+    """One digest line for a book with data (or an unreadable record), '!' first when a monitor tripped."""
+    if r.get("error"):
+        return f"! {r['book']}: {r['error']}"
+    if not r["n"]:
+        return None
+    if "expected" in r:
+        body = (f"{r['book']}: {r['n']} {r.get('unit', 'live trades')}, {r['mean']:+.2%}/trade"
+                + (f" (±{r['half_width']:.1%})" if not math.isnan(r["half_width"]) else "")
+                + f", win {r['win']:.0%}; tested {r['expected']:+.2%}")
+    else:
+        body = f"{r['book']}: {r['n']} days, {r['cum']:+.1%} total, drawdown {r['drawdown']:+.1%}"
+    return ("! DRIFT " if r["alarms"] else "") + body + (f" -> {r['alarms'][-1]}" if r["alarms"] else "")
 
 
 def lines(results: list[dict]) -> list[str]:
     """Digest lines: one per book with data, '!' first when a monitor tripped."""
-    out = []
-    for r in results:
-        if not r["n"]:
-            continue
-        if "expected" in r:
-            body = (f"{r['book']}: {r['n']} live trades, {r['mean']:+.2%}/trade"
-                    + (f" (±{r['half_width']:.1%})" if not math.isnan(r["half_width"]) else "")
-                    + f", win {r['win']:.0%}; tested {r['expected']:+.2%}")
-        else:
-            body = f"{r['book']}: {r['n']} days, {r['cum']:+.1%} total, drawdown {r['drawdown']:+.1%}"
-        out.append(("! DRIFT " if r["alarms"] else "") + body + (f" -> {r['alarms'][-1]}" if r["alarms"] else ""))
-    return out
+    return [ln for r in results if (ln := line(r)) is not None]
 
 
 AUTO_BOOKS = ("alert fade (no-news)", "long book (paper)")   # the live books whose size the alarm halves
@@ -132,33 +190,42 @@ def scale(db: OpsStore, book: str) -> float:
     return v
 
 
-def new_alarms(db: OpsStore, results: list[dict], today: date) -> list[str]:
-    """Alarms not yet texted (one text per book per alarm detail). A new alarm on an AUTO_BOOKS book halves its size
-    for new trades (floor MIN_SCALE) and says so in the text."""
+def _new_alarms(db: OpsStore, results: list[dict], today: date) -> list[tuple[str | None, str]]:
+    """(book whose size was cut or None, text) for alarms not yet texted (one per book per alarm detail). A new alarm
+    on a book whose target (``scales``, else itself) is in AUTO_BOOKS halves that target's size for new trades (floor
+    MIN_SCALE) and says so in the text."""
     out = []
     for r in results:
         for a in r["alarms"][-1:]:
             key = f"drift:{r['book']}:{a[:80]}"
             if db.flag(key) is None:
                 db.set_flag(key, today.isoformat())
-                msg = f"{r['book']}: {a}"
-                if r["book"] in AUTO_BOOKS:
-                    was = scale(db, r["book"])
+                msg, target = f"{r['book']}: {a}", r.get("scales", r["book"])
+                if target in AUTO_BOOKS:
+                    was = scale(db, target)
                     now = max(MIN_SCALE, was * 0.5)
-                    db.set_flag(SCALE_FLAG + r["book"], f"{now:g}")
-                    msg += (f" -> live results are below the tested expectation: size for new trades cut to "
+                    db.set_flag(SCALE_FLAG + target, f"{now:g}")
+                    whose = "" if target == r["book"] else f" of {target}"
+                    msg += (f" -> results are below the tested expectation: size for new trades{whose} cut to "
                             f"{now:.0%} (was {was:.0%}). Ask Claude to restore it.")
-                out.append(msg)
+                    out.append((target, msg))
+                else:
+                    out.append((None, msg))
     return out
+
+
+def new_alarms(db: OpsStore, results: list[dict], today: date) -> list[str]:
+    """Texts of the alarms not yet texted (see _new_alarms)."""
+    return [m for _, m in _new_alarms(db, results, today)]
 
 
 def guard_lines(db: OpsStore, results: list[dict], today: date) -> list[str]:
     """Digest NEEDS YOU lines (review 2026-11-12 F-1): tonight's new alarms with their size cut, plus a standing line
     for every live book still below full size, so a cut is never silent."""
-    new = [m for m in new_alarms(db, results, today) if m.split(":", 1)[0] in AUTO_BOOKS]
-    out = list(new)
+    new = [(t, m) for t, m in _new_alarms(db, results, today) if t in AUTO_BOOKS]
+    out = [m for _, m in new]
     for book in AUTO_BOOKS:
         k = scale(db, book)
-        if k < 1 and not any(m.startswith(book + ":") for m in new):
+        if k < 1 and not any(t == book for t, _ in new):
             out.append(f"{book}: drift guard holds new trades at {k:.0%} of size (ask Claude to restore)")
     return out
