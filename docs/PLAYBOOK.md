@@ -246,6 +246,16 @@ Review 2026-11-13 (10 sessions): 17 calls, 14 profitable, ledger +4.44% while ho
 proven otherwise. In that record longs earn +0.33% per call and SHORTS +0.01% (n 1,448): the short calls carry no
 tested edge, yet most of the recent gain came from them. No look-ahead (every decision was written the same evening).
 Do not size up; the fixed decision points stand. The digest now shows each model set next to holding the same names.
+Uses of the model compared on its 2018-2026 record, all 21 names (2026-11-13, already-seen data, descriptive): full
+long/short +4.4%/yr (Sharpe 0.59, max drawdown -11%); LONG CALLS ONLY +6.4%/yr (Sharpe 0.92, -6%; positive in 8 of 9
+years; long calls average +0.23% against +0.12% for an average day; 18 of 21 names positive); short calls positive on
+only 9 of 21 names; overlay +32.3%/yr (Sharpe 1.29, -27%) against simply holding +34.8%/yr (Sharpe 1.26, -31%).
+Holding is flattered: the names were picked knowing they became giants. Reading: the model's value is in its long
+calls and in stepping aside, never in its shorts. Per stock and side: `config/models/call_stats.json`, shown on the
+site's Overview tab as the tested record of each call (the honest replacement for a "confidence" number).
+**Confidence (fade):** the stored 38-99 score is 100 x the chance that the AVERAGE of trades like this is profitable,
+not the chance a trade wins (XLAB 11-12 scored 99 and lost 21%). Trades like those won 53-65% of the time. The site
+now labels it "group score" and says so.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
