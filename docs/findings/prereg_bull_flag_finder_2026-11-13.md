@@ -66,3 +66,24 @@ If more than one passes, the one with the higher training mean; ties -> X1 (fewe
 ## Not done
 No other inputs (pole, flag, volume, cooldown, strength cut-offs) are explored; defaults and 75 are fixed here. The
 owner's BoS / CHoCH indicator gets its own pre-registration once its Pine source is received.
+
+## Result (run once, 2026-11-12 night; `reports/bull_flag_finder/result.json`) - all four FAIL on training
+Port check (XLAB 2026-11-12, SIP): the port fires at 13:50 ET (close $1.895, breakout above $1.87) and 14:19 ET (close
+$2.29, above $2.27), next to the owner's two labels, plus four more signals in the run (11:54, 12:43, 13:10, 14:04) the
+chart does not show. Strengths are 49 and 56 against the chart's 77.19 and 86.11: the volume terms depend on the feed
+(the chart is one exchange's feed, the test uses all-market SIP volume). Signal places match; the score scale does not.
+
+| candidate | training n | mean net | median | win | p | exits |
+|---|---|---|---|---|---|---|
+| B1X1 all signals, 2R / 30 min | 5,250 | **-1.60%** | -3.33% | 32% | 1.00 | stop 55%, time 24%, target 22% |
+| B1X2 all signals, hold while 9 > 21 | 4,661 | **-1.78%** | -3.61% | 20% | 1.00 | stop 54%, trend 44% |
+| B2X1 strength >= 75 | 68 | -3.68% | -10.9% | 31% | 0.88 | |
+| B2X2 strength >= 75, hold while 9 > 21 | 68 | +1.90% | -11.9% | 26% | 0.47 | winners +57%, losers -18% |
+
+Held-out stays closed. Secondary: without the EMA gate the results are the same (-1.60% / -1.69%): 9 > 21 adds
+nothing, because 90% of signals already have it. Next bar after a signal: green 45.1% vs 43.3% for all gated bars, mean
++0.05% vs -0.01%: a real but tiny lift, far below the ~1.25% round-trip cost. November 2026 (66 forward alert events,
+descriptive, computed after the run because the study's event file ends 2026-10-29): B1X1 -1.42% (n 140), B1X2 -1.22%
+(n 116), no signal at strength >= 75. XLAB 11-12 itself: X1 four trades -1.4%, +0.5%, +15.4%, -8.7%; X2 one trade
+$1.39 -> $2.28, **+63%**. Reading: the breakout is stopped at the flag low more than half the time; the rare runner
+(XLAB) pays a lot but not enough to cover the rest. B2X2 is the only positive mean and it is 68 trades of noise.

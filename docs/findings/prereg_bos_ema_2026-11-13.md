@@ -50,3 +50,17 @@ held-out mean > 0 with n >= 30 (opened only for a candidate that passes training
 
 ## Not done
 No other pivot lengths, no wick-based breaks, no higher-timeframe structure.
+
+## Result (run once, 2026-11-12 night; `reports/bos_ema/result.json`) - both FAIL on training
+| candidate | training n | mean net | median | win | p | exits |
+|---|---|---|---|---|---|---|
+| S1X1 gated BoS, 2R / 30 min | 5,017 | **-1.45%** | -2.31% | 33% | 1.00 | time 61%, stop 28%, target 11% |
+| S1X2 gated BoS, hold while 9 > 21 | 4,531 | **-1.56%** | -2.85% | 23% | 1.00 | trend 82%, stop 15% |
+
+Held-out stays closed. The owner's claim, measured (training, 6,648 gated BoS bars vs 299,404 gated bars): next bar
+green 44.7% vs 43.6% (p 0.046), next bar up 1% or more 21.4% vs 17.3% (p < 0.001), mean next-bar return +0.08% vs
+-0.01% (p 0.001). So a BoS with 9 > 21 IS followed by a strong candle more often than usual, but not "the majority
+of the times", and the lift is a tenth of a percent against a ~1.25% round-trip cost. Secondary: gated CHoCH -0.83% /
+-1.04%; BoS without the EMA gate -1.45% / -1.54% (the gate adds nothing). November 2026 (66 forward events,
+descriptive): S1X1 -0.13% (n 136), S1X2 -0.04% (n 119): about break-even, the best month on record for it, still not
+positive. XLAB 11-12: X1 +8.1%, +5.8%, +22.7%, -9.8%; X2 one trade $1.44 -> $2.28, **+57%**.
