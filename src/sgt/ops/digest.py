@@ -177,14 +177,16 @@ def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     from sgt.fast import long_book
 
     lt = long_book.today_line(db, day.isoformat())
+    off = ([f"\u23F8\uFE0F {bold('longs')} {italic('OFF')} (owner 11-13, measure only): the long shadow still scores "
+            "every alert"] if long_book.is_off(db) else [])
     if not lt:
-        return [], 0.0
+        return off, 0.0
     today = long_book.nav(db, day) - long_book.nav(db, day - timedelta(days=1))
     with db.tx() as c:
         settled = c.execute("SELECT COUNT(*) FROM long_trades WHERE session=? AND status='settled'",
                             (day.isoformat(),)).fetchone()[0]
     money = f"{usd(today)}, " if settled else ""                    # estimates only: no dollars invented
-    return [f"{dot(today)} {bold('longs')} {money}" + lt.removeprefix("longs ")], today
+    return off + [f"{dot(today)} {bold('longs')} {money}" + lt.removeprefix("longs ")], today
 
 
 def scanner_today(db: OpsStore, day: date) -> tuple[list[str], float]:
