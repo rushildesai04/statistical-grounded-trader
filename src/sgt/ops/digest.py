@@ -167,6 +167,22 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     return [line], today
 
 
+def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
+    """Long book TODAY line with its official dollars (2026-11-12 night check: the line was always green and its
+    dollars were left out of the header total, so a losing long day read as a win)."""
+    from sgt.fast import long_book
+
+    lt = long_book.today_line(db, day.isoformat())
+    if not lt:
+        return [], 0.0
+    today = long_book.nav(db, day) - long_book.nav(db, day - timedelta(days=1))
+    with db.tx() as c:
+        settled = c.execute("SELECT COUNT(*) FROM long_trades WHERE session=? AND status='settled'",
+                            (day.isoformat(),)).fetchone()[0]
+    money = f"{usd(today)}, " if settled else ""                    # estimates only: no dollars invented
+    return [f"{dot(today)} {bold('longs')} {money}" + lt.removeprefix("longs ")], today
+
+
 def scanner_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     from sgt.fast import scanner
 
@@ -195,7 +211,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     books, by_group = _safe(model_books, "books: unavailable", db, day)
     fl, fade_usd = _safe(fade_today, "fade: today unavailable", db, day)
     sc, scan_usd = _safe(scanner_today, "scanner: today unavailable", db, day)
-    groups = {**(by_group if isinstance(by_group, dict) else {}), "fade": fade_usd, "scanner": scan_usd}
+    longs, long_usd = _safe(long_today, "longs: unavailable", db, day)      # owner 2026-11-10 option A: longs first
+    groups = {**(by_group if isinstance(by_group, dict) else {}), "fade": fade_usd, "scanner": scan_usd,
+              "longs": long_usd}
     total = sum(groups.values())
 
     needs = (["PAUSED: no new trades until RESUME"] if db.paused() else [])
@@ -227,13 +245,6 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
              + (f"\n{split}" if split else "")]
     lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
               ["\u2705 Nothing needs you. Jobs OK (24h)."])
-    try:                                              # owner 2026-11-10 option A: longs first
-        from sgt.fast import long_book
-
-        lt = long_book.today_line(db, day.isoformat())
-        longs = [f"\U0001F7E2 {bold('longs')} " + lt.removeprefix("longs ")] if lt else []
-    except Exception:  # noqa: BLE001 - one digest line must never block the digest
-        longs = ["longs: unavailable"]
     lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + sc + books
     lines += ["", f"\U0001F4C8 {bold('RECORD')}"]
     try:
