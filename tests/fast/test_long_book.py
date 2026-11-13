@@ -448,3 +448,33 @@ def test_long_size_follows_the_drift_scale(db):
     lb.tick(db, feed(DAY), [].append, now=at(3))
     w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55)) * 0.5
     assert trades(db)[0]["weight"] == pytest.approx(w)
+
+
+@pytest.mark.parametrize("flag, n", [(None, 1), ("0", 1), ("1", 0), ("yes", 0)])
+def test_long_off_blocks_new_longs_and_texts_only(db, flag, n):
+    """Owner 2026-11-13 option A (measure-only): no new longs or texts while off; absent / "0" is unchanged."""
+    alert_row(db)
+    if flag is not None:
+        db.set_flag(lb.OFF_FLAG, flag)
+    sent = []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == n and len(trades(db)) == n and len(sent) == n
+
+
+def test_an_open_long_still_exits_after_the_switch(db):
+    alert_row(db)
+    sent = []
+    lb.tick(db, feed(DAY), sent.append, now=at(3))
+    assert [t["status"] for t in trades(db)] == ["open"]
+    db.set_flag(lb.OFF_FLAG, "1")
+    lb.tick(db, feed(DAY), sent.append, now=at(50))
+    assert [t["status"] for t in trades(db)] == ["est_closed"] and len(sent) == 2
+
+
+def test_digest_says_longs_are_off(db):
+    from zoneinfo import ZoneInfo
+
+    from sgt.ops import digest
+    db.set_flag(lb.OFF_FLAG, "1")
+    text = digest.build(db, datetime(2026, 11, 9, 20, 50, tzinfo=ZoneInfo("America/New_York")), fills=[],
+                        problems=[], broker=None, research=[])
+    assert "(owner 11-13, measure only): the long shadow still scores every alert" in text

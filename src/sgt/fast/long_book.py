@@ -103,6 +103,19 @@ def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> tuple[pt.Set
     return s, t
 
 
+# Owner 2026-11-13 (option A "measure-only"): the long book is a tested loser in every slice (A2 training -2.09% per
+# trade, win 14%; every time-of-day bucket, setup and stop width negative) and the owner's bull flag and BoS rules also
+# failed. Flag ``long_off``: "0" or absent = on, anything else = off (fail closed: no new longs, no texts). Open longs
+# still exit and settle; the nightly long shadow (long_shadow) keeps scoring every alert, so nothing stops being
+# measured. Back on only by the owner's word, for a rule that passed its pre-registered test.
+OFF_FLAG = "long_off"
+
+
+def is_off(db: OpsStore) -> bool:
+    v = db.flag(OFF_FLAG)
+    return v is not None and v != "0"
+
+
 def _window_over(row: dict, now: datetime) -> bool:
     posted = pd.Timestamp(row["posted_at"]).tz_convert("UTC")
     return pd.Timestamp(now) >= posted + pd.Timedelta(fade.MAX_ENTRY_DELAY) + long_shadow.REOPEN_MAX + pt.WATCH + GRACE
@@ -114,7 +127,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
     opened = 0
     for row in candidates(db, now):
         try:
-            if db.paused() or approvals.disarmed(db, now):
+            if db.paused() or approvals.disarmed(db, now) or is_off(db):
                 continue
             with db.tx() as c:
                 n_open = c.execute("SELECT COUNT(*) FROM long_trades WHERE status='open'").fetchone()[0]
