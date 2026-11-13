@@ -249,6 +249,39 @@ h1 em { font-style: normal; color: var(--accent); }
 footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; border-top: 1px solid var(--rule); padding-top: 14px; }
 footer b { color: var(--ink); font-weight: 600; }
 
+/* overview tab (owner 2026-11-13): a phone-first, plain-words read of what is trading; tables scroll inside .ov-wrap */
+.ov-body { display: grid; gap: 18px; min-width: 0; }
+.ov-sec { display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 14px 16px; min-width: 0; }
+.ov-sec > h2 { margin: 0; font: 700 clamp(18px, 4.5vw, 22px)/1.1 var(--display); letter-spacing: .01em; }
+.ov-note { margin: 0; font: 400 12.5px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.ov-group { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+.ov-books { display: grid; gap: 12px; }
+.ov-book { display: grid; gap: 4px; border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px;
+  border-left: 3px solid var(--state, var(--muted)); min-width: 0; }
+.ov-book.on { --state: var(--up); } .ov-book.off { --state: var(--muted); }
+.ov-brow { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.ov-name { font: 700 16px var(--display); letter-spacing: .01em; }
+.ov-badge { font: 600 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+  color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); white-space: nowrap; }
+.ov-badge.on { color: var(--up); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.ov-badge.alarm { color: var(--down); background: color-mix(in srgb, var(--down) 15%, transparent); }
+.ov-res { margin-left: auto; font: 700 16px var(--mono); font-variant-numeric: tabular-nums; }
+.ov-res.win { color: var(--up); } .ov-res.loss { color: var(--down); }
+.ov-hold { font: 400 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.ov-line { font: 400 13px var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ov-muted { font: 400 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.ov-call-set { display: grid; gap: 8px; }
+.ov-call-head { font: 600 14px var(--body); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.ov-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; min-width: 0; }
+.ov-table { width: 100%; border-collapse: collapse; font: 400 12.5px var(--mono); font-variant-numeric: tabular-nums; }
+.ov-table th { text-align: left; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.ov-table td { padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.ov-table td.nowrap { white-space: nowrap; }
+.ov-table td.pos { color: var(--up); } .ov-table td.neg { color: var(--down); }
+.conf-note { font: 400 11.5px var(--mono); color: var(--muted); margin-top: -2px; overflow-wrap: anywhere; }
+
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes fade { to { opacity: 1; } }
 @keyframes ping { 0% { transform: scale(1); opacity: .6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
@@ -274,10 +307,22 @@ footer b { color: var(--ink); font-weight: 600; }
   </div>
 
   <nav class="tabs" role="tablist" aria-label="Views" id="tabs" hidden>
+    <button type="button" role="tab" id="tab-overview" aria-selected="false" aria-controls="pane-overview" hidden>Overview</button>
     <button type="button" role="tab" id="tab-fade" aria-selected="true" aria-controls="pane-fade">Fade trades</button>
     <button type="button" role="tab" id="tab-models" aria-selected="false" aria-controls="pane-models">Models</button>
     <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="pane-notes">Notes</button>
   </nav>
+
+  <!-- 2026-11-13 (owner): plain-words Overview, selected by default when DATA.overview exists; built in JS from DATA.overview -->
+  <div class="pane" id="pane-overview" role="tabpanel" aria-labelledby="tab-overview" hidden>
+    <div class="head"><div>
+      <h1>Over<em>view</em></h1>
+      <p class="lede">What the agent is trading right now, in plain words: each book's result so far, the model's latest
+        calls with their own tested record, the alert fade it still measures, and the ideas being scored. Paper, not advice.</p>
+    </div></div>
+    <div id="ov-asof" class="small"></div>
+    <div id="ov-body" class="ov-body"></div>
+  </div>
 
   <div class="pane" id="pane-fade" role="tabpanel" aria-labelledby="tab-fade">
   <div class="tape" aria-label="Trades on this day"><div class="tape-track" id="tape"></div></div>
@@ -550,12 +595,17 @@ function card(t, i) {
   else fact("news", t.news ? "yes" : "none found");
   c.append(top, facts);
   if (t.conf != null) {
-    const conf = el("div", "conf", "confidence ");
+    // 2026-11-13 (owner): "confidence 99" read as a win chance and a 99 lost 21%. It is 100× the probability that the
+    // AVERAGE of trades like this is profitable, not the chance this trade wins. Relabel + spell it out underneath.
+    const conf = el("div", "conf", "group score ");
     const meter = el("span", "meter"), fill = el("i");
     fill.style.setProperty("--w", Math.max(0, Math.min(100, t.conf)) + "%");
     meter.append(fill);
     conf.append(meter, el("b", null, t.conf + "/100"));
+    conf.title = "Group score: 100 × the chance that the AVERAGE of trades like this is profitable — not the chance this trade wins. Trades like this won 53-65% of the time.";
+    conf.setAttribute("aria-label", "group score " + t.conf + " out of 100: not a win chance; trades like this won 53 to 65 percent of the time");
     c.append(conf);
+    c.append(el("div", "conf-note", "not a win chance: trades like this won 53-65% of the time"));
   }
   if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
   if (t.signals) c.append(chips(t.signals));
@@ -1178,12 +1228,163 @@ async function jnBoot() {
   jnRoute();
 }
 
+// Overview tab (owner 2026-11-13): plain-words read of what is trading, built from DATA.overview. Every string in the
+// data is untrusted -> el()/textContent only, never innerHTML. mtPc(x,d) and mtSign(x) above are the shared formatters:
+// signed percent with a dash for null. ovWin/ovScale are unsigned percents (win rates, position size).
+let ovDrawn = false;
+const ovWin = x => x == null ? "–" : Math.round(x * 100) + "%";
+const ovScale = x => x == null ? "–" : Math.round(x * 100) + "%";
+
+function ovHoldings(h) {                                   // {sym: fraction} -> "long JPM 25%, AMD 13%; short TSLA 21%" or "flat"
+  const entries = Object.entries(h || {}).filter(([, v]) => typeof v === "number" && isFinite(v) && v !== 0);
+  if (!entries.length) return "flat";
+  const fmt = arr => arr.map(([s, v]) => s + " " + Math.round(Math.abs(v) * 100) + "%").join(", ");
+  const longs = entries.filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const shorts = entries.filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]);
+  const parts = [];
+  if (longs.length) parts.push("long " + fmt(longs));
+  if (shorts.length) parts.push("short " + fmt(shorts));
+  return parts.length ? parts.join("; ") : "flat";
+}
+
+function ovBookRow(b) {
+  const on = b.state === "on";
+  const row = el("div", "ov-book " + (on ? "on" : "off"));
+  const head = el("div", "ov-brow");
+  head.append(el("span", "ov-name", b.name || "—"));
+  head.append(el("span", "ov-badge " + (on ? "on" : ""), on ? "ON" : "OFF"));
+  head.append(el("span", "ov-res " + (b.total == null ? "" : b.total > 0 ? "win" : b.total < 0 ? "loss" : ""), mtPc(b.total, 1)));
+  if (b.group === "model" && b.holding != null) head.append(el("span", "ov-hold", "holding the same names " + mtPc(b.holding, 1)));
+  row.append(head);
+  const bits = [];
+  if (b.sessions != null) bits.push(b.sessions + " session" + (b.sessions === 1 ? "" : "s"));
+  if (b.trades != null) bits.push(b.trades + " trade" + (b.trades === 1 ? "" : "s"));
+  if (b.per_trade != null) bits.push(mtPc(b.per_trade, 1) + " per trade");
+  if (bits.length) row.append(el("div", "ov-line", bits.join(" · ")));
+  if (b.holdings != null) row.append(el("div", "ov-line", "Holding: " + ovHoldings(b.holdings)));
+  if (b.tested) row.append(el("div", "ov-muted", "Tested: " + b.tested));
+  if (b.verdict) row.append(el("div", "ov-muted", b.verdict));
+  return row;
+}
+
+function ovBooks(body, books) {
+  const sec = el("section", "ov-sec");
+  sec.append(el("h2", null, "What is trading"));
+  if (books == null) { sec.append(el("p", "ov-muted", "unavailable")); body.append(sec); return; }
+  const wrap = el("div", "ov-books");
+  const list = (books || []).filter(b => b && typeof b === "object");
+  let shown = 0;
+  [["model", "Models"], ["etf", "Benchmarks"], ["alert", "Alert books"]].forEach(([g, label]) => {
+    const inGroup = list.filter(b => b.group === g);
+    if (!inGroup.length) return;
+    wrap.append(el("div", "ov-group", label));
+    inGroup.forEach(b => wrap.append(ovBookRow(b)));
+    shown += inGroup.length;
+  });
+  const other = list.filter(b => !["model", "etf", "alert"].includes(b.group));
+  if (other.length) { wrap.append(el("div", "ov-group", "Other")); other.forEach(b => wrap.append(ovBookRow(b))); shown += other.length; }
+  sec.append(shown ? wrap : el("p", "ov-muted", "No books yet."));
+  body.append(sec);
+}
+
+function ovCallSet(c) {
+  const box = el("div", "ov-call-set");
+  const head = el("div", "ov-call-head");
+  head.append(el("span", null, c.set || "—"));
+  const meta = [];
+  if (c.session) meta.push(c.session);
+  if (c.names != null) meta.push(c.names + " names, " + (c.flat != null ? c.flat : 0) + " flat");
+  if (meta.length) head.append(el("span", "ov-muted", meta.join(" · ")));
+  box.append(head);
+  if (c.error) { box.append(el("div", "ov-muted", String(c.error))); return box; }
+  const rows = Array.isArray(c.calls) ? c.calls : [];
+  if (!rows.length) { box.append(el("div", "ov-muted", "all flat today")); return box; }
+  const wrap = el("div", "ov-wrap"), table = el("table", "ov-table"), thead = el("thead"), htr = el("tr");
+  ["Symbol", "Side", "Tested record of calls like this", "So far live"].forEach(h => htr.append(el("th", null, h)));
+  thead.append(htr); table.append(thead);
+  const tb = el("tbody");
+  rows.forEach(r => {
+    const tr = el("tr");
+    tr.append(el("td", "nowrap", r.symbol || "—"));
+    tr.append(el("td", "nowrap", (r.side ? String(r.side).toUpperCase() : "") || "—"));
+    tr.append(el("td", null, r.tested_n == null ? "no tested record"
+      : ovWin(r.tested_win) + " winners, " + mtPc(r.tested_avg, 2) + " average, " + r.tested_n + " calls 2018-2026"));
+    tr.append(el("td", null, !r.forward_n ? "–"
+      : (r.forward_wins != null ? r.forward_wins : 0) + " of " + r.forward_n + ", " + mtPc(r.forward_avg, 2) + " average"));
+    tb.append(tr);
+  });
+  table.append(tb); wrap.append(table); box.append(wrap);
+  return box;
+}
+
+function ovCalls(body, calls) {
+  const sec = el("section", "ov-sec");
+  sec.append(el("h2", null, "Latest model calls (decided 15:50 ET, filled at the close)"));
+  sec.append(el("p", "ov-note", "The tested record is how often calls like this won in the model's own 2018-2026 out-of-sample record. It is not a prediction."));
+  if (calls == null) sec.append(el("p", "ov-muted", "unavailable"));
+  else if (!calls.length) sec.append(el("p", "ov-muted", "All flat"));
+  else calls.forEach(c => { if (c && typeof c === "object") sec.append(ovCallSet(c)); });
+  body.append(sec);
+}
+
+function ovFade(body, fr) {
+  const sec = el("section", "ov-sec");
+  sec.append(el("h2", null, "Alert fade record (measured, not traded)"));
+  if (fr == null) { sec.append(el("p", "ov-muted", "unavailable")); body.append(sec); return; }
+  const line = el("div", "ov-line", (fr.n == null ? "–" : fr.n) + " alerts scored: " + mtPc(fr.per_trade, 1)
+    + " per trade, " + ovWin(fr.win) + " winners; tested " + mtPc(fr.tested_per_trade, 1) + " and " + ovWin(fr.tested_win));
+  if (fr.alarm) { line.append(document.createTextNode(" ")); line.append(el("span", "ov-badge alarm", "below its tested record")); }
+  sec.append(line);
+  if (fr.size_scale != null && fr.size_scale < 1) sec.append(el("div", "ov-muted", "size if it returns: " + ovScale(fr.size_scale)));
+  body.append(sec);
+}
+
+function ovLeads(body, leads) {
+  const sec = el("section", "ov-sec");
+  sec.append(el("h2", null, "Leads being measured"));
+  const rows = (Array.isArray(leads) ? leads : []).filter(r => r && typeof r === "object");
+  if (!rows.length) { sec.append(el("p", "ov-muted", "No leads being measured yet.")); body.append(sec); return; }
+  const wrap = el("div", "ov-wrap"), table = el("table", "ov-table"), thead = el("thead"), htr = el("tr");
+  ["Lead", "Progress", "Live rule", "Challenger", "Lower bound"].forEach(h => htr.append(el("th", null, h)));
+  thead.append(htr); table.append(thead);
+  const tb = el("tbody");
+  rows.forEach(r => {
+    const tr = el("tr");
+    tr.append(el("td", "nowrap", r.name || "—"));
+    tr.append(el("td", null, r.status || "–"));
+    tr.append(el("td", "nowrap " + (mtSign(r.live) || ""), mtPc(r.live, 2)));
+    tr.append(el("td", "nowrap " + (mtSign(r.challenger) || ""), mtPc(r.challenger, 2)));
+    tr.append(el("td", "nowrap " + (mtSign(r.lower) || ""), mtPc(r.lower, 2)));
+    tb.append(tr);
+  });
+  table.append(tb); wrap.append(table); sec.append(wrap);
+  if (rows.every(r => String(r.status || "").startsWith("collecting")))
+    sec.append(el("p", "ov-note", "A lead is decided at 300 trades; none is decided yet."));
+  body.append(sec);
+}
+
+function ovBoot() {
+  if (ovDrawn) return;
+  const o = DATA.overview;
+  if (!o) return;
+  ovDrawn = true;
+  document.getElementById("ov-asof").textContent = "As of " + (o.asof || "—");
+  const body = document.getElementById("ov-body");
+  body.replaceChildren();
+  ovBooks(body, o.books);
+  ovCalls(body, o.calls);
+  ovFade(body, o.fade_record);
+  ovLeads(body, o.leads);
+}
+
 function showTab(name) {
-  const pick = name === "models" && DATA.models ? "models" : name === "notes" ? "notes" : "fade";
-  ["fade", "models", "notes"].forEach(n => {
+  const pick = name === "overview" && DATA.overview ? "overview"
+    : name === "models" && DATA.models ? "models" : name === "notes" ? "notes" : "fade";
+  ["overview", "fade", "models", "notes"].forEach(n => {
     document.getElementById("pane-" + n).hidden = n !== pick;
     document.getElementById("tab-" + n).setAttribute("aria-selected", String(n === pick));
   });
+  if (pick === "overview") ovBoot();
   if (pick === "models") mtBoot();
   if (pick === "notes") jnBoot();
 }
@@ -1191,7 +1392,8 @@ function showTab(name) {
 function boot() {
   document.getElementById("tabs").hidden = false;
   if (!(DATA.models && (DATA.models.tickers || []).length)) document.getElementById("tab-models").hidden = true;
-  ["fade", "models", "notes"].forEach(n => document.getElementById("tab-" + n).addEventListener("click", () => {
+  if (DATA.overview) document.getElementById("tab-overview").hidden = false;
+  ["overview", "fade", "models", "notes"].forEach(n => document.getElementById("tab-" + n).addEventListener("click", () => {
     showTab(n); history.replaceState(null, "", "#" + n); }));
   // 2026-11-11 (owner: the "Notes & Luna review" link on the fade cards did nothing): the hash router lives here, from
   // page load. It used to be registered only when the Notes tab first opened, so a #notes/<key> link clicked on the
@@ -1200,6 +1402,7 @@ function boot() {
     if (location.hash.startsWith("#notes")) showTab("notes");
     else if (location.hash === "#models") showTab("models");
     else if (location.hash === "#fade") showTab("fade");
+    else if (location.hash === "#overview") showTab("overview");
   });
   learning();
   document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
@@ -1212,8 +1415,12 @@ function boot() {
   bar.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.day) current = e.target.dataset.day; });
   const repaint = () => { charts.forEach(p => p()); mtLive.forEach(l => l.paint());
     if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
+  // Overview is the default view when DATA.overview exists; an explicit #fade (or any other hash above) wins over it,
+  // so old links and the fade default on pages without an overview behave exactly as before.
   if (location.hash === "#models") showTab("models");
   else if (location.hash.startsWith("#notes")) showTab("notes");
+  else if (location.hash === "#overview") showTab("overview");
+  else if (location.hash !== "#fade" && DATA.overview) showTab("overview");
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
   new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
