@@ -249,7 +249,7 @@ h1 em { font-style: normal; color: var(--accent); }
 footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; border-top: 1px solid var(--rule); padding-top: 14px; }
 footer b { color: var(--ink); font-weight: 600; }
 
-/* overview tab (owner 2026-11-13): a phone-first, plain-words read of what is trading; tables scroll inside .ov-wrap */
+/* overview section on the Fade tab (owner 2026-11-13): a phone-first, plain-words read of what is trading; tables scroll inside .ov-wrap */
 .ov-body { display: grid; gap: 18px; min-width: 0; }
 .ov-sec { display: grid; gap: 12px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
   padding: 14px 16px; min-width: 0; }
@@ -307,22 +307,10 @@ footer b { color: var(--ink); font-weight: 600; }
   </div>
 
   <nav class="tabs" role="tablist" aria-label="Views" id="tabs" hidden>
-    <button type="button" role="tab" id="tab-overview" aria-selected="false" aria-controls="pane-overview" hidden>Overview</button>
     <button type="button" role="tab" id="tab-fade" aria-selected="true" aria-controls="pane-fade">Fade trades</button>
     <button type="button" role="tab" id="tab-models" aria-selected="false" aria-controls="pane-models">Models</button>
     <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="pane-notes">Notes</button>
   </nav>
-
-  <!-- 2026-11-13 (owner): plain-words Overview, selected by default when DATA.overview exists; built in JS from DATA.overview -->
-  <div class="pane" id="pane-overview" role="tabpanel" aria-labelledby="tab-overview" hidden>
-    <div class="head"><div>
-      <h1>Over<em>view</em></h1>
-      <p class="lede">What the agent is trading right now, in plain words: each book's result so far, the model's latest
-        calls with their own tested record, the alert fade it still measures, and the ideas being scored. Paper, not advice.</p>
-    </div></div>
-    <div id="ov-asof" class="small"></div>
-    <div id="ov-body" class="ov-body"></div>
-  </div>
 
   <div class="pane" id="pane-fade" role="tabpanel" aria-labelledby="tab-fade">
   <div class="tape" aria-label="Trades on this day"><div class="tape-track" id="tape"></div></div>
@@ -376,6 +364,18 @@ footer b { color: var(--ink); font-weight: 600; }
       <thead><tr><th>Challenger</th><th>Live trades</th><th>Live rule</th><th>Challenger</th><th>Per day vs live</th>
         <th>Status</th></tr></thead>
       <tbody id="learn-rows"></tbody></table></div>
+  </section>
+
+  <!-- 2026-11-13 (owner: "built into the fade trades tab ... under the fade trades info"): the plain-words overview of
+       every book, the model's latest calls and the leads, below the fade content; built in JS from DATA.overview -->
+  <section id="overview" hidden aria-label="Everything the agent is trading">
+    <div class="head"><div>
+      <h1>All <em>books</em></h1>
+      <p class="lede">What the agent is trading right now, in plain words: each book's result so far, the model's latest
+        calls with their own tested record, the alert fade it still measures, and the ideas being scored. Paper, not advice.</p>
+    </div></div>
+    <div id="ov-asof" class="small"></div>
+    <div id="ov-body" class="ov-body"></div>
   </section>
   </div>
 
@@ -1368,6 +1368,7 @@ function ovBoot() {
   const o = DATA.overview;
   if (!o) return;
   ovDrawn = true;
+  document.getElementById("overview").hidden = false;
   document.getElementById("ov-asof").textContent = "As of " + (o.asof || "—");
   const body = document.getElementById("ov-body");
   body.replaceChildren();
@@ -1377,14 +1378,18 @@ function ovBoot() {
   ovLeads(body, o.leads);
 }
 
+function ovJump() {
+  showTab("fade");
+  const s = document.getElementById("overview");
+  if (!s.hidden) s.scrollIntoView();
+}
+
 function showTab(name) {
-  const pick = name === "overview" && DATA.overview ? "overview"
-    : name === "models" && DATA.models ? "models" : name === "notes" ? "notes" : "fade";
-  ["overview", "fade", "models", "notes"].forEach(n => {
+  const pick = name === "models" && DATA.models ? "models" : name === "notes" ? "notes" : "fade";
+  ["fade", "models", "notes"].forEach(n => {
     document.getElementById("pane-" + n).hidden = n !== pick;
     document.getElementById("tab-" + n).setAttribute("aria-selected", String(n === pick));
   });
-  if (pick === "overview") ovBoot();
   if (pick === "models") mtBoot();
   if (pick === "notes") jnBoot();
 }
@@ -1392,8 +1397,7 @@ function showTab(name) {
 function boot() {
   document.getElementById("tabs").hidden = false;
   if (!(DATA.models && (DATA.models.tickers || []).length)) document.getElementById("tab-models").hidden = true;
-  if (DATA.overview) document.getElementById("tab-overview").hidden = false;
-  ["overview", "fade", "models", "notes"].forEach(n => document.getElementById("tab-" + n).addEventListener("click", () => {
+  ["fade", "models", "notes"].forEach(n => document.getElementById("tab-" + n).addEventListener("click", () => {
     showTab(n); history.replaceState(null, "", "#" + n); }));
   // 2026-11-11 (owner: the "Notes & Luna review" link on the fade cards did nothing): the hash router lives here, from
   // page load. It used to be registered only when the Notes tab first opened, so a #notes/<key> link clicked on the
@@ -1402,9 +1406,10 @@ function boot() {
     if (location.hash.startsWith("#notes")) showTab("notes");
     else if (location.hash === "#models") showTab("models");
     else if (location.hash === "#fade") showTab("fade");
-    else if (location.hash === "#overview") showTab("overview");
+    else if (location.hash === "#overview") ovJump();
   });
   learning();
+  ovBoot();                                         // below the fade content, on the Fade trades tab (owner 2026-11-13)
   document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
   const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
   const bar = document.getElementById("days");
@@ -1415,12 +1420,10 @@ function boot() {
   bar.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.day) current = e.target.dataset.day; });
   const repaint = () => { charts.forEach(p => p()); mtLive.forEach(l => l.paint());
     if (current) curve(current, DATA.trades.filter(t => t.session === current)); };
-  // Overview is the default view when DATA.overview exists; an explicit #fade (or any other hash above) wins over it,
-  // so old links and the fade default on pages without an overview behave exactly as before.
+  // Fade trades is the first view (owner 2026-11-13); #overview is an old link: it opens the Fade tab at that section.
   if (location.hash === "#models") showTab("models");
   else if (location.hash.startsWith("#notes")) showTab("notes");
-  else if (location.hash === "#overview") showTab("overview");
-  else if (location.hash !== "#fade" && DATA.overview) showTab("overview");
+  else if (location.hash === "#overview") ovJump();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
   new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }

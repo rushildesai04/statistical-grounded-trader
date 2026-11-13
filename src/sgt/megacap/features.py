@@ -24,9 +24,11 @@ FEATURES = (
 )
 
 
-def to_grid(bars: pd.DataFrame) -> dict:
+def to_grid(bars: pd.DataFrame, min_bars: int | None = None) -> dict:
     """Regular-hours 1-minute frame (ts UTC, open/high/low/close/volume) -> per-session arrays
-    on a 390-minute grid. Missing minutes carry the last close (open=high=low=close, volume 0)."""
+    on a 390-minute grid. Missing minutes carry the last close (open=high=low=close, volume 0).
+    A session with fewer than ``min_bars`` minutes that traded is dropped (default: half the grid, the research
+    rule for the consolidated tape; the live 15:50 decision passes a lower floor for the thin free feed)."""
     b = bars.copy()
     et = pd.to_datetime(b.ts, utc=True).dt.tz_convert(ET)
     b["session"] = et.dt.date
@@ -42,7 +44,7 @@ def to_grid(bars: pd.DataFrame) -> dict:
         close_k = int((cal.bounds(sess).rth_close - pd.Timestamp(f"{sess} 09:30", tz=ET)).total_seconds() // 60)
         g = g[g.k < close_k]                       # early closes: drop post-market bars (A2)
         g = g.set_index("k").reindex(range(GRID))
-        if g.close.notna().sum() < GRID // 2:
+        if g.close.notna().sum() < (GRID // 2 if min_bars is None else min_bars):
             continue  # half day or broken session
         c = g.close.ffill().bfill().to_numpy(float)
         o = g.open.fillna(pd.Series(c, index=g.index)).to_numpy(float)
