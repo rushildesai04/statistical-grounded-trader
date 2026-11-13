@@ -415,3 +415,46 @@ def test_model_trades_fill_today_only_when_decided_live():
     assert sc.model_fill({"date": d.isoformat(), "mode": "realtime", **w}, at(16, 5)) is None     # after the close
     assert sc.model_fill({"date": d.isoformat(), "mode": "batch", **w}, at(15, 51)) is None       # late decision
     assert sc.model_fill({"date": "2026-11-09", "mode": "realtime", **w}, at(15, 51)) is None     # yesterday's call
+
+
+def test_megacap_long_book_takes_long_calls_of_both_sets_only_when_both_are_live(db, monkeypatch):
+    # prereg_megacap_long_forward_2026-11-13: +1 positions of both sets as book 'megacap_long'; shorts and flats are
+    # flat; nothing is proposed unless BOTH sets have a live 15:50 decision for today; proposed once.
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(5)
+    idx = pd.bdate_range("2025-06-02", periods=300).date
+    m = rng.normal(0, 0.01, 300)
+
+    def frame(beta, vol):
+        c = 100 * np.cumprod(1 + beta * m + rng.normal(0, vol, 300))
+        return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99, "close": c, "volume": 1e6}, index=idx)
+    bars = {s: frame(1.2, 0.006) for s in ("NVDA", "MSFT", "AMD", "JPM", "WMT")} | {"SPY": frame(1.0, 0.0)}
+    monkeypatch.setattr(sc, "daily_bars", lambda syms: bars)
+    d = _full_session().isoformat()
+    live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
+    stamp = live_at.replace(minute=50).isoformat()
+
+    def write(folder, positions, mode="realtime"):
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        (Path(folder) / f"{d}.json").write_text(json.dumps(
+            {"date": d, "mode": mode, "written_at": stamp, "positions": {s: {"position": p} for s, p in positions.items()}}))
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    write(sc.LONG_SETS[0], {"NVDA": 1, "MSFT": -1})
+    sc.cmd_megacap_long(db, now=live_at)                    # the other set has no decision: no order
+    write(sc.LONG_SETS[1], {"AMD": 1, "JPM": -1, "WMT": 0}, mode="batch")
+    sc.cmd_megacap_long(db, now=live_at)                    # the other set is not live: no order
+    with db.tx() as c:
+        assert c.execute("SELECT COUNT(*) FROM book_orders").fetchone()[0] == 0
+    write(sc.LONG_SETS[1], {"AMD": 1, "JPM": -1, "WMT": 0})
+    sc.cmd_megacap_long(db, now=live_at)
+    sc.cmd_megacap_long(db, now=live_at)                    # proposed once
+    with db.tx() as c:
+        rows = c.execute("SELECT strategy, symbol, target FROM book_orders WHERE status='scheduled'").fetchall()
+    t = {r["symbol"]: r["target"] for r in rows}
+    assert {r["strategy"] for r in rows} == {sc.LONG_BOOK} and set(t) == {"NVDA", "AMD"}       # longs only
+    assert all(0 < w <= 0.25 for w in t.values()) and len(sms.sent) == 1 and "megacap long calls" in sms.sent[0]

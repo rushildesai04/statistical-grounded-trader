@@ -84,7 +84,7 @@ def book_lines(db: OpsStore, today: date) -> list[str]:
 # per segment, and each bold/italic letter is 2 UTF-16 units), so bold is kept to headers and book names. Reply codes
 # are never styled: a copied styled digit is not an ASCII digit and would not parse. Long digests go as numbered parts.
 NAMES = {"etf:B_6040": "60/40", "etf:F1_dual_momentum": "dual momentum", "etf:F2_6040_trend": "60/40 trend",
-         "megacap": "megacap", "megacap_overlay": "megacap overlay", "megacap_ext": "megacap 15"}
+         "megacap": "megacap", "megacap_overlay": "megacap overlay", "megacap_ext": "megacap 15", "megacap_long": "megacap long calls"}
 _CTRL = {i: None for i in range(32) if i != 10} | {127: None}
 
 
@@ -185,6 +185,15 @@ def hold_lines(db: OpsStore) -> list[str]:
                            f"model {model - 1:+.1%}, holding {hold - 1:+.1%}")
         except (OSError, KeyError, ValueError, csv.Error):
             out.append(f"{label} vs holding: unavailable")
+    from sgt.megacap import longonly
+
+    lo = longonly.ledger(root)                          # prereg_megacap_long_forward_2026-11-13 (the deciding ledger)
+    if lo["sessions"]:
+        avg = f"{lo['avg_call']:+.2%}" if lo["avg_call"] is not None else "none yet"
+        out.append(f"{bold('megacap long calls')} ledger, {lo['sessions']} sessions since {lo['since'][5:]}: "
+                   f"{lo['total']:+.1%} ({lo['calls']} calls, {lo['wins']} winners, avg {avg}; tested "
+                   f"{longonly.TESTED_AVG:+.2%}, {longonly.TESTED_WIN:.0%}); long and short {lo['long_short']:+.1%}, "
+                   f"holding {lo['holding']:+.1%}" + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else ""))
     return out
 
 

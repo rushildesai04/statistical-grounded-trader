@@ -50,7 +50,7 @@ BOOKS = (
     TradeBook("scanner (experiment)", "SELECT net FROM scan_trades WHERE status='settled' ORDER BY session, id",
               -0.0118, 0.1201, 0.532, "prereg_self_fade_2026-11-06"),
 )
-MODEL_BOOKS = ("megacap", "megacap_overlay", "megacap_ext")
+MODEL_BOOKS = ("megacap", "megacap_overlay", "megacap_ext", "megacap_long")
 MODEL_STOP = -0.05                   # prereg_megacap_forward: cumulative net below -5% -> stop rule
 
 
