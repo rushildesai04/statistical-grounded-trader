@@ -55,3 +55,13 @@ def test_no_look_ahead_every_prefix_agrees():
     assert len(full) > 5
     for k in range(20, 300):
         assert st.bullish_breaks(f.iloc[:k]) == [b for b in full if b.i < k]
+
+
+def test_owner_pine_labels_the_first_break_bos_and_applies_the_bullish_break_first():
+    f = frame(H, L, C)
+    assert [(x.i, x.kind) for x in st.bullish_breaks(f, owner=True)] == [(20, "BOS"), (28, "BOS")]
+    # same bars as the bearish test: after the close below the pivot low the next bullish break is a CHoCH in both
+    h = H + [11, 11, 11, 11, 11, 14, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 14.5]
+    c = C + [10.9] * 5 + [13.9] + [7.5] + [10.9] * 10 + [14.4]
+    assert st.bullish_breaks(frame(h, L + [9.5] * 18, c), owner=True)[-1].kind == "CHOCH"
+    assert [x.i for x in st.bullish_breaks(f, owner=True)] == [x.i for x in st.bullish_breaks(f)]   # same bars, new labels

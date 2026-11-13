@@ -64,3 +64,17 @@ of the times", and the lift is a tenth of a percent against a ~1.25% round-trip 
 -1.04%; BoS without the EMA gate -1.45% / -1.54% (the gate adds nothing). November 2026 (66 forward events,
 descriptive): S1X1 -0.13% (n 136), S1X2 -0.04% (n 119): about break-even, the best month on record for it, still not
 positive. XLAB 11-12: X1 +8.1%, +5.8%, +22.7%, -9.8%; X2 one trade $1.44 -> $2.28, **+57%**.
+
+## Addendum A1 (2026-11-13, FROZEN before the run): the owner's own "BOS & CHoCH" Pine source
+The owner pasted the script (Pine v6, pivot length 5). It matches the standard definition above except: (1) the first
+bullish break of the day, before any trend exists, is labelled BOS (above: CHoCH); (2) on a bar that breaks both
+levels the bullish break is applied first, then the bearish one. `structure.bullish_breaks(owner=True)` implements
+exactly that. Candidates O1X1, O1X2 = S1X1, S1X2 with this labelling; same rules, alpha, minimum, decision and
+bootstrap; run once (`scripts/bos_ema_study.py --owner`, output `reports/bos_ema/result_owner.json`). Expectation
+stated before the run: the owner's BOS set is the S1 set plus part of the CHoCH set, and both lost on training
+(-1.45% / -0.83% with X1), so a pass would be a surprise.
+
+### A1 result (run once, 2026-11-13; `reports/bos_ema/result_owner.json`) - both FAIL on training
+O1X1 -1.45% per trade (n 5,051, win 33%, p 1.00); O1X2 -1.59% (n 4,566, win 23%). The owner's labelling adds 34 signals
+to the standard set and changes nothing. Next bar after a BoS with 9 > 21: green 44.7% vs 43.6%, up 1%+ 21.5% vs 17.3%,
+mean +0.08% vs -0.01%. Held-out stays closed.
