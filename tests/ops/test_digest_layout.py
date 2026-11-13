@@ -249,3 +249,17 @@ def test_model_books_are_shown_next_to_holding(tmp_path, monkeypatch):
     assert want in digest.build(db, NOW, fills=[], problems=[], broker=None, research=[]).splitlines()
     p.write_text("date,symbol,position,ret,void\n2026-10-30,AAA,1,0.02,False\n")
     assert digest.hold_lines(db) == ["megacap vs holding: unavailable"]
+
+
+def test_long_calls_ledger_line(tmp_path, monkeypatch):
+    # prereg_megacap_long_forward_2026-11-13: the deciding ledger is shown with its tested numbers and both comparisons
+    monkeypatch.chdir(tmp_path)
+    db = OpsStore(tmp_path / "ops" / "ops.db")
+    head = "date,symbol,position,ret,void,net\n"
+    for sub, body in (("megacap_forward", "2026-11-16,AAA,1,0.02,False,0.0196\n2026-11-16,BBB,-1,0.03,False,-0.0304\n"),
+                      ("megacap_ext", "2026-11-16,CCC,0,0.01,False,0.0\n")):
+        (tmp_path / sub).mkdir()
+        (tmp_path / sub / "marks.csv").write_text(head + body)
+    line = [x for x in digest.hold_lines(db) if " ledger, " in x]
+    assert line == [f"{bold('megacap long calls')} ledger, 1 sessions since 11-16: +0.7% (1 calls, 1 winners, avg +1.96%; "
+                    "tested +0.23%, 54%); long and short -0.4%, holding +2.0%"]

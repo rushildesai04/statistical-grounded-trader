@@ -39,7 +39,9 @@ if [ "${1:-}" = "job" ]; then
                run reports/ops/run.log python /app/scripts/sms_control.py megacap || true
                if [ -f "reports/megacap_ext/models/$(date +%Y-%m)/meta.json" ]; then
                  run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext
-                 run reports/ops/run.log python /app/scripts/sms_control.py megacapext
+                 run reports/ops/run.log python /app/scripts/sms_control.py megacapext || true
+                 # prereg_megacap_long_forward_2026-11-13: long calls of both sets, only when both decided live
+                 run reports/ops/run.log python /app/scripts/sms_control.py megacaplong
                fi ;;
     megacapext) run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py auto --set ext
                run reports/ops/run.log python /app/scripts/sms_control.py megacapext ;;

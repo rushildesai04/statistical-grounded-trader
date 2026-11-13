@@ -256,6 +256,10 @@ site's Overview tab as the tested record of each call (the honest replacement fo
 **Confidence (fade):** the stored 38-99 score is 100 x the chance that the AVERAGE of trades like this is profitable,
 not the chance a trade wins (XLAB 11-12 scored 99 and lost 21%). Trades like those won 53-65% of the time. The site
 now labels it "group score" and says so.
+**Long calls only (forward test from 2026-11-16, owner's go 2026-11-13;** `prereg_megacap_long_forward_2026-11-13`**):**
+a third model book, `megacap_long`, takes only the +1 calls of both sets (21 names), flat otherwise; no new model.
+Decided on its equal-weight ledger (`sgt.megacap.longonly`): stop below -5%, continue on 2027-04-30 only if above 0.
+The digest shows the ledger next to the long-and-short models and holding. Paper only.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach

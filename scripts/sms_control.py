@@ -440,6 +440,41 @@ def megacap_targets(positions: dict[str, int]) -> dict[str, float]:
     return {s: round(sized.weights.get(s, 0.0), 4) for s in positions}
 
 
+LONG_BOOK = "megacap_long"
+LONG_SETS = ("reports/megacap_forward/decisions", "reports/megacap_ext/decisions")
+
+
+def cmd_megacap_long(db: OpsStore, now: datetime | None = None) -> int:
+    """Long calls only (prereg_megacap_long_forward_2026-11-13): the +1 positions of BOTH forward sets as the paper
+    book 'megacap_long', sized like the other model books, auto-executed. No order unless both sets hold a live 15:50
+    decision for today (fail closed: a half-universe book is not the pre-registered one)."""
+    now_et = now or datetime.now(ET)
+    positions: dict[str, int] = {}
+    fill = None
+    for folder in LONG_SETS:
+        files = sorted(Path(folder).glob("*.json"))
+        dec = json.loads(files[-1].read_text()) if files else None
+        f = model_fill(dec, now_et) if dec else None
+        if f is None or (fill is not None and f != fill):
+            print(f"megacap_long: no live decision for today in {folder} (book trades only when both sets are live)")
+            return 0
+        fill = f
+        positions.update({s: (1 if int(v["position"]) > 0 else 0) for s, v in dec["positions"].items()})
+    if done(db, f"megacap_long:{fill}"):
+        print(f"megacap_long {fill}: already proposed")
+        return 0
+    targets = megacap_targets(positions)
+    sms = Sms()
+    try:
+        res = book.propose(db, sms.send, strategy=LONG_BOOK, targets=targets, fill_session=fill,
+                           deadline=deadline(fill), label=f"megacap long calls {fill:%m-%d}", auto_all=True)
+        mark_done(db, f"megacap_long:{fill}")
+    finally:
+        sms.close()
+    print(f"megacap_long {fill}: {res}")
+    return 0
+
+
 def done(db: OpsStore, key: str) -> bool:
     return db.flag(f"done:{key}") is not None
 
@@ -618,13 +653,13 @@ def cmd_pilot(db: OpsStore) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "megacapext", "tom", "etf", "pilot",
+    ap.add_argument("cmd", choices=["poll", "digest", "megacap", "megacapext", "megacaplong", "tom", "etf", "pilot",
                                     "summary", "weekly"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
-    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "megacapext": cmd_megacap_ext,
+    return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "megacapext": cmd_megacap_ext, "megacaplong": cmd_megacap_long,
             "tom": cmd_tom, "etf": cmd_etf, "pilot": cmd_pilot, "summary": cmd_summary,
             "weekly": cmd_weekly}[args.cmd](db)
 
