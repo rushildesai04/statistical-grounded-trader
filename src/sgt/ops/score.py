@@ -74,14 +74,22 @@ def for_trade(kind: str, dollars: float | None, sigma: float | None = None, db: 
     without their own spread (model calls). Unknown kind or size -> fields None, go None (never a silent GO)."""
     k = _fade_now(db) if kind == "fade" else KINDS.get(kind)
     if k is None:
-        return {"kind": kind, "label": kind, "ev": None, "usd": None, "swing": None, "win": None, "n": None,
+        return {"kind": kind, "label": kind, "ev": None, "sd": None, "size": None, "usd": None, "swing": None, "win": None, "n": None,
                 "go": None, "basis": "unknown kind of trade: no tested expectation"}
     size = abs(float(dollars)) if dollars is not None else None
     sd = k.sd if k.sd is not None else (float(sigma) if sigma is not None and sigma > 0 else None)
-    return {"kind": k.key, "label": k.label, "ev": k.ev,
+    return {"kind": k.key, "label": k.label, "ev": k.ev, "sd": sd, "size": size,
             "usd": None if k.ev is None or size is None else k.ev * size,
             "swing": None if sd is None or size is None else sd * size,
             "win": k.win, "n": k.n, "go": None if k.ev is None else bool(k.ev > 0), "basis": k.basis}
+
+
+def resize(s: dict, dollars: float | None) -> dict:
+    """The same score on another position size (one lookup of the kind, many trades of it)."""
+    size = abs(float(dollars)) if dollars is not None else None
+    return {**s, "size": size,
+            "usd": None if s.get("ev") is None or size is None else s["ev"] * size,
+            "swing": None if s.get("sd") is None or size is None else s["sd"] * size}
 
 
 def line(s: dict) -> str | None:

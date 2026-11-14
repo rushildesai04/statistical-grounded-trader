@@ -55,3 +55,11 @@ def test_unknown_kind_or_size_is_never_a_silent_go():
     assert u["go"] is None and u["usd"] is None and score.line(u) is None
     n = score.for_trade("model_long", None, sigma=0.02)
     assert n["usd"] is None and n["swing"] is None and n["go"] is True and score.line(n) == "expected +0.25% per trade: GO"
+
+
+def test_resize_keeps_the_kind_and_rescales_the_dollars():
+    one = score.for_trade("fade", None)
+    assert one["usd"] is None and one["swing"] is None and one["go"] is True
+    s = score.resize(one, 4_823)
+    assert s["usd"] == pytest.approx(0.0170 * 4_823) and s["swing"] == pytest.approx(0.1735 * 4_823) and s["size"] == 4_823
+    assert score.resize(one, None)["usd"] is None and one["usd"] is None           # the original is not changed

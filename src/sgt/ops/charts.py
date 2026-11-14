@@ -124,7 +124,7 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
 
 
 def book_view(e: dict, bars: pd.DataFrame, *, decided, entered, exited, timeframe: str, book: str,
-              forecast: dict | None = None, tested: dict | None = None) -> dict:
+              forecast: dict | None = None, tested: dict | None = None, score: dict | None = None) -> dict:
     """Chart data for one daily-book trade (sgt.ops.model_trades.episodes; owner 2026-11-14: every trade gets a card).
 
     ``bars``: 5-minute bars from the entry session to the exit (short holds) or daily bars (long holds); ``decided`` =
@@ -153,7 +153,10 @@ def book_view(e: dict, bars: pd.DataFrame, *, decided, entered, exited, timefram
              weight=_num(e["weight"]), sessions=int(e["sessions"]), entry_session=e["entry_session"],
              exit_session=e["exit_session"], exit_scheduled=e.get("exit_scheduled"),
              ret=ret, usd=usd, official=official, stop=None, target=None, signals=None, conf=None,
-             forecast=forecast, tested=tested)
+             forecast=forecast, tested=tested, score=score)
+    for m in v["markers"]:
+        if m["kind"] == "alert":
+            m["text"] = "decided"                                    # the 15:50 ET decision, not a channel alert
     if not closed:
         v["exit"] = last
     return v

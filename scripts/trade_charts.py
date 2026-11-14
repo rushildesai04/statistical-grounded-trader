@@ -98,9 +98,15 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         ret = r["net"] if r["net"] is not None else (
             r["est_exit"] / r["est_entry"] - 1 if r.get("est_exit") and r.get("est_entry") else None)
         base = long_book.nav(db, through=date.fromisoformat(r["session"]) - timedelta(days=1))   # value before its day
-        out.append({**r, "setup": long_book.NAMES.get(r["kind"], r["kind"]),
+        out.append({**r, "setup": long_book.NAMES.get(r["kind"], r["kind"]), "size": (r["weight"] or fade.WEIGHT) * base,
                     "usd": None if ret is None else ret * (r["weight"] or fade.WEIGHT) * base})
     return out
+
+
+def size_usd(t: dict, db: OpsStore | None) -> float:
+    """Dollars a fade puts to work: its share of the book value before its day."""
+    base = fade.nav(db, through=date.fromisoformat(t["session"]) - timedelta(days=1)) if db else fade.NAV0
+    return (t.get("weight") or fade.WEIGHT) * base
 
 
 def dollars(t: dict, db: OpsStore | None) -> float | None:
@@ -115,7 +121,10 @@ def dollars(t: dict, db: OpsStore | None) -> float | None:
 
 def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bool = True) -> str:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
+    from sgt.ops import score
+
     views, scan_views, cache = [], [], {}
+    fade_score = score.for_trade("fade", None, db=db)    # one lookup: tested, or the forward record in a guard alarm
     with httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=10) as client:
         for t in long_rows(db):                          # longs first (owner 2026-11-10 option A)
             key = (t["symbol"], t["session"])
@@ -125,6 +134,7 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
                 continue
             v = charts.trade_view(t, cache[key], t["usd"], side="long")
             v["key"] = f"long:{t['id']}"           # links the chart to its Notes page (journal key)
+            v["score"] = score.for_trade("alert_long", t.get("size"))
             views.append(v)
         for t in trades[:MAX_TRADES]:
             key = (t["symbol"], t["session"])
@@ -134,6 +144,7 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
                 continue
             v = charts.trade_view(t, cache[key], dollars(t, db))
             v["key"] = f"fade:{t['id']}" if t.get("id") is not None else None
+            v["score"] = score.resize(fade_score, size_usd(t, db))
             views.append(v)
         for t in scan_rows(db):                          # Notes tab charts for scanner trades (owner 2026-11-09)
             key = (t["symbol"], t["session"])
@@ -218,7 +229,7 @@ def book_views(db: OpsStore | None, client: httpx.Client, now: datetime, reports
     Recent = entered within the page's last sessions, or still open. One trade's missing bars never drop the rest."""
     if db is None:
         return []
-    from sgt.ops import digest, model_trades, overview
+    from sgt.ops import digest, model_trades, score
 
     cal = default_calendar()
     today = now.astimezone(fade.ET).date()
@@ -226,7 +237,6 @@ def book_views(db: OpsStore | None, client: httpx.Client, now: datetime, reports
     recent = [d.isoformat() for d in sessions]
     eps = [e for e in model_trades.episodes(db) if e["status"] != "scheduled" and e["entry"]
            and (e["status"] == "open" or e["entry_session"] >= recent[0])]
-    stats = overview._call_stats()
     out = []
     for e in sorted(eps, key=lambda x: (x["entry_session"], x["id"]), reverse=True)[:MAX_BOOK_TRADES]:
         try:
@@ -239,12 +249,15 @@ def book_views(db: OpsStore | None, client: httpx.Client, now: datetime, reports
             bars = span_bars(client, e["symbol"], start, last.rth_close, tf, now, cache=SPAN_CACHE)
             if bars.empty:
                 continue
+            fc = model_trades.forecast(reports, e["strategy"], e["symbol"], e["entry_session"])
+            # Money score (owner 2026-11-14): one tested number per side. The per-stock record is NOT shown as an
+            # expectation: prereg_record_score_2026-11-14 found it does not predict a stock's next calls.
+            sc = score.for_trade(score.kind_of(e["strategy"], e["side"]), abs(e["weight"]) * e["entry_nav"],
+                                 sigma=(fc or {}).get("sigma"))
             out.append(charts.book_view(
                 e, bars, decided=e["decided_at"], entered=first.rth_close - timedelta(minutes=1),
                 exited=last.rth_close - timedelta(minutes=1) if e["exit_session"] else None, timeframe=tf,
-                book=digest.name(e["strategy"]),
-                forecast=model_trades.forecast(reports, e["strategy"], e["symbol"], e["entry_session"]),
-                tested=model_trades.tested(stats, e["symbol"], e["side"])))
+                book=digest.name(e["strategy"]), forecast=fc, score=sc))
         except Exception:  # noqa: BLE001 - one trade's card must never take the page down; logged
             log.exception("book view %s %s failed", e.get("strategy"), e.get("symbol"))
     return out

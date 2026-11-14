@@ -28,7 +28,7 @@ def _new(o: dict, nav: float) -> dict:
     return {"key": f"book:{o['id']}", "id": o["id"], "strategy": o["strategy"], "symbol": o["symbol"],
             "side": "long" if side > 0 else "short", "weight": o["target"], "entry_session": o["fill_session"],
             "entry": o["fill_price"], "decided_at": o["created_at"], "exit_session": None, "exit": None,
-            "status": "open", "sessions": 0, "gross": None, "net": None,
+            "status": "open", "sessions": 0, "gross": None, "net": None, "entry_nav": nav,
             "usd": -abs(o["target"]) * nav * COST_BP / 1e4,          # the entry's share of the book's trading cost
             "_w": o["target"], "_px": o["fill_price"], "_at": o["fill_session"]}
 
@@ -106,7 +106,11 @@ def forecast(reports: Path, strategy: str, symbol: str, session: str) -> dict | 
         pos = (dec or {}).get("positions")
         p = pos.get(symbol) if isinstance(pos, dict) else None
         if isinstance(p, dict) and isinstance(p.get("pred"), (int, float)):
-            return {k: float(p[k]) for k in ("pred", "q_lo", "q_hi") if isinstance(p.get(k), (int, float))}
+            out = {k: float(p[k]) for k in ("pred", "q_lo", "q_hi") if isinstance(p.get(k), (int, float))}
+            f = p.get("features")
+            if isinstance(f, dict) and isinstance(f.get("d_rv21"), (int, float)) and f["d_rv21"] > 0:
+                out["sigma"] = float(f["d_rv21"])                # the stock's daily swing at the decision
+            return out
     return None
 
 

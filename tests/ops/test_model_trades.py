@@ -83,6 +83,10 @@ def test_forecast_and_tested_record_are_read_defensively(tmp_path):
     (d / "2026-11-13.json").write_text("{not json")
     assert mt.forecast(tmp_path, "megacap_ext", "AMD", "2026-11-12") == {"pred": 0.0125, "q_lo": -0.0065, "q_hi": 0.0118}
     assert mt.forecast(tmp_path, "megacap_long", "AMD", "2026-11-12") == {"pred": 0.0125, "q_lo": -0.0065, "q_hi": 0.0118}
+    (d / "2026-11-10.json").write_text(json.dumps({"positions": {"AMD": {"pred": 0.01, "features": {"d_rv21": 0.074}},
+                                                                 "JPM": {"pred": 0.01, "features": {"d_rv21": -1}}}}))
+    assert mt.forecast(tmp_path, "megacap_ext", "AMD", "2026-11-10") == {"pred": 0.01, "sigma": 0.074}
+    assert mt.forecast(tmp_path, "megacap_ext", "JPM", "2026-11-10") == {"pred": 0.01}      # a bad swing is dropped
     for args in (("megacap_ext", "BAD", "2026-11-12"), ("megacap_ext", "AMD", "2026-11-13"),
                  ("megacap_ext", "AMD", "2026-11-14"), ("etf:B_6040", "AMD", "2026-11-12")):
         assert mt.forecast(tmp_path, *args) is None
@@ -118,6 +122,7 @@ def test_book_view_closed_trade_uses_the_books_fills_and_marks_entry_and_exit(db
     assert (v["entry"], v["exit"]) == (585.30, 534.06) and v["stop"] is None and v["target"] is None
     assert v["conf"] is None and v["signals"] is None and v["forecast"] == {"pred": 0.0125} and v["tested"]["n"] == 188
     assert [m["kind"] for m in v["markers"]] == ["alert", "buy", "sell"] and len(v["candles"]) > 50
+    assert v["markers"][0]["text"] == "decided" and v["score"] is None        # the 15:50 decision, not an alert
     assert v["sessions"] == 1 and v["weight"] == 0.13 and v["timeframe"] == "5Min"
     json.dumps(v, allow_nan=False)                                          # page-safe
 
@@ -170,5 +175,8 @@ def test_book_views_builds_cards_from_the_db_and_survives_a_symbol_with_no_bars(
     with httpx.Client(base_url="https://data.example", transport=httpx.MockTransport(handler)) as client:
         views = tc.book_views(db, client, now, reports=tmp_path)
     assert [v["symbol"] for v in views] == ["AMD"] and views[0]["book"] == "megacap 15" and views[0]["official"]
-    assert ("/v2/stocks/AMD/bars", "5Min") in seen and views[0]["tested"] is not None
+    assert ("/v2/stocks/AMD/bars", "5Min") in seen and views[0]["tested"] is None    # no per-stock expectation
+    sc = views[0]["score"]                                                  # one tested number per side, in dollars
+    assert (sc["kind"], sc["go"]) == ("model_long", True) and sc["usd"] == pytest.approx(0.13 * 100_000 * 0.0025)
+    assert sc["swing"] is None                                              # no decision file here: no swing invented
     assert (tmp_path / "spans" / "5Min").exists()                           # a finished span is cached
