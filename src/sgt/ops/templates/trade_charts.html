@@ -134,6 +134,11 @@ h1 em { font-style: normal; color: var(--accent); }
 .links a { color: var(--accent); text-decoration: none; }
 .links a:hover { text-decoration: underline; }
 .empty { color: var(--muted); padding: 24px 0; }
+/* model & book trades section inside the Fade list (owner 2026-11-14): heading + subheads span the card grid */
+.models-head { grid-column: 1 / -1; display: grid; gap: 3px; margin-top: 10px; }
+.models-head h2 { margin: 0; font: 700 clamp(18px, 4.5vw, 22px)/1.1 var(--display); letter-spacing: .01em; }
+.models-head .msum { font: 400 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.models-sub { grid-column: 1 / -1; font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
 .pane { display: grid; gap: 20px; min-width: 0; }
 [hidden] { display: none !important; }      /* 2026-11-09: .pane{display:grid} overrode [hidden]: all tabs showed at once */
 .jn-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -449,12 +454,16 @@ footer b { color: var(--ink); font-weight: 600; }
 <script>
 const DATA = /*TRADES*/null;
 const charts = [];
+let NEWEST = null;                             // newest day on the page (alert + book days); used for group B below
 const SVGNS = "http://www.w3.org/2000/svg";
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const money = x => (x >= 0 ? "+" : "-") + "$" + Math.abs(x).toLocaleString("en-US", {maximumFractionDigits: 0});
 const pct = x => (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
+const pct2 = x => (x >= 0 ? "+" : "") + (x * 100).toFixed(2) + "%";           // 2dp for model forecast / tested record
 const hhmm = s => { const d = new Date(s * 1000); return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0"); };
+const clock = s => { const d = new Date(s * 1000); let h = d.getUTCHours(); const m = d.getUTCMinutes(); const ap = h >= 12 ? "pm" : "am"; h = h % 12 || 12; return h + ":" + String(m).padStart(2, "0") + " " + ap; };
+const monDay = s => { const [y, m, d] = String(s).split("-").map(Number); return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }); };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const svg = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 const state = t => t.ret == null ? "open" : (t.ret > 0 ? "win" : "loss");
@@ -579,48 +588,77 @@ function chips(s) {
   return row;
 }
 
+// Model forecast fact (owner 2026-11-14): "+1.25% next day (trades above +1.18%)" long / "(trades below -0.67%)" short.
+function modelForecast(t) {
+  const f = t.forecast; if (!f) return "";
+  const bound = isLong(t) ? f.q_hi : f.q_lo;
+  const pred = f.pred != null ? pct2(f.pred) + " next day" : null;
+  const band = bound != null ? "(trades " + (isLong(t) ? "above " : "below ") + pct2(bound) + ")" : null;
+  return [pred, band].filter(Boolean).join(" ");
+}
+function modelHold(t) {
+  const n = t.sessions, word = n === 1 ? "1 session" : (n || 0) + " sessions";
+  return (t.status === "closed" && t.exit_session) ? word + ", to the " + monDay(t.exit_session) + " close" : "open, " + word;
+}
+
 function card(t, i) {
   const c = el("article", "card " + state(t));
   c.style.setProperty("--i", i);
+  const model = t.kind === "model";
   const top = el("div", "top");
-  top.append(el("span", "sym", t.symbol), el("span", "kind", (isLong(t) ? "LONG · " + (t.setup || "") : "SHORT · " + (KIND[t.alert_type] || t.alert_type)) + " · alert " + hhmm(t.alert_at) + " ET"));
+  const kindText = model
+    ? (isLong(t) ? "LONG" : "SHORT") + " · " + (t.book || "model") + " · decided " + clock(t.alert_at) + " ET, filled at the close"
+    : (isLong(t) ? "LONG · " + (t.setup || "") : "SHORT · " + (KIND[t.alert_type] || t.alert_type)) + " · alert " + hhmm(t.alert_at) + " ET";
+  top.append(el("span", "sym", t.symbol), el("span", "kind", kindText));
   const label = t.ret == null ? "open" : (t.usd != null ? money(t.usd) + " · " : "") + pct(t.ret) + (t.official ? "" : " est");
   top.append(el("span", "pill", label));
   const facts = el("div", "facts");
   const fact = (k, v) => { const s = el("span", null, k + " "); s.append(el("b", null, v)); facts.append(s); };
   if (t.entry) fact(isLong(t) ? "buy" : "short", "$" + t.entry.toFixed(2));
-  if (t.exit) fact(isLong(t) ? "sell" : "cover", "$" + t.exit.toFixed(2));
-  if (t.reason) fact("exit", t.reason);
-  if (isLong(t)) { if (t.target) fact("target", "$" + t.target.toFixed(2)); }
-  else fact("news", t.news ? "yes" : "none found");
-  c.append(top, facts);
-  if (t.conf != null) {
-    // 2026-11-13 (owner): "confidence 99" read as a win chance and a 99 lost 21%. It is 100× the probability that the
-    // AVERAGE of trades like this is profitable, not the chance this trade wins. Relabel + spell it out underneath.
-    const conf = el("div", "conf", "group score ");
-    const meter = el("span", "meter"), fill = el("i");
-    fill.style.setProperty("--w", Math.max(0, Math.min(100, t.conf)) + "%");
-    meter.append(fill);
-    conf.append(meter, el("b", null, t.conf + "/100"));
-    conf.title = "Group score: 100 × the chance that the AVERAGE of trades like this is profitable — not the chance this trade wins. Trades like this won 53-65% of the time.";
-    conf.setAttribute("aria-label", "group score " + t.conf + " out of 100: not a win chance; trades like this won 53 to 65 percent of the time");
-    c.append(conf);
-    c.append(el("div", "conf-note", "not a win chance: trades like this won 53-65% of the time"));
+  if (model) {
+    if (t.status === "closed" && t.exit) fact(isLong(t) ? "sell" : "cover", "$" + t.exit.toFixed(2));
+    if (t.weight != null) fact("size", (Math.abs(t.weight) * 100).toFixed(1) + "% of book");
+    fact("hold", modelHold(t));
+    if (t.exit_scheduled) fact("exit", "ordered for the " + monDay(t.exit_scheduled) + " close");
+    const fc = modelForecast(t); if (fc) fact("forecast", fc);
+    c.append(top, facts);
+    if (t.tested) c.append(el("div", "conf-note", "calls like this: " + t.tested.n + " tested, won "
+      + Math.round(t.tested.win * 100) + "%, average " + pct2(t.tested.avg)));
+    c.append(el("div", "conf-note", t.timeframe === "1Day" ? "daily bars" : "5-minute bars"));
+  } else {
+    if (t.exit) fact(isLong(t) ? "sell" : "cover", "$" + t.exit.toFixed(2));
+    if (t.reason) fact("exit", t.reason);
+    if (isLong(t)) { if (t.target) fact("target", "$" + t.target.toFixed(2)); }
+    else fact("news", t.news ? "yes" : "none found");
+    c.append(top, facts);
+    if (t.conf != null) {
+      // 2026-11-13 (owner): "confidence 99" read as a win chance and a 99 lost 21%. It is 100× the probability that the
+      // AVERAGE of trades like this is profitable, not the chance this trade wins. Relabel + spell it out underneath.
+      const conf = el("div", "conf", "group score ");
+      const meter = el("span", "meter"), fill = el("i");
+      fill.style.setProperty("--w", Math.max(0, Math.min(100, t.conf)) + "%");
+      meter.append(fill);
+      conf.append(meter, el("b", null, t.conf + "/100"));
+      conf.title = "Group score: 100 × the chance that the AVERAGE of trades like this is profitable — not the chance this trade wins. Trades like this won 53-65% of the time.";
+      conf.setAttribute("aria-label", "group score " + t.conf + " out of 100: not a win chance; trades like this won 53 to 65 percent of the time");
+      c.append(conf);
+      c.append(el("div", "conf-note", "not a win chance: trades like this won 53-65% of the time"));
+    }
+    if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
+    if (t.signals) c.append(chips(t.signals));
   }
-  if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
-  if (t.signals) c.append(chips(t.signals));
   const box = el("div", "chart"), rbox = el("div", "sub rsi"), mbox = el("div", "sub macd");
   const panes = el("div", "panes");
   panes.append(box, rbox, mbox);
   c.append(panes);
-  if (t.exit_at && t.bars_end && t.exit_at - t.bars_end > 90) c.append(el("div", "news", "Candles end at " + hhmm(t.bars_end)
+  if (!model && t.exit_at && t.bars_end && t.exit_at - t.bars_end > 90) c.append(el("div", "news", "Candles end at " + hhmm(t.bars_end)
     + " ET, before the exit at " + hhmm(t.exit_at) + " ET (minute bars arrive about 16 minutes late)."));
   const links = el("div", "links");
   const a = el("a", null, "Open " + t.symbol + " in TradingView ↗");
   a.href = "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(t.symbol);
   a.target = "_blank"; a.rel = "noopener";
   links.append(a);
-  if (t.key) { const n = el("a", null, "Notes & Luna review →"); n.href = "#notes/" + t.key; links.append(n); }
+  if (t.key) { const n = el("a", null, model ? "Notes →" : "Notes & Luna review →"); n.href = "#notes/" + t.key; links.append(n); }
   c.append(links);
   return [c, { main: box, rsi: rbox, macd: mbox }];
 }
@@ -711,9 +749,37 @@ function show(day) {
   list.replaceChildren(); charts.length = 0;
   document.querySelectorAll("#days button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.day === day)));
   const ts = DATA.trades.filter(t => t.session === day).sort((a, b) => isLong(b) - isLong(a));   // longs first
-  tape(ts); summary(ts); curve(day, ts);
-  if (!ts.length) { list.append(el("div", "empty", "No trades on this day.")); return; }
+  tape(ts); summary(ts); curve(day, ts);         // tiles / tape / curve stay alert-only (owner 2026-11-14)
   ts.forEach((t, i) => { const [c, boxes] = card(t, i); list.append(c); draw(boxes, t); });
+  const addedModel = showModels(day, list, ts.length);
+  if (!ts.length && !addedModel) list.append(el("div", "empty", "No trades on this day."));
+}
+
+// Model and book trades (owner 2026-11-14: every trade, "regardless of if its any alert or an alpha", gets a card and
+// its own page). Below the alert cards, in the same grid: group A = entered at this day's close; group B (newest day
+// only) = still open from earlier days. One compact summary line; kept out of the alert tiles / tape / P&L curve.
+function modelSummaryLine(shown) {
+  const closed = shown.filter(v => v.status === "closed"), open = shown.filter(v => v.status !== "closed");
+  const sum = arr => arr.reduce((s, v) => s + (v.usd || 0), 0);
+  const parts = [shown.length + " trade" + (shown.length === 1 ? "" : "s")];
+  if (closed.length) parts.push(closed.length + " closed: " + money(sum(closed)));
+  if (open.length) parts.push(open.length + " open: " + money(sum(open)) + " est");
+  return parts.join(" · ");
+}
+function showModels(day, list, startIdx) {
+  const all = DATA.book_views || [];
+  const groupA = all.filter(v => v.entry_session === day);
+  const groupB = day === NEWEST ? all.filter(v => v.status === "open" && v.entry_session && v.entry_session < day) : [];
+  if (!groupA.length && !groupB.length) return false;
+  const head = el("div", "models-head");
+  head.append(el("h2", null, "Model and book trades"), el("div", "msum", modelSummaryLine([...groupA, ...groupB])));
+  list.append(head);
+  let idx = startIdx;
+  const run = (views, sub) => { if (!views.length) return; list.append(el("div", "models-sub", sub));
+    views.forEach(v => { const [c, boxes] = card(v, idx++); list.append(c); draw(boxes, v); }); };
+  run(groupA, "Entered at the " + monDay(day) + " close");
+  run(groupB, "Still open from earlier days");
+  return true;
 }
 
 function learning() {
@@ -1166,10 +1232,12 @@ function jnDetail(key) {
   jnPrices(e).forEach(([k, val]) => { if (val == null || val === "") return; const s2 = el("div", "jn-stat"); s2.append(el("span", null, k), el("b", null, String(val))); stats.append(s2); });
   box.append(nav, hero, head, stats);
   if (v && v.candles && v.candles.length) {
-    const chartBox = el("div", "jn-box"); chartBox.append(jnHead("Chart (1-minute, SIP) with alert, entry and exit"));
+    const chartBox = el("div", "jn-box"); chartBox.append(jnHead(jnKind(e) === "book"
+      ? "Chart (" + (v.timeframe === "1Day" ? "daily" : "5-minute") + " bars) with entry and exit"
+      : "Chart (1-minute, SIP) with alert, entry and exit"));
     const main = el("div", "chart"), rsi = el("div", "sub rsi"), macd = el("div", "sub macd"), panes = el("div", "panes");
     panes.append(main, rsi, macd); chartBox.append(panes);
-    if (v.exit_at && v.bars_end && v.exit_at - v.bars_end > 90) chartBox.append(el("span", "jn-lesson", "Candles end at " + hhmm(v.bars_end)
+    if (jnKind(e) !== "book" && v.exit_at && v.bars_end && v.exit_at - v.bars_end > 90) chartBox.append(el("span", "jn-lesson", "Candles end at " + hhmm(v.bars_end)
       + " ET, before the exit at " + hhmm(v.exit_at) + " ET: minute bars arrive about 16 minutes late and the page rebuilds every 10 minutes."));
     if (v.signals) chartBox.append(chips(v.signals));
     box.append(chartBox); draw({ main, rsi, macd }, v);
@@ -1210,7 +1278,7 @@ function jnRoute() {
 
 async function jnBoot() {
   if (jnDrawn) { jnRoute(); return; } jnDrawn = true;
-  [...(DATA.trades || []), ...(DATA.scan_views || [])].forEach(v => { if (v.key) jnViews[v.key] = v; });
+  [...(DATA.trades || []), ...(DATA.scan_views || []), ...(DATA.book_views || [])].forEach(v => { if (v.key) jnViews[v.key] = v; });
   const books = document.getElementById("jn-books");
   JN_BOOKS.forEach(([k, label]) => { const b = el("button", null, label); b.type = "button"; b.setAttribute("aria-pressed", String(k === jnBook));
     b.addEventListener("click", () => { jnBook = k; books.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); jnBrowse(); });
@@ -1411,7 +1479,18 @@ function boot() {
   learning();
   ovBoot();                                         // below the fade content, on the Fade trades tab (owner 2026-11-13)
   document.getElementById("generated").textContent = "Paper book · updated " + DATA.generated;
-  const days = [...new Set(DATA.trades.map(t => t.session))].sort().reverse();
+  // Day picker (owner 2026-11-14): alert days plus book-trade days so model-only days are browsable. A book day joins
+  // when a trade closed that day, or the day is at/after the last alert day (new opens); older still-open trades surface
+  // in group B on the newest day instead of adding an old day. No alert days at all -> every book entry day shows.
+  const alertDays = [...new Set(DATA.trades.map(t => t.session))];
+  const bvAll = DATA.book_views || [];
+  let extraDays;
+  if (alertDays.length) {
+    const newestAlert = alertDays.slice().sort()[alertDays.length - 1];
+    extraDays = bvAll.filter(v => v.entry_session && (v.status === "closed" || v.entry_session >= newestAlert)).map(v => v.entry_session);
+  } else extraDays = bvAll.map(v => v.entry_session).filter(Boolean);
+  const days = [...new Set([...alertDays, ...extraDays])].sort().reverse();
+  NEWEST = days[0] || null;
   const bar = document.getElementById("days");
   days.forEach(d => { const b = el("button", null, new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }));
     b.type = "button"; b.dataset.day = d; b.addEventListener("click", () => show(d)); bar.append(b); });
