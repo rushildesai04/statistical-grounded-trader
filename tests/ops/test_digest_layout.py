@@ -263,3 +263,21 @@ def test_long_calls_ledger_line(tmp_path, monkeypatch):
     line = [x for x in digest.hold_lines(db) if " ledger, " in x]
     assert line == [f"{bold('megacap long calls')} ledger, 1 sessions since 11-16: +0.7% (1 calls, 1 winners, avg +1.96%; "
                     "tested +0.23%, 54%); long and short -0.4%, holding +2.0%"]
+
+
+def test_a_flat_book_says_flat_not_no_close_yet(db):
+    """2026-11-13: megacap held nothing on 11-12 and 11-13 (every call flat); book.settle never marks such a book, and
+    the digest printed "no close yet (last 11-11)" as if a job had been missed."""
+    nav_row(db, "megacap", "2026-11-06", 104_442, 0.01, {})                    # went flat at the 11-06 close
+    nav_row(db, "megacap_ext", "2026-11-06", 102_000, 0.0, {"JPM": .25})       # holds a position, not marked today
+    lines, total = digest.model_books(db, DAY)
+    assert lines[0] == f"⚪ {bold('megacap')} $0 today, {italic('flat')} since the 11-06 close, month +1.0%, $104,442: flat"
+    assert lines[1].startswith(f"⏸️ {bold(digest.name('megacap_ext'))} {italic('no close yet')} (last 11-06)")
+    assert total == {"models": 0.0, "ETF": 0.0}                                # no dollars invented either way
+    with db.tx() as c:                                                         # an order due today, not marked yet
+        c.execute("INSERT INTO book_orders(strategy, symbol, target, fill_session, source, status, created_at) "
+                  "VALUES ('megacap','NVDA',0.2,?, 'auto','scheduled','x')", (DAY.isoformat(),))
+    assert digest.model_books(db, DAY)[0][0].startswith(f"⏸️ {bold('megacap')} {italic('no close yet')}")
+    with db.tx() as c:                                                         # an order for a later session: still flat
+        c.execute("UPDATE book_orders SET fill_session='2026-11-10'")
+    assert digest.model_books(db, DAY)[0][0].startswith(f"\u26AA {bold('megacap')} $0 today, {italic('flat')} since")
