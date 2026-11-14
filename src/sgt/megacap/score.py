@@ -77,3 +77,27 @@ def book(t: pd.DataFrame, weight: pd.Series) -> pd.DataFrame:
     c = t.symbol.map(cost).astype(float)
     ret = w * (t.position * t.label - c)
     return pd.DataFrame({"gross": w.groupby(t.session).sum(), "ret": ret.groupby(t.session).sum()})
+
+
+# --- Record score (docs/findings/prereg_record_score_2026-11-14.md) --------------------------------------------------
+K = 100.0                       # an earlier record of K calls weighs as much as the side's pooled record
+
+
+def record_ev(calls: pd.DataFrame, k: float = K) -> pd.Series:
+    """Expected net return of each call from the record so far: the mean net of earlier calls of the same stock and
+    side, shrunk toward the mean of all earlier calls of that side. "Earlier" = sessions before the first day of
+    the call's calendar month. ``calls``: columns session, symbol, position (+1 / -1), net. No earlier call of the
+    side at all -> 0."""
+    c = calls[["symbol", "position", "net"]].copy()
+    c["month"] = _month(calls.session)
+    own = c.groupby(["symbol", "position", "month"], sort=True).net.agg(s="sum", n="count").reset_index()
+    grp = own.groupby(["symbol", "position"])
+    own["cs"], own["cn"] = grp.s.cumsum() - own.s, grp.n.cumsum() - own.n          # earlier months only
+    side = c.groupby(["position", "month"], sort=True).net.agg(s="sum", n="count").reset_index()
+    g2 = side.groupby("position")
+    side["ps"], side["pn"] = g2.s.cumsum() - side.s, g2.n.cumsum() - side.n
+    m = c.merge(own[["symbol", "position", "month", "cs", "cn"]], on=["symbol", "position", "month"], how="left") \
+         .merge(side[["position", "month", "ps", "pn"]], on=["position", "month"], how="left")
+    pooled = (m.ps / m.pn.where(m.pn > 0))
+    ev = ((m.cs + k * pooled) / (m.cn + k)).where(m.pn > 0, 0.0)
+    return pd.Series(ev.to_numpy(float), index=calls.index, name="ev")

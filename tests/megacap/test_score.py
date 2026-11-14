@@ -70,3 +70,35 @@ def test_book_caps_each_name_scales_a_full_day_and_charges_cost():
     assert b.ret["d1"] == pytest.approx(5 * 0.2 * (0.01 - 0.0004))
     assert b.gross["d2"] == 0.0 and b.ret["d2"] == 0.0            # flat row: no weight, no return
     assert score.base_weight(pd.Series([0.0, np.nan, 0.10])).tolist() == pytest.approx([0.0, 0.0, 0.10])
+
+
+def _calls(rows):
+    return pd.DataFrame(rows, columns=["session", "symbol", "position", "net"])
+
+
+def test_record_ev_shrinks_a_stocks_earlier_calls_toward_the_sides_pooled_mean():
+    c = _calls([("2020-01-10", "A", 1, 0.02), ("2020-01-11", "A", 1, 0.04), ("2020-01-12", "B", 1, -0.03),
+                ("2020-01-13", "A", -1, 0.50),                       # the other side never mixes in
+                ("2020-02-03", "A", 1, 9.0), ("2020-02-04", "B", 1, 9.0), ("2020-02-05", "C", 1, 9.0),
+                ("2020-02-06", "A", -1, 9.0), ("2020-03-02", "A", 1, 0.0)])
+    ev = score.record_ev(c, k=2.0)
+    assert ev.iloc[:4].tolist() == [0.0, 0.0, 0.0, 0.0]              # nothing earlier in the first month
+    pooled = (0.02 + 0.04 - 0.03) / 3
+    assert ev.iloc[4] == pytest.approx((0.06 + 2 * pooled) / (2 + 2))   # A long: 2 earlier calls
+    assert ev.iloc[5] == pytest.approx((-0.03 + 2 * pooled) / (1 + 2))  # B long: 1 earlier call
+    assert ev.iloc[6] == pytest.approx(pooled)                          # C long: no record of its own -> pooled
+    assert ev.iloc[7] == pytest.approx((0.50 + 2 * 0.50) / (1 + 2))     # A short: only shorts
+    pooled3 = (0.02 + 0.04 - 0.03 + 27.0) / 6
+    assert ev.iloc[8] == pytest.approx((0.06 + 9.0 + 2 * pooled3) / (3 + 2))   # March sees January and February
+    assert list(ev.index) == list(c.index)
+
+
+def test_record_ev_never_uses_the_calls_own_month_or_later():
+    c = _calls([("2020-01-10", "A", 1, 0.01), ("2020-02-03", "A", 1, 0.02), ("2020-02-20", "A", 1, 0.03),
+                ("2020-03-02", "A", 1, 0.04)])
+    base = score.record_ev(c)
+    later = c.copy()
+    later.loc[later.session >= "2020-02-01", "net"] = -5.0
+    got = score.record_ev(later)
+    assert got.iloc[:3].tolist() == pytest.approx(base.iloc[:3].tolist())   # February's value: January only
+    assert got.iloc[3] < 0 < base.iloc[3]                                    # March sees the changed February

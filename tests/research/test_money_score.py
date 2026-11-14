@@ -63,3 +63,32 @@ def pytest_approx(x):
     import pytest
 
     return pytest.approx(x, rel=1e-6)
+
+
+def test_record_gate_statistic_is_minus_the_skipped_net_over_all_calls(monkeypatch):
+    import record_score_study as rs
+
+    monkeypatch.setattr(ms, "N_BOOT", 500)
+    monkeypatch.setattr(rs, "MIN_SKIPPED", {"train": 2, "holdout": 2})
+    c = pd.DataFrame({"session": ["d1", "d1", "d2", "d3"], "symbol": list("ABAB"), "position": 1,
+                      "net": [0.01, -0.02, 0.03, -0.04], "ev": [0.001, -0.001, 0.002, 0.0]})
+    r = rs.side_test(c, "train")
+    assert (r["calls"], r["skipped"]) == (4, 2) and r["gate_adds"] == pytest_approx((0.02 + 0.04) / 4)
+    assert r["kept_mean"] == pytest_approx(0.02) and r["skipped_mean"] == pytest_approx(-0.03)
+    monkeypatch.setattr(rs, "MIN_SKIPPED", {"train": 3, "holdout": 3})
+    assert rs.side_test(c, "train")["verdict"].startswith("NO VERDICT")
+
+
+def test_a_persistent_bad_stock_is_skipped_and_the_gate_passes_only_then(monkeypatch):
+    import record_score_study as rs
+
+    monkeypatch.setattr(ms, "N_BOOT", 1000)
+    rng = np.random.default_rng(3)
+    sessions = [str(d.date()) for d in pd.bdate_range("2018-01-02", periods=700)]
+    rows = []
+    for s in sessions:
+        for sym, mu in (("GOOD", 0.004), ("BAD", -0.004), ("OK", 0.001)):
+            rows.append({"session": s, "symbol": sym, "position": 1, "label": mu + rng.normal(0, 0.01)})
+    c = rs.calls_scored(pd.DataFrame(rows))
+    r = rs.side_test(c[c.session >= "2019-01-01"], "train")
+    assert r["verdict"] == "PASS" and set(r["most_skipped"]) == {"BAD"} and r["skipped_mean"] < 0 < r["kept_mean"]
