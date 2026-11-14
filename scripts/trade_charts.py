@@ -98,9 +98,15 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         ret = r["net"] if r["net"] is not None else (
             r["est_exit"] / r["est_entry"] - 1 if r.get("est_exit") and r.get("est_entry") else None)
         base = long_book.nav(db, through=date.fromisoformat(r["session"]) - timedelta(days=1))   # value before its day
-        out.append({**r, "setup": long_book.NAMES.get(r["kind"], r["kind"]),
+        out.append({**r, "setup": long_book.NAMES.get(r["kind"], r["kind"]), "size": (r["weight"] or fade.WEIGHT) * base,
                     "usd": None if ret is None else ret * (r["weight"] or fade.WEIGHT) * base})
     return out
+
+
+def size_usd(t: dict, db: OpsStore | None) -> float:
+    """Dollars a fade puts to work: its share of the book value before its day."""
+    base = fade.nav(db, through=date.fromisoformat(t["session"]) - timedelta(days=1)) if db else fade.NAV0
+    return (t.get("weight") or fade.WEIGHT) * base
 
 
 def dollars(t: dict, db: OpsStore | None) -> float | None:
@@ -115,7 +121,10 @@ def dollars(t: dict, db: OpsStore | None) -> float | None:
 
 def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bool = True) -> str:
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
+    from sgt.ops import score
+
     views, scan_views, cache = [], [], {}
+    fade_score = score.for_trade("fade", None, db=db)    # one lookup: tested, or the forward record in a guard alarm
     with httpx.Client(base_url="https://data.alpaca.markets", headers=h, timeout=10) as client:
         for t in long_rows(db):                          # longs first (owner 2026-11-10 option A)
             key = (t["symbol"], t["session"])
@@ -125,6 +134,7 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
                 continue
             v = charts.trade_view(t, cache[key], t["usd"], side="long")
             v["key"] = f"long:{t['id']}"           # links the chart to its Notes page (journal key)
+            v["score"] = score.for_trade("alert_long", t.get("size"))
             views.append(v)
         for t in trades[:MAX_TRADES]:
             key = (t["symbol"], t["session"])
@@ -134,6 +144,7 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
                 continue
             v = charts.trade_view(t, cache[key], dollars(t, db))
             v["key"] = f"fade:{t['id']}" if t.get("id") is not None else None
+            v["score"] = score.resize(fade_score, size_usd(t, db))
             views.append(v)
         for t in scan_rows(db):                          # Notes tab charts for scanner trades (owner 2026-11-09)
             key = (t["symbol"], t["session"])
@@ -144,6 +155,11 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
             v = charts.trade_view(t, cache[key], None)
             v["key"] = f"scan:{t['id']}"
             scan_views.append(v)
+        try:
+            model_cards = book_views(db, client, now)
+        except Exception:  # noqa: BLE001 - the page still renders without the model-trade cards; logged
+            log.exception("book views failed")
+            model_cards = []
     board = Path("reports/learning/scoreboard.json")
     try:
         learning = json.loads(board.read_text()).get("rows") if board.exists() else None
@@ -161,7 +177,90 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
         from sgt.ops import overview
         summary = overview.build(db, now, learning)      # Overview tab (owner 2026-11-13); sections fail to None
     return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries,
-                         scan_views=scan_views, overview=summary)
+                         scan_views=scan_views, overview=summary, book_views=model_cards)
+
+
+MAX_BOOK_TRADES = 60
+INTRADAY_SESSIONS = 3                                    # a hold up to 3 sessions is drawn on 5-minute bars, longer on daily
+SPAN_CACHE = Path("reports/charts/spans")
+
+
+def span_bars(client: httpx.Client, symbol: str, start: datetime, end: datetime, timeframe: str, now: datetime,
+              cache: Path | None = SPAN_CACHE) -> pd.DataFrame:
+    """Bars of one timeframe between two instants (bounded: one request, 1,000 bars). A span that ended more than the
+    SIP delay ago never changes, so it is cached on disk."""
+    if not SYMBOL.fullmatch(symbol) or timeframe not in ("5Min", "1Day"):
+        return pd.DataFrame()
+    final = now - SIP_DELAY >= end
+    stop = min(end, now - SIP_DELAY)
+    if stop <= start:
+        return pd.DataFrame()
+    path = cache / timeframe / f"{symbol}_{start:%Y%m%d}_{end:%Y%m%d}.parquet" if cache else None
+    if final and path and path.exists():
+        return pd.read_parquet(path)
+    r = client.get(f"/v2/stocks/{symbol}/bars", params={
+        "timeframe": timeframe, "start": start.isoformat(), "end": stop.isoformat(), "feed": "sip", "limit": 1000,
+        "adjustment": "all" if timeframe == "1Day" else "raw"})
+    rows = r.json().get("bars") if r.status_code == 200 else None
+    if not isinstance(rows, list):
+        return pd.DataFrame()
+    df = pd.DataFrame([{"ts": x.get("t"), "open": x.get("o"), "high": x.get("h"), "low": x.get("l"),
+                        "close": x.get("c"), "volume": x.get("v")} for x in rows if isinstance(x, dict)])
+    df = df.dropna() if len(df) else df
+    if final and path and len(df):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(path, index=False)
+    return df
+
+
+def recent_sessions(cal, today: date, n: int) -> list[date]:
+    """The last ``n`` sessions up to and including ``today`` (or the last session before it), oldest first.
+    (calendar.previous_sessions needs a session date; a weekend rebuild has none.)"""
+    last = today
+    for _ in range(10):
+        if cal.is_session(last):
+            break
+        last -= timedelta(days=1)
+    return [*cal.previous_sessions(last, n - 1), last]
+
+
+def book_views(db: OpsStore | None, client: httpx.Client, now: datetime, reports: Path = Path("reports")) -> list[dict]:
+    """A chart card for every recent daily-book trade (owner 2026-11-14: model and ETF-book trades had no card).
+    Recent = entered within the page's last sessions, or still open. One trade's missing bars never drop the rest."""
+    if db is None:
+        return []
+    from sgt.ops import digest, model_trades, score
+
+    cal = default_calendar()
+    today = now.astimezone(fade.ET).date()
+    sessions = recent_sessions(cal, today, MAX_SESSIONS)
+    recent = [d.isoformat() for d in sessions]
+    eps = [e for e in model_trades.episodes(db) if e["status"] != "scheduled" and e["entry"]
+           and (e["status"] == "open" or e["entry_session"] >= recent[0])]
+    out = []
+    for e in sorted(eps, key=lambda x: (x["entry_session"], x["id"]), reverse=True)[:MAX_BOOK_TRADES]:
+        try:
+            first = cal.bounds(date.fromisoformat(e["entry_session"]))
+            end_day = date.fromisoformat(e["exit_session"]) if e["exit_session"] else sessions[-1]
+            last = cal.bounds(end_day)
+            held = len([d for d in recent if e["entry_session"] < d <= end_day.isoformat()])
+            tf = "5Min" if e["exit_session"] and held <= INTRADAY_SESSIONS or not e["exit_session"] and held <= 1 else "1Day"
+            start = first.rth_open if tf == "5Min" else first.rth_open - timedelta(days=120)
+            bars = span_bars(client, e["symbol"], start, last.rth_close, tf, now, cache=SPAN_CACHE)
+            if bars.empty:
+                continue
+            fc = model_trades.forecast(reports, e["strategy"], e["symbol"], e["entry_session"])
+            # Money score (owner 2026-11-14): one tested number per side. The per-stock record is NOT shown as an
+            # expectation: prereg_record_score_2026-11-14 found it does not predict a stock's next calls.
+            sc = score.for_trade(score.kind_of(e["strategy"], e["side"]), abs(e["weight"]) * e["entry_nav"],
+                                 sigma=(fc or {}).get("sigma"))
+            out.append(charts.book_view(
+                e, bars, decided=e["decided_at"], entered=first.rth_close - timedelta(minutes=1),
+                exited=last.rth_close - timedelta(minutes=1) if e["exit_session"] else None, timeframe=tf,
+                book=digest.name(e["strategy"]), forecast=fc, score=sc))
+        except Exception:  # noqa: BLE001 - one trade's card must never take the page down; logged
+            log.exception("book view %s %s failed", e.get("strategy"), e.get("symbol"))
+    return out
 
 
 def scan_rows(db: OpsStore | None) -> list[dict]:
