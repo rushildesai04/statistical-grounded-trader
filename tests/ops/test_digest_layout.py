@@ -80,18 +80,22 @@ def test_today_lines_dollars_and_header_total(db):
     assert fade_usd == pytest.approx(before * ((1 + .05 * .1389) * (1 - .05 * .1574) - 1))
     mega = 101_000 - 101_000 / 1.01
     etf = 100_500 - 100_500 / 1.005
-    head, split = text.splitlines()[:2]
-    assert head == f"[SGT] \U0001F4CA {bold('Mon 11-09')}: {bold(digest.usd(fade_usd + mega + etf))} today {italic('(paper)')}"
-    assert f"models {digest.usd(mega)}" in split and f"fade {digest.usd(fade_usd)}" in split
+    head, split, aside = text.splitlines()[:3]
+    # owner 2026-11-14: the headline counts trading books only; model tests and yardsticks are shown, never added
+    assert head == f"[SGT] \U0001F4CA {bold('Mon 11-09')}: {bold(digest.usd(fade_usd))} today {italic('(paper, trading books)')}"
+    assert split == f"fade {digest.usd(fade_usd)}"
+    assert aside == f"{italic('not in the total:')} model tests {digest.usd(mega)}, yardsticks {digest.usd(etf)}"
     lines = text.splitlines()
     i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
     assert fade_usd < 0 and digest.dot(fade_usd) == "\U0001F534"
     assert lines[i + 1] == (f"\U0001F534 {bold('fade')} {digest.usd(fade_usd)}, 2 trades: CKX +13.9%, FISN -15.7%, OMH void "
                             f"({italic('1 not settled yet')})")
-    assert lines[i + 2].startswith(f"\U0001F7E2 {bold('megacap')} {digest.usd(mega)} (+1.00%), month +1.0%, $101,000: "
+    assert lines[i + 2] == italic("measurement only, not in the total:")
+    assert lines[i + 3].startswith(f"\U0001F7E2 {bold('megacap')} {digest.usd(mega)} (+1.00%), month +1.0%, $101,000: "
                                    "short META+MSFT 25%")
-    assert lines[i + 3].startswith(f"\U0001F7E2 {bold('60/40')} {digest.usd(etf)} (+0.50%)")
-    assert lines[i + 4].startswith(f"\u23F8\uFE0F {bold('60/40 trend')} {italic('no close yet')} (last 11-06)")  # no dollars invented
+    assert lines[i + 4] == italic("yardsticks, not in the total:")
+    assert lines[i + 5].startswith(f"\U0001F7E2 {bold('60/40')} {digest.usd(etf)} (+0.50%)")
+    assert lines[i + 6].startswith(f"\u23F8\uFE0F {bold('60/40 trend')} {italic('no close yet')} (last 11-06)")  # no dollars invented
 
 
 def long_row(db, sym, session, status, net=None, weight=0.05, i=[0]):
@@ -271,13 +275,38 @@ def test_a_flat_book_says_flat_not_no_close_yet(db):
     nav_row(db, "megacap", "2026-11-06", 104_442, 0.01, {})                    # went flat at the 11-06 close
     nav_row(db, "megacap_ext", "2026-11-06", 102_000, 0.0, {"JPM": .25})       # holds a position, not marked today
     lines, total = digest.model_books(db, DAY)
+    assert lines[0] == italic("measurement only, not in the total:")
+    lines = lines[1:]
     assert lines[0] == f"⚪ {bold('megacap')} $0 today, {italic('flat')} since the 11-06 close, month +1.0%, $104,442: flat"
     assert lines[1].startswith(f"⏸️ {bold(digest.name('megacap_ext'))} {italic('no close yet')} (last 11-06)")
-    assert total == {"models": 0.0, "ETF": 0.0}                                # no dollars invented either way
+    assert total == {"long calls": 0.0, "model tests": 0.0, "yardsticks": 0.0}                                # no dollars invented either way
     with db.tx() as c:                                                         # an order due today, not marked yet
         c.execute("INSERT INTO book_orders(strategy, symbol, target, fill_session, source, status, created_at) "
                   "VALUES ('megacap','NVDA',0.2,?, 'auto','scheduled','x')", (DAY.isoformat(),))
-    assert digest.model_books(db, DAY)[0][0].startswith(f"⏸️ {bold('megacap')} {italic('no close yet')}")
+    assert digest.model_books(db, DAY)[0][1].startswith(f"⏸️ {bold('megacap')} {italic('no close yet')}")
     with db.tx() as c:                                                         # an order for a later session: still flat
         c.execute("UPDATE book_orders SET fill_session='2026-11-10'")
-    assert digest.model_books(db, DAY)[0][0].startswith(f"\u26AA {bold('megacap')} $0 today, {italic('flat')} since")
+    assert digest.model_books(db, DAY)[0][1].startswith(f"\u26AA {bold('megacap')} $0 today, {italic('flat')} since")
+
+
+def test_headline_counts_trading_books_only(db):
+    """Owner 2026-11-14: Friday 11-13 read -$1,164 with -$679 of yardsticks and -$701 of model tests in it."""
+    nav_row(db, "megacap_long", DAY.isoformat(), 100_400, 0.004, {"JPM": .25})
+    nav_row(db, "megacap_ext", DAY.isoformat(), 99_270, -0.0073, {"AMD": .13, "TSLA": -.21})
+    nav_row(db, "megacap_overlay", DAY.isoformat(), 100_030, 0.0003, {"AAPL": .17})
+    nav_row(db, "etf:B_6040", DAY.isoformat(), 99_700, -0.003, {"SPY": .6, "IEF": .4})
+    nav_row(db, "newbook", DAY.isoformat(), 100_100, 0.001, {"XYZ": .1})         # unknown book: counted, never hidden
+    assert [digest.group(s) for s in ("megacap_long", "megacap", "megacap_ext", "megacap_overlay", "etf:F1_dual_momentum",
+                                      "newbook")] == ["long calls", "model tests", "model tests", "model tests",
+                                                      "yardsticks", "books"]
+    lines, total = digest.model_books(db, DAY)
+    long_usd, new_usd = 100_400 - 100_400 / 1.004, 100_100 - 100_100 / 1.001
+    assert total["long calls"] == pytest.approx(long_usd) and total["books"] == pytest.approx(new_usd)
+    assert total["model tests"] == pytest.approx((99_270 - 99_270 / 0.9927) + (100_030 - 100_030 / 1.0003))
+    assert lines.index(italic("measurement only, not in the total:")) == 2          # the two trading books come first
+    assert lines.index(italic("yardsticks, not in the total:")) == 5
+    text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    head, split, aside = text.splitlines()[:3]
+    assert f"{bold(digest.usd(long_usd + new_usd))} today" in head
+    assert "model tests" not in split and "yardsticks" not in split and f"long calls {digest.usd(long_usd)}" in split
+    assert aside.startswith(f"{italic('not in the total:')} model tests -$") and "yardsticks -$300" in aside

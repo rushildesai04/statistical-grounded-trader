@@ -102,16 +102,22 @@ def build(db: OpsStore, day: date) -> str:
                      f"{bold(_usd(lg['usd']))} · ${lg['traded']:,.0f} traded")
         lines.append(f"    {names}" + (" (some estimated)" if lg["estimate"] else ""))
     books = books_day(db, day)
-    if books:
-        from sgt.ops.digest import name
+    from sgt.ops.digest import NOT_COUNTED, group, name
 
-        lines.append("📦 Books (paper): " + " · ".join(f"{name(s)} {_usd(v)}" for s, v in books))
+    counted = [(s, v) for s, v in books if group(s) not in NOT_COUNTED]
+    if counted:
+        lines.append("📦 Books (paper): " + " · ".join(f"{name(s)} {_usd(v)}" for s, v in counted))
+    for g, label in NOT_COUNTED.items():             # owner 2026-11-14: shown, not added to the total
+        rows = [(s, v) for s, v in books if group(s) == g]
+        if rows:
+            lines.append(f"📐 {label.capitalize()} (not in the total): "
+                         + " · ".join(f"{name(s)} {_usd(v)}" for s, v in rows))
     real = real_day(db, day)
     if real and real["orders"]:
         lines.append(f"💵 {bold('REAL')} (Schwab): {real['orders']} fills · ${real['traded']:,.0f} traded · "
                      f"fades {bold(_usd(real['usd']))}")
-    total = f["usd"] + lg["usd"] + sum(v for _, v in books)       # the same books the nightly digest adds up
-    lines.append(f"🧾 Paper total: {bold(_usd(total))}")
+    total = f["usd"] + lg["usd"] + sum(v for _, v in counted)     # the same books the nightly digest adds up
+    lines.append(f"🧾 Paper total (trading books): {bold(_usd(total))}")
     page = chartserver.link()
     if page:
         lines.append(f"📈 Charts: {page}")

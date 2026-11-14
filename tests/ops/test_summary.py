@@ -48,7 +48,7 @@ def test_quiet_day_says_so_and_books_are_included(db):
     with db.tx() as c:
         c.execute("INSERT INTO book_nav VALUES ('6040', ?, 101000, 0.01, '{}')", (DAY.isoformat(),))
     text = plain(summary.build(db, DAY))
-    assert "Fades (paper): no trades" in text and "6040 +$1,000" in text and "Paper total: +$1,000" in text
+    assert "Fades (paper): no trades" in text and "6040 +$1,000" in text and "Paper total (trading books): +$1,000" in text
     assert "Longs" not in text                                          # no long trades: no line
     assert "REAL" not in text                                           # pilot never ran: no real line
 
@@ -81,7 +81,9 @@ def test_the_long_book_is_in_the_summary_and_in_the_total(db):
     text = plain(summary.build(db, DAY))
     assert "Longs (paper): 3 trades · 1 won, 2 lost" in text and "SLSN -$200, FCUV -$142, LIVE +$250 (some estimated)" in text
     assert "megacap 15 -$1,000" in text and "megacap_ext" not in text                               # the digest's names
-    assert f"Paper total: {summary._usd(lg['usd'] - 1000)}" in text
+    # owner 2026-11-14: megacap 15 is a model test (measurement): shown, not in the total
+    assert "Measurement only (not in the total): megacap 15 -$1,000" in text
+    assert f"Paper total (trading books): {summary._usd(lg['usd'])}" in text
     with db.tx() as c:                                    # once all are official the long dollars equal the digest's
         c.execute("DELETE FROM long_trades WHERE symbol='LIVE'")
     assert summary.long_day(db, DAY)["usd"] == pytest.approx(digest.long_today(db, DAY)[1], abs=1.0)

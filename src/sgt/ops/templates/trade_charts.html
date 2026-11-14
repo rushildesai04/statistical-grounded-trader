@@ -1363,14 +1363,14 @@ function ovBooks(body, books) {
   const wrap = el("div", "ov-books");
   const list = (books || []).filter(b => b && typeof b === "object");
   let shown = 0;
-  [["model", "Models"], ["etf", "Benchmarks"], ["alert", "Alert books"]].forEach(([g, label]) => {
+  [["model", "Trading"], ["measure", "Measurement only (not in the total)"], ["etf", "Yardsticks (not in the total)"], ["alert", "Alert books"]].forEach(([g, label]) => {
     const inGroup = list.filter(b => b.group === g);
     if (!inGroup.length) return;
     wrap.append(el("div", "ov-group", label));
     inGroup.forEach(b => wrap.append(ovBookRow(b)));
     shown += inGroup.length;
   });
-  const other = list.filter(b => !["model", "etf", "alert"].includes(b.group));
+  const other = list.filter(b => !["model", "measure", "etf", "alert"].includes(b.group));
   if (other.length) { wrap.append(el("div", "ov-group", "Other")); other.forEach(b => wrap.append(ovBookRow(b))); shown += other.length; }
   sec.append(shown ? wrap : el("p", "ov-muted", "No books yet."));
   body.append(sec);

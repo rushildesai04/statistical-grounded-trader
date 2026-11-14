@@ -80,7 +80,7 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
     """2026-11-14 (owner): laid out like the nightly digest: a dollar headline, one line per book with a colour dot,
     sections with bold headers. Every number is this week's (Monday to Friday) unless the line says otherwise."""
     from sgt.fast import fade, long_book
-    from sgt.ops.digest import dot, name, usd
+    from sgt.ops.digest import NOT_COUNTED, dot, group, name, usd
 
     monday = friday - timedelta(days=friday.weekday())
     prior = monday - timedelta(days=1)
@@ -92,12 +92,15 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
     fade_usd = fade.nav(db, friday) - fade.nav(db, prior)
     long_usd = long_book.nav(db, friday) - long_book.nav(db, prior)
     books = _week_books(db, monday, friday)
-    models = sum(d for s, d, _, _ in books if not s.startswith("etf:"))
-    etf = sum(d for s, d, _, _ in books if s.startswith("etf:"))
-    total = models + etf + fade_usd + long_usd
+    # Owner 2026-11-14: the headline counts trading books only; measurement and yardstick books are shown, not added.
+    books = sorted(books, key=lambda b: (list(NOT_COUNTED).index(group(b[0])) + 1 if group(b[0]) in NOT_COUNTED else 0))
+    traded = sum(d for s, d, _, _ in books if group(s) not in NOT_COUNTED)
+    aside = {g: sum(d for s, d, _, _ in books if group(s) == g) for g in NOT_COUNTED}
+    total = traded + fade_usd + long_usd
     lines = [f"[SGT] \U0001F5D3\uFE0F {bold('Week of ' + format(monday, '%b %-d'))}: {bold(usd(total))} this week "
-             f"{italic('(paper)')}",
-             f"models {usd(models)}, ETF {usd(etf)}, fade {usd(fade_usd)}, longs {usd(long_usd)}", "",
+             f"{italic('(paper, trading books)')}",
+             f"long calls {usd(traded)}, fade {usd(fade_usd)}, longs {usd(long_usd)}",
+             f"{italic('not in the total:')} " + ", ".join(f"{g} {usd(v)}" for g, v in aside.items()), "",
              f"\U0001F4B5 {bold('THIS WEEK')}"]
     block = _trade_block("fade", fade_usd, t.net, t.symbol, "+1.1%")
     if not t.empty:
@@ -105,7 +108,12 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
         block.insert(1, f"   no-news {int((~news).sum())} avg {_pct(t.net[~news].mean() if (~news).any() else None)} "
                         f"\u00B7 news {int(news.sum())} avg {_pct(t.net[news].mean() if news.any() else None)}")
     lines += block + _trade_block("longs", long_usd, lt.net, lt.symbol, "-2.1%")
+    seen: set[str] = set()
     for s, d, r, state in books:
+        g = group(s)
+        if g in NOT_COUNTED and g not in seen:
+            seen.add(g)
+            lines.append(italic(f"{NOT_COUNTED[g]}, not in the total:"))
         lines.append(f"{dot(d)} {bold(name(s))} {usd(d)} ({r:+.2%})" if state == "marked" else
                      f"\u26AA {bold(name(s))} $0, {italic('flat')} all week" if state == "flat" else
                      f"\u23F8\uFE0F {bold(name(s))} {italic('no close this week')}")

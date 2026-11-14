@@ -120,8 +120,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 |---|---|---|---|
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
 | regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): the gate adds +0.05% / costs -0.19% per trade (p 0.36 / 0.83); session results have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would have skipped 5 of 10 sessions (skipped trades -4.7%) | prereg_fade_regime_gate_2026-11-13 |
-| money score for the daily model's calls: gate and size by forecast x calibration against today's risk (owner 11-14: the score must be expected money and decide size) | long calls n 3,448: above-typical score +0.239% vs rest +0.269% per call (p 0.57); sized book +0.0135% per day over today's sizing at equal dollars (p 0.196); calibration slope about 0.11 (a +1.25% forecast has meant about +0.13%) | not opened | prereg_money_score_2026-11-14 |
-| record score: skip a model call when that stock-and-side's own record so far has no expected money (shrunk toward the side's pooled record, walk-forward) | longs: 13 of 3,448 calls skipped (no verdict); shorts: 1,872 of 3,405 skipped, skipped -0.05% vs kept -0.12% per call, gate adds +0.025% (p 0.29); long calls expected +0.27%, made +0.25%; short calls -0.08% per call | not opened | prereg_record_score_2026-11-14 |
+| money score: gate and size model calls by forecast x calibration vs today's risk | long calls n 3,448: high score +0.24% vs rest +0.27% (p 0.57); sizing +0.014%/day (p 0.20) | not opened | prereg_money_score_2026-11-14 |
+| record score: skip a model call when that stock-and-side's record so far is <= 0 | longs: 13 of 3,448 skipped; shorts: kept -0.12% vs skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
 | LONG: owner's Clean Bull Flag Finder (exact port, EMA 9 > 21, whole session after the alert); 2R / 30 min, or hold while 9 > 21 | -1.60% / -1.78% (n 5,250 / 4,661; stopped at the flag low 55%); strength >= 75: 68 trades, noise | not opened; Nov 2026 -1.42% / -1.22% | prereg_bull_flag_finder_2026-11-13 |
 | LONG: break of structure (pivot 5) while EMA 9 > 21; same two exits | -1.45% / -1.56% (n 5,017 / 4,531). Next bar after a BoS: up 1%+ 21.4% vs 17.3% usual, mean +0.08%: true but a tenth of the cost | not opened; Nov 2026 -0.13% / -0.04% | prereg_bos_ema_2026-11-13 (A1: the owner's own Pine script, same result -1.45% / -1.59%) |
 | cover on VWAP reclaim | +0.52% | +0.22% | same |
@@ -267,6 +267,36 @@ now labels it "group score" and says so.
 a third model book, `megacap_long`, takes only the +1 calls of both sets (21 names), flat otherwise; no new model.
 Decided on its equal-weight ledger (`sgt.megacap.longonly`): stop below -5%, continue on 2027-04-30 only if above 0.
 The digest shows the ledger next to the long-and-short models and holding. Paper only.
+
+**The money score (owner 2026-11-14: "the confidence score must actually work based on how much money we think we
+are going to potentially make or lose"; `sgt.ops.score`):** every trade card and Notes page shows expected dollars,
+the swing of a normal outcome and GO / NO-GO. Two pre-registered tests looked for something that ranks one call above
+another, and both FAILED (section 4): the size of the forecast against today's risk
+(`prereg_money_score_2026-11-14`: the forecast runs about 9 times too big, calibration slope 0.11, and a bigger one
+earns no more) and the stock's own record so far (`prereg_record_score_2026-11-14`). What is left, and what the score
+is: the tested average of the KIND of trade, on the dollars in the position.
+
+| kind | tested average per trade | verdict |
+|---|---|---|
+| model long call | +0.25% (3,448 calls, 53% won) | GO |
+| model short call | -0.08% (3,405 calls, 50% won) | NO-GO |
+| alert long (A2) | -2.09% (2,242 trades, 14% won) | NO-GO (off) |
+| alert fade | +1.70% tested; the forward record while its guard is in alarm (-1.8% on 11-14) | NO-GO (off) |
+| ETF and overlay holdings | none: a basket held for comparison | yardstick |
+
+It cannot rank two trades of the same kind, so size inside a kind stays an equal risk budget. Worked example, AMD
+long of 2026-11-12 ($13,400): expected about +$34 by the score (+$98 by AMD's own long record, which the second test
+says not to trust), normal swing +/-$990, result -$1,173: one call is noise, the edge is the average of hundreds.
+Per $100k the long-calls book has been expected to make about +$45 a day, +$230 a week, with 54% of weeks green and
+a normal week swinging about +/-$2,800 at the live size.
+
+**Headline and measurement (owner 2026-11-14, interview):** the nightly, midnight and weekly totals count TRADING
+books only (the long-calls book and the alert books). The two long-and-short model tests and the overlay are
+MEASUREMENT: they keep running untouched for their evidence, their short calls are labelled NO-GO, and their dollars
+are shown on a "not in the total" line with the ETF yardsticks. The long-calls paper book keeps its size (up to 25%
+per stock): the owner chose it over 12.5% knowing the numbers (same expected dollars, about +$45 a day; normal day
++/-$1,240 against +/-$860; worst historical drop -22% against -14%; the deciding equal-weight ledger -5%).
+
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach

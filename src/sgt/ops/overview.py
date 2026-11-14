@@ -27,15 +27,15 @@ MAX_FILE = 5_000_000
 NAV0 = 100_000.0
 # book -> (label, group, marks/decisions dir or None, what its test said, plain verdict)
 BOOKS = {
-    "megacap": ("Megacap model (6 names)", "model", "megacap_forward",
+    "megacap": ("Megacap model (6 names)", "measure", "megacap_forward",
                 "2018-2026: +0.17% per call, 53% winners; failed its bar (Sharpe 0.81 < 1.0); beat holding on no name",
                 "forward test, not proven"),
-    "megacap_ext": ("Megacap model (15 more names)", "model", "megacap_ext",
+    "megacap_ext": ("Megacap model (15 more names)", "measure", "megacap_ext",
                     "2018-2026 on these names: about +3%/yr, failed", "forward test, not proven"),
     "megacap_long": ("Megacap long calls only (21 names)", "model", None,
                      "2018-2026: +0.23% per long call, 54% winners; +6.4%/yr at Sharpe 0.92 (already-seen data)",
                      "forward test since 11-16, not proven"),
-    "megacap_overlay": ("Megacap overlay (hold, step aside on short calls)", "model", None,
+    "megacap_overlay": ("Megacap overlay (hold, step aside on short calls)", "measure", None,
                         "2018-2026: better Sharpe than holding on 14 of 21 names", "shadow test, decided at 300 stock-days"),
     "etf:B_6040": ("60/40 benchmark", "etf", None, "benchmark", "benchmark"),
     "etf:F1_dual_momentum": ("Dual momentum ETFs", "etf", None, "failed its test vs 60/40", "forward comparison"),
