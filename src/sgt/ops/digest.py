@@ -144,6 +144,12 @@ def model_books(db: OpsStore, day: date) -> tuple[list[str], dict[str, float]]:
                 today = last["nav"] - last["nav"] / (1 + last["ret"])
                 total["ETF" if s.startswith("etf:") else "models"] += today
                 head = f"{dot(today)} {bold(name(s))} {usd(today)} ({last['ret']:+.2%})"
+            elif not {k: w for k, w in h.items() if abs(w) > 1e-6} and not c.execute(
+                    "SELECT 1 FROM book_orders WHERE strategy=? AND status='scheduled' AND fill_session<=?",
+                    (s, day.isoformat())).fetchone():
+                # 2026-11-13: a book holding nothing with no order due is never marked (book.settle skips it); it made
+                # $0 today. "no close yet" read as a missed job on 11-12 and 11-13 while megacap was flat on purpose.
+                head = f"\u26AA {bold(name(s))} $0 today, {italic('flat')} since the {last['session'][5:]} close"
             else:
                 head = f"\u23F8\uFE0F {bold(name(s))} {italic('no close yet')} (last {last['session'][5:]})"
             out.append(f"{head}, month {mtd:+.1%}, ${last['nav']:,.0f}: {holdings(h)}")
