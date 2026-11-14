@@ -44,3 +44,25 @@ calls divided by the number of calls. Positive = the skipped calls lost money, s
   on a per-stock basis.
 - Whatever the result: no real money, no change to the two long-and-short forward tests or to the deciding ledger of
   the long-calls test.
+
+## Result (2026-11-14, training run once at code `3b0f931`; `reports/record_score/result_train.json`): FAIL on both sides
+| side | calls | skipped | skipped calls made | kept calls made | gate adds per call | p | verdict |
+|---|---|---|---|---|---|---|---|
+| G-LONG | 3,448 | 13 (all in 2020) | +2.13% | +0.25% | n/a | n/a | no verdict (too few skipped): FAIL |
+| G-SHORT | 3,405 | 1,872 | -0.05% | -0.12% | +0.025% | 0.29 | FAIL |
+
+Reading:
+- Long calls: the record so far has said "positive expected money" for essentially every stock in every month since
+  2020, so the gate never skips. There is no per-stock long call to avoid. The expected figure was honest in size:
+  kept long calls were expected to make +0.27% and made +0.25%.
+- Short calls: the gate skipped more than half, and the ones it KEPT did worse (-0.12%) than the ones it skipped
+  (-0.05%). A stock's short record so far says nothing about its next short call. Short calls as a whole lost
+  0.08% per call on training.
+- Per the frozen decision rule: expected dollars are one number per side, not per stock: the pooled average of that
+  side's earlier calls x the dollars in the trade (long about +0.25% per call; short about -0.08%). No call is
+  skipped on a per-stock basis. Held-out stays closed.
+- What this settles for the score: neither the forecast's size (sibling test) nor the stock's own record can tell a
+  better call from an ordinary one. The score can honestly say GO / NO-GO for a kind of trade (model long calls:
+  positive; model short calls: negative; alert longs: negative; the fade: negative while its guard is in alarm) and
+  how many dollars that expectation is on the position; it cannot honestly rank two trades of the same kind, so size
+  within a kind stays an equal risk budget.
