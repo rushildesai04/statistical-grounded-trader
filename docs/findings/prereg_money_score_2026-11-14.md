@@ -66,3 +66,29 @@ Same-theme overlap of calls and earnings dates (the other two faults of 2026-11-
 hold; they get their own pre-registration. The alert books' score is not a model forecast: it is their tested average
 per trade (replaced by the forward record while the drift guard is in alarm), which is negative for every alert book
 today, so they stay off.
+
+## Result (2026-11-14, training run once at code `add272e`; `reports/money_score/result_train.json`): FAIL
+Long calls (decides), 2020-01-02 .. 2026-06-30, 1,631 sessions, 3,448 calls, +0.25% net per call:
+
+| test | statistic | lower bound | p | verdict |
+|---|---|---|---|---|
+| T1 rank: calls above the reference score vs the rest | +0.239% vs +0.269% per call, difference -0.03% | -0.34% | 0.57 | FAIL |
+| T2 size: SCORE minus BASE per session at equal dollars | +0.0135% per day (Sharpe 0.74 vs 0.57) | -0.017% | 0.196 | FAIL |
+
+Long and short together (reported): T1 difference -0.06% (p 0.75), T2 -0.008% per day (p 0.68).
+
+Reading:
+- The calibration slope is about 0.11 in every year since 2020: a forecast of +1.25% has meant about +0.13% on
+  average. The forecast is real but small (4% of calls had a non-positive expected value after costs).
+- A bigger forecast per unit of risk did NOT earn more: calls above the typical score made slightly less than the
+  rest. So the forecast's size cannot tell a good call from an ordinary one; it only says which side of the band.
+- Sizing by it earned a little more in 5 of 7 years, but the difference is well inside chance (p 0.196).
+- Per the frozen decision rule: nothing about sizing changes; the held-out slice stays closed; the expected dollars
+  shown for a model call are the tested average of calls like it (same stock, same side) times its size.
+- Worked example, AMD long of 2026-11-12 (13% of the book, $13,400): expected +$82 by the tested average of AMD long
+  calls (+0.61%, 188 calls, 51% winners), +$13 by the calibrated forecast; a normal day's swing at 7.4% was about
+  +/-$990; the result was -$1,173.
+- Side finding (reported numbers of the BASE book): with the live risk sizing (up to 25% per name) the long-calls
+  book's worst drawdown on this record is -22% and 2026 through June sums to about -17%, against -6% for the
+  equal-weight ledger that decides the forward test. The paper book shown for `megacap_long` will swing about
+  five times as much as its deciding ledger.
