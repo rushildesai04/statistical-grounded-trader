@@ -116,6 +116,11 @@ h1 em { font-style: normal; color: var(--accent); }
 .meter i { display: block; height: 100%; width: var(--w, 0%); background: var(--accent); border-radius: 3px;
   transform-origin: left; animation: grow .9s .3s cubic-bezier(.2, .7, .2, 1) both; }
 .conf b { color: var(--ink); font-weight: 500; }
+/* money score (owner 2026-11-14): expected dollars of this kind of trade on this position, the swing, GO / NO-GO */
+.score { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font: 400 12.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.score b { color: var(--ink); font-weight: 500; }
+.score .verdict { font-weight: 600; padding: 2px 8px; border-radius: 6px; color: var(--sv, var(--muted)); background: color-mix(in srgb, var(--sv, var(--muted)) 12%, transparent); }
+.score.go { --sv: var(--up); } .score.nogo { --sv: var(--down); }
 .news { font-size: 13px; border-left: 2px solid var(--alert); padding-left: 8px; overflow-wrap: anywhere; }
 .chart { height: 280px; min-width: 0; }
 .panes { display: grid; gap: 0; min-width: 0; }                 /* candles + synced RSI / MACD panes, left edges aligned */
@@ -601,6 +606,27 @@ function modelHold(t) {
   return (t.status === "closed" && t.exit_session) ? word + ", to the " + monDay(t.exit_session) + " close" : "open, " + word;
 }
 
+// Money score (owner 2026-11-14: "based on how much money we think we are going to potentially make or lose"). The
+// tested average of this KIND of trade on the dollars in this position. Two tests (prereg_money_score, prereg_record_
+// score, both FAIL) found nothing that ranks one trade of a kind above another, so there is no per-trade number.
+function scoreText(sc) {
+  if (!sc) return null;
+  if (sc.ev == null) return sc.kind === "yardstick" ? "yardstick: held for comparison, not a call" : null;
+  const exp = sc.usd != null ? money(sc.usd) + (sc.size ? " on $" + Math.round(sc.size).toLocaleString("en-US") : "") : pct2(sc.ev) + " per trade";
+  return "expected " + exp + (sc.swing != null ? " · normal swing ±$" + Math.round(sc.swing).toLocaleString("en-US") : "");
+}
+function scoreBox(sc) {
+  const text = scoreText(sc);
+  if (!text) return [];
+  const box = el("div", "score " + (sc.go === true ? "go" : sc.go === false ? "nogo" : ""));
+  if (sc.go != null) box.append(el("span", "verdict", sc.go ? "GO" : "NO-GO"));
+  box.append(el("span", null, text));
+  const out = [box];
+  if (sc.ev != null) out.push(el("div", "conf-note", "average of " + (sc.n != null ? Number(sc.n).toLocaleString("en-US") + " tested trades like this" : "trades like this")
+    + ": " + pct2(sc.ev) + " each" + (sc.win != null ? ", " + Math.round(sc.win * 100) + "% won" : "") + ". It does not rank this trade against others of its kind."));
+  return out;
+}
+
 function card(t, i) {
   const c = el("article", "card " + state(t));
   c.style.setProperty("--i", i);
@@ -622,8 +648,9 @@ function card(t, i) {
     if (t.exit_scheduled) fact("exit", "ordered for the " + monDay(t.exit_scheduled) + " close");
     const fc = modelForecast(t); if (fc) fact("forecast", fc);
     c.append(top, facts);
-    if (t.tested) c.append(el("div", "conf-note", "calls like this: " + t.tested.n + " tested, won "
-      + Math.round(t.tested.win * 100) + "%, average " + pct2(t.tested.avg)));
+    // 2026-11-14: the per-stock record ("calls like this: 188 tested, won 51%") is no longer shown as an expectation:
+    // a stock's own record did not predict its next calls (prereg_record_score). The money score is per side.
+    scoreBox(t.score).forEach(n => c.append(n));
     c.append(el("div", "conf-note", t.timeframe === "1Day" ? "daily bars" : "5-minute bars"));
   } else {
     if (t.exit) fact(isLong(t) ? "sell" : "cover", "$" + t.exit.toFixed(2));
@@ -631,19 +658,9 @@ function card(t, i) {
     if (isLong(t)) { if (t.target) fact("target", "$" + t.target.toFixed(2)); }
     else fact("news", t.news ? "yes" : "none found");
     c.append(top, facts);
-    if (t.conf != null) {
-      // 2026-11-13 (owner): "confidence 99" read as a win chance and a 99 lost 21%. It is 100× the probability that the
-      // AVERAGE of trades like this is profitable, not the chance this trade wins. Relabel + spell it out underneath.
-      const conf = el("div", "conf", "group score ");
-      const meter = el("span", "meter"), fill = el("i");
-      fill.style.setProperty("--w", Math.max(0, Math.min(100, t.conf)) + "%");
-      meter.append(fill);
-      conf.append(meter, el("b", null, t.conf + "/100"));
-      conf.title = "Group score: 100 × the chance that the AVERAGE of trades like this is profitable — not the chance this trade wins. Trades like this won 53-65% of the time.";
-      conf.setAttribute("aria-label", "group score " + t.conf + " out of 100: not a win chance; trades like this won 53 to 65 percent of the time");
-      c.append(conf);
-      c.append(el("div", "conf-note", "not a win chance: trades like this won 53-65% of the time"));
-    }
+    // 2026-11-14 (owner): the 0-100 "group score" (100 x the chance that the average of similar trades is profitable)
+    // is superseded by the money score. Archived, not shown: it was read as a win chance and was never money.
+    scoreBox(t.score).forEach(n => c.append(n));
     if (t.headline) c.append(el("div", "news", "“" + t.headline + "”"));
     if (t.signals) c.append(chips(t.signals));
   }
@@ -990,7 +1007,7 @@ function jnPrices(e) {
   return [["entry (official)", jnPx(e.entry)], ["entry (live)", jnPx(e.est_entry)], [long ? "sell (official)" : "cover (official)", jnPx(e.cover)],
     ["exit (live)", jnPx(e.est_exit)], ["exit reason", e.reason], ["status", e.status], ["stop", v && v.stop ? jnPx(v.stop) : jnPx(e.stop)],
     ["weight", jnKind(e) === "book" && e.target != null ? (e.target * 100).toFixed(1) + "%" : null], ["fill", jnPx(e.fill_price)],
-    ["group score", e.conf]];
+    ["money score", v && v.score ? scoreText(v.score) + (v.score.go != null ? (v.score.go ? " · GO" : " · NO-GO") : "") : null]];
 }
 function jnXPosts(e) { let xp = []; try { xp = JSON.parse(e.x_cat_posts || "[]"); } catch (err) { xp = []; } return Array.isArray(xp) ? xp.slice(0, 5) : []; }
 const jnPostLine = p => String(p.at || "").slice(11, 16) + " UTC · " + (Number(p.likes) || 0) + " likes · " + String(p.text || "");
