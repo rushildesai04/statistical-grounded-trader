@@ -730,7 +730,11 @@ function summary(ts) {
   const usdNode = document.getElementById("s-usd");
   usdNode.className = "big " + (usd > 0 ? "win" : usd < 0 ? "loss" : "");
   countUp(usdNode, usd, money);
-  document.getElementById("s-usd-sub").textContent = done.length ? "on " + done.length + " closed trade" + (done.length === 1 ? "" : "s") : "no closed trades yet";
+  // 2026-11-14 (owner): Friday read -$100 on 4 trades, Saturday +$216 on 3. Until the 8:40 pm ET settlement the page
+  // shows live estimates (free feed, before costs); the official result can differ and a trade can be voided. Say so.
+  const est = done.filter(t => !t.official).length;
+  document.getElementById("s-usd-sub").textContent = (done.length ? "on " + done.length + " closed trade" + (done.length === 1 ? "" : "s") : "no closed trades yet")
+    + (est ? " · " + (est === done.length ? "live estimate" : est + " estimated") + ", official after 8:40 pm ET" : "");
   countUp(document.getElementById("s-n"), ts.length, v => String(Math.round(v)));
   document.getElementById("s-n-sub").textContent = won + " won · " + (done.length - won) + " lost" + (ts.length > done.length ? " · " + (ts.length - done.length) + " open" : "");
   const rate = done.length ? won / done.length : null;
