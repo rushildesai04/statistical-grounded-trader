@@ -85,8 +85,8 @@ Reading:
 - Sizing by it earned a little more in 5 of 7 years, but the difference is well inside chance (p 0.196).
 - Per the frozen decision rule: nothing about sizing changes; the held-out slice stays closed; the expected dollars
   shown for a model call are the tested average of calls like it (same stock, same side) times its size.
-- Worked example, AMD long of 2026-11-12 (13% of the book, $13,400): expected +$82 by the tested average of AMD long
-  calls (+0.61%, 188 calls, 51% winners), +$13 by the calibrated forecast; a normal day's swing at 7.4% was about
+- Worked example, AMD long of 2026-11-12 (13% of the book, $13,400): expected +$98 by the tested average of AMD long
+  calls (+0.73%, 147 calls, 58% winners), +$13 by the calibrated forecast; a normal day's swing at 7.4% was about
   +/-$990; the result was -$1,173.
 - Side finding (reported numbers of the BASE book): with the live risk sizing (up to 25% per name) the long-calls
   book's worst drawdown on this record is -22% and 2026 through June sums to about -17%, against -6% for the
