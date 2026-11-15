@@ -463,11 +463,23 @@ def cmd_megacap_long(db: OpsStore, now: datetime | None = None) -> int:
     if done(db, f"megacap_long:{fill}"):
         print(f"megacap_long {fill}: already proposed")
         return 0
-    targets = megacap_targets(positions)
+    # Audit 2026-11-15: the prereg's stop rule ("stop at any time if the ledger's cumulative net falls below -5%") was
+    # only printed in the digest; the book kept trading. Below the stop every target is flat: what is held is closed
+    # at today's close and no new long call is taken. A ledger that cannot be read reports no sessions and no stop.
+    from sgt.megacap import longonly
+
+    lo = longonly.ledger(Path("reports"))
+    stopped = bool(lo.get("stop"))
+    label = f"megacap long calls {fill:%m-%d}"
+    if stopped:
+        targets = {s: 0.0 for s in positions}
+        label += f" STOPPED (ledger {lo['total']:+.1%}, below the {longonly.STOP:.0%} stop rule): flat"
+    else:
+        targets = megacap_targets(positions)
     sms = Sms()
     try:
         res = book.propose(db, sms.send, strategy=LONG_BOOK, targets=targets, fill_session=fill,
-                           deadline=deadline(fill), label=f"megacap long calls {fill:%m-%d}", auto_all=True)
+                           deadline=deadline(fill), label=label, auto_all=True)
         mark_done(db, f"megacap_long:{fill}")
     finally:
         sms.close()

@@ -612,8 +612,11 @@ function modelHold(t) {
 function scoreText(sc) {
   if (!sc) return null;
   if (sc.ev == null) return sc.kind === "yardstick" ? "yardstick: held for comparison, not a call" : null;
-  const exp = sc.usd != null ? money(sc.usd) + (sc.size ? " on $" + Math.round(sc.size).toLocaleString("en-US") : "") : pct2(sc.ev) + " per trade";
-  return "expected " + exp + (sc.swing != null ? " · normal swing ±$" + Math.round(sc.swing).toLocaleString("en-US") : "");
+  // Audit 2026-11-15: a model call's average and swing are for ONE day held; a card can span many sessions.
+  const day = sc.per === "day";
+  const exp = sc.usd != null ? money(sc.usd) + (day ? " a day" : "") + (sc.size ? " on $" + Math.round(sc.size).toLocaleString("en-US") : "")
+    : pct2(sc.ev) + (day ? " per day" : " per trade");
+  return "expected " + exp + (sc.swing != null ? " · normal swing ±$" + Math.round(sc.swing).toLocaleString("en-US") + (day ? " a day" : "") : "");
 }
 function scoreBox(sc) {
   const text = scoreText(sc);
@@ -624,6 +627,8 @@ function scoreBox(sc) {
   const out = [box];
   if (sc.ev != null) out.push(el("div", "conf-note", "average of " + (sc.n != null ? Number(sc.n).toLocaleString("en-US") + " tested trades like this" : "trades like this")
     + ": " + pct2(sc.ev) + " each" + (sc.win != null ? ", " + Math.round(sc.win * 100) + "% won" : "") + ". It does not rank this trade against others of its kind."));
+  if (sc.stopped) out.push(el("div", "conf-note", "NO-GO: " + sc.stopped + "."));
+  if (sc.caveat) out.push(el("div", "conf-note", sc.caveat));
   return out;
 }
 

@@ -253,7 +253,7 @@ def book_views(db: OpsStore | None, client: httpx.Client, now: datetime, reports
             # Money score (owner 2026-11-14): one tested number per side. The per-stock record is NOT shown as an
             # expectation: prereg_record_score_2026-11-14 found it does not predict a stock's next calls.
             sc = score.for_trade(score.kind_of(e["strategy"], e["side"]), abs(e["weight"]) * e["entry_nav"],
-                                 sigma=(fc or {}).get("sigma"))
+                                 sigma=(fc or {}).get("sigma"), db=db)
             out.append(charts.book_view(
                 e, bars, decided=e["decided_at"], entered=first.rth_close - timedelta(minutes=1),
                 exited=last.rth_close - timedelta(minutes=1) if e["exit_session"] else None, timeframe=tf,

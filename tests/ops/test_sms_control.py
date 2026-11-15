@@ -220,6 +220,14 @@ def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
                    f"=== {now - timedelta(hours=1):%Y-%m-%d %H:%M:%S} new\nok\n"
                    f"=== {now - timedelta(minutes=5):%Y-%m-%d %H:%M:%S} newer\n!!! exit 2\n")
     assert digest.job_failures(now, {"job": log}) == [f"job {now - timedelta(minutes=5):%m-%d %H:%M}"]
+    # audit 2026-11-15: a job that runs every 10 minutes and keeps failing is one line, not one per run
+    many = tmp_path / "many.log"
+    many.write_text("".join(f"=== {now - timedelta(minutes=m):%Y-%m-%d %H:%M:%S} charts\n!!! exit 1\n!!! alert failed\n"
+                            for m in (50, 40, 30)))
+    assert digest.job_failures(now, {"charts": many}) == [f"charts x3 (last {now - timedelta(minutes=30):%m-%d %H:%M})"]
+    # every log the runner's job wrapper writes for a model or page job is read (11-13: the 15-name set's crash was not)
+    assert {"megacap", "megacap 15", "megacap overlay", "charts"} <= set(digest.LOGS)
+    assert digest.LOGS["megacap 15"].as_posix() == "reports/megacap_ext/run.log"
     ap.request(db, lambda t: None, strategy="tom", kind="book", period="p", summary="tom",
                payload={}, expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
     text = digest.build(db, now, fills=[], problems=["x: missing close"], broker="Alpaca paper: $1", research=[None])
@@ -458,3 +466,31 @@ def test_megacap_long_book_takes_long_calls_of_both_sets_only_when_both_are_live
     t = {r["symbol"]: r["target"] for r in rows}
     assert {r["strategy"] for r in rows} == {sc.LONG_BOOK} and set(t) == {"NVDA", "AMD"}       # longs only
     assert all(0 < w <= 0.25 for w in t.values()) and len(sms.sent) == 1 and "megacap long calls" in sms.sent[0]
+
+
+def test_megacap_long_book_goes_flat_below_its_stop_rule(db, monkeypatch):
+    # audit 2026-11-15: prereg_megacap_long_forward_2026-11-13 "stop at any time if the ledger's cumulative net falls
+    # below -5%" was shown in the digest but never enforced: the book would have kept taking long calls.
+    import json
+
+    monkeypatch.setattr(sc, "daily_bars", lambda syms: (_ for _ in ()).throw(AssertionError("a stopped book sizes nothing")))
+    d = _full_session().isoformat()
+    live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
+    stamp = live_at.replace(minute=50).isoformat()
+    for folder, positions in ((sc.LONG_SETS[0], {"NVDA": 1, "MSFT": -1}), (sc.LONG_SETS[1], {"AMD": 1, "WMT": 0})):
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        (Path(folder) / f"{d}.json").write_text(json.dumps(
+            {"date": d, "mode": "realtime", "written_at": stamp, "positions": {s: {"position": p} for s, p in positions.items()}}))
+        (Path(folder).parent / "marks.csv").write_text(                # one earlier session, the long call lost 12%
+            "date,symbol,position,ret,void,net\n2026-11-16,AAA,1,-0.12,False,-0.12\n")
+    with db.tx() as c:                                                 # the book holds NVDA from an earlier call
+        c.execute("INSERT INTO book_nav(strategy, session, nav, ret, holdings) VALUES (?,?,?,?,?)",
+                  (sc.LONG_BOOK, "2026-11-16", 94_000, -0.06, json.dumps({"NVDA": 0.2})))
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    assert sc.cmd_megacap_long(db, now=live_at) == 0
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, target FROM book_orders WHERE strategy=? AND status='scheduled'",
+                         (sc.LONG_BOOK,)).fetchall()
+    assert {r["symbol"]: r["target"] for r in rows} == {"NVDA": 0.0}  # the held call is closed; AMD is not opened
+    assert len(sms.sent) == 1 and "STOPPED (ledger -12.0%, below the -5% stop rule): flat" in sms.sent[0]

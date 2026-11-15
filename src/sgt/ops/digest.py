@@ -14,9 +14,13 @@ from sgt.ops.book import fmt_targets
 from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore
 
-LOGS = {"megacap": Path("reports/megacap_forward/run.log"), "etf": Path("reports/forward/run.log"),
+# Audit 2026-11-15: the 15-name set's 15:50 decision crashed on 11-13 and the night's digest did not list it (its log
+# was not read here; the job's own alert text was the only notice). Every log a cron job writes is read.
+LOGS = {"megacap": Path("reports/megacap_forward/run.log"), "megacap 15": Path("reports/megacap_ext/run.log"),
+        "megacap overlay": Path("reports/megacap_overlay/run.log"), "etf": Path("reports/forward/run.log"),
         "rebalance": Path("reports/rebalance/run.log"), "ops": Path("reports/ops/run.log"),
-        "sms-poll": Path("reports/ops/poll.log"), "fast": Path("reports/fast/run.log")}
+        "sms-poll": Path("reports/ops/poll.log"), "fast": Path("reports/fast/run.log"),
+        "charts": Path("reports/charts/run.log")}
 _RUN = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 TAIL = 400
 
@@ -31,11 +35,16 @@ def job_failures(now_et: datetime, logs: dict[str, Path] = LOGS, hours: int = 24
         with p.open(errors="replace") as fh:
             lines = fh.readlines()[-TAIL:]
         start = None
+        failed = []
         for ln in lines:
             if m := _RUN.match(ln):
                 start = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
-            elif ln.startswith("!!! exit") and start and start >= since:
-                out.append(f"{name} {start:%m-%d %H:%M}")
+            elif ln.startswith("!!! exit") and start and start >= since and start not in failed:
+                failed.append(start)
+        if len(failed) == 1:
+            out.append(f"{name} {failed[0]:%m-%d %H:%M}")
+        elif failed:                                  # a job that runs every 10 minutes must not flood NEEDS YOU
+            out.append(f"{name} x{len(failed)} (last {failed[-1]:%m-%d %H:%M})")
     return out
 
 
