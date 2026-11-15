@@ -9,7 +9,8 @@ different expectation from the one its monitor judges it by.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 from sgt.learning import live_monitor
 from sgt.ops.store import OpsStore
@@ -24,6 +25,9 @@ class Kind:
     win: float | None
     n: int | None
     basis: str
+    per: str = "trade"          # what ``ev`` is the average of: one trade, or one day held (a model call is one day)
+    caveat: str | None = None   # what the tested figure cannot claim (audit 2026-11-15); shown under the score
+    stopped: str | None = None  # a pre-registered stop rule has tripped: NO-GO whatever the tested average says
 
 
 def _alert(key: str, label: str, book: str, n: int) -> Kind:
@@ -34,10 +38,14 @@ def _alert(key: str, label: str, book: str, n: int) -> Kind:
 KINDS = {k.key: k for k in (
     # Walk-forward out-of-sample record of the 21 names, 2020-01-02 .. 2026-06-30 (the training window of both score
     # tests). One number per side: per-stock and per-forecast figures failed their tests.
+    # Audit 2026-11-15: the figure is a backtest on a universe picked with hindsight and its held-out months were
+    # never opened; by year the long-calls book lost in 2022 and in January to June 2026 (prereg_long_rules_2026-11-15).
     Kind("model_long", "daily model long call", 0.0025, None, 0.532, 3448,
-         "3,448 long calls 2020 to mid-2026 (prereg_record_score_2026-11-14)"),
+         "3,448 long calls 2020 to mid-2026 (prereg_record_score_2026-11-14)", per="day",
+         caveat="Backtest on stocks chosen with hindsight, not yet proven live; its last half-year (Jan to Jun 2026) lost."),
     Kind("model_short", "daily model short call", -0.0008, None, 0.497, 3405,
-         "3,405 short calls 2020 to mid-2026 (prereg_record_score_2026-11-14)"),
+         "3,405 short calls 2020 to mid-2026 (prereg_record_score_2026-11-14)", per="day",
+         caveat="Backtest on stocks chosen with hindsight, not yet proven live."),
     _alert("alert_long", "alert long", "long book (paper)", 2242),
     _alert("fade", "alert fade (short)", "alert fade (no-news)", 1335),
     Kind("yardstick", "yardstick holding", None, None, None, None, "a basket held for comparison, not a call"),
@@ -68,20 +76,44 @@ def _fade_now(db: OpsStore | None) -> Kind:
     return k
 
 
+def _long_now(db: OpsStore | None) -> Kind:
+    """The model long call today: its tested average, with the live long-calls ledger next to it once there is one, and
+    NO-GO once that ledger is below its pre-registered stop (prereg_megacap_long_forward_2026-11-13: -5%). An
+    unreadable ledger changes nothing: the tested figure stands and the book's own stop check decides."""
+    k = KINDS["model_long"]
+    if db is None:
+        return k
+    try:
+        from sgt.megacap import longonly
+
+        lo = longonly.ledger(Path(db.path).resolve().parent.parent)
+    except Exception:  # noqa: BLE001 - the score must never fail a page or a text
+        return k
+    if not lo.get("sessions"):
+        return k
+    avg = f", average {lo['avg_call']:+.2%}" if lo.get("avg_call") is not None else ""
+    live = f"Live since {lo['since'][5:]}: {lo['calls']} calls{avg}, ledger {lo['total']:+.1%}."
+    if lo.get("stop"):
+        return replace(k, caveat=live, stopped=f"the long-calls ledger is below its {longonly.STOP:.0%} stop rule")
+    return replace(k, caveat=f"{k.caveat} {live}")
+
+
 def for_trade(kind: str, dollars: float | None, sigma: float | None = None, db: OpsStore | None = None) -> dict:
     """Score of one trade: expected dollars (``usd``), the swing of a normal outcome (``swing``, one standard
     deviation), and ``go``. ``dollars`` = money in the position; ``sigma`` = the stock's daily swing for kinds
     without their own spread (model calls). Unknown kind or size -> fields None, go None (never a silent GO)."""
-    k = _fade_now(db) if kind == "fade" else KINDS.get(kind)
+    k = _fade_now(db) if kind == "fade" else _long_now(db) if kind == "model_long" else KINDS.get(kind)
     if k is None:
         return {"kind": kind, "label": kind, "ev": None, "sd": None, "size": None, "usd": None, "swing": None, "win": None, "n": None,
-                "go": None, "basis": "unknown kind of trade: no tested expectation"}
+                "go": None, "basis": "unknown kind of trade: no tested expectation", "per": "trade", "caveat": None,
+                "stopped": None}
     size = abs(float(dollars)) if dollars is not None else None
     sd = k.sd if k.sd is not None else (float(sigma) if sigma is not None and sigma > 0 else None)
     return {"kind": k.key, "label": k.label, "ev": k.ev, "sd": sd, "size": size,
             "usd": None if k.ev is None or size is None else k.ev * size,
             "swing": None if sd is None or size is None else sd * size,
-            "win": k.win, "n": k.n, "go": None if k.ev is None else bool(k.ev > 0), "basis": k.basis}
+            "win": k.win, "n": k.n, "go": None if k.ev is None else bool(k.ev > 0 and not k.stopped), "basis": k.basis,
+            "per": k.per, "caveat": k.caveat, "stopped": k.stopped}
 
 
 def resize(s: dict, dollars: float | None) -> dict:
@@ -93,10 +125,14 @@ def resize(s: dict, dollars: float | None) -> dict:
 
 
 def line(s: dict) -> str | None:
-    """One plain sentence for a text or a card: 'expected +$34 on $13,400 (swing about $990): GO'."""
+    """One plain sentence for a text or a card: 'expected +$34 a day (swing about $990): GO'. A model call's figures
+    are per day held (audit 2026-11-15: a card can span many sessions)."""
     if s.get("ev") is None:
         return None
     usd = s.get("usd")
-    money = f"{'+' if usd >= 0 else '-'}${abs(usd):,.0f}" if usd is not None else f"{s['ev']:+.2%} per trade"
+    day = s.get("per") == "day"
+    money = (f"{'+' if usd >= 0 else '-'}${abs(usd):,.0f}{' a day' if day else ''}" if usd is not None
+             else f"{s['ev']:+.2%} per {'day' if day else 'trade'}")
     swing = f" (swing about ${s['swing']:,.0f})" if s.get("swing") is not None else ""
-    return f"expected {money}{swing}: {'GO' if s['go'] else 'NO-GO'}"
+    stop = f" ({s['stopped']})" if s.get("stopped") else ""
+    return f"expected {money}{swing}: {'GO' if s['go'] else 'NO-GO'}{stop}"

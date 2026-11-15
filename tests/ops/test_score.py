@@ -54,7 +54,7 @@ def test_unknown_kind_or_size_is_never_a_silent_go():
     u = score.for_trade("mystery", 1_000)
     assert u["go"] is None and u["usd"] is None and score.line(u) is None
     n = score.for_trade("model_long", None, sigma=0.02)
-    assert n["usd"] is None and n["swing"] is None and n["go"] is True and score.line(n) == "expected +0.25% per trade: GO"
+    assert n["usd"] is None and n["swing"] is None and n["go"] is True and score.line(n) == "expected +0.25% per day: GO"
 
 
 def test_resize_keeps_the_kind_and_rescales_the_dollars():
@@ -63,3 +63,40 @@ def test_resize_keeps_the_kind_and_rescales_the_dollars():
     s = score.resize(one, 4_823)
     assert s["usd"] == pytest.approx(0.0170 * 4_823) and s["swing"] == pytest.approx(0.1735 * 4_823) and s["size"] == 4_823
     assert score.resize(one, None)["usd"] is None and one["usd"] is None           # the original is not changed
+
+
+def _ledger(tmp_path, long_net):
+    """A long-calls ledger of one session: one long call in each set with ``long_net``, like the forward marks."""
+    head = "date,symbol,position,ret,void,net\n"
+    for sub in ("megacap_forward", "megacap_ext"):
+        (tmp_path / sub).mkdir(exist_ok=True)
+        (tmp_path / sub / "marks.csv").write_text(head + f"2026-11-16,AAA,1,{long_net},False,{long_net}\n")
+    return OpsStore(tmp_path / "ops" / "ops.db")
+
+
+def test_a_model_call_is_per_day_and_says_what_its_backtest_cannot_claim():
+    # audit 2026-11-15 (red team F-1/F-2): hindsight universe, never live-validated; average and swing are one day's
+    s = score.for_trade("model_long", 13_400, sigma=0.074)
+    assert s["per"] == "day" and "hindsight" in s["caveat"] and "not yet proven live" in s["caveat"]
+    assert score.line(s) == "expected +$34 a day (swing about $992): GO"
+    short = score.for_trade("model_short", 10_000, sigma=0.02)
+    assert short["per"] == "day" and "hindsight" in short["caveat"] and score.line(short).endswith("a day (swing about $200): NO-GO")
+    alert = score.for_trade("alert_long", 5_000)
+    assert alert["per"] == "trade" and alert["caveat"] is None and " a day" not in score.line(alert)
+
+
+def test_a_model_long_follows_the_long_calls_ledger_and_its_stop_rule(tmp_path):
+    db = _ledger(tmp_path, 0.01)                                     # ledger +1.0%: live record shown, still GO
+    s = score.for_trade("model_long", 10_000, sigma=0.02, db=db)
+    assert s["go"] is True and s["stopped"] is None
+    assert "hindsight" in s["caveat"] and s["caveat"].endswith("Live since 11-16: 2 calls, average +1.00%, ledger +1.0%.")
+    db = _ledger(tmp_path, -0.06)                                    # ledger -6.0% < -5%: the prereg stop
+    s = score.for_trade("model_long", 10_000, sigma=0.02, db=db)
+    assert s["go"] is False and s["stopped"] == "the long-calls ledger is below its -5% stop rule"
+    assert s["usd"] == pytest.approx(25.0)                           # the tested figure is still shown, not rewritten
+    assert score.line(s) == "expected +$25 a day (swing about $200): NO-GO (the long-calls ledger is below its -5% stop rule)"
+    assert score.for_trade("model_short", 10_000, db=db)["stopped"] is None      # the stop is the long book's own
+    (tmp_path / "megacap_ext" / "marks.csv").write_text("garbage")   # unreadable ledger: the tested figure stands
+    s = score.for_trade("model_long", 10_000, sigma=0.02, db=db)
+    assert s["go"] is True and s["stopped"] is None and "Live since" not in s["caveat"]
+    assert score.for_trade("model_long", 10_000, sigma=0.02, db=OpsStore(tmp_path / "x" / "ops" / "ops.db"))["go"] is True

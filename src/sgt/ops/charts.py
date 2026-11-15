@@ -181,6 +181,19 @@ def learning_rows(rows: list[dict] | None) -> list[dict]:
     return out
 
 
+def finite(x):
+    """``x`` with every NaN / infinite number replaced by None (audit 2026-11-15): JSON has no such numbers, and one
+    of them in one card used to be able to stop the whole page from building. The page shows a missing number as
+    blank, never as a made-up one."""
+    if isinstance(x, float):
+        return x if math.isfinite(x) else None
+    if isinstance(x, dict):
+        return {k: finite(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [finite(v) for v in x]
+    return x
+
+
 def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True,
            learning: list[dict] | None = None, models: dict | None = None, journal: list[dict] | None = None,
            scan_views: list[dict] | None = None, overview: dict | None = None,
@@ -188,6 +201,6 @@ def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape",
     data = {"title": title, "generated": generated.astimezone(ET).strftime("%a %b %-d, %-I:%M %p ET"),
             "trades": views, "learning": learning_rows(learning), "models": models, "journal": journal or [],
             "scan_views": scan_views or [], "overview": overview, "book_views": book_views or []}
-    payload = json.dumps(data, allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
+    payload = json.dumps(finite(data), allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
     page = TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
     return DOC_HEAD + page if standalone else page

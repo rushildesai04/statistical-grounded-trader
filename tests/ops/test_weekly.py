@@ -42,13 +42,13 @@ def test_weekly_review_text(tmp_path):
     assert lines[0] == (f"[SGT] \U0001F5D3\uFE0F {bold('Week of Nov 2')}: {bold(digest.usd(week))} this week "
                         f"{italic('(paper, trading books)')}")
     assert lines[1] == f"long calls +$0, fade {digest.usd(week)}, longs +$0"
-    assert lines[2] == f"{italic('not in the total:')} model tests +$0, yardsticks +$0" and lines[3] == ""
-    assert lines[4] == f"\U0001F4B5 {bold('THIS WEEK')}"
-    assert lines[5] == (f"\U0001F534 {bold('fade')} {digest.usd(week)}, 3 trades, 1 won, average -0.4% per trade "
+    assert lines[2] == "" and "not in the total" not in text               # no such books: no "$0, $0" aside
+    assert lines[3] == f"\U0001F4B5 {bold('THIS WEEK')}"
+    assert lines[4] == (f"\U0001F534 {bold('fade')} {digest.usd(week)}, 3 trades, 1 won, average -0.4% per trade "
                         f"({italic('tested +1.1%')})")
-    assert lines[6] == "   no-news 1 avg +25.6% \u00B7 news 2 avg -13.4%"
-    assert lines[7] == "   best CRIS +25.6% \u00B7 worst RAYA -21.8%"
-    assert lines[8] == f"\u26AA {bold('longs')} $0, no settled trades this week"
+    assert lines[5] == "   no-news 1 avg +25.6% \u00B7 news 2 avg -13.4%"
+    assert lines[6] == "   best CRIS +25.6% \u00B7 worst RAYA -21.8%"
+    assert lines[7] == f"\u26AA {bold('longs')} $0, no settled trades this week"
     assert f"\U0001F393 {bold('LEARNING')}" in lines and "\u2022 38/300 forward trades" in lines
     assert "OLD" not in text                                      # last week's trade is excluded
     assert lines[-1].startswith("\U0001F9ED Decisions come at 300 live trades") and lines[-2] == ""
@@ -79,6 +79,9 @@ def test_week_dollars_per_daily_book_and_the_switch_line(tmp_path):
     assert italic("measurement only, not in the total:") in text and italic("yardsticks, not in the total:") in text
     assert f"\U0001F534 {bold('longs')} " in text and ", 1 trades, 0 won, average -4.0% per trade" in text
     assert f"\u23F8\uFE0F fade {italic('OFF')}: no new trades, still scored every night" in text
+    # audit 2026-11-15: LIVE VS TESTED uses the owner's names for the books, never the table keys
+    assert "megacap_ext:" not in text and "megacap_overlay:" not in text and "megacap_long:" not in text
+    assert any(ln.startswith("\u2022 megacap 15: ") or ln.startswith("\U0001F6A8 megacap 15: ") for ln in text.splitlines())
 
 
 def test_a_tripped_monitor_is_flagged(tmp_path, monkeypatch):
