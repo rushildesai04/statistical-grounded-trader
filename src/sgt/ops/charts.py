@@ -148,7 +148,7 @@ def book_view(e: dict, bars: pd.DataFrame, *, decided, entered, exited, timefram
     elif entry and last and _num(e.get("last_px")):
         ret, official = s * (last / entry - 1), False               # marked to the last bar: an estimate
         # 2026-11-15: bars the book has already marked add nothing (their dollars are in e["usd"], to the cent)
-        ahead = pd.Timestamp(bars.ts.iloc[-1]).tz_convert(ET).date().isoformat() > str(e.get("last_at") or "")
+        ahead = pd.to_datetime(bars.ts.iloc[-1], utc=True).tz_convert(ET).date().isoformat() > str(e.get("last_at") or "")
         usd = (_num(e["usd"]) or 0.0) + (
             _num(e["last_w"]) * float(e.get("nav") or 100_000.0) * (last / e["last_px"] - 1) if ahead else 0.0)
     else:

@@ -318,6 +318,12 @@ def test_book_view_open_short_is_marked_to_the_last_bar_as_an_estimate(db):
                               entered="2026-11-12T20:59:00+00:00", exited=None, timeframe="5Min", book="megacap 15")
     assert marked["usd"] == pytest.approx(e["usd"]) == pytest.approx(-0.2 * 100_000 * C)
     assert marked["ret"] is not None and not marked["official"]
+    text = _bars("2026-11-12T14:30:00Z", 78, "5min", p0=350.0).assign(ts=lambda b: b.ts.dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    naive = _bars("2026-11-12T14:30:00Z", 78, "5min", p0=350.0).assign(ts=lambda b: b.ts.dt.tz_localize(None))
+    for bars in (text, naive):                       # bars as the API and the disk cache hand them over: same answer
+        again = charts.book_view(e, bars, decided="2026-11-12T20:50:00+00:00", entered="2026-11-12T20:59:00+00:00",
+                                 exited=None, timeframe="5Min", book="megacap 15")
+        assert again["usd"] == pytest.approx(e["usd"])
 
 
 def test_book_views_builds_cards_from_the_db_and_survives_a_symbol_with_no_bars(db, tmp_path, monkeypatch):
