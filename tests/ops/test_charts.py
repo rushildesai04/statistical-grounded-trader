@@ -162,3 +162,15 @@ def test_view_says_where_the_candles_end_and_when_the_exit_was():
     full = charts.trade_view(TRADE, bars())
     assert full["bars_end"] >= full["exit_at"] - 60
     assert charts.trade_view({**TRADE, "est_exit_at": None}, bars())["exit_at"] is None
+
+
+def test_a_number_that_is_not_finite_is_shown_blank_and_never_stops_the_page():
+    # audit 2026-11-15: json has no NaN / infinity; one such number in one card could stop the whole page building
+    from sgt.ops import charts as ch
+
+    got = ch.finite({"a": float("nan"), "b": [1.5, float("inf"), {"c": -float("inf"), "d": "nan"}], "e": (2, None), "f": True})
+    assert got == {"a": None, "b": [1.5, None, {"c": None, "d": "nan"}], "e": [2, None], "f": True}
+    page = ch.render([], datetime(2026, 11, 13, 21, 0, tzinfo=timezone.utc),
+                     book_views=[{"symbol": "AMD", "usd": float("nan"), "score": {"usd": float("inf"), "go": True}}])
+    data = json.loads(re.search(r"const DATA = (\{.*?\});\n", page, re.S).group(1))
+    assert data["book_views"] == [{"symbol": "AMD", "usd": None, "score": {"usd": None, "go": True}}]

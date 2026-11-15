@@ -80,7 +80,7 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
     """2026-11-14 (owner): laid out like the nightly digest: a dollar headline, one line per book with a colour dot,
     sections with bold headers. Every number is this week's (Monday to Friday) unless the line says otherwise."""
     from sgt.fast import fade, long_book
-    from sgt.ops.digest import NOT_COUNTED, dot, group, name, usd
+    from sgt.ops.digest import NAMES, NOT_COUNTED, dot, group, name, usd
 
     monday = friday - timedelta(days=friday.weekday())
     prior = monday - timedelta(days=1)
@@ -99,9 +99,11 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
     total = traded + fade_usd + long_usd
     lines = [f"[SGT] \U0001F5D3\uFE0F {bold('Week of ' + format(monday, '%b %-d'))}: {bold(usd(total))} this week "
              f"{italic('(paper, trading books)')}",
-             f"long calls {usd(traded)}, fade {usd(fade_usd)}, longs {usd(long_usd)}",
-             f"{italic('not in the total:')} " + ", ".join(f"{g} {usd(v)}" for g, v in aside.items()), "",
-             f"\U0001F4B5 {bold('THIS WEEK')}"]
+             f"long calls {usd(traded)}, fade {usd(fade_usd)}, longs {usd(long_usd)}"]
+    if any(group(b[0]) in NOT_COUNTED for b in books):       # audit 2026-11-15: no "$0, $0" aside without such books
+        lines.append(f"{italic('not in the total:')} " + ", ".join(
+            f"{g} {usd(v)}" for g, v in aside.items() if any(group(b[0]) == g for b in books)))
+    lines += ["", f"\U0001F4B5 {bold('THIS WEEK')}"]
     block = _trade_block("fade", fade_usd, t.net, t.symbol, "+1.1%")
     if not t.empty:
         news = (t.alert_type == "news") | (t.news_own == 1)
@@ -126,7 +128,13 @@ def build(db: OpsStore, friday: date, reports: Path = REPORTS) -> str:
         mon = live_monitor.lines(live_monitor.check_all(db))
         if mon:
             lines += ["", f"\U0001F4CF {bold('LIVE VS TESTED')} {italic('(all trades so far)')}"]
-            lines += [f"\U0001F6A8 {m.removeprefix('! ')}" if m.startswith("! ") else f"\u2022 {m}" for m in mon]
+            raw = sorted(NAMES, key=len, reverse=True)        # audit 2026-11-15: the owner's names, not table keys
+
+            def named(m: str) -> str:
+                k = next((k for k in raw if m.startswith(k + ":")), None)
+                return name(k) + m[len(k):] if k else m
+            lines += [f"\U0001F6A8 {named(m.removeprefix('! '))}" if m.startswith("! ") else f"\u2022 {named(m)}"
+                      for m in mon]
     except Exception:  # noqa: BLE001 - one section must never block the weekly text
         lines += ["", "live monitor: unavailable"]
     learn = _line(reports / "learning" / "shadow_summary.json")
