@@ -267,6 +267,8 @@ now labels it "group score" and says so.
 **Long calls only (forward test from 2026-11-16, owner's go 2026-11-13;** `prereg_megacap_long_forward_2026-11-13`**):**
 a third model book, `megacap_long`, takes only the +1 calls of both sets (21 names), flat otherwise; no new model.
 Decided on its equal-weight ledger (`sgt.megacap.longonly`): stop below -5%, continue on 2027-04-30 only if above 0.
+The stop is enforced in code since 2026-11-15 (audit: it was only printed before): below it every target is flat,
+what is held is closed at that day's close, and every model long card reads NO-GO.
 The digest shows the ledger next to the long-and-short models and holding. Paper only.
 
 **The money score (owner 2026-11-14: "the confidence score must actually work based on how much money we think we
@@ -300,6 +302,16 @@ same money). So the book takes a long call into earnings like any other and has 
 lever, and the owner set it on 11-14. Honest note from the same run: by year the long-calls book made, in hundredths
 of a percent a day, +16.0 (2020), +7.0, -1.8 (2022), +6.6, +3.5, +4.2 (2025) and -13.5 in January to June 2026: the
 most recent half-year of the record is its worst, and July to October 2026 has never been opened.
+
+**Audit of 2026-11-15 (independent code review and red team of the 11-14 build; no blocking finding):** fixed: a
+trade card's dollars left out the book's cost on a resize and charged costs on the wrong day's value (cards read
+slightly better than the book; they now equal the book's own change for a one-stock book); the score of a model call
+now says it is per day held and carries its caveat (backtest on stocks chosen with hindsight, not yet proven live,
+last half-year negative) with the live ledger next to it once there is one; the nightly digest now reads every job
+log (the 15-name set's 11-13 crash was not in NEEDS YOU) and a repeating failure is one line; one bad number can no
+longer stop the page from building. Confirmed sound: no look-ahead in either score study, held-out never touched,
+numbers reconcile with their result files, the page cannot be injected through alert text. Monday's long-calls order
+path was dry-run on the runner against the 11-12 decisions (AAOI 7%, AMD 11%, JPM 25%, proposed once).
 
 **Headline and measurement (owner 2026-11-14, interview):** the nightly, midnight and weekly totals count TRADING
 books only (the long-calls book and the alert books). The two long-and-short model tests and the overlay are
