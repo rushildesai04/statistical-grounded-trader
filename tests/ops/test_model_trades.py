@@ -25,10 +25,10 @@ def order(db, strategy, symbol, target, session, price, status="filled"):
                   (strategy, symbol, target, session, "auto", status, price, f"{session}T20:50:00+00:00"))
 
 
-def nav(db, strategy, session, value):
+def nav(db, strategy, session, value, ret=0.0):
     with db.tx() as c:
         c.execute("INSERT INTO book_nav(strategy, session, nav, ret, holdings) VALUES (?,?,?,?,?)",
-                  (strategy, session, value, 0.0, "{}"))
+                  (strategy, session, value, ret, "{}"))
 
 
 def test_a_one_day_long_and_a_short_are_two_closed_trades_with_book_dollars(db):
@@ -58,9 +58,32 @@ def test_a_resize_keeps_the_trade_open_and_a_flip_closes_and_opens(db):
         ("long", "closed", "2026-11-09", "2026-11-11"), ("short", "open", "2026-11-11", None)]
     long = got[0]
     assert long["sessions"] == 2 and long["gross"] == pytest.approx(0.21)
-    assert long["usd"] == pytest.approx(0.20 * 100_000 * 0.10 + 0.10 * 100_000 * 0.10 - 0.20 * 100_000 * C - 0.10 * 100_000 * C)
+    assert long["usd"] == pytest.approx(0.20 * 100_000 * 0.10 + 0.10 * 100_000 * 0.10
+                                        - 0.20 * 100_000 * C      # entry
+                                        - 0.10 * 100_000 * C      # the resize 20% -> 10% is turnover too
+                                        - 0.10 * 100_000 * C)     # exit
     assert got[1]["net"] is None and got[1]["last_px"] == 121.0 and got[1]["last_w"] == -0.10
     assert got[1]["sessions"] == 1                                   # marked once after its entry (11-12)
+
+
+def test_a_one_stock_books_trade_dollars_equal_the_books_own_change(db):
+    """Audit 2026-11-15: marked exactly as book.settle marks (cost on the value before the day's mark, on every change
+    of weight), a book that only ever held this one trade must have made exactly the trade's dollars."""
+    v0 = 100_000.0
+    r1 = -0.20 * C                                   # 11-09: enter 20% at the close
+    r2 = 0.20 * 0.10 - 0.10 * C                      # 11-10: +10% on 20%, cut to 10%
+    r3 = 0.10 * 0.10 - 0.10 * C                      # 11-11: +10% on 10%, out
+    v1 = v0 * (1 + r1)
+    v2 = v1 * (1 + r2)
+    v3 = v2 * (1 + r3)
+    for d, v, r in (("2026-11-09", v1, r1), ("2026-11-10", v2, r2), ("2026-11-11", v3, r3)):
+        nav(db, "megacap_long", d, v, r)
+    order(db, "megacap_long", "NVDA", 0.20, "2026-11-09", 100.0)
+    order(db, "megacap_long", "NVDA", 0.10, "2026-11-10", 110.0)
+    order(db, "megacap_long", "NVDA", 0.0, "2026-11-11", 121.0)
+    (e,) = mt.episodes(db)
+    assert e["status"] == "closed" and e["usd"] == pytest.approx(v3 - v0, abs=1e-6)
+    assert e["entry_nav"] == pytest.approx(v1)       # dollars in the position: the book's value once it is on
 
 
 def test_scheduled_orders_and_zero_targets(db):

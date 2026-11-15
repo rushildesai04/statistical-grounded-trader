@@ -23,26 +23,33 @@ def _sign(x: float) -> int:
     return 1 if x > EPS else -1 if x < -EPS else 0
 
 
-def _new(o: dict, nav: float) -> dict:
+def _new(o: dict, nav: float, basis: float) -> dict:
     side = _sign(o["target"])
     return {"key": f"book:{o['id']}", "id": o["id"], "strategy": o["strategy"], "symbol": o["symbol"],
             "side": "long" if side > 0 else "short", "weight": o["target"], "entry_session": o["fill_session"],
             "entry": o["fill_price"], "decided_at": o["created_at"], "exit_session": None, "exit": None,
             "status": "open", "sessions": 0, "gross": None, "net": None, "entry_nav": nav,
-            "usd": -abs(o["target"]) * nav * COST_BP / 1e4,          # the entry's share of the book's trading cost
+            "usd": -abs(o["target"]) * basis * COST_BP / 1e4,        # the entry's share of the book's trading cost
             "_w": o["target"], "_px": o["fill_price"], "_at": o["fill_session"]}
 
 
 def episodes(db: OpsStore) -> list[dict]:
     """Every position of every daily book, oldest first: closed, open, and scheduled (ordered, not filled yet).
 
-    Dollars follow the book: each leg between two fills earns weight x book value x price change, and the entry and
-    the exit each pay the book's cost on their own turnover. A resize keeps the trade open at the new weight."""
+    Dollars follow the book (``book.settle``): each leg between two fills earns weight x book value x price change,
+    and EVERY change of weight (entry, resize, exit) pays the book's cost on its own turnover, charged like the book
+    does on the value before that day's mark. A resize keeps the trade open at the new weight. Audit 2026-11-15: the
+    resize paid nothing and costs ran on the day's closing value, so a card read better than the book."""
     with db.tx() as c:
         orders = [dict(r) for r in c.execute(
             "SELECT id, strategy, symbol, target, fill_session, status, fill_price, created_at FROM book_orders "
             "WHERE status IN ('filled','scheduled') ORDER BY strategy, symbol, fill_session, id")]
-        navs = {(r["strategy"], r["session"]): r["nav"] for r in c.execute("SELECT strategy, session, nav FROM book_nav")}
+        navs: dict[tuple[str, str], float] = {}
+        before: dict[tuple[str, str], float] = {}        # book value before a session's mark: what its costs ran on
+        for r in c.execute("SELECT strategy, session, nav, ret FROM book_nav"):
+            navs[(r["strategy"], r["session"])] = r["nav"]
+            before[(r["strategy"], r["session"])] = (r["nav"] / (1 + r["ret"])
+                                                     if r["ret"] is not None and r["ret"] > -1 else r["nav"])
         days: dict[str, list[str]] = {}
         for r in c.execute("SELECT strategy, session FROM book_nav ORDER BY session"):
             days.setdefault(r["strategy"], []).append(r["session"])
@@ -55,10 +62,11 @@ def episodes(db: OpsStore) -> list[dict]:
                 out.append(cur)
             cur, pair = None, (o["strategy"], o["symbol"])
         nav = navs.get((o["strategy"], o["fill_session"]), NAV0)
+        basis = before.get((o["strategy"], o["fill_session"]), NAV0)
         side = _sign(o["target"])
         if o["status"] == "scheduled":                   # ordered at 15:50, fills at the close
             if cur is None and side:
-                out.append({**_new(o, nav), "status": "scheduled", "entry": None, "usd": None})
+                out.append({**_new(o, nav, basis), "status": "scheduled", "entry": None, "usd": None})
             elif cur is not None and side != _sign(cur["_w"]):
                 cur["exit_scheduled"] = o["fill_session"]
             continue
@@ -68,15 +76,16 @@ def episodes(db: OpsStore) -> list[dict]:
             cur["_px"], cur["_at"] = px, o["fill_session"]
             if side != _sign(cur["_w"]):                 # back to zero, or flipped: the trade is over
                 s = _sign(cur["_w"])
-                cur["usd"] -= abs(cur["_w"]) * nav * COST_BP / 1e4
+                cur["usd"] -= abs(cur["_w"]) * basis * COST_BP / 1e4
                 cur.update(exit_session=o["fill_session"], exit=px, status="closed",
                            gross=s * (px / cur["entry"] - 1), net=s * (px / cur["entry"] - 1) - 2 * COST_BP / 1e4)
                 out.append(cur)
                 cur = None
-            else:
+            else:                                        # same side, new weight: the book charged this turnover too
+                cur["usd"] -= abs(o["target"] - cur["_w"]) * basis * COST_BP / 1e4
                 cur["_w"] = o["target"]
         if cur is None and side and px:
-            cur = _new(o, nav)
+            cur = _new(o, nav, basis)
     if cur is not None:
         out.append(cur)
     for e in out:
