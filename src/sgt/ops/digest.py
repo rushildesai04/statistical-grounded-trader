@@ -127,12 +127,35 @@ def holdings(h: dict[str, float]) -> str:
     return "; ".join(out) or "flat"
 
 
+# Owner 2026-11-14 (interview): the headline counts TRADING books only. The two long-and-short model tests and the
+# overlay are measurement (model short calls have no expected money: prereg_record_score_2026-11-14; the tests keep
+# running untouched for their evidence); the ETF books are yardsticks. Both are shown, on their own line, not added.
+TRADING, MEASURE, YARD = "long calls", "model tests", "yardsticks"
+NOT_COUNTED = {MEASURE: "measurement only", YARD: "yardsticks"}
+
+
+def group(strategy: str) -> str:
+    """The headline group of a daily book. An unknown book counts as trading: never silently left out."""
+    if strategy.startswith("etf:"):
+        return YARD
+    if strategy == "megacap_long":
+        return TRADING
+    return MEASURE if strategy.startswith("megacap") else "books"
+
+
 def model_books(db: OpsStore, day: date) -> tuple[list[str], dict[str, float]]:
-    """One line per daily book (model books first, then ETF) and today's dollars per group."""
-    out, total = [], {"models": 0.0, "ETF": 0.0}
+    """One line per daily book (trading first, then measurement, then yardsticks, each of the last two under a label)
+    and today's dollars per headline group."""
+    out, total = [], {TRADING: 0.0, MEASURE: 0.0, YARD: 0.0}
+    order = {MEASURE: 1, YARD: 2}
+    seen: set[str] = set()
     with db.tx() as c:
         strategies = [r[0] for r in c.execute("SELECT DISTINCT strategy FROM book_nav ORDER BY strategy")]
-        for s in sorted(strategies, key=lambda x: (x.startswith("etf:"), x)):
+        for s in sorted(strategies, key=lambda x: (order.get(group(x), 0), x)):
+            g = group(s)
+            if g in NOT_COUNTED and g not in seen:
+                seen.add(g)
+                out.append(italic(f"{NOT_COUNTED[g]}, not in the total:"))
             rows = c.execute("SELECT session, nav, ret, holdings FROM book_nav WHERE strategy=? ORDER BY session",
                              (s,)).fetchall()
             last = rows[-1]
@@ -142,7 +165,7 @@ def model_books(db: OpsStore, day: date) -> tuple[list[str], dict[str, float]]:
             h = json.loads(last["holdings"] or "{}")
             if last["session"] == day.isoformat():
                 today = last["nav"] - last["nav"] / (1 + last["ret"])
-                total["ETF" if s.startswith("etf:") else "models"] += today
+                total[g] = total.get(g, 0.0) + today
                 head = f"{dot(today)} {bold(name(s))} {usd(today)} ({last['ret']:+.2%})"
             elif not {k: w for k, w in h.items() if abs(w) > 1e-6} and not c.execute(
                     "SELECT 1 FROM book_orders WHERE strategy=? AND status='scheduled' AND fill_session<=?",
@@ -271,7 +294,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     fl, fade_usd = _safe(fade_today, "fade: today unavailable", db, day)
     sc, scan_usd = _safe(scanner_today, "scanner: today unavailable", db, day)
     longs, long_usd = _safe(long_today, "longs: unavailable", db, day)      # owner 2026-11-10 option A: longs first
-    groups = {**(by_group if isinstance(by_group, dict) else {}), "fade": fade_usd, "scanner": scan_usd,
+    by_group = by_group if isinstance(by_group, dict) else {}
+    aside = {k: by_group.get(k, 0.0) for k in NOT_COUNTED}                 # shown, never added (owner 2026-11-14)
+    groups = {**{k: v for k, v in by_group.items() if k not in NOT_COUNTED}, "fade": fade_usd, "scanner": scan_usd,
               "longs": long_usd}
     total = sum(groups.values())
 
@@ -303,8 +328,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         needs.append("live monitor unavailable")
 
     split = ", ".join(f"{k} {usd(v)}" for k, v in sorted(groups.items(), key=lambda kv: -abs(kv[1])) if abs(v) >= 0.5)
-    lines = [f"[SGT] \U0001F4CA {bold(f'{now_et:%a %m-%d}')}: {bold(usd(total))} today {italic('(paper)')}"
-             + (f"\n{split}" if split else "")]
+    not_counted = ", ".join(f"{k} {usd(v)}" for k, v in aside.items() if abs(v) >= 0.5)
+    lines = [f"[SGT] \U0001F4CA {bold(f'{now_et:%a %m-%d}')}: {bold(usd(total))} today {italic('(paper, trading books)')}"
+             + (f"\n{split}" if split else "") + (f"\n{italic('not in the total:')} {not_counted}" if not_counted else "")]
     lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
               ["\u2705 Nothing needs you. Jobs OK (24h)."])
     lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + sc + books

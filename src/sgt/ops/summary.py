@@ -40,6 +40,30 @@ def fade_day(db: OpsStore, day: date) -> dict:
             "usd": sum(t["usd"] for t in trades), "traded": sum(t["size"] for t in trades), "estimate": est}
 
 
+def long_day(db: OpsStore, day: date) -> dict:
+    """Paper long-book trades entered on ``day`` (2026-11-14: the summary left the long book out, so 11-13 read
+    -$823 here and -$1,164 in the digest). Official net where settled; a live estimate otherwise, flagged; a void
+    trade (the live order never filled on the official bars) is not a trade."""
+    from sgt.fast import long_book
+
+    base = long_book.nav(db, through=day - timedelta(days=1))
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, status, weight, net, est_entry, est_exit FROM long_trades WHERE session=? "
+                         "AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
+    trades, est = [], False
+    for r in rows:
+        size = (r["weight"] or fade.WEIGHT) * base
+        if r["status"] == "settled" and r["net"] is not None:
+            ret = r["net"]
+        elif r["est_entry"] and r["est_exit"]:
+            ret, est = r["est_exit"] / r["est_entry"] - 1, True
+        else:
+            ret, est = 0.0, True                                   # still open: counted at zero, flagged
+        trades.append({"symbol": r["symbol"], "usd": ret * size, "ret": ret, "size": size})
+    return {"trades": trades, "n": len(trades), "wins": sum(t["usd"] > 0 for t in trades),
+            "usd": sum(t["usd"] for t in trades), "traded": sum(t["size"] for t in trades), "estimate": est}
+
+
 def books_day(db: OpsStore, day: date) -> list[tuple[str, float]]:
     """Paper approved books marked on ``day``: (strategy, $ change)."""
     with db.tx() as c:
@@ -71,15 +95,29 @@ def build(db: OpsStore, day: date) -> str:
         lines.append(f"    {names}" + (" (some estimated)" if f["estimate"] else ""))
     else:
         lines.append("📉 Fades (paper): no trades")
+    lg = long_day(db, day)
+    if lg["n"]:
+        names = ", ".join(f"{t['symbol']} {_usd(t['usd'])}" for t in lg["trades"])
+        lines.append(f"📗 Longs (paper): {bold(str(lg['n']))} trades · {lg['wins']} won, {lg['n'] - lg['wins']} lost · "
+                     f"{bold(_usd(lg['usd']))} · ${lg['traded']:,.0f} traded")
+        lines.append(f"    {names}" + (" (some estimated)" if lg["estimate"] else ""))
     books = books_day(db, day)
-    if books:
-        lines.append("📦 Books (paper): " + " · ".join(f"{s} {_usd(v)}" for s, v in books))
+    from sgt.ops.digest import NOT_COUNTED, group, name
+
+    counted = [(s, v) for s, v in books if group(s) not in NOT_COUNTED]
+    if counted:
+        lines.append("📦 Books (paper): " + " · ".join(f"{name(s)} {_usd(v)}" for s, v in counted))
+    for g, label in NOT_COUNTED.items():             # owner 2026-11-14: shown, not added to the total
+        rows = [(s, v) for s, v in books if group(s) == g]
+        if rows:
+            lines.append(f"📐 {label.capitalize()} (not in the total): "
+                         + " · ".join(f"{name(s)} {_usd(v)}" for s, v in rows))
     real = real_day(db, day)
     if real and real["orders"]:
         lines.append(f"💵 {bold('REAL')} (Schwab): {real['orders']} fills · ${real['traded']:,.0f} traded · "
                      f"fades {bold(_usd(real['usd']))}")
-    total = f["usd"] + sum(v for _, v in books)
-    lines.append(f"🧾 Paper total: {bold(_usd(total))}")
+    total = f["usd"] + lg["usd"] + sum(v for _, v in counted)     # the same books the nightly digest adds up
+    lines.append(f"🧾 Paper total (trading books): {bold(_usd(total))}")
     page = chartserver.link()
     if page:
         lines.append(f"📈 Charts: {page}")

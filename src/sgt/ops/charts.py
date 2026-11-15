@@ -54,7 +54,8 @@ def _bar_at(times: list[int], when) -> int | None:
     return best if best is not None else times[0]
 
 
-def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str = "short") -> dict:
+def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str = "short",
+               pad_before: pd.Timedelta = PAD_BEFORE, pad_after: pd.Timedelta = PAD_AFTER) -> dict:
     """One trade's chart data. ``bars``: the session's RTH 1-minute bars (ts UTC, open, high, low, close, volume).
     ``side``: "short" (the fade, the scanner) or "long" (the live paper long book, owner 2026-11-10: longs first;
     the row carries its own stop/target and setup name)."""
@@ -72,7 +73,7 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
     alert = pd.Timestamp(t["posted_at"])
     entered = pd.Timestamp(t["entry_ts"] if settled else (t.get("est_entry_at") or t["posted_at"]))
     exited = pd.Timestamp(t["est_exit_at"]) if t.get("est_exit_at") else None
-    lo, hi = alert - PAD_BEFORE, (exited or entered) + PAD_AFTER
+    lo, hi = alert - pad_before, (exited or entered) + pad_after
     mask = (b.ts >= lo) & (b.ts <= hi)
     w = b[mask]
     times = [et_epoch(x) for x in w.ts]
@@ -122,6 +123,45 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
     }
 
 
+def book_view(e: dict, bars: pd.DataFrame, *, decided, entered, exited, timeframe: str, book: str,
+              forecast: dict | None = None, tested: dict | None = None, score: dict | None = None) -> dict:
+    """Chart data for one daily-book trade (sgt.ops.model_trades.episodes; owner 2026-11-14: every trade gets a card).
+
+    ``bars``: 5-minute bars from the entry session to the exit (short holds) or daily bars (long holds); ``decided`` =
+    when the order was written (15:50 ET), ``entered`` / ``exited`` = the closes it filled at. An open trade is shown
+    at its last bar's close as an estimate; a closed one at the book's own fill prices."""
+    side = e["side"]
+    last = _num(bars.close.iloc[-1]) if len(bars) else None
+    closed = e["status"] == "closed"
+    row = {"id": e["id"], "symbol": e["symbol"], "session": e["entry_session"], "alert_type": "model",
+           "status": e["status"], "posted_at": decided, "est_entry_at": entered, "est_entry": e["entry"],
+           "est_exit": e["exit"] if closed else last, "est_exit_at": exited if closed else None,
+           "reason": (f"closed at the {e['exit_session'][5:]} close" if closed else "open"), "setup": book}
+    daily = timeframe == "1Day"
+    v = trade_view(row, bars, None, side=side, pad_before=pd.Timedelta(days=60 if daily else 1),
+                   pad_after=pd.Timedelta(days=7) if daily else PAD_AFTER)
+    s = 1 if side == "long" else -1
+    entry = _num(e["entry"])
+    if closed:
+        ret, usd, official = _num(e["net"]), _num(e["usd"]), True
+    elif entry and last and _num(e.get("last_px")):
+        ret, official = s * (last / entry - 1), False               # marked to the last bar: an estimate
+        usd = (_num(e["usd"]) or 0.0) + _num(e["last_w"]) * float(e.get("nav") or 100_000.0) * (last / e["last_px"] - 1)
+    else:
+        ret, usd, official = None, None, False
+    v.update(kind="model", book=book, strategy=e["strategy"], key=e["key"], timeframe=timeframe,
+             weight=_num(e["weight"]), sessions=int(e["sessions"]), entry_session=e["entry_session"],
+             exit_session=e["exit_session"], exit_scheduled=e.get("exit_scheduled"),
+             ret=ret, usd=usd, official=official, stop=None, target=None, signals=None, conf=None,
+             forecast=forecast, tested=tested, score=score)
+    for m in v["markers"]:
+        if m["kind"] == "alert":
+            m["text"] = "decided"                                    # the 15:50 ET decision, not a channel alert
+    if not closed:
+        v["exit"] = last
+    return v
+
+
 LEARN_KEYS = ("challenger", "prereg", "n", "champ", "chal", "diff", "lower", "status")
 
 
@@ -143,10 +183,11 @@ def learning_rows(rows: list[dict] | None) -> list[dict]:
 
 def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True,
            learning: list[dict] | None = None, models: dict | None = None, journal: list[dict] | None = None,
-           scan_views: list[dict] | None = None, overview: dict | None = None) -> str:
+           scan_views: list[dict] | None = None, overview: dict | None = None,
+           book_views: list[dict] | None = None) -> str:
     data = {"title": title, "generated": generated.astimezone(ET).strftime("%a %b %-d, %-I:%M %p ET"),
             "trades": views, "learning": learning_rows(learning), "models": models, "journal": journal or [],
-            "scan_views": scan_views or [], "overview": overview}
+            "scan_views": scan_views or [], "overview": overview, "book_views": book_views or []}
     payload = json.dumps(data, allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
     page = TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
     return DOC_HEAD + page if standalone else page
