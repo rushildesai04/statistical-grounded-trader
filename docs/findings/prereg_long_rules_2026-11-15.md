@@ -68,3 +68,29 @@ ever raised.
   long call held through earnings has looked like), with the plain statement that the test failed.
 - Whatever the result: no real money, no change to the two long-and-short forward tests, to the deciding ledger of
   the long-calls test, or to any alert book.
+
+## Result (2026-11-15, training run once at code `c9c567f`; `reports/long_rules/result_train.json`): FAIL on both rules
+Training: 1,631 sessions, 3,448 long calls. BASE: +0.045% a day, Sharpe 0.57, largest drawdown -22.3%, worst day -10.1%.
+
+| rule | what it changed | result against BASE | p | verdict |
+|---|---|---|---|---|
+| E: skip own-earnings holds | 47 calls skipped | -0.003% a day (97.5% lower bound -0.014%) | 0.73 | FAIL |
+| V: crowded-day cap | binds on 622 sessions, average cut 35% | -0.023% a day at the same average money (lower bound -0.046%) | 0.98 | FAIL |
+
+Reading:
+- Rule E. The 47 long calls held through the stock's own earnings made +0.78% on average (62% won) against +0.25%
+  (53% won) for the other 3,401: skipping them costs money, as the earnings-premium literature said it would. What
+  the rule would buy is less swing, and little of it: one such call swings 7.5% (one standard deviation) against
+  3.2% for an ordinary call, but with 47 calls in six and a half years the book's Sharpe moves from 0.57 to 0.54 and
+  its largest drawdown from -22.3% to -21.2%. Worst five: NFLX 2022-01-20 -21.8%, AMZN 2022-04-28 -14.1%, LLY
+  2025-04-30 -11.7%, TSLA 2022-01-26 -11.6%, META 2026-04-29 -8.6%.
+- Rule V. The crowded days are where the money was made. Cutting them to the typical day's risk and putting the same
+  money back across all days took the Sharpe from 0.57 to 0.32. Left un-releveraged the capped book is simply a
+  smaller book: +0.016% a day, largest drawdown -15.6%, worst day -4.9%. That is the size decision the owner already
+  made on 2026-11-14 (25% per stock, as is), not a new rule.
+- Per the frozen decision rule nothing changes: the long-calls book takes a long call into earnings like any other,
+  and no theme or crowding cap is added. Held-out stays closed for both.
+- Reported, not deciding, and worth saying plainly: BASE by year, in hundredths of a percent a day: 2020 +16.0,
+  2021 +7.0, 2022 -1.8, 2023 +6.6, 2024 +3.5, 2025 +4.2, 2026 (January to June) -13.5. The most recent half-year of
+  the record is its worst. The held-out months (July to October 2026) have never been opened; the forward paper
+  record since 2026-10-30 is short. The pooled +0.25% per call is an average over all of this.

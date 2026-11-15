@@ -119,9 +119,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | idea | train per trade (champion +0.97%) | held-out (champion +1.12%) | file |
 |---|---|---|---|
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
-| regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): the gate adds +0.05% / costs -0.19% per trade (p 0.36 / 0.83); session results have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would have skipped 5 of 10 sessions (skipped trades -4.7%) | prereg_fade_regime_gate_2026-11-13 |
-| money score: gate and size model calls by forecast x calibration vs today's risk | long calls n 3,448: high score +0.24% vs rest +0.27% (p 0.57); sizing +0.014%/day (p 0.20) | not opened | prereg_money_score_2026-11-14 |
-| record score: skip a model call when that stock-and-side's record so far is <= 0 | longs: 13 of 3,448 skipped; shorts: kept -0.12% vs skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
+| regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): gate +0.05% / -0.19% per trade (p 0.36 / 0.83); sessions have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would skip 5 of 10 sessions (skipped -4.7%) | prereg_fade_regime_gate_2026-11-13 |
+| money score: size model calls by forecast vs risk | n 3,448: high +0.24% vs rest +0.27% (p 0.57); sizing p 0.20 | not opened | prereg_money_score_2026-11-14 |
+| record score: skip a call when its stock-side record <= 0 | longs 13 skipped; shorts kept -0.12%, skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
+| long calls: skip earnings holds (E); cap crowded days (V) | E 47 skipped +0.78% vs +0.25% (p 0.73); V p 0.98 | not opened | prereg_long_rules_2026-11-15 |
 | LONG: owner's Clean Bull Flag Finder (exact port, EMA 9 > 21, whole session after the alert); 2R / 30 min, or hold while 9 > 21 | -1.60% / -1.78% (n 5,250 / 4,661; stopped at the flag low 55%); strength >= 75: 68 trades, noise | not opened; Nov 2026 -1.42% / -1.22% | prereg_bull_flag_finder_2026-11-13 |
 | LONG: break of structure (pivot 5) while EMA 9 > 21; same two exits | -1.45% / -1.56% (n 5,017 / 4,531). Next bar after a BoS: up 1%+ 21.4% vs 17.3% usual, mean +0.08%: true but a tenth of the cost | not opened; Nov 2026 -0.13% / -0.04% | prereg_bos_ema_2026-11-13 (A1: the owner's own Pine script, same result -1.45% / -1.59%) |
 | cover on VWAP reclaim | +0.52% | +0.22% | same |
@@ -289,6 +290,16 @@ long of 2026-11-12 ($13,400): expected about +$34 by the score (+$98 by AMD's ow
 says not to trust), normal swing +/-$990, result -$1,173: one call is noise, the edge is the average of hundreds.
 Per $100k the long-calls book has been expected to make about +$45 a day, +$230 a week, with 54% of weeks green and
 a normal week swinging about +/-$2,800 at the live size.
+
+**Earnings and crowded days (`prereg_long_rules_2026-11-15`, both FAIL, nothing changed):** the two risk fixes named
+in the 11-13 review were tested on the long calls. (E) Skipping a long call held through the stock's own earnings: the
+47 such calls made +0.78% on average (62% won) against +0.25% for the rest, so skipping costs money; each swings
+about 7.5% against 3.2% for an ordinary call (worst: NFLX 2022-01-20 -21.8%). (V) Cutting crowded days (calls that
+move together) back to the typical day's risk: those days are where the money was made (Sharpe 0.57 to 0.32 at the
+same money). So the book takes a long call into earnings like any other and has no theme cap; size is the only risk
+lever, and the owner set it on 11-14. Honest note from the same run: by year the long-calls book made, in hundredths
+of a percent a day, +16.0 (2020), +7.0, -1.8 (2022), +6.6, +3.5, +4.2 (2025) and -13.5 in January to June 2026: the
+most recent half-year of the record is its worst, and July to October 2026 has never been opened.
 
 **Headline and measurement (owner 2026-11-14, interview):** the nightly, midnight and weekly totals count TRADING
 books only (the long-calls book and the alert books). The two long-and-short model tests and the overlay are
