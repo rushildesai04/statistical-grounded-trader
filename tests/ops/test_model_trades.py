@@ -86,6 +86,155 @@ def test_a_one_stock_books_trade_dollars_equal_the_books_own_change(db):
     assert e["entry_nav"] == pytest.approx(v1)       # dollars in the position: the book's value once it is on
 
 
+def _settled_book(db, drop_legs=False):
+    """A two-stock book run through the real ``book.settle``: X held four sessions with one resize, Y entered, held
+    two sessions without a new order, flipped short and left open."""
+    from datetime import date, datetime, timezone
+
+    import pandas as pd
+
+    from sgt.ops import book
+
+    days = [date(2026, 11, d) for d in (2, 3, 4, 5, 6)]
+    frame = pd.DataFrame({"X": [100.0, 108.0, 97.0, 111.0, 104.0], "Y": [50.0, 46.0, 53.0, 49.0, 55.0]}, index=days)
+
+    def closes(symbols, start, end):
+        return frame[[s for s in symbols if s in frame]].loc[(frame.index >= start) & (frame.index <= end)]
+    for d, targets in ((days[0], {"X": 0.6, "Y": 0.3}), (days[2], {"X": 0.4, "Y": 0.3}),      # targets = the whole book
+                       (days[3], {"X": 0.4, "Y": -0.2}), (days[4], {"Y": -0.2})):
+        book.propose(db, lambda t: None, strategy="b", targets=targets, fill_session=d,
+                     deadline=datetime(2099, 1, 1, tzinfo=timezone.utc), label="b", auto_all=True)
+        assert book.settle(db, closes, d)[1] == []
+    if drop_legs:
+        with db.tx() as c:
+            c.execute("DELETE FROM book_legs")
+    return book, closes, frame
+
+
+def test_the_trades_of_a_book_add_up_to_the_books_own_change_over_multi_session_holds(db):
+    book, _, frame = _settled_book(db)
+    got = mt.episodes(db)
+    assert [(e["symbol"], e["side"], e["status"], e["sessions"]) for e in got] == [
+        ("X", "long", "closed", 4), ("Y", "long", "closed", 3), ("Y", "short", "open", 1)]
+    _, value, last = book.holdings(db, "b")
+    assert last == "2026-11-06" and abs(value - book.NAV0) > 500                    # a real move, not a flat book
+    assert sum(e["usd"] for e in got) == pytest.approx(value - book.NAV0, abs=1e-6)  # to the cent, open trade included
+    short = got[2]                                    # open: booked through the last mark; an estimate runs on from there
+    assert (short["last_at"], short["last_px"], short["last_w"]) == ("2026-11-06", 55.0, -0.2)
+    assert short["nav"] == pytest.approx(value)
+    # constant weight on each day's book value is not shares held: fill to fill misses the book on the same trade
+    x = got[0]
+    assert abs(x["usd"] - (0.6 * book.NAV0 * (97 / 100 - 1) + 0.4 * book.NAV0 * (104 / 97 - 1))) > 100
+
+
+def test_a_stretch_the_book_has_no_rows_for_falls_back_to_fill_to_fill(db):
+    book, _, _ = _settled_book(db, drop_legs=True)
+    got = mt.episodes(db)
+    with db.tx() as c:
+        v = {r["session"]: r["nav"] for r in c.execute("SELECT session, nav FROM book_nav")}
+        pre = {r["session"]: r["nav"] / (1 + r["ret"]) for r in c.execute("SELECT session, nav, ret FROM book_nav")}
+    x = got[0]                                        # 0.6 from 11-02, resized to 0.4 on 11-04, out on 11-06
+    assert x["usd"] == pytest.approx(
+        0.6 * v["2026-11-02"] * (97 / 100 - 1) + 0.4 * v["2026-11-04"] * (104 / 97 - 1)
+        - (0.6 * pre["2026-11-02"] + 0.2 * pre["2026-11-04"] + 0.4 * pre["2026-11-06"]) * C)
+    short = got[2]                                    # open and unbooked: the page estimates it from its fill
+    assert (short["last_at"], short["last_px"]) == ("2026-11-05", 49.0)
+    assert short["usd"] == pytest.approx(-0.2 * pre["2026-11-05"] * C)
+    estimate = sum(e["usd"] for e in got) - 0.2 * v["2026-11-05"] * (55 / 49 - 1)   # what the page showed before the rows
+    assert abs(estimate - (v["2026-11-06"] - book.NAV0)) > 50                       # off the book: the audit's finding
+
+
+def test_one_missing_session_row_sends_only_that_stretch_back_to_the_estimate(db):
+    book, _, _ = _settled_book(db)
+    exact = {e["key"]: e["usd"] for e in mt.episodes(db)}
+    with db.tx() as c:
+        c.execute("DELETE FROM book_legs WHERE symbol='X' AND session='2026-11-03'")
+    got = {e["key"]: e for e in mt.episodes(db)}
+    x = next(e for e in got.values() if e["symbol"] == "X")
+    assert x["usd"] != pytest.approx(exact[x["key"]], abs=1.0)                     # 11-02..11-04 is estimated again
+    assert all(e["usd"] == pytest.approx(exact[k]) for k, e in got.items() if e["symbol"] == "Y")
+
+
+def test_an_open_trade_held_over_several_marks_shows_the_books_dollars_and_runs_on_from_the_last_close(db):
+    from datetime import date, datetime, timezone
+
+    import pandas as pd
+
+    from sgt.ops import book, charts
+
+    days = [date(2026, 11, d) for d in (9, 10, 11, 12)]
+    frame = pd.DataFrame({"SPY": [600.0, 630.0, 590.0, 612.0]}, index=days)
+    book.propose(db, lambda t: None, strategy="etf:B_6040", targets={"SPY": 0.6}, fill_session=days[0],
+                 deadline=datetime(2099, 1, 1, tzinfo=timezone.utc), label="b", auto_all=True)
+    assert book.settle(db, lambda s, a, b: frame.loc[(frame.index >= a) & (frame.index <= b)], days[3])[1] == []
+    (e,) = mt.episodes(db)
+    value = book.holdings(db, "etf:B_6040")[1]
+    assert e["status"] == "open" and e["sessions"] == 3 and e["usd"] == pytest.approx(value - book.NAV0, abs=1e-6)
+    assert (e["last_px"], e["last_at"], e["nav"]) == (612.0, "2026-11-12", pytest.approx(value))
+    assert abs(e["usd"] - (0.6 * book.NAV0 * (612 / 600 - 1) - 0.6 * book.NAV0 * C)) > 50     # not shares held
+    daily = _bars("2026-11-09T05:00:00Z", 4, "1D", p0=600.0)                 # the page's bars end on the last mark
+    v = charts.book_view(e, daily, decided="2026-11-09T20:50:00+00:00", entered="2026-11-09T20:59:00+00:00",
+                         exited=None, timeframe="1Day", book="60/40")
+    assert v["usd"] == pytest.approx(value - book.NAV0, abs=1e-6) and not v["official"]
+    ahead = _bars("2026-11-09T05:00:00Z", 5, "1D", p0=600.0)                 # one more session, not marked yet
+    v = charts.book_view(e, ahead, decided="2026-11-09T20:50:00+00:00", entered="2026-11-09T20:59:00+00:00",
+                         exited=None, timeframe="1Day", book="60/40")
+    last = float(ahead.close.iloc[-1])
+    assert v["usd"] == pytest.approx(value - book.NAV0 + 0.6 * value * (last / 612.0 - 1), abs=1e-6)
+
+
+def test_several_orders_for_one_symbol_in_a_session_are_the_one_change_the_book_made(db):
+    from datetime import date
+
+    import pandas as pd
+
+    from sgt.ops import book
+
+    days = [date(2026, 11, d) for d in (6, 9, 10)]
+    frame = pd.DataFrame({"NVDA": [186.64, 178.67, 168.89], "MSFT": [530.0, 545.0, 533.0]}, index=days)
+
+    def closes(symbols, start, end):
+        return frame[[x for x in symbols if x in frame]].loc[(frame.index >= start) & (frame.index <= end)]
+
+    def sched(symbol, target, session):
+        order(db, "megacap", symbol, target, session, None, status="scheduled")
+        with db.tx() as c:
+            return c.execute("SELECT max(id) FROM book_orders").fetchone()[0]
+    sched("NVDA", 0.1937, "2026-11-06")
+    sched("MSFT", 0.2, "2026-11-06")
+    sched("NVDA", 0.0, "2026-11-09")                 # the 11-09 sequence on the runner: out, short, a smaller short
+    first_short = sched("NVDA", -0.2327, "2026-11-09")
+    sched("NVDA", -0.2033, "2026-11-09")
+    sched("MSFT", 0.0, "2026-11-09")                 # out and straight back in at the same weight: the book never moved
+    sched("MSFT", 0.2, "2026-11-09")
+    assert book.settle(db, closes, days[2])[1] == []
+    got = mt.episodes(db)
+    value = book.holdings(db, "megacap")[1]
+    assert sum(e["usd"] for e in got) == pytest.approx(value - book.NAV0, abs=1e-6)
+    assert [(e["symbol"], e["side"], e["status"], e["weight"]) for e in got] == [
+        ("NVDA", "long", "closed", 0.1937), ("MSFT", "long", "open", 0.2), ("NVDA", "short", "open", -0.2033)]
+    short = got[2]                                   # named after the order that first took the side: its key stays put
+    assert short["key"] == f"book:{first_short}" and short["last_w"] == -0.2033
+    msft = got[1]                                    # one trade all along, no cost on 11-09
+    assert msft["sessions"] == 2 and msft["exit_session"] is None
+    with db.tx() as c:
+        pre = {r["session"]: r["nav"] / (1 + r["ret"]) for r in c.execute("SELECT session, nav, ret FROM book_nav")}
+        booked = c.execute("SELECT sum(usd) FROM book_legs WHERE symbol='MSFT'").fetchone()[0]
+    assert msft["usd"] == pytest.approx(booked - 0.2 * pre["2026-11-06"] * C, abs=1e-6)
+
+
+def test_orders_waiting_for_the_close_are_netted_but_never_with_filled_ones(db):
+    nav(db, "megacap", "2026-11-12", 100_000)
+    order(db, "megacap", "AMD", 0.2, "2026-11-12", 100.0)
+    order(db, "megacap", "AMD", 0.0, "2026-11-12", None, status="scheduled")    # arrived after the mark: not the book yet
+    order(db, "megacap", "JPM", 0.1, "2026-11-13", None, status="scheduled")
+    order(db, "megacap", "JPM", 0.25, "2026-11-13", None, status="scheduled")   # the book will hold only this one
+    amd, jpm = mt.episodes(db)
+    assert (amd["status"], amd["weight"], amd["exit_scheduled"]) == ("open", 0.2, "2026-11-12")
+    assert (jpm["status"], jpm["weight"], jpm["usd"]) == ("scheduled", 0.25, None)
+    assert len(mt.episodes(db)) == 2                                            # one card for JPM, not two
+
+
 def test_scheduled_orders_and_zero_targets(db):
     order(db, "megacap_long", "JPM", 0.0, "2026-11-13", 346.0)                       # a zero target with no position: nothing
     order(db, "megacap_long", "AAPL", 0.25, "2026-11-16", None, status="scheduled")   # ordered, fills at the close
@@ -156,7 +305,7 @@ def test_book_view_open_short_is_marked_to_the_last_bar_as_an_estimate(db):
     nav(db, "megacap_ext", "2026-11-12", 100_000)
     order(db, "megacap_ext", "TSLA", -0.2, "2026-11-12", 400.0)
     e = mt.episodes(db)[0]
-    bars = _bars("2026-11-12T14:30:00Z", 100, "5min", p0=350.0)             # last close 399.6
+    bars = _bars("2026-11-12T14:30:00Z", 370, "5min", p0=350.0)             # runs into the next session, not marked yet
     v = charts.book_view(e, bars, decided="2026-11-12T20:50:00+00:00", entered="2026-11-12T20:59:00+00:00",
                          exited=None, timeframe="5Min", book="megacap 15")
     last = float(bars.close.iloc[-1])
@@ -164,6 +313,17 @@ def test_book_view_open_short_is_marked_to_the_last_bar_as_an_estimate(db):
     assert v["ret"] == pytest.approx(-(last / 400.0 - 1))
     assert v["usd"] == pytest.approx(-0.2 * 100_000 * (last / 400.0 - 1) - 0.2 * 100_000 * C)
     assert [m["kind"] for m in v["markers"]] == ["alert", "short"]
+    # bars that end inside the book's last mark add nothing: the card shows the book's own dollars, no estimate on top
+    marked = charts.book_view(e, _bars("2026-11-12T14:30:00Z", 78, "5min", p0=350.0), decided="2026-11-12T20:50:00+00:00",
+                              entered="2026-11-12T20:59:00+00:00", exited=None, timeframe="5Min", book="megacap 15")
+    assert marked["usd"] == pytest.approx(e["usd"]) == pytest.approx(-0.2 * 100_000 * C)
+    assert marked["ret"] is not None and not marked["official"]
+    text = _bars("2026-11-12T14:30:00Z", 78, "5min", p0=350.0).assign(ts=lambda b: b.ts.dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    naive = _bars("2026-11-12T14:30:00Z", 78, "5min", p0=350.0).assign(ts=lambda b: b.ts.dt.tz_localize(None))
+    for bars in (text, naive):                       # bars as the API and the disk cache hand them over: same answer
+        again = charts.book_view(e, bars, decided="2026-11-12T20:50:00+00:00", entered="2026-11-12T20:59:00+00:00",
+                                 exited=None, timeframe="5Min", book="megacap 15")
+        assert again["usd"] == pytest.approx(e["usd"])
 
 
 def test_book_views_builds_cards_from_the_db_and_survives_a_symbol_with_no_bars(db, tmp_path, monkeypatch):

@@ -128,8 +128,9 @@ def book_view(e: dict, bars: pd.DataFrame, *, decided, entered, exited, timefram
     """Chart data for one daily-book trade (sgt.ops.model_trades.episodes; owner 2026-11-14: every trade gets a card).
 
     ``bars``: 5-minute bars from the entry session to the exit (short holds) or daily bars (long holds); ``decided`` =
-    when the order was written (15:50 ET), ``entered`` / ``exited`` = the closes it filled at. An open trade is shown
-    at its last bar's close as an estimate; a closed one at the book's own fill prices."""
+    when the order was written (15:50 ET), ``entered`` / ``exited`` = the closes it filled at. A closed trade is shown
+    at the book's own fill prices and dollars. An open one carries the book's own dollars through the book's last mark
+    (``last_at``); only bars after that mark add an estimate, at the last bar's close."""
     side = e["side"]
     last = _num(bars.close.iloc[-1]) if len(bars) else None
     closed = e["status"] == "closed"
@@ -146,7 +147,10 @@ def book_view(e: dict, bars: pd.DataFrame, *, decided, entered, exited, timefram
         ret, usd, official = _num(e["net"]), _num(e["usd"]), True
     elif entry and last and _num(e.get("last_px")):
         ret, official = s * (last / entry - 1), False               # marked to the last bar: an estimate
-        usd = (_num(e["usd"]) or 0.0) + _num(e["last_w"]) * float(e.get("nav") or 100_000.0) * (last / e["last_px"] - 1)
+        # 2026-11-15: bars the book has already marked add nothing (their dollars are in e["usd"], to the cent)
+        ahead = pd.to_datetime(bars.ts.iloc[-1], utc=True).tz_convert(ET).date().isoformat() > str(e.get("last_at") or "")
+        usd = (_num(e["usd"]) or 0.0) + (
+            _num(e["last_w"]) * float(e.get("nav") or 100_000.0) * (last / e["last_px"] - 1) if ahead else 0.0)
     else:
         ret, usd, official = None, None, False
     v.update(kind="model", book=book, strategy=e["strategy"], key=e["key"], timeframe=timeframe,

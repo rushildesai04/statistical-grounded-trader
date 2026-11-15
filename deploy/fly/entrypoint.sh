@@ -81,6 +81,8 @@ if [ "${1:-}" = "job" ]; then
     summary)   run reports/ops/run.log python /app/scripts/sms_control.py summary ;;
     preflight) run reports/ops/run.log python /app/scripts/preflight.py ;;
     weekly)    run reports/ops/run.log python /app/scripts/sms_control.py weekly ;;
+    # One-off, by hand (2026-11-15): per-symbol dollars for sessions marked before book_legs existed. Not in cron.
+    booklegs)  run reports/ops/run.log python /app/scripts/sms_control.py booklegs ;;
     *) echo "unknown job ${2:-}" >&2; exit 2 ;;
   esac
   exit $?

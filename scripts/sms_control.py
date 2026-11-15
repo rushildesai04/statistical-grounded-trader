@@ -663,17 +663,29 @@ def cmd_pilot(db: OpsStore) -> int:
     return 0
 
 
+def cmd_book_legs(db: OpsStore, closes=None) -> int:
+    """One-off (2026-11-15): per-symbol dollars for the sessions the daily books marked before ``book_legs`` existed,
+    so their trade cards add up to the books. No text is sent. Safe to run again: sessions that have rows are skipped;
+    a session that cannot be replayed to the cent is listed in the log and left alone (its cards keep the older
+    estimate: a handled outcome, not a job failure, so the exit code stays 0)."""
+    n, problems = book.backfill_legs(db, closes or daily_closes)
+    print(f"book legs: {n} rows written, {len(problems)} sessions not replayed")
+    for p in problems:
+        print("  !", p)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["poll", "digest", "megacap", "megacapext", "megacaplong", "tom", "etf", "pilot",
-                                    "summary", "weekly"])
+                                    "summary", "weekly", "booklegs"])
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     db = OpsStore()
     return {"poll": cmd_poll, "digest": cmd_digest, "megacap": cmd_megacap, "megacapext": cmd_megacap_ext, "megacaplong": cmd_megacap_long,
             "tom": cmd_tom, "etf": cmd_etf, "pilot": cmd_pilot, "summary": cmd_summary,
-            "weekly": cmd_weekly}[args.cmd](db)
+            "weekly": cmd_weekly, "booklegs": cmd_book_legs}[args.cmd](db)
 
 
 if __name__ == "__main__":

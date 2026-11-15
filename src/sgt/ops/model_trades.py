@@ -33,13 +33,37 @@ def _new(o: dict, nav: float, basis: float) -> dict:
             "_w": o["target"], "_px": o["fill_price"], "_at": o["fill_session"]}
 
 
+def _netted(orders: list[dict]) -> list[dict]:
+    """One order per (book, symbol, session). The book applies a session's fills for a symbol in order and holds only
+    the last target, paying one turnover from where it stood (``book.settle``); a card must not pay for targets the
+    book never held (audit 2026-11-15: NVDA 11-09 had exit, short, smaller short in one session: $2.96 too much).
+    The group keeps the last target and the identity (id, decision time) of the order that began its final side, so
+    a card's key does not move. Orders waiting for the close are netted the same way (the book will hold only the
+    last of them), never together with filled ones. ``orders`` sorted by book, symbol, session, id."""
+    out: list[dict] = []
+    for o in orders:
+        last = out[-1] if out else None
+        if last is not None and (last["strategy"], last["symbol"], last["fill_session"], last["status"]) == (
+                o["strategy"], o["symbol"], o["fill_session"], o["status"]):
+            lead = last if _sign(last["target"]) == _sign(o["target"]) else o
+            out[-1] = {**lead, "target": o["target"]}
+        else:
+            out.append(o)
+    return out
+
+
 def episodes(db: OpsStore) -> list[dict]:
     """Every position of every daily book, oldest first: closed, open, and scheduled (ordered, not filled yet).
 
-    Dollars follow the book (``book.settle``): each leg between two fills earns weight x book value x price change,
-    and EVERY change of weight (entry, resize, exit) pays the book's cost on its own turnover, charged like the book
-    does on the value before that day's mark. A resize keeps the trade open at the new weight. Audit 2026-11-15: the
-    resize paid nothing and costs ran on the day's closing value, so a card read better than the book."""
+    Dollars follow the book (``book.settle``): a trade earns what the book booked for its symbol on every session it
+    was held (``book_legs``: constant weight on the book's value before that day's mark), and EVERY change of weight
+    (entry, resize, exit) pays the book's cost on its own turnover, on the same value; several orders for one symbol
+    in one session count as the one change the book made (``_netted``). So the trades of a book add up to the book's
+    own change. A resize keeps the trade open at the new weight. A stretch with a session the book has
+    no row for (marked before 2026-11-15 and not backfilled) falls back to weight x book value x the price change
+    between its two fills: shares held, a few dollars off the book over a multi-session hold.
+    Audit 2026-11-15: the resize paid nothing and costs ran on the day's closing value; then every multi-session
+    stretch was priced fill to fill, so the ETF books' cards read $38 to $57 below their books."""
     with db.tx() as c:
         orders = [dict(r) for r in c.execute(
             "SELECT id, strategy, symbol, target, fill_session, status, fill_price, created_at FROM book_orders "
@@ -53,10 +77,20 @@ def episodes(db: OpsStore) -> list[dict]:
         days: dict[str, list[str]] = {}
         for r in c.execute("SELECT strategy, session FROM book_nav ORDER BY session"):
             days.setdefault(r["strategy"], []).append(r["session"])
+        legs: dict[tuple[str, str], dict[str, tuple[float, float]]] = {}   # (strategy, symbol) -> session -> (usd, close)
+        for r in c.execute("SELECT strategy, session, symbol, usd, close FROM book_legs"):
+            legs.setdefault((r["strategy"], r["symbol"]), {})[r["session"]] = (r["usd"], r["close"])
+
+    def booked(e: dict, strategy: str, through: str | None) -> list[tuple[float, float]] | None:
+        """The book's rows for this trade's symbol on every marked session after its last fill, up to ``through``
+        (None: to the last mark). None when there is no such session or one of them has no row."""
+        mine = legs.get((strategy, e["symbol"]), {})
+        held = [d for d in days.get(strategy, []) if d > e["_at"] and (through is None or d <= through)]
+        return [mine[d] for d in held] if held and all(d in mine for d in held) else None
     out: list[dict] = []
     cur: dict | None = None
     pair = None
-    for o in orders:
+    for o in _netted(orders):
         if (o["strategy"], o["symbol"]) != pair:
             if cur is not None:
                 out.append(cur)
@@ -72,7 +106,9 @@ def episodes(db: OpsStore) -> list[dict]:
             continue
         px = o["fill_price"]
         if cur is not None and px and cur["_px"]:
-            cur["usd"] += cur["_w"] * navs.get((o["strategy"], cur["_at"]), NAV0) * (px / cur["_px"] - 1)
+            rows = booked(cur, o["strategy"], o["fill_session"])
+            cur["usd"] += (sum(u for u, _ in rows) if rows is not None else
+                           cur["_w"] * navs.get((o["strategy"], cur["_at"]), NAV0) * (px / cur["_px"] - 1))
             cur["_px"], cur["_at"] = px, o["fill_session"]
             if side != _sign(cur["_w"]):                 # back to zero, or flipped: the trade is over
                 s = _sign(cur["_w"])
@@ -88,6 +124,11 @@ def episodes(db: OpsStore) -> list[dict]:
             cur = _new(o, nav, basis)
     if cur is not None:
         out.append(cur)
+    for e in out:                                        # an open trade: the sessions the book marked since its last fill
+        rows = booked(e, e["strategy"], None) if e["status"] == "open" else None
+        if rows:
+            e["usd"] += sum(u for u, _ in rows)
+            e["_px"], e["_at"] = rows[-1][1], days[e["strategy"]][-1]   # a live estimate runs on from this close
     for e in out:
         held = [d for d in days.get(e["strategy"], []) if d > e["entry_session"]
                 and (e["exit_session"] is None or d <= e["exit_session"])]
