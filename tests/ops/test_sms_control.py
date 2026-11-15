@@ -494,3 +494,30 @@ def test_megacap_long_book_goes_flat_below_its_stop_rule(db, monkeypatch):
                          (sc.LONG_BOOK,)).fetchall()
     assert {r["symbol"]: r["target"] for r in rows} == {"NVDA": 0.0}  # the held call is closed; AMD is not opened
     assert len(sms.sent) == 1 and "STOPPED (ledger -12.0%, below the -5% stop rule): flat" in sms.sent[0]
+
+
+def test_book_legs_backfill_command_reports_and_never_texts(db, monkeypatch, capsys):
+    import pandas as pd
+
+    from sgt.ops import book
+
+    days = [date(2026, 11, d) for d in (2, 3, 4)]
+    frame = pd.DataFrame({"A": [100.0, 110.0, 99.0]}, index=days)
+
+    def closes(symbols, start, end):
+        return frame[[s for s in symbols if s in frame]].loc[(frame.index >= start) & (frame.index <= end)]
+    book.propose(db, lambda t: None, strategy="m", targets={"A": 0.5}, fill_session=days[0],
+                 deadline=datetime(2099, 1, 1, tzinfo=timezone.utc), label="m", auto_all=True)
+    assert book.settle(db, closes, days[2])[1] == []
+    with db.tx() as c:
+        c.execute("DELETE FROM book_legs")
+    monkeypatch.setattr(sc, "Sms", lambda: (_ for _ in ()).throw(AssertionError("the backfill must not text")))
+    assert sc.cmd_book_legs(db, closes=closes) == 0
+    assert "book legs: 2 rows written, 0 sessions not replayed" in capsys.readouterr().out
+    assert sc.cmd_book_legs(db, closes=closes) == 0 and "0 rows written" in capsys.readouterr().out
+    with db.tx() as c:
+        c.execute("DELETE FROM book_legs")
+    restated = pd.DataFrame({"A": [100.0, 111.0, 99.0]}, index=days)
+    assert sc.cmd_book_legs(db, closes=lambda s, a, b: restated) == 0                 # handled: listed, not a job failure
+    out = capsys.readouterr().out
+    assert "0 rows written, 2 sessions not replayed" in out and "! m: replay of 2026-11-03 does not reproduce the book" in out

@@ -159,6 +159,11 @@ def settle(db: OpsStore, closes: ClosesFn, through: date) -> tuple[list[dict], l
             with db.tx() as c:
                 c.execute("INSERT INTO book_nav(strategy, session, nav, ret, holdings) VALUES (?,?,?,?,?)",
                           (strat, d.isoformat(), nav_new, nav_new / nav - 1, json.dumps(new)))
+                # 2026-11-15: what each held symbol made this session, in the book's own dollars, so a trade card
+                # can add up to the book exactly (sgt.ops.model_trades); same transaction as the mark it explains.
+                c.executemany("INSERT INTO book_legs(strategy, session, symbol, weight, usd, close) VALUES (?,?,?,?,?,?)",
+                              [(strat, d.isoformat(), s, w, w * nav * (px.at[d, s] / px.at[prev, s] - 1),
+                                float(px.at[d, s])) for s, w in h.items()])
                 for o in todays:
                     c.execute("UPDATE book_orders SET status='filled', fill_price=? WHERE id=?",
                               (float(px.at[d, o["symbol"]]), o["id"]))
@@ -168,3 +173,51 @@ def settle(db: OpsStore, closes: ClosesFn, through: date) -> tuple[list[dict], l
             live = [o for o in live if o not in todays]
             h, nav, last = new, nav_new, d.isoformat()
     return fills, problems
+
+
+# Dollars a replayed session may differ from the stored book value. Not zero: a dividend restates every earlier adjusted
+# close (rounded), which moved three sessions of the first two weeks by $0.10 to $0.40 on a $100,000 book.
+LEGS_TOL = 1.0
+
+
+def backfill_legs(db: OpsStore, closes: ClosesFn) -> tuple[int, list[str]]:
+    """Per-symbol dollars (``book_legs``) for sessions marked before the table existed (2026-11-15), replayed from
+    daily closes with the book's own arithmetic. Idempotent: a session that already has its rows is left alone. Fail
+    closed: a session whose replay is more than LEGS_TOL from the stored book value writes nothing and is reported
+    (its cards keep the older fill-to-fill estimate). Returns (rows written, problems)."""
+    written, problems = 0, []
+    with db.tx() as c:
+        marks: dict[str, list[dict]] = {}
+        for r in c.execute("SELECT strategy, session, nav, ret, holdings FROM book_nav ORDER BY strategy, session"):
+            marks.setdefault(r["strategy"], []).append(dict(r))
+        have = {(r["strategy"], r["session"]) for r in c.execute("SELECT DISTINCT strategy, session FROM book_legs")}
+    for strat, rows in marks.items():
+        todo = [(rows[i - 1], rows[i]) for i in range(1, len(rows))
+                if (strat, rows[i]["session"]) not in have and json.loads(rows[i - 1]["holdings"])]
+        if not todo:
+            continue
+        syms = sorted({s for before, _ in todo for s in json.loads(before["holdings"])})
+        first, last = date.fromisoformat(todo[0][0]["session"]), date.fromisoformat(todo[-1][1]["session"])
+        px = closes(syms, first - timedelta(days=10), last)
+        px.index = [pd.Timestamp(i).date().isoformat() for i in px.index]
+        at = {d: i for i, d in enumerate(px.index)}
+        for before, row in todo:
+            d, h, new = row["session"], json.loads(before["holdings"]), json.loads(row["holdings"])
+            i = at.get(d)
+            prev = px.index[i - 1] if i else None              # the close before, as settle used (None: no earlier bar)
+            if prev is None or row["ret"] <= -1 or any(s not in px.columns or not (px.at[d, s] > 0) or not (px.at[prev, s] > 0) for s in h):
+                problems.append(f"{strat}: no closes to replay {d}; its cards keep the estimate")
+                continue
+            base = row["nav"] / (1 + row["ret"])               # the value the session's returns and costs ran on
+            legs = [(strat, d, s, w, w * base * (px.at[d, s] / px.at[prev, s] - 1), float(px.at[d, s]))
+                    for s, w in h.items()]
+            turnover = sum(abs(new.get(s, 0) - h.get(s, 0)) for s in set(new) | set(h))
+            off = base + sum(x[4] for x in legs) - turnover * base * COST_BP / 1e4 - row["nav"]
+            if abs(off) > LEGS_TOL:
+                problems.append(f"{strat}: replay of {d} does not reproduce the book (${off:+,.2f}); its cards keep the estimate")
+                continue
+            with db.tx() as c:
+                c.executemany("INSERT OR IGNORE INTO book_legs(strategy, session, symbol, weight, usd, close) "
+                              "VALUES (?,?,?,?,?,?)", legs)
+            written += len(legs)
+    return written, problems

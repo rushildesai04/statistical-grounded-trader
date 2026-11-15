@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS book_orders(
 CREATE TABLE IF NOT EXISTS book_nav(
   strategy TEXT NOT NULL, session TEXT NOT NULL, nav REAL NOT NULL, ret REAL NOT NULL, holdings TEXT NOT NULL,
   PRIMARY KEY(strategy, session));
+CREATE TABLE IF NOT EXISTS book_legs(
+  strategy TEXT NOT NULL, session TEXT NOT NULL, symbol TEXT NOT NULL, weight REAL NOT NULL, usd REAL NOT NULL,
+  close REAL NOT NULL, PRIMARY KEY(strategy, session, symbol));
 CREATE TABLE IF NOT EXISTS fade_trades(
   id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, session TEXT NOT NULL, alert_type TEXT NOT NULL,
   posted_at TEXT NOT NULL, channel TEXT NOT NULL, message_id INTEGER NOT NULL, status TEXT NOT NULL,

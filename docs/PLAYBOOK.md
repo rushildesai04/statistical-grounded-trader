@@ -313,6 +313,20 @@ longer stop the page from building. Confirmed sound: no look-ahead in either sco
 numbers reconcile with their result files, the page cannot be injected through alert text. Monday's long-calls order
 path was dry-run on the runner against the 11-12 decisions (AAOI 7%, AMD 11%, JPM 25%, proposed once).
 
+**Cards against books, checked on the runner after the deploy (2026-11-15):** the "equal the book" claim above held
+only where a book re-orders every session. Replaying each book from daily closes reproduced every stored value, and
+the cards were below their books by $38 to $57 on the three ETF books, $48 on the overlay and $3 on the six-name set.
+Two causes. (1) The book holds a constant weight on each day's value (`book.py`: "weights are held constant between
+fills"); a card priced a multi-session hold from fill to fill, as shares held. Neither is wrong, but they are not the
+same number, and the texts quote the book. (2) Three NVDA orders in one session (out, short, smaller short) are one
+change of weight to the book and were three paid changes to the card. Fix: the book now stores what each held symbol
+made each session (`book_legs`, written with the mark it explains), a card adds up those rows, and a session's orders
+for one symbol count once. History is replayed once from closes (`sms_control.py booklegs`), refused for any session
+more than $1 from the stored value. Dry run on a copy of the runner's book: 105 rows, none refused; four books to the
+cent, the other two $0.10 and $0.17 off (an Apple dividend restated the earlier adjusted closes). A stretch with a
+session the book has no row for keeps the older estimate. Known and left: the book gives a held basket a free daily
+rebalance, worth about 0.04% to 0.06% of a 60/40-style book over these nine sessions, in the book's favour this time.
+
 **Headline and measurement (owner 2026-11-14, interview):** the nightly, midnight and weekly totals count TRADING
 books only (the long-calls book and the alert books). The two long-and-short model tests and the overlay are
 MEASUREMENT: they keep running untouched for their evidence, their short calls are labelled NO-GO, and their dollars
