@@ -457,6 +457,7 @@ def cmd_megacap_long(db: OpsStore, now: datetime | None = None) -> int:
         f = model_fill(dec, now_et) if dec else None
         if f is None or (fill is not None and f != fill):
             print(f"megacap_long: no live decision for today in {folder} (book trades only when both sets are live)")
+            flat_without_decision(db, LONG_BOOK, "megacap long calls", now_et)   # no fresh call: nothing is held on
             return 0
         fill = f
         positions.update({s: (1 if int(v["position"]) > 0 else 0) for s, v in dec["positions"].items()})
@@ -496,6 +497,37 @@ def mark_done(db: OpsStore, key: str) -> None:
     db.set_flag(f"done:{key}", "1")
 
 
+LIVE_SLOT = timedelta(minutes=10)                # the live decision run: the last ten minutes of the session (15:50)
+
+
+def flat_without_decision(db: OpsStore, strategy: str, name: str, now_et: datetime) -> bool:
+    """A one-day model call that is not renewed is not a position (owner review 2026-11-16). The 15:50 decision of the
+    15-name set crashed on 11-13; the book wrote no order and so kept Thursday's calls through Friday's close and all
+    of Monday: AMD and JPM long and TSLA and ORCL short on a day the model had called all four flat. When the live run
+    has no valid decision for today, whatever the book holds is closed at today's close (fail closed), once per
+    session, with a text. Only inside the live slot: the evening and morning passes never flatten. True when the
+    closing orders were written."""
+    today = now_et.date()
+    cal = default_calendar()
+    if not cal.is_session(today):
+        return False
+    close = cal.bounds(today).rth_close
+    if not close - LIVE_SLOT <= now_et < close:
+        return False
+    held = book.projected(db, strategy)                 # after orders already waiting: a second pass finds nothing
+    if not held:
+        return False
+    sms = Sms()
+    try:
+        res = book.propose(db, sms.send, strategy=strategy, targets={s: 0.0 for s in held}, fill_session=today,
+                           deadline=deadline(today), auto_all=True,
+                           label=f"{name} {today:%m-%d} NO DECISION today, closing what it holds")
+    finally:
+        sms.close()
+    print(f"{strategy} {today}: no live decision, flat at the close: {res}")
+    return True
+
+
 def model_fill(dec: dict, now_et: datetime) -> date | None:
     """Fill session for a daily-model decision (2026-11-09 fix): the model's trade is close(d) -> close(d+1), so a
     decision written live at 15:50 fills at TODAY's close. A batch decision (written after the close) would trade the
@@ -524,9 +556,12 @@ def cmd_megacap(db: OpsStore, now: datetime | None = None) -> int:
         return 0
     dec = json.loads(files[-1].read_text())
     d = date.fromisoformat(dec["date"])
-    fill = model_fill(dec, now or datetime.now(ET))
+    now_et = now or datetime.now(ET)
+    fill = model_fill(dec, now_et)
     if fill is None or done(db, f"megacap:{d}"):
         print(f"megacap {d}: already proposed, or not a live decision before today's close (book trades live only)")
+        if fill is None:
+            flat_without_decision(db, "megacap", "megacap", now_et)
         return 0
     positions = {s: int(v["position"]) for s, v in dec["positions"].items()}
     targets = megacap_targets(positions)
@@ -563,9 +598,12 @@ def cmd_megacap_ext(db: OpsStore, now: datetime | None = None) -> int:
         return 0
     dec = json.loads(files[-1].read_text())
     d = date.fromisoformat(dec["date"])
-    fill = model_fill(dec, now or datetime.now(ET))
+    now_et = now or datetime.now(ET)
+    fill = model_fill(dec, now_et)
     if fill is None or done(db, f"megacap_ext:{d}"):
         print(f"megacap_ext {d}: already proposed, or not a live decision before today's close (book trades live only)")
+        if fill is None:
+            flat_without_decision(db, "megacap_ext", "megacap 15", now_et)
         return 0
     positions = {s: int(v["position"]) for s, v in dec["positions"].items()}
     targets = megacap_targets(positions)
