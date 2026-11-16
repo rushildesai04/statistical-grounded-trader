@@ -248,6 +248,7 @@ h1 em { font-style: normal; color: var(--accent); }
 .learn-table th { text-align: left; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 .learn-table td { padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+#feed td:nth-child(5) { white-space: normal; min-width: 200px; color: var(--muted); }   /* the reason: wraps on a phone */
 .learn-table td.pos { color: var(--up); } .learn-table td.neg { color: var(--down); }
 .prog { display: inline-block; width: 60px; height: 5px; border-radius: 3px; background: var(--grid); margin-right: 6px;
   vertical-align: middle; overflow: hidden; }
@@ -366,6 +367,16 @@ footer b { color: var(--ink); font-weight: 600; }
   </div>
 
   <main class="list" id="list"></main>
+
+  <!-- 2026-11-16 (owner: "i see literally nothing from today"): every alert of the day and what the agent did with it,
+       so a day with no trade is never a blank page. Built in JS from DATA.alerts (text set with textContent). -->
+  <section class="learn" id="feed" hidden aria-label="Every alert of this day">
+    <div class="learn-head"><span class="label">Every alert this day</span>
+      <span class="small" id="feed-sub"></span></div>
+    <div class="learn-wrap"><table class="learn-table">
+      <thead><tr><th>Time ET</th><th>Stock</th><th>Alert</th><th>Short</th><th>Why not</th><th>Long</th></tr></thead>
+      <tbody id="feed-rows"></tbody></table></div>
+  </section>
 
   <section class="learn" id="learn" hidden aria-label="What the system is learning">
     <div class="learn-head"><span class="label">What the system is learning</span>
@@ -778,7 +789,28 @@ function show(day) {
   tape(ts); summary(ts); curve(day, ts);         // tiles / tape / curve stay alert-only (owner 2026-11-14)
   ts.forEach((t, i) => { const [c, boxes] = card(t, i); list.append(c); draw(boxes, t); });
   const addedModel = showModels(day, list, ts.length);
-  if (!ts.length && !addedModel) list.append(el("div", "empty", "No trades on this day."));
+  const seen = feed(day);
+  if (!ts.length && !addedModel) list.append(el("div", "empty", !seen.n ? "No trades on this day."
+    : seen.traded ? "No trade charts for this day yet. Every alert is listed below."
+    : "No trades on this day: " + seen.n + " alert" + (seen.n === 1 ? "" : "s") + " came in and none passed the rules. Each one is listed below with the reason."));
+}
+
+// Every alert of the day and what the agent did with it (owner 2026-11-16). Returns {n: alerts listed, traded}.
+function feed(day) {
+  const rows = (DATA.alerts || []).filter(a => a.session === day);
+  const sec = document.getElementById("feed"), body = document.getElementById("feed-rows");
+  body.replaceChildren();
+  sec.hidden = !rows.length;
+  const traded = rows.filter(a => a.traded).length;
+  if (!rows.length) return { n: 0, traded: 0 };
+  document.getElementById("feed-sub").textContent = rows.length + " alert" + (rows.length === 1 ? "" : "s") + " · " + traded + " traded · " + (rows.length - traded) + " not traded";
+  rows.forEach(a => { const tr = el("tr");
+    tr.append(el("td", null, a.at || ""), el("td", null, a.symbol), el("td", null, KIND[a.type] || String(a.type || "").replace(/_/g, " ")),
+      el("td", a.short && a.short.startsWith("shorted") ? (a.short.includes("+") ? "pos" : a.short.includes("-") ? "neg" : null) : null, a.short || ""),
+      el("td", null, a.why || ""),
+      el("td", a.long && a.long.startsWith("long taken") ? (a.long.includes("+") ? "pos" : a.long.includes("-") ? "neg" : null) : null, a.long || ""));
+    body.append(tr); });
+  return { n: rows.length, traded };
 }
 
 // Model and book trades (owner 2026-11-14: every trade, "regardless of if its any alert or an alpha", gets a card and
@@ -1515,7 +1547,8 @@ function boot() {
     const newestAlert = alertDays.slice().sort()[alertDays.length - 1];
     extraDays = bvAll.filter(v => v.entry_session && (v.status === "closed" || v.entry_session >= newestAlert)).map(v => v.entry_session);
   } else extraDays = bvAll.map(v => v.entry_session).filter(Boolean);
-  const days = [...new Set([...alertDays, ...extraDays])].sort().reverse();
+  const feedDays = (DATA.alerts || []).map(a => a.session).filter(Boolean);   // 2026-11-16: a day with alerts but no trade is a day
+  const days = [...new Set([...alertDays, ...extraDays, ...feedDays])].sort().reverse();
   NEWEST = days[0] || null;
   const bar = document.getElementById("days");
   days.forEach(d => { const b = el("button", null, new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }));

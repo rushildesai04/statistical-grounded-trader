@@ -199,10 +199,11 @@ def finite(x):
 def render(views: list[dict], generated: datetime, title: str = "SGT Fade Tape", standalone: bool = True,
            learning: list[dict] | None = None, models: dict | None = None, journal: list[dict] | None = None,
            scan_views: list[dict] | None = None, overview: dict | None = None,
-           book_views: list[dict] | None = None) -> str:
+           book_views: list[dict] | None = None, alerts: list[dict] | None = None) -> str:
     data = {"title": title, "generated": generated.astimezone(ET).strftime("%a %b %-d, %-I:%M %p ET"),
             "trades": views, "learning": learning_rows(learning), "models": models, "journal": journal or [],
-            "scan_views": scan_views or [], "overview": overview, "book_views": book_views or []}
+            "scan_views": scan_views or [], "overview": overview, "book_views": book_views or [],
+            "alerts": alerts or []}                      # every alert and what the agent did (ops.alert_feed, 2026-11-16)
     payload = json.dumps(finite(data), allow_nan=False).replace("<", "\\u003c")   # untrusted text can never end the script
     page = TEMPLATE.read_text().replace("/*TRADES*/null", payload, 1)
     return DOC_HEAD + page if standalone else page
