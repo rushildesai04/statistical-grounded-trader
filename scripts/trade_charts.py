@@ -176,8 +176,15 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     if db is not None:
         from sgt.ops import overview
         summary = overview.build(db, now, learning)      # Overview tab (owner 2026-11-13); sections fail to None
+    alerts = []
+    if db is not None:
+        try:                                             # the alert list must never stop the page (owner 2026-11-16)
+            from sgt.ops import alert_feed
+            alerts = alert_feed.rows(db)
+        except Exception:  # noqa: BLE001 - logged; the page builds without the list
+            log.exception("alert feed failed")
     return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries,
-                         scan_views=scan_views, overview=summary, book_views=model_cards)
+                         scan_views=scan_views, overview=summary, book_views=model_cards, alerts=alerts)
 
 
 MAX_BOOK_TRADES = 60
