@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Callable
@@ -96,6 +97,33 @@ OFF_REASON = "fade off (owner 2026-11-12: November forward break; shorting depri
 def is_off(db: OpsStore) -> bool:
     v = db.flag(OFF_FLAG)
     return v is not None and v != "0"
+
+
+# Owner 2026-11-16 ("pretend like its a real scenario"; interview answer "IBKR has shares"): a real account cannot short
+# a stock its broker has no shares to lend. The paper book shorted every alert: of its 22 settled shorts, 7 had no
+# shares at IBKR (nor at Alpaca) and 2 had fewer than the trade needed; together +$2,046 the book could never have
+# earned (the 13 real ones lost about -$5,031; the book showed -$2,985). Rule: a short is taken only when the IBKR lendable list stamped on the alert (``borrow.BorrowBook``, a
+# snapshot at most 3 hours old) shows at least the shares the trade needs. Unknown is no trade (fail closed). Checked at
+# the tested entry after the news, beta and price checks, so such a row is a real alert the fade wanted to short: F8
+# counts it, the long book still trades it, and the forward record keeps scoring every alert whatever the borrow.
+BORROW_NONE = "no shares to borrow at IBKR (a real account could not short it)"
+BORROW_FEW = "too few shares to borrow at IBKR for this size"
+BORROW_UNKNOWN = "borrow unknown at entry (no fresh IBKR list): no short"
+BORROW_REASONS = (BORROW_NONE, BORROW_FEW, BORROW_UNKNOWN)
+# Alerts the short did not take although they were events in a tested cell with a priced entry bar.
+EVENT_FILTERS = (NEWS_REASON, BETA_REASON, REPEAT_REASON, OFF_REASON, *BORROW_REASONS)
+
+
+def no_shares(db: OpsStore, r, px: float) -> str | None:
+    """Why a real account could not put this short on at ``px`` (one of BORROW_REASONS), or None when IBKR lends at
+    least the shares the trade needs (its weight on the book's value, at the entry price)."""
+    avail = dict(r).get("ib_avail")
+    if avail is None:
+        return BORROW_UNKNOWN
+    if avail <= 0:
+        return BORROW_NONE
+    need = math.ceil((dict(r).get("weight") or WEIGHT) * nav(db) / px)
+    return BORROW_FEW if avail < need else None
 
 Quote = Callable[[str], "float | None"]
 # A quote may also accept ``since=`` (set ``quote.since_aware = True``): then it returns None unless its print is at or
@@ -201,9 +229,8 @@ def prior_alert(db: OpsStore, symbol: str, day: date) -> str | None:
         r = c.execute("SELECT MAX(session) FROM fade_trades WHERE symbol=? AND session BETWEEN ? AND ? AND ("
                       "status IN ('ask','pending','open','est_closed','settled') "
                       f"OR (status='skipped' AND reason NOT IN ({marks})) "
-                      "OR (status='filtered' AND reason IN (?,?,?,?)))",
-                      (symbol, lo, hi, *NOT_EVENT_SKIPS, NEWS_REASON, BETA_REASON, REPEAT_REASON,
-                       OFF_REASON)).fetchone()
+                      f"OR (status='filtered' AND reason IN ({','.join('?' * len(EVENT_FILTERS))})))",
+                      (symbol, lo, hi, *NOT_EVENT_SKIPS, *EVENT_FILTERS)).fetchone()
     return r[0] if r else None
 
 
@@ -261,7 +288,7 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borro
         try:
             if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
                 r = _stamp(db, r, borrow(r["symbol"], now))
-            _advance(db, send, quote, r, now, context, news, beta)
+            _advance(db, send, quote, r, now, context, news, beta, need_borrow=borrow is not None)
         except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
             log.exception("fade row %s failed", r["id"])
 
@@ -284,11 +311,12 @@ def record(db: OpsStore) -> tuple[int, float | None]:
 
 
 def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
-             beta: BetaCheck | None = None) -> None:
+             beta: BetaCheck | None = None, need_borrow: bool = False) -> None:
+    """``need_borrow``: the book has a borrow source (the listener always does), so the borrow rule applies."""
     if r["status"] == "ask":
-        _ask(db, send, quote, r, now, context, news, beta)
+        _ask(db, send, quote, r, now, context, news, beta, need_borrow)
     elif r["status"] == "pending":
-        _enter(db, send, quote, r, now, context, news, beta)
+        _enter(db, send, quote, r, now, context, news, beta, need_borrow)
     else:
         _exit(db, send, quote, r, now)
 
@@ -300,7 +328,7 @@ def _approval(db: OpsStore, rid: int):
 
 
 def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
-         beta: BetaCheck | None = None) -> None:
+         beta: BetaCheck | None = None, need_borrow: bool = False) -> None:
     """Text one approval request per event; an approved request becomes a pending entry (same tick)."""
     posted = datetime.fromisoformat(r["posted_at"])
     deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
@@ -333,7 +361,9 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
             return
         approvals.finish(db, a["id"], True, "entering")
         if _set(db, r["id"], "ask", status="pending", reason="approved"):  # the owner's OK: no at-entry gates
-            _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now, context)
+            # borrow is not a preference: an approved short still needs shares (2026-11-16)
+            _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now, context,
+                   need_borrow=need_borrow)
         return
     if a["status"] == "rejected":
         _set(db, r["id"], "ask", status="skipped", reason="declined")
@@ -357,11 +387,12 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
     if not won:                                        # someone else decided it (e.g. PAUSE): never enter
         _set(db, r["id"], "ask", status="skipped", reason="approval no longer open")
     elif _set(db, r["id"], "ask", status="pending", reason="auto"):
-        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context, news, beta)
+        _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context, news, beta,
+               need_borrow)
 
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
-           beta: BetaCheck | None = None) -> None:
+           beta: BetaCheck | None = None, need_borrow: bool = False) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
     start = entry_start(posted)
     if now < start:
@@ -385,6 +416,9 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
+        return
+    if need_borrow and (why := no_shares(db, r, px)) is not None:   # owner 2026-11-16: no shares, no short (no text)
+        _set(db, r["id"], "pending", status="filtered", reason=why)
         return
     if is_off(db):                                    # owner 2026-11-12: a would-be short, not taken (no text)
         _set(db, r["id"], "pending", status="filtered", reason=OFF_REASON)

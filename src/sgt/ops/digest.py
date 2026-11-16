@@ -242,8 +242,13 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                          "('settled','void','open','pending','est_closed') ORDER BY id", (s,)).fetchall()
         off = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason=?",
                         (s, fade.OFF_REASON)).fetchone()[0]
+        dry = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason IN "
+                        f"({','.join('?' * len(fade.BORROW_REASONS))})", (s, *fade.BORROW_REASONS)).fetchone()[0]
     head = ([f"⏸️ {bold('fade')} {italic('OFF')} (owner 11-12, shorts deprioritized): {off} alerts not "
              "shorted today; the forward record still scores every alert"] if fade.is_off(db) or off else [])
+    if dry:                                           # owner 2026-11-16: a real account cannot short without shares
+        head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted, no shares to borrow "
+                    f"at IBKR ({italic('a real account could not')})")
     if not rows:
         return head, 0.0
     today = fade.nav(db, day) - fade.nav(db, day - timedelta(days=1))
