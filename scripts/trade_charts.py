@@ -18,7 +18,7 @@ import httpx
 import pandas as pd
 
 from sgt.core.secrets import get_secret
-from sgt.fast import fade
+from sgt.fast import est_costs, fade
 from sgt.intraday.calendar import default_calendar
 from sgt.ops import charts, model_tape
 from sgt.ops.store import OpsStore, utcnow
@@ -95,8 +95,8 @@ def long_rows(db: OpsStore | None) -> list[dict]:
             r.update(net=None, entry=None, cover=None, entry_ts=None)
         elif r.get("exit_ts"):
             r["est_exit_at"] = r["exit_ts"]                # the official exit time for the sell marker
-        ret = r["net"] if r["net"] is not None else (
-            r["est_exit"] / r["est_entry"] - 1 if r.get("est_exit") and r.get("est_entry") else None)
+        ret = r["net"] if r["net"] is not None else est_costs.net(     # live estimate: after estimated costs (2026-11-16)
+            "long", r["symbol"], r.get("est_entry_at"), r.get("est_entry"), r.get("est_exit"))
         base = long_book.nav(db, through=date.fromisoformat(r["session"]) - timedelta(days=1))   # value before its day
         out.append({**r, "setup": long_book.NAMES.get(r["kind"], r["kind"]), "size": (r["weight"] or fade.WEIGHT) * base,
                     "usd": None if ret is None else ret * (r["weight"] or fade.WEIGHT) * base})
@@ -111,8 +111,8 @@ def size_usd(t: dict, db: OpsStore | None) -> float:
 
 def dollars(t: dict, db: OpsStore | None) -> float | None:
     """Paper $ result: the trade's share of the book value before its day (official net where settled)."""
-    ret = t.get("net") if t.get("net") is not None else (
-        (t["est_entry"] - t["est_exit"]) / t["est_entry"] if t.get("est_entry") and t.get("est_exit") else None)
+    ret = t.get("net") if t.get("net") is not None else est_costs.net(
+        "short", t.get("symbol"), t.get("est_entry_at"), t.get("est_entry"), t.get("est_exit"))
     if ret is None:
         return None
     base = fade.nav(db, through=date.fromisoformat(t["session"]) - timedelta(days=1)) if db else fade.NAV0

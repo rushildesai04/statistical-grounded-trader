@@ -28,6 +28,7 @@ from typing import Callable
 
 import pandas as pd
 
+from sgt.fast import est_costs
 from sgt.fast.fade_rule import (AVG_LOSS, AVG_WIN, BASE_EV, BASE_N, BASE_WIN, BASE_WIN_CI, ET, HOLD,  # noqa: F401
                                 JUDGE_N, STOP, STOP_RATE, STOPPED_NET, VETO, VETO_EXIT)
 from sgt.fast.fade_texts import (CONF, CONF_LABEL, CONF_MAX, EXIT_WHY, FILING_HIST, PLAIN, TOD_HIST, _fmt,  # noqa: F401
@@ -139,11 +140,14 @@ def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, 
 
 
 def day_est_pnl(db: OpsStore, session: str) -> float:
-    """Estimated NAV fraction realized today (closed estimates; open trades at their last mark)."""
+    """Estimated NAV fraction realized today (closed estimates; open trades at their last mark), after estimated
+    costs (2026-11-16, ``est_costs``: the texted day total used to be before costs)."""
     with db.tx() as c:
-        rows = c.execute("SELECT weight, est_entry, COALESCE(est_exit, est_last) px FROM fade_trades WHERE session=? "
-                         "AND status IN ('open','est_closed') AND est_entry > 0", (session,)).fetchall()
-    return sum(r["weight"] * (r["est_entry"] - r["px"]) / r["est_entry"] for r in rows if r["px"])
+        rows = c.execute("SELECT symbol, weight, est_entry, est_entry_at, COALESCE(est_exit, est_last) px FROM "
+                         "fade_trades WHERE session=? AND status IN ('open','est_closed') AND est_entry > 0",
+                         (session,)).fetchall()
+    nets = [(r["weight"], est_costs.net("short", r["symbol"], r["est_entry_at"], r["est_entry"], r["px"])) for r in rows]
+    return sum(w * n for w, n in nets if n is not None)
 
 
 def gate(db: OpsStore, session: str, now: datetime) -> str | None:
@@ -473,13 +477,14 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
         with db.tx() as c:                    # a NO after the exit is answered "already closed", never acted on
             c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE strategy=? "
                       "AND kind='fadeexit' AND status='pending'", (iso(now), f"fade:{r['id']}"))
-        g = (entry - exit_px) / entry
+        cost = est_costs.cost("short", r["symbol"], r["est_entry_at"], entry) or 0.0
+        g = (entry - exit_px) / entry - cost             # 2026-11-16: the texted result is after estimated costs
         v = nav(db)
         usd = g * (r["weight"] or WEIGHT) * v
         with db.tx() as c:
             n_day = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='est_closed'",
                               (r["session"],)).fetchone()[0]
-        send(out_text(r, entry, exit_px, why, usd, day_est_pnl(db, r["session"]) * v, n_day))
+        send(out_text(r, entry, exit_px, why, usd, day_est_pnl(db, r["session"]) * v, n_day, cost=cost))
 
 
 def _company_news(db: OpsStore, r, flags: dict | None) -> bool:

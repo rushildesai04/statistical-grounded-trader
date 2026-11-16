@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import fade_live as fl  # noqa: E402
 import telegram_alert_test as tat  # noqa: E402
 from alert_fade_test import LOCATE  # noqa: E402
-from sgt.fast import fade  # noqa: E402
+from sgt.fast import est_costs, fade  # noqa: E402
 from sgt.ops.sms_style import bold, italic  # noqa: E402
 from sgt.intraday.calendar import default_calendar  # noqa: E402
 from sgt.intraday.store import ParquetBarStore  # noqa: E402
@@ -103,15 +103,20 @@ def test_live_estimates_entry_stop_and_time_exit(db):
     fade.monitor(db, out, lambda s: None, now=T10 + timedelta(minutes=61))   # no quote: last mark is used
     dn = rows(db)[1]
     assert dn["status"] == "est_closed" and dn["est_exit"] == 9.0 and dn["reason"] == "60 min"
-    assert out[-1] == (f"[SGT] 🟢 {bold('FADE OUT')} · {bold('DN')} · made {bold('+$500 (+10.0%)')}\n"
+    # 2026-11-16: every texted estimate is after estimated costs. A $10 short entered in the first hour costs about
+    # 1.27% (round-trip spread 0.77% + 0.5% locate): +10.0% reads +8.7%, -25.0% reads -26.3%, the day -$877 not -$750.
+    c = est_costs.cost("short", "DN", dn["est_entry_at"], 10.0)
+    assert c == pytest.approx(0.0127, abs=5e-5)
+    assert out[-1] == (f"[SGT] 🟢 {bold('FADE OUT')} · {bold('DN')} · made {bold('+$436 (+8.7%)')}\n"
                        "Shorted $10.00 → bought back $9.00 · ⏰ 60 minutes up\n"
                        "💡 Why: price fell 10.0% while we were short\n"
-                       f"📅 Today: 2 trades, {bold('-$750')}\n"
+                       f"📅 Today: 2 trades, {bold('-$877')}\n"
                        "📈 https://www.tradingview.com/chart/?symbol=DN\n"
-                       + italic("Estimate before costs; official numbers in the midnight summary."))
-    assert out[-2].startswith(f"[SGT] 🛑 {bold('FADE OUT')} · {bold('UP')} · lost {bold('-$1,250 (-25.0%)')}\n"
+                       + italic("Estimate after about 1.3% costs (spread + locate); official numbers in the midnight "
+                                "summary."))
+    assert out[-2].startswith(f"[SGT] 🛑 {bold('FADE OUT')} · {bold('UP')} · lost {bold('-$1,314 (-26.3%)')}\n"
                               "Shorted $10.00 → bought back $12.50 · 🛑 stop hit")
-    assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10))
+    assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10 - 2 * c))
 
 
 def test_gates_daily_cap_and_loss_stop(db, monkeypatch):

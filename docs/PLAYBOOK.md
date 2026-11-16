@@ -16,6 +16,16 @@ Our paper fade charged only costs + a 0.5% locate and assumed shares were always
 or back on without (a) real borrow availability and fees inside its test, (b) a hard loss cap per trade, and (c) the
 owner's explicit OK. New strategy work goes to the long side.
 
+**Both alert books back ON, paper (owner 2026-11-16, 12:10 ET).** With the fade off (11-12) and the alert longs
+measure-only (11-13) the runner received 26 alerts that morning and sent no text; the owner read the silent phone as a
+failure. Shown the options and both books' numbers (fade: November forward -3.44% per trade, win 39%, n 61; longs:
+-2.09% per trade in training), the owner chose: "turn them back on ... we need to see how they perform and test, thats
+the whole point of this. i should be receiving all alerts and texts to my phone". `fade_off=0`, `long_off=0` since
+12:13:57 ET (audit event `flag`); the drift guard still halves the fade's size. For the fade this is (c) only: (a) borrow
+inside its test and (b) a hard loss cap per trade are NOT met; it runs on paper by the owner's word. Nothing is proven
+by this: both books stay tested losers until 300 live trades say otherwise. Standing consequence: an alert book is never
+left off silently; "off" is the owner's choice in the moment, and the phone must still show the system is alive.
+
 ## 1. What we trade and why it works
 Short small caps ($1-50) right after a MetaTradings momentum alert. Mechanism: retail-attention buying sprees in small
 caps are followed by falling prices (Barber, Huang, Odean, Schwarz, "Attention Induced Trading and Returns"); the alert
@@ -334,6 +344,17 @@ are shown on a "not in the total" line with the ETF yardsticks. The long-calls p
 per stock): the owner chose it over 12.5% knowing the numbers (same expected dollars, about +$45 a day; normal day
 +/-$1,240 against +/-$860; worst historical drop -22% against -14%; the deciding equal-weight ledger -5%).
 
+
+**Live estimates are after estimated costs (2026-11-16, `sgt.fast.est_costs`).** Before the 20:40 ET settle a trade is
+known only by the listener's prices, and every text, card, page total and the midnight summary showed that estimate
+BEFORE costs, so a day read better live than it settled (11-13: -$100 live, lower official). One pure helper now applies
+the official cost model (gapper round-trip spread at the entry time and price, plus the 0.5% locate on shorts) to the
+live entry; every place that quotes an estimate uses it: the FADE OUT and LONG OUT texts and their day total, the
+digest's long line, the midnight summary, the cards and their dollars, the Notes page (each alert trade carries
+`est_cost`) and the AI review's title line. Size of it: a $3 long costs about 0.7% midday and 1.25% in the first
+hour; a $3 short 1.2% to 1.75%. A flat trade is a loss, and a target closer than the cost is a loss when hit (a
+4-cent target on a $3.82 stock, as VTSI 11-13, is +1.0%: against 1.25% in the first hour it loses, midday it keeps 0.3%). The official result still replaces the estimate at the settle
+(official prices, same model). Mutation-checked: 20 of 20 reverted lines fail a test.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach

@@ -131,7 +131,7 @@ def test_long_day_with_estimates_only_invents_no_dollars(db):
     text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
     lines = text.splitlines()
     i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
-    assert lines[i + 1] == f"⚪ {bold('longs')} (paper) 1 trades: OPEN red-candle break +4.0%"
+    assert lines[i + 1] == f"⚪ {bold('longs')} (paper) 1 trades: OPEN red-candle break +3.2%"   # +4.0% less est. costs
     assert "longs" not in text.splitlines()[1]                          # $0 is not part of the split
 
 

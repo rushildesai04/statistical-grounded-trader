@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from sgt.fast import signals
+from sgt.fast import est_costs, signals
 
 ET = ZoneInfo("America/New_York")
 TEMPLATE = Path(__file__).with_name("templates") / "trade_charts.html"
@@ -95,11 +95,9 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
     # settled = the official SIP result at the tested timing; otherwise the live IEX estimate
     entry, exit_px = ((_num(t.get("entry")), _num(t.get("cover"))) if settled else
                       (_num(t.get("est_entry")), _num(t.get("est_exit"))))
-    if long:
-        ret = official if official is not None else (exit_px / entry - 1 if entry and exit_px else None)
-    else:
-        ret = official if official is not None else (
-            (entry - exit_px) / entry if entry and exit_px else None)
+    # 2026-11-16: a live estimate is shown after its estimated costs (est_costs), like the official net it becomes
+    ret = official if official is not None else est_costs.net(
+        "long" if long else "short", t.get("symbol"), t.get("est_entry_at"), entry, exit_px)
     open_k, close_k = ("buy", "sell") if long else ("short", "cover")
     markers = [{"time": _bar_at(times, alert), "kind": "alert", "text": "alert"},
                {"time": _bar_at(times, entered), "kind": open_k, "text": f"{open_k} {entry:.2f}" if entry else open_k}]
