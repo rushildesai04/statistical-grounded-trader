@@ -19,6 +19,7 @@ from typing import Callable
 import pandas as pd
 
 from sgt.ai import openai_api as oa
+from sgt.fast import est_costs
 from sgt.ops import journal
 from sgt.ops.store import OpsStore, iso
 
@@ -141,10 +142,16 @@ def result_line(e: dict) -> str:
         return ""
     if a <= 0:
         return ""
-    ret = float(e["net"]) if settled and e.get("net") is not None else ((b - a) / a if long else (a - b) / a)
+    live = est_costs.net("long" if long else "short", e.get("symbol"), e.get("est_entry_at"), a, b)
+    if settled and e.get("net") is not None:
+        ret = float(e["net"])
+    elif live is not None:
+        ret = live                                   # 2026-11-16: the live estimate is after estimated costs
+    else:
+        return ""
     return (f"{e.get('symbol')} - {'long' if long else 'short'} {_px(a)}, {'sell' if long else 'cover'} {_px(b)}: "
             f"about a {abs(ret):.1%} {'gain' if ret > 0 else 'loss'} "
-            f"({'official, after costs' if settled else 'live estimate, before costs'})")
+            f"({'official, after costs' if settled else 'live estimate, after estimated costs'})")
 
 
 def _notes_start(db: OpsStore, now: datetime) -> str:

@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from sgt.fast import est_costs
 from sgt.ops import summary
 from sgt.ops.store import OpsStore
 
@@ -38,7 +39,11 @@ def test_counts_money_and_traded_with_official_and_estimated_results(db):
     base = 100_000 * (1 + 0.05 * 0.5)                                   # book value after the earlier day
     assert f["n"] == 3 and f["wins"] == 1 and f["estimate"]
     assert f["traded"] == pytest.approx(3 * 0.05 * base)
-    assert f["usd"] == pytest.approx(0.05 * base * (0.10 - 0.04 - 0.05))
+    with db.tx() as c:
+        at = c.execute("SELECT est_entry_at FROM fade_trades WHERE symbol='LATE'").fetchone()[0]
+    cost = est_costs.cost("short", "LATE", at, 10.0)                    # 2026-11-16: the estimate is after est. costs
+    assert cost > 0.009
+    assert f["usd"] == pytest.approx(0.05 * base * (0.10 - 0.04 - 0.05 - cost))
     text = plain(summary.build(db, DAY))
     assert "Thu Nov 5 summary" in text and "3 trades · 1 won, 2 lost" in text
     assert "DNUT -$205" in text and "(some estimated)" in text and "traded" in text
@@ -77,9 +82,11 @@ def test_the_long_book_is_in_the_summary_and_in_the_total(db):
     base = long_book.nav(db, through=DAY - timedelta(days=1))
     lg = summary.long_day(db, DAY)
     assert [t["symbol"] for t in lg["trades"]] == ["SLSN", "FCUV", "LIVE"] and lg["estimate"]      # void is no trade
-    assert lg["usd"] == pytest.approx(base * (0.05 * -0.04 + 0.015 * -0.095 + 0.05 * 0.05))
+    cost = est_costs.cost("long", "LIVE", None, 2.0)                    # no entry time on the row: the widest spread
+    assert cost == pytest.approx(0.0125, abs=5e-5)
+    assert lg["usd"] == pytest.approx(base * (0.05 * -0.04 + 0.015 * -0.095 + 0.05 * (0.05 - cost)))
     text = plain(summary.build(db, DAY))
-    assert "Longs (paper): 3 trades · 1 won, 2 lost" in text and "SLSN -$200, FCUV -$142, LIVE +$250 (some estimated)" in text
+    assert "Longs (paper): 3 trades · 1 won, 2 lost" in text and "SLSN -$200, FCUV -$142, LIVE +$187 (some estimated)" in text
     assert "megacap 15 -$1,000" in text and "megacap_ext" not in text                               # the digest's names
     # owner 2026-11-14: megacap 15 is a model test (measurement): shown, not in the total
     assert "Measurement only (not in the total): megacap 15 -$1,000" in text

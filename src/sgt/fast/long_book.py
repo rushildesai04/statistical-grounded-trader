@@ -21,7 +21,7 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import fade, long_shadow
+from sgt.fast import est_costs, fade, long_shadow
 from sgt.fast import patterns as pt
 from sgt.fast.fade import ET
 from sgt.ops import approvals
@@ -322,24 +322,28 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
 
 
 def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
-    usd = (r["weight"] or fade.WEIGHT) * nav(db) * t.gross           # final pass F-2: the long book's own value
+    # 2026-11-16: quoted after the estimated round-trip spread (est_costs), like the official result will be
+    net = t.gross - (est_costs.cost("long", r["symbol"], dict(r).get("entry_ts"), t.entry) or 0.0)
+    usd = (r["weight"] or fade.WEIGHT) * nav(db) * net               # final pass F-2: the long book's own value
     word = {"stop": "stopped", "target": "target hit", "time": "time exit",
             "red": "fill candle closed red, out at the next open"}.get(t.reason, t.reason)
-    return (f"[SGT] 🟢 LONG OUT {r['symbol']} · {'made' if t.gross > 0 else 'lost'} {t.gross:+.1%} "
-            f"({'+' if usd >= 0 else '-'}${abs(usd):,.0f} est, paper) · {word} · ${t.entry:.2f} -> ${t.exit:.2f}")
+    return (f"[SGT] {'🟢' if net > 0 else '🔴'} LONG OUT {r['symbol']} · {'made' if net > 0 else 'lost'} {net:+.1%} "
+            f"({'+' if usd >= 0 else '-'}${abs(usd):,.0f} est after costs, paper) · {word} · "
+            f"${t.entry:.2f} -> ${t.exit:.2f}")
 
 
 def today_line(db: OpsStore, session: str) -> str | None:
     """Digest TODAY line for the long book (estimates until settled)."""
     with db.tx() as c:
-        rows = c.execute("SELECT symbol, kind, status, est_entry, est_exit, net, weight FROM long_trades WHERE "
+        rows = c.execute("SELECT symbol, kind, status, entry_ts, est_entry, est_exit, net, weight FROM long_trades WHERE "
                          "session=? AND status NOT IN ('none','missed') ORDER BY id", (session,)).fetchall()
     # review F-2: a void long has no official result: say so instead of showing its estimate
     if not rows:
         return None
     bits = []
     for r in rows:
-        g = r["net"] if r["net"] is not None else (r["est_exit"] / r["est_entry"] - 1 if r["est_exit"] else None)
+        g = r["net"] if r["net"] is not None else est_costs.net("long", r["symbol"], r["entry_ts"], r["est_entry"],
+                                                                r["est_exit"])       # estimate: after est. costs
         state = "void" if r["status"] == "void" else ("open" if g is None else f"{g:+.1%}")
         bits.append(f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])} {state}")
     return f"longs (paper) {len(rows)} trades: " + ", ".join(bits)

@@ -109,3 +109,21 @@ def test_long_entries_carry_what_the_agent_knew_about_the_alert(db):
     e = {x["key"]: x for x in journal.entries(db)}[f"long:{lid}"]
     assert (e["news_own"], e["news_head"], e["st_n60"], e["x_cat24"], e["rd_mentions"]) == (1, "Phase 2 data", 12, 1, 7)
     assert "ib_avail" not in e and "alp_shortable" not in e
+
+
+def test_alert_entries_carry_the_estimated_cost_the_page_subtracts(db):
+    """2026-11-16: the Notes page works a live estimate out itself (jnResult), so each alert trade carries the cost
+    every text and card subtracts; a trade with no live entry price has none, and a model-book order never does."""
+    from sgt.fast import est_costs
+
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET est_entry=27.04, est_entry_at='2026-11-09T15:10:00+00:00' WHERE symbol='OMH'")
+    lid = _long(db, "est_closed")
+    keys = {e["key"]: e for e in journal.entries(db)}
+    assert keys["fade:1"]["est_cost"] == pytest.approx(est_costs.cost("short", "OMH", "2026-11-09T15:10:00+00:00", 27.04))
+    assert keys["fade:1"]["est_cost"] > est_costs.LOCATE                       # a short: spread plus the locate
+    assert keys[f"long:{lid}"]["est_cost"] == pytest.approx(
+        est_costs.cost("long", "KULR", "2026-11-10T14:44:00+00:00", 4.32))
+    assert 0 < keys[f"long:{lid}"]["est_cost"] < keys["fade:1"]["est_cost"] + 0.02
+    assert keys["fade:3"]["est_cost"] is None and keys["scan:1"]["est_cost"] is None   # no live entry price stored
+    assert "est_cost" not in keys["book:1"]

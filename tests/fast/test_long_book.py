@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from sgt.fast import fade, long_book as lb, long_shadow as ls
+from sgt.fast import est_costs, fade, long_book as lb, long_shadow as ls
 from sgt.fast import patterns as pt
 from sgt.ops import approvals as ap
 from sgt.ops.store import OpsStore
@@ -75,7 +75,8 @@ def test_live_book_equals_the_research_simulator(db):
     ref = pt.simulate(DAY, s, latest=ls._latest("2026-11-09"))
     assert (t["status"], t["est_entry"], t["reason"]) == ("est_closed", ref.entry, ref.reason)
     assert t["est_exit"] == pytest.approx(ref.exit) and t["est_exit_at"] == ref.exit_ts.isoformat()
-    assert len(sent) == 2 and sent[1].startswith("[SGT] 🟢 LONG OUT ABCD · made +6.6%")
+    # 2026-11-16: the texted estimate is after the estimated round-trip spread (+6.6% move, 0.8% costs)
+    assert len(sent) == 2 and sent[1].startswith("[SGT] 🟢 LONG OUT ABCD · made +5.9% (+$237 est after costs, paper)")
 
 
 def test_time_exit_waits_for_the_whole_hold(db):
@@ -357,7 +358,9 @@ def test_long_dollars_use_the_long_book(db):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))           # A2 risk size: $4,038 of the long book
     assert f"${w * 100_000:,.0f} (paper) (sized to the stop)" in sent[0]
-    assert f"(+${w * 100_000 * 0.0664:,.0f} est, paper)" in sent[1]       # w x 100,000 x +6.64%
+    c = est_costs.cost("long", "ABCD", trades(db)[0]["entry_ts"], 10.55)
+    assert c == pytest.approx(0.0077, abs=5e-5)                           # first-hour round-trip spread at $10.55
+    assert f"(+${w * 100_000 * (11.25 / 10.55 - 1 - c):,.0f} est after costs, paper)" in sent[1]   # w x 100,000 x net
 
 
 def test_a_fill_found_after_a_restart_is_missed_not_traded(db):

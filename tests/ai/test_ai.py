@@ -227,7 +227,8 @@ def test_review_gets_the_result_line_and_the_tested_findings(db):
     seen = []
     tr.run_pending(db, fake(REVIEW2, seen=seen), bars, NOW)
     data = json.loads(seen[0]["messages"][1]["content"])
-    assert data["result"] == "OMH - short $27.04, cover $33.33: about a 23.3% loss (live estimate, before costs)"
+    assert data["result"] == ("OMH - short $27.04, cover $33.33: about a 24.5% loss "
+                              "(live estimate, after estimated costs)")      # 23.3% move + 1.3% estimated costs
     assert "wait for breakdown + failed bounce" in data["tested_findings"]          # playbook section 4
     assert "Squeeze-then-fade" in data["tested_findings"]                           # playbook section 3
     assert "## 5." not in data["tested_findings"]
@@ -241,7 +242,7 @@ def test_result_line_uses_official_prices_once_settled_and_the_long_words():
         "TVRD - short $1.40, cover $1.40: about a 1.0% loss (official, after costs)"
     assert tr.result_line({"key": "long:5", "side": "long", "symbol": "GEVO", "status": "est_closed",
                            "est_entry": 1.92, "est_exit": 1.975}) == \
-        "GEVO - long $1.92, sell $1.98: about a 2.9% gain (live estimate, before costs)"
+        "GEVO - long $1.92, sell $1.98: about a 1.6% gain (live estimate, after estimated costs)"   # 2.9% move - 1.25%
     assert tr.result_line({"key": "fade:1", "symbol": "X", "status": "void"}) == ""
     assert tr.result_line({"key": "fade:1", "symbol": "X", "est_entry": 0.5123, "est_exit": 0.5}).startswith(
         "X - short $0.5123, cover $0.5000")

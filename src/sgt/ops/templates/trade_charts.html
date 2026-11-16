@@ -753,7 +753,7 @@ function summary(ts) {
   usdNode.className = "big " + (usd > 0 ? "win" : usd < 0 ? "loss" : "");
   countUp(usdNode, usd, money);
   // 2026-11-14 (owner): Friday read -$100 on 4 trades, Saturday +$216 on 3. Until the 8:40 pm ET settlement the page
-  // shows live estimates (free feed, before costs); the official result can differ and a trade can be voided. Say so.
+  // shows live estimates (free feed, after estimated costs since 2026-11-16); the official result can differ and a trade can be voided. Say so.
   const est = done.filter(t => !t.official).length;
   document.getElementById("s-usd-sub").textContent = (done.length ? "on " + done.length + " closed trade" + (done.length === 1 ? "" : "s") : "no closed trades yet")
     + (est ? " · " + (est === done.length ? "live estimate" : est + " estimated") + ", official after 8:40 pm ET" : "");
@@ -932,7 +932,7 @@ function jnResult(e) {                       // {ret, usd, official}: official S
   const v = jnViews[e.key];
   if (v && v.ret != null) return { ret: v.ret, usd: v.usd, official: v.official };
   if (e.net != null) return { ret: e.net, usd: null, official: true };
-  if (e.est_entry && e.est_exit) return { ret: (jnKind(e) === "long" ? e.est_exit - e.est_entry : e.est_entry - e.est_exit) / e.est_entry, usd: null, official: false };
+  if (e.est_entry && e.est_exit) return { ret: (jnKind(e) === "long" ? e.est_exit - e.est_entry : e.est_entry - e.est_exit) / e.est_entry - (Number(e.est_cost) || 0), usd: null, official: false };
   return { ret: null, usd: null, official: false };
 }
 
@@ -1252,7 +1252,7 @@ function jnDetail(key) {
     + (r.usd != null ? "  " + money(r.usd) : "") + (r.official ? "" : " est")));
   const head = el("div", "jn-title"); head.append(el("p", "jn-headline", jnHeadline(e)));
   if (jnKind(e) !== "book") head.append(el("span", "jn-lesson", r.official ? "Official: the tested rule's fills on SIP bars, after costs."
-    : "Live estimate from the listener's prices, before costs. The official result replaces it after the 20:40 ET settle."));
+    : "Live estimate from the listener's prices, after estimated costs. The official result replaces it after the 20:40 ET settle."));
   const flag = jnBorrow(e); if (flag) head.append(el("span", "jn-warn", "⚠ " + flag));
   const stats = el("div", "jn-stats");
   jnPrices(e).forEach(([k, val]) => { if (val == null || val === "") return; const s2 = el("div", "jn-stat"); s2.append(el("span", null, k), el("b", null, String(val))); stats.append(s2); });

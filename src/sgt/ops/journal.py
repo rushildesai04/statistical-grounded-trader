@@ -9,6 +9,7 @@ import json
 import re
 from datetime import datetime
 
+from sgt.fast import est_costs
 from sgt.ops.store import OpsStore, iso
 
 KEY_RE = re.compile(r"^(fade|scan|book|long):[1-9][0-9]{0,8}$")
@@ -47,13 +48,17 @@ def entries(db: OpsStore, limit: int = 500) -> list[dict]:
     with db.tx() as c:
         for r in c.execute("SELECT id, " + ", ".join(FADE_COLS) + " FROM fade_trades WHERE status IN "  # noqa: S608
                            "('open','est_closed','settled','void') ORDER BY id DESC LIMIT ?", (limit,)):
-            out.append({"key": f"fade:{r['id']}", "book": "alert fade", **{k: r[k] for k in FADE_COLS}})
+            out.append({"key": f"fade:{r['id']}", "book": "alert fade", **{k: r[k] for k in FADE_COLS},
+                        "est_cost": est_costs.cost("short", r["symbol"], r["est_entry_at"], r["est_entry"])})
         for r in c.execute("SELECT id, " + ", ".join(SCAN_COLS) + " FROM scan_trades WHERE status IN "  # noqa: S608
                            "('open','est_closed','settled','void') ORDER BY id DESC LIMIT ?", (limit,)):
-            out.append({"key": f"scan:{r['id']}", "book": "scanner", **{k: r[k] for k in SCAN_COLS}})
+            out.append({"key": f"scan:{r['id']}", "book": "scanner", **{k: r[k] for k in SCAN_COLS},
+                        "est_cost": est_costs.cost("short", r["symbol"], r["est_entry_at"], r["est_entry"])})
         for r in c.execute(LONG_SQL, (limit,)):
             row = dict(r)
-            out.append({"key": f"long:{row.pop('id')}", "book": "long book", "side": "long", **row})
+            # est_cost (2026-11-16): the page subtracts it from a live estimate, as every text and card does
+            out.append({"key": f"long:{row.pop('id')}", "book": "long book", "side": "long", **row,
+                        "est_cost": est_costs.cost("long", row["symbol"], row["est_entry_at"], row["est_entry"])})
         for r in c.execute("SELECT id, " + ", ".join(BOOK_COLS) + " FROM book_orders WHERE status IN "  # noqa: S608
                            "('filled','scheduled') AND source != 'void' "
                            "ORDER BY id DESC LIMIT ?", (limit,)):

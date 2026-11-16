@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from sgt.fast import fade
+from sgt.fast import est_costs, fade
 from sgt.ops import chartserver
 from sgt.ops.sms_style import bold
 from sgt.ops.store import OpsStore
@@ -24,15 +24,15 @@ def fade_day(db: OpsStore, day: date) -> dict:
     """Paper fade trades entered on ``day``: count, wins, $ result (official where settled), $ shorted."""
     base = fade.nav(db, through=day - timedelta(days=1))
     with db.tx() as c:
-        rows = c.execute("SELECT symbol, status, weight, net, est_entry, est_exit FROM fade_trades WHERE session=? "
+        rows = c.execute("SELECT symbol, status, weight, net, est_entry, est_entry_at, est_exit FROM fade_trades WHERE session=? "
                          "AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
     trades, est = [], False
     for r in rows:
         size = (r["weight"] or fade.WEIGHT) * base
         if r["status"] == "settled" and r["net"] is not None:
             ret = r["net"]
-        elif r["est_entry"] and r["est_exit"]:
-            ret, est = (r["est_entry"] - r["est_exit"]) / r["est_entry"], True
+        elif (n := est_costs.net("short", r["symbol"], r["est_entry_at"], r["est_entry"], r["est_exit"])) is not None:
+            ret, est = n, True                                     # 2026-11-16: live estimate after estimated costs
         else:
             ret, est = 0.0, True                                   # still open: counted at zero, flagged
         trades.append({"symbol": r["symbol"], "usd": ret * size, "ret": ret, "size": size})
@@ -48,15 +48,15 @@ def long_day(db: OpsStore, day: date) -> dict:
 
     base = long_book.nav(db, through=day - timedelta(days=1))
     with db.tx() as c:
-        rows = c.execute("SELECT symbol, status, weight, net, est_entry, est_exit FROM long_trades WHERE session=? "
+        rows = c.execute("SELECT symbol, status, weight, net, entry_ts, est_entry, est_exit FROM long_trades WHERE session=? "
                          "AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
     trades, est = [], False
     for r in rows:
         size = (r["weight"] or fade.WEIGHT) * base
         if r["status"] == "settled" and r["net"] is not None:
             ret = r["net"]
-        elif r["est_entry"] and r["est_exit"]:
-            ret, est = r["est_exit"] / r["est_entry"] - 1, True
+        elif (n := est_costs.net("long", r["symbol"], r["entry_ts"], r["est_entry"], r["est_exit"])) is not None:
+            ret, est = n, True
         else:
             ret, est = 0.0, True                                   # still open: counted at zero, flagged
         trades.append({"symbol": r["symbol"], "usd": ret * size, "ret": ret, "size": size})

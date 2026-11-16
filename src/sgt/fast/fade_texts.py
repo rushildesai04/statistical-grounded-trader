@@ -265,10 +265,13 @@ EXIT_WHY = {"stop": "🛑 stop hit: price jumped 20% over our short, loss capped
             "close": "🔔 market close", VETO_EXIT: "👋 you texted NO"}
 
 
-def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: float, n_day: int) -> str:
-    """FADE OUT text (owner request 2026-11-05: plain words): result first, what happened, why, the day so far."""
+def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: float, n_day: int,
+             cost: float = 0.0) -> str:
+    """FADE OUT text (owner request 2026-11-05: plain words): result first, what happened, why, the day so far.
+    ``cost`` = the trade's estimated cost (``est_costs``, 2026-11-16): the headline percent is after it, like ``usd``
+    and ``day_usd``; the two prices and the price move stay as traded."""
     r = dict(r)
-    g = (entry - exit_px) / entry
+    g = (entry - exit_px) / entry - cost
     mark = "🛑" if why == "stop" else ("🟢" if g > 0 else "🔴")
     verb = "made" if usd >= 0 else "lost"
     lines = [f"[SGT] {mark} {bold('FADE OUT')} · {bold(r['symbol'])} · {verb} {bold(f'{_usd(usd)} ({g:+.1%})')}",
@@ -288,5 +291,6 @@ def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: flo
     page = chartserver.link()
     if page:
         lines.append(f"🖼 All trades: {page}")
-    lines.append(italic("Estimate before costs; official numbers in the midnight summary."))
+    lines.append(italic(f"Estimate after about {cost:.1%} costs (spread + locate); official numbers in the midnight "
+                        "summary." if cost > 0 else "Estimate before costs; official numbers in the midnight summary."))
     return "\n".join(lines)

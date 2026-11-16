@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
+from sgt.fast import est_costs
 from sgt.ops import charts
 
 
@@ -34,7 +35,9 @@ def test_estimated_trade_markers_lines_and_result():
     times = [c["time"] for c in v["candles"]]
     assert all(m["time"] in times for m in v["markers"])                 # markers sit on real bars
     assert v["markers"][0]["time"] == charts.et_epoch("2026-11-05T15:11:00Z")
-    assert v["stop"] == pytest.approx(4.465 * 1.2) and v["ret"] == pytest.approx((4.465 - 4.64) / 4.465)
+    cost = est_costs.cost("short", TRADE["symbol"], TRADE["est_entry_at"], 4.465)       # 2026-11-16: estimate after costs
+    assert v["stop"] == pytest.approx(4.465 * 1.2) and v["ret"] == pytest.approx((4.465 - 4.64) / 4.465 - cost)
+    assert v["ret"] == pytest.approx(-0.0567, abs=5e-5)                                 # -3.9% move, 1.75% costs
     assert not v["official"] and v["news"] and v["conf"] == 55
     assert all(x["value"] == pytest.approx(4.0) for x in v["vwap"])       # flat bars: VWAP = typical price
 
@@ -120,7 +123,8 @@ def test_long_trade_has_buy_sell_markers_own_stop_target_and_long_return():
     assert [m["kind"] for m in v["markers"]] == ["alert", "buy", "sell"]
     assert v["markers"][1]["text"] == "buy 4.00" and v["markers"][2]["text"] == "sell 4.20"
     assert (v["side"], v["stop"], v["target"], v["setup"]) == ("long", 3.9, 4.2, "red-candle break")
-    assert v["ret"] == pytest.approx(0.05)                               # long: exit / entry - 1
+    assert v["ret"] == pytest.approx(0.05 - est_costs.cost("long", "KULR", LONG["est_entry_at"], 4.0))   # after costs
+    assert v["ret"] == pytest.approx(0.0375, abs=5e-5)                   # long: exit / entry - 1, less 1.25%
     short = charts.trade_view(TRADE, bars())
     assert short["side"] == "short" and short["target"] is None
 
@@ -151,6 +155,33 @@ def test_long_trades_rows_use_the_official_result_once_settled(tmp_path, monkeyp
     assert r["usd"] == pytest.approx(0.031 * 0.05 * 100_000)
     v = charts.trade_view(r, bars(), r["usd"], side="long")
     assert v["official"] and v["entry"] == 4.01 and v["exit"] == 4.19 and v["ret"] == pytest.approx(0.031)
+
+
+def test_card_dollars_of_a_live_estimate_are_after_estimated_costs(tmp_path):
+    """2026-11-16: a card's dollars before the settle are the move less the estimated costs, on both sides; once
+    settled they are the official net and nothing more is taken off."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import trade_charts as tc
+    from sgt.ops.store import OpsStore
+    db = OpsStore(tmp_path / "ops.db")
+    with db.tx() as c:
+        fid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                        "created_at) VALUES ('KULR','2026-11-05','volume_spike','2026-11-05T15:11:54+00:00','-1',1,"
+                        "'filtered','x')").lastrowid
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, target, weight, entry_ts, "
+                  "est_entry, est_exit, est_exit_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (fid, "KULR", "2026-11-05", "L4b", "est_closed", 3.9, 4.2, 0.05, "2026-11-05T15:13:00+00:00", 4.0, 4.2,
+                   "2026-11-05T15:20:00+00:00", "x"))
+    (r,) = tc.long_rows(db)
+    long_cost = est_costs.cost("long", "KULR", "2026-11-05T15:13:00+00:00", 4.0)
+    assert r["usd"] == pytest.approx((0.05 - long_cost) * 0.05 * 100_000) and r["usd"] < 0.05 * 0.05 * 100_000
+    short_cost = est_costs.cost("short", "DNUT", TRADE["est_entry_at"], 4.465)
+    assert short_cost > long_cost                                         # a short also pays the locate
+    assert tc.dollars(TRADE, None) == pytest.approx(((4.465 - 4.64) / 4.465 - short_cost) * 0.05 * 100_000)
+    assert tc.dollars({**TRADE, "net": -0.02}, None) == pytest.approx(-0.02 * 0.05 * 100_000)   # official: as booked
+    assert tc.dollars({**TRADE, "est_exit": None}, None) is None          # still open: no dollars invented
 
 
 def test_view_says_where_the_candles_end_and_when_the_exit_was():
