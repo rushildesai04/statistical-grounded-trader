@@ -521,3 +521,92 @@ def test_book_legs_backfill_command_reports_and_never_texts(db, monkeypatch, cap
     assert sc.cmd_book_legs(db, closes=lambda s, a, b: restated) == 0                 # handled: listed, not a job failure
     out = capsys.readouterr().out
     assert "0 rows written, 2 sessions not replayed" in out and "! m: replay of 2026-11-03 does not reproduce the book" in out
+
+
+# --- owner review 2026-11-16: a model call that is not renewed is not a position ---------------------------------------
+
+def _holds(db, strategy, holdings, session="2026-01-02"):
+    import json
+
+    with db.tx() as c:
+        c.execute("INSERT INTO book_nav(strategy, session, nav, ret, holdings) VALUES (?,?,?,?,?)",
+                  (strategy, session, 100_000.0, 0.0, json.dumps(holdings)))
+
+
+def _orders(db):
+    with db.tx() as c:
+        return {(r["strategy"], r["symbol"]): (r["target"], r["fill_session"]) for r in c.execute(
+            "SELECT strategy, symbol, target, fill_session FROM book_orders WHERE status='scheduled'")}
+
+
+def _old_decision(folder, d: date, positions):
+    import json
+
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    prev = (d - timedelta(days=1)).isoformat()                 # a decision file that is not today's
+    (Path(folder) / f"{prev}.json").write_text(json.dumps(
+        {"date": prev, "mode": "realtime", "written_at": f"{prev}T15:50:00-05:00",
+         "positions": {s: {"position": p} for s, p in positions.items()}}))
+
+
+def test_no_live_decision_at_1550_closes_what_the_model_book_holds(db, monkeypatch):
+    """11-13: the 15-name decision crashed, no order was written, and the book kept Thursday's calls through Monday.
+    With no valid decision in the live slot the book goes flat at today's close, once, with a text."""
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    d = _full_session()
+    live_at = datetime(d.year, d.month, d.day, 15, 51, tzinfo=sc.ET)
+    _old_decision("reports/megacap_ext/decisions", d, {"AMD": 1, "TSLA": -1})
+    _holds(db, "megacap_ext", {"AMD": 0.1305, "TSLA": -0.2137})
+    sc.cmd_megacap_ext(db, now=live_at.replace(hour=15, minute=30))      # before the live slot: nothing
+    sc.cmd_megacap_ext(db, now=live_at.replace(hour=20, minute=30))      # the evening pass: nothing
+    assert _orders(db) == {} and sms.sent == []
+    sc.cmd_megacap_ext(db, now=live_at)
+    sc.cmd_megacap_ext(db, now=live_at)                                  # once per session
+    assert _orders(db) == {("megacap_ext", "AMD"): (0.0, d.isoformat()), ("megacap_ext", "TSLA"): (0.0, d.isoformat())}
+    assert len(sms.sent) == 1 and "megacap 15" in sms.sent[0] and "NO DECISION today" in sms.sent[0]
+    assert "AMD flat" in sms.sent[0] and "TSLA flat" in sms.sent[0]
+
+
+def test_a_void_decision_is_no_decision_and_an_empty_book_writes_nothing(db, monkeypatch):
+    import json
+
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    d = _full_session()
+    live_at = datetime(d.year, d.month, d.day, 15, 58, tzinfo=sc.ET)
+    folder = Path("reports/megacap_ext/decisions")
+    folder.mkdir(parents=True)
+    (folder / f"{d}.json").write_text(json.dumps(                          # written 15:56: void by the prereg
+        {"date": d.isoformat(), "mode": "realtime", "written_at": live_at.replace(minute=56).isoformat(),
+         "positions": {"AMD": {"position": 1}}}))
+    sc.cmd_megacap_ext(db, now=live_at)                                    # the book holds nothing: no order, no text
+    assert _orders(db) == {} and sms.sent == []
+    assert sc.flat_without_decision(db, "megacap_ext", "megacap 15", live_at) is False
+    _holds(db, "megacap_ext", {"JPM": 0.25})
+    sc.cmd_megacap_ext(db, now=live_at)
+    assert _orders(db) == {("megacap_ext", "JPM"): (0.0, d.isoformat())} and len(sms.sent) == 1
+
+
+def test_the_six_name_book_and_the_long_calls_book_go_flat_too_the_overlay_does_not(db, monkeypatch):
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    d = _full_session()
+    live_at = datetime(d.year, d.month, d.day, 15, 51, tzinfo=sc.ET)
+    _old_decision(sc.LONG_SETS[0], d, {"NVDA": 1})
+    _holds(db, "megacap", {"NVDA": 0.2})
+    _holds(db, sc.OVERLAY, {"NVDA": 0.1667, "AAPL": 0.1667})              # a yardstick basket: not a model call
+    _holds(db, sc.LONG_BOOK, {"JPM": 0.25, "AMD": 0.11})
+    sc.cmd_megacap(db, now=live_at)
+    sc.cmd_megacap_long(db, now=live_at)                                   # one set has no live decision: half a
+    sc.cmd_megacap_long(db, now=live_at)                                   # universe is not the book: flat, once
+    got = _orders(db)
+    assert got == {("megacap", "NVDA"): (0.0, d.isoformat()), (sc.LONG_BOOK, "JPM"): (0.0, d.isoformat()),
+                   (sc.LONG_BOOK, "AMD"): (0.0, d.isoformat())}
+    assert len(sms.sent) == 2 and "megacap long calls" in sms.sent[1] and "NO DECISION today" in sms.sent[1]
+    # a weekend or holiday run never flattens, even with positions held
+    _holds(db, "megacap_ext", {"AMD": 0.13})
+    sat = d
+    while sat.weekday() != 5:
+        sat += timedelta(days=1)
+    assert sc.flat_without_decision(db, "megacap_ext", "megacap 15", datetime(sat.year, sat.month, sat.day, 15, 51, tzinfo=sc.ET)) is False

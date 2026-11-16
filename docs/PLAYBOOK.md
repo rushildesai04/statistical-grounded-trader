@@ -359,6 +359,21 @@ hour; a $3 short 1.2% to 1.75%. A flat trade is a loss, and a target closer than
 4-cent target on a $3.82 stock, as VTSI 11-13, is +1.0%: against 1.25% in the first hour it loses, midday it keeps 0.3%). The official result still replaces the estimate at the settle
 (official prices, same model). Mutation-checked: 20 of 20 reverted lines fail a test.
 
+**Model books review, 2026-11-16 (owner: "we lost most of the alpha model trades performed today").** The positions
+on the site were megacap 15's calls of Thursday 11-12, not today's: Friday's 15:50 decision crashed (one name had no
+intraday bars; fixed in 432c7fb), no order was written, and the book kept one-day calls for two extra sessions.
+Friday's decision (rebuilt from closes) had AMD, JPM, TSLA and ORCL flat. Monday to 15:40 ET, against Friday's close:
+AMD long 13.1% -5.9% (-$785), AAOI long 7.0% -9.5% (-$677), JPM long 25% -2.7% (-$681), TSLA short 21.4% +$743,
+ORCL short 13.6% +$747: about -$653 (official at the settle). The market: SPY -2.1%, QQQ -2.8%, SMH -5.2%, NVDA
+-4.6% the day before its earnings; no news item dated 11-16 was found for a cause. Faults: (1) ops: a failed decision
+left positions on; fixed 2026-11-16: with no valid live decision in the 15:50 slot a model book closes what it holds
+(`sms_control.flat_without_decision`; megacap, megacap 15 and the long-calls book; the overlay basket is untouched);
+with that rule Monday would have been $0, not -$653. (2) model: AAOI was the model's own repeated long (pred +2.4%
+on a stock that moves 9% a day; -5.6% Friday, -9.5% Monday) and it is called long again for Tuesday (6.1%, also the
+long-calls book's first trade). Nothing tested ranks one call above another (prereg_money_score, prereg_record_score,
+prereg_long_rules: all FAIL), so no rule removes it. Not yet tested: a market filter on new long calls (the long
+calls lost in 2022 and January to June 2026, both falling markets): candidate for one pre-registered run.
+
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
