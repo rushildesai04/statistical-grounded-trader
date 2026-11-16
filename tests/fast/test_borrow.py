@@ -94,3 +94,102 @@ def test_store_adds_new_columns_to_an_existing_database(tmp_path):
         cols = {r[1] for r in c.execute("PRAGMA table_info(fade_trades)")}
         assert {"ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable"} <= cols
         assert c.execute("SELECT symbol FROM fade_trades").fetchone() == ("OLD",)
+
+
+# --- owner 2026-11-16 ("pretend like its a real scenario"): no shares at IBKR, no paper short ---------------------------
+
+def _run(tmp_path, facts, px=10.0, sym="ABC"):
+    """One alert through the book with a borrow source; returns (db, texts, the row)."""
+    db = OpsStore(tmp_path / "ops.db")
+    out = []
+    fade.on_alert(db, fade.LiveAlert(sym, "volume_spike", T10 - timedelta(seconds=10), "-1", 1), now=T10)
+    fade.monitor(db, out.append, lambda s: px, now=T10 + timedelta(seconds=15), borrow=lambda s, now: facts)
+    with db.tx() as c:
+        return db, out, dict(c.execute("SELECT * FROM fade_trades").fetchone())
+
+
+def _facts(avail):
+    return {"ib_avail": avail, "ib_fee": 45.0, "ib_snap": T10.isoformat(), "alp_etb": 0, "alp_shortable": 0}
+
+
+def test_no_shares_at_ibkr_means_no_paper_short_and_no_text(tmp_path):
+    db, out, r = _run(tmp_path, _facts(0))
+    assert (r["status"], r["reason"]) == ("filtered", fade.BORROW_NONE)
+    assert r["est_entry"] is None and out == []                       # never opened, nothing texted
+    assert fade.day_est_pnl(db, "2026-11-02") == 0.0
+
+
+def test_unknown_borrow_is_no_trade(tmp_path):
+    """Fail closed: no fresh IBKR list (every fact None) is not permission to short."""
+    none = {"ib_avail": None, "ib_fee": None, "ib_snap": None, "alp_etb": None, "alp_shortable": None}
+    _, out, r = _run(tmp_path, none)
+    assert (r["status"], r["reason"]) == ("filtered", fade.BORROW_UNKNOWN) and out == []
+    _, out, r = _run(tmp_path / "b", {**none, "alp_etb": 1, "alp_shortable": 1})   # Alpaca alone does not decide
+    assert (r["status"], r["reason"]) == ("filtered", fade.BORROW_UNKNOWN) and out == []
+
+
+def test_the_trade_needs_its_own_share_count_not_just_some_shares(tmp_path):
+    """$5,000 at $10.00 is 500 shares: 499 lendable is too few, 500 is enough."""
+    _, out, r = _run(tmp_path, _facts(499))
+    assert (r["status"], r["reason"]) == ("filtered", fade.BORROW_FEW) and out == []
+    _, out, r = _run(tmp_path / "b", _facts(500))
+    assert r["status"] == "open" and r["est_entry"] == 10.0 and len(out) == 1
+    _, out, r = _run(tmp_path / "c", _facts(500), px=9.99)            # a lower price needs one share more: 501
+    assert (r["status"], r["reason"]) == ("filtered", fade.BORROW_FEW)
+    db = OpsStore(tmp_path / "d" / "ops.db")
+    assert fade.no_shares(db, {"ib_avail": 250, "weight": 0.025}, 10.0) is None      # half size (drift guard): 250
+    assert fade.no_shares(db, {"ib_avail": 249, "weight": 0.025}, 10.0) == fade.BORROW_FEW
+    assert fade.no_shares(db, {"ib_avail": -1, "weight": 0.05}, 10.0) == fade.BORROW_NONE
+    assert fade.no_shares(db, {"weight": 0.05}, 10.0) == fade.BORROW_UNKNOWN
+
+
+def test_a_short_not_taken_for_borrow_is_still_an_event_for_f8_the_longs_and_the_digest(tmp_path):
+    from datetime import date
+
+    from sgt.fast import long_shadow
+    from sgt.ops import digest
+
+    db, _, r = _run(tmp_path, _facts(0))
+    assert fade.prior_alert(db, "ABC", date(2026, 11, 3)) == "2026-11-02"          # F8 counts it as an alert
+    assert [x["symbol"] for x in long_shadow.due(db, "2026-11-01")] == ["ABC"]      # a long needs no borrowed shares
+    head, usd = digest.fade_today(db, date(2026, 11, 2))
+    assert usd == 0.0 and len(head) == 1
+    assert "1 alert not shorted, no shares to borrow at IBKR" in head[0] and "alerts" not in head[0]
+    assert set(fade.BORROW_REASONS) <= set(fade.EVENT_FILTERS) and set(fade.BORROW_REASONS) <= set(long_shadow.SHORT_SKIPS)
+
+
+def test_an_approved_or_auto_entered_short_still_needs_shares(tmp_path, monkeypatch):
+    """Borrow is not a preference: the owner's OK cannot create shares (the approval path skips the news and beta
+    gates, never this one), and neither can silence at the deadline."""
+    import re
+
+    from sgt.ops import approvals as ap
+    from sgt.ops.sms_style import bold
+
+    monkeypatch.setattr(fade, "ASK_FIRST", True)
+    db = OpsStore(tmp_path / "ops.db")
+    out = []
+    lookup = lambda s, now: _facts(0)  # noqa: E731
+    for mid, sym in enumerate(("YES", "AUTO"), 1):
+        fade.on_alert(db, fade.LiveAlert(sym, "volume_spike", T10 - timedelta(seconds=10), "-1", mid), now=T10)
+    fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(seconds=15), borrow=lookup)   # two requests
+    assert len(out) == 2
+    yes = next(t for t in out if bold("YES") in t)
+    _, row = ap.answer(db, ap.Command("OK", re.search(r"OK (\d{6}|\d{2})\b", yes).group(1)), "SM1",
+                       now=T10 + timedelta(minutes=2))
+    assert row["status"] == "approved"
+    fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(minutes=2, seconds=10), borrow=lookup)
+    fade.monitor(db, out.append, lambda s: 10.0, now=T10 + timedelta(minutes=4, seconds=45), borrow=lookup)   # deadline
+    with db.tx() as c:
+        got = {r["symbol"]: (r["status"], r["reason"], r["est_entry"]) for r in c.execute("SELECT * FROM fade_trades")}
+    assert got == {"YES": ("filtered", fade.BORROW_NONE, None), "AUTO": ("filtered", fade.BORROW_NONE, None)}
+    assert len(out) == 2                                                  # no FADE IN text for either
+
+
+def test_without_a_borrow_source_the_rule_is_not_applied_and_the_listener_always_has_one():
+    """The rule runs wherever a borrow source is passed (as the news and beta checks do). The listener must pass one:
+    without it the book would short blind again."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[2] / "scripts" / "fade_live.py").read_text()
+    assert "fade.monitor, db, send, quote, None, book.lookup," in src
