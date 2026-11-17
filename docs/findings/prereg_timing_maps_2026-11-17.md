@@ -59,3 +59,55 @@ proposed again without new information (a new data source, not a new threshold).
 ## Known limits
 1-minute official bars; a cover or an entry at the next bar's open. Costs as modelled. The map looks at many cells:
 the Bonferroni levels above are the guard, and a finding still has to hold out of sample and forward.
+
+## Result (2026-11-17, training map made once; `reports/timing_maps/result_train.json`)
+Plan `f25198b`, code committed before the run. 2,345 events with bars. **No cell is a finding in either map (0 of 12,
+0 of 27).** The held-out period was not read.
+
+### Map A, shorts: the low is N minutes old, price is above it, the short is still in profit
+| low is stale for | profit on the table | trades | leave there | hold as the rule does | holding adds | later stopped |
+|---|---|---|---|---|---|---|
+| 5 min | under 5% | 1,066 | +1.87% | +2.16% | +0.30% | 12% |
+| 5 min | 5 to 10% | 353 | +7.43% | +8.65% | +1.22% | 10% |
+| 5 min | 10% or more | 419 | +19.19% | +21.21% | +2.02% | 4% |
+| 10 min | under 5% | 858 | +1.82% | +1.70% | -0.13% | 10% |
+| 10 min | 5 to 10% | 335 | +7.43% | +7.58% | +0.15% | 7% |
+| 10 min | 10% or more | 518 | +20.06% | +21.60% | +1.54% | 1% |
+| 15 min | under 5% | 726 | +1.80% | +1.68% | -0.11% | 8% |
+| 15 min | 5 to 10% | 301 | +7.35% | +7.93% | +0.58% | 5% |
+| 15 min | 10% or more | 508 | +20.24% | +21.01% | +0.78% | 1% |
+| 20 min | under 5% | 634 | +1.87% | +1.85% | -0.02% | 6% |
+| 20 min | 5 to 10% | 252 | +7.32% | +7.87% | +0.55% | 3% |
+| 20 min | 10% or more | 447 | +19.97% | +20.38% | +0.40% | 1% |
+(before costs; "holding adds" = hold minus leave. The three negative cells are -0.02% to -0.13% with upper bounds
++0.8%: zero, not a finding.)
+As whole rules on all events (after costs, champion +0.97%): leave at 5 / 10 / 15 / 20 minutes of a stale low:
++0.29% / +0.66% / +0.77% / +0.84%; the rule would end 57% to 78% of all trades.
+
+Reading: once a short is in profit and its low has gone stale, the trade is no longer in danger (1% to 12% go on to
+the stop) and on average it still falls further, most where the profit is already large (+0.4 to +2.0 points more).
+Where the profit is small and the low is old, holding and leaving are the same thing. There is no state in which
+"the low is in, it has been rising, we are still up" means "get out": the best case for the owner's rule is no
+difference, and as a rule it gives up 0.1 to 0.7 points a trade. Together with the price form (profit lock) and the
+half-time cut, the exit is closed: three families, 9 variants and 12 cells in one day, none better than the hour.
+
+### Map B, longs: buy k minutes after the alert's entry, hold 30 minutes
+| minutes after | all prices: before costs / after costs / won | best cell after costs |
+|---|---|---|
+| 0 | -2.28% / -3.17% / 34% | - |
+| 5 | -0.99% / -1.89% / 37% | down less than 10%: -1.23% |
+| 10 | -1.20% / -2.10% / 36% | down less than 10%: -1.39% |
+| 15 | -0.97% / -1.87% / 36% | down less than 10%: -0.93% |
+| 20 | -0.81% / -1.72% / 36% | down less than 10%: -0.94% |
+| 30 | -0.70% / -1.60% / 38% | down less than 10%: -0.72% (the best of all 27 cells; +0.18% before costs) |
+| 45 | -0.92% / -1.83% / 36% | down less than 10%: -1.32% |
+| 60 | -0.59% / -1.50% / 37% | down less than 10%: -0.95% |
+| 90 | -0.03% / -0.95% / 39% | down less than 10%: -0.76% |
+Buying after a deep drop (down 10% or more from the alert price) is the WORST bucket at every time up to 30 minutes
+(-2.1% to -4.2%): the dip keeps dipping.
+
+Reading: there is no good time to buy these alerts. Bought at the alert the stock is 2.3% lower half an hour later;
+the fall fades out over about 90 minutes and then the stock goes nowhere (-0.03% before costs), so even the "wait
+until it has finished falling" entry only reaches zero before costs and loses the spread. 34% to 42% of entries win
+at any time. The long book's problem is not WHEN after the alert it enters; it is that it buys what the channel
+alerts at all. The long entry time is closed.
