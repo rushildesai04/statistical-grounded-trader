@@ -1,7 +1,9 @@
-"""Two risk rules for the daily model's long calls (docs/findings/prereg_long_rules_2026-11-15.md).
+"""Risk rules for the daily model's long calls (docs/findings/prereg_long_rules_2026-11-15.md and
+prereg_long_market_filter_2026-11-16.md).
 
 Rule E: no new long into the stock's own earnings. Rule V: a day whose calls move together is cut back to the typical
-day's risk. Every input is known at the 15:50 ET decision. Research only: nothing here sizes a book.
+day's risk. Rule M: no new long call while the market is below its 200-day average. Every input is known at the
+15:50 ET decision. Research only: nothing here sizes a book.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ ET = "America/New_York"
 CLOSE_HOUR = 16                 # early closes are treated as 16:00 (can only miss a flag, never add one)
 LOOKBACK, MIN_OBS = 60, 40      # covariance window (sessions) and the fewest common sessions a pair needs
 MIN_HIST = 60                   # earlier sessions with a long call before the cap exists
+TREND = 200                     # rule M: sessions in the market's moving average
 
 
 def hold_sessions(accepted: pd.Series, sessions: list[str]) -> set[str]:
@@ -78,3 +81,16 @@ def cap_factor(swing: pd.Series) -> pd.Series:
     c = s.expanding(min_periods=MIN_HIST).median().shift(1)
     f = (c / s.where(s > 0)).clip(upper=1.0)
     return f.where(c.notna() & (s > 0), 1.0)
+
+
+def below_trend(sessions: list[str], close: pd.Series, n: int = TREND) -> pd.Series:
+    """Rule M flag per decision session D (index: ``sessions``, sorted): True when the market's close of the session
+    BEFORE D is lower than the average of the ``n`` market closes ending at that session. ``close``: the index's
+    daily closes by ISO session date. D's own close is never read (it is not known at 15:50). False with fewer than
+    ``n`` closes up to the session before D, when that session has no close, and for the first session."""
+    c = close.sort_index().astype(float)
+    avg = c.rolling(n, min_periods=n).mean()
+    low = (c < avg) & avg.notna()
+    s = sorted(sessions)
+    prev = [None, *s[:-1]]
+    return pd.Series([bool(low.get(p, False)) if p is not None else False for p in prev], index=s, dtype=bool)
