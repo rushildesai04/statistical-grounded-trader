@@ -311,6 +311,13 @@ the same day.
 - **Daily ops texts**: 09:20 ET pre-market health check (silent unless the listener, market data, database or disk
   would cost the day, or a book is switched off / the system is paused: since 2026-11-17 that is said before every
   open it stays so, after the silent morning of 11-16), midnight day summary, nightly digest, Friday 23:15 weekly review.
+- **Replay lab** (2026-11-17, owner: "see it visually very clearly ... what's going wrong"; `sgt.lab`,
+  `scripts/lab.py`): any ticker and day (or N random past alerts, or today's tape up to 15 minutes ago) replayed with
+  the books' OWN rule code and drawn on one page: the alert, the short (entry, 20% stop, exit), every long setup with
+  its stop and target, the owner's bull flag finder, break of structure / change of character, our own spikes, halts,
+  and a minute-by-minute list. A replay of the first k bars shows nothing the live system could not have known by then
+  (tested). It is for finding rules that do not do what we think; an idea seen on a chart still goes through a
+  pre-registered test before it changes a rule (finding 6).
 - **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
   receiving it is flagged the same night, because the edge is the channel's selection (finding 11).
 
