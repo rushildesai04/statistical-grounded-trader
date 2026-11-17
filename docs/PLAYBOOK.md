@@ -100,8 +100,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    every held-out month; a 9-session stretch of held-out days is this bad 1.1% of the time (session bootstrap). Live
    paper agrees (21 trades, -3.39%). Adversarial validation 2026-11-12 night: an independent re-implementation from
    raw data reproduced held-out 764/764 and November 61/61 trades exactly; a red-team found no look-ahead or
-   survivorship bias >= 1%/trade (edited alerts +0.03% / -0.11%, news strictly before the alert, raw unadjusted bars,
-   0 missing bars, stop fills conservative, deletions would remove fade winners). November alerts look the same (type,
+   survivorship bias >= 1%/trade. November alerts look the same (type,
    price, cost, timing); only the outcome flipped: gross +2.52% -> -1.60%, stopped 25% -> 33% (no-stop hour still
    +2.33%). The held-out mean was thinner than it looked: September -0.15% after costs, the +1.1% rests on July and
    October. Reading: real-but-gone or a long bad patch; undecidable at n 61. The live drift guard missed it because it
@@ -133,6 +132,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 |---|---|---|---|
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
 | two-line exit (owner 11-17): cover X% off the low while under the entry; X 5/10/15% | -0.21 / +0.40 / +0.47% | -0.57 / -0.24 / +0.32% | prereg_fade_profit_lock_2026-11-17 |
+| half-time cut (owner 11-17): leave a short that is losing at 20 / 30 min | +0.91 / +0.86% | +1.00 / +0.97% | prereg_fade_time_cut_2026-11-17: losers held lose less |
 | regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): gate +0.05% / -0.19% per trade (p 0.36 / 0.83); sessions have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would skip 5 of 10 sessions (skipped -4.7%) | prereg_fade_regime_gate_2026-11-13 |
 | money score: size model calls by forecast vs risk | n 3,448: high +0.24% vs rest +0.27% (p 0.57); sizing p 0.20 | not opened | prereg_money_score_2026-11-14 |
 | record score: skip a call when its stock-side record <= 0 | longs 13 skipped; shorts kept -0.12%, skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
@@ -297,6 +297,13 @@ rises X% off its low while still under the entry) was pre-registered and run the
 (section 4): it rescues 5-25% of losers and ends 26-88% of winners early, a net cost of 0.5 to 1.2 points a trade. The note's
 "record says shorts were OFF" came from stale lines in this file (finding 20, the score table, section 7), corrected
 the same day.
+
+**"It still waits too long" (owner, 2026-11-17 afternoon; challenged with the live record and one test).** Longs: 15
+live trades, 11 stopped after a median of ONE minute (longest 11), none reached its 30-minute exit: the long book does
+not wait, it is stopped at once (entries, not holds). Shorts: 22 settled, 5 stops, 9 timer exits that won (+11.0%)
+and 8 that lost (-6.4%): slow grinds against the short, the owner's case. A clock rule for exactly that case, "leave
+a short that is losing at half time", was pre-registered and run once (section 4): shorts losing at 30 minutes made
+-6.1% cut there and -5.5% held to the end; three in ten come back to a profit. A wash, slightly negative: not added.
 
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.

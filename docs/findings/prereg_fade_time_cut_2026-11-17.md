@@ -52,3 +52,40 @@ that are losing at half time, what the champion made on them from there.
 A PASS: forward shadow next to the other challengers, owner's OK and an amendment before any live change. A FAIL:
 recorded in PLAYBOOK section 4; no other T or L is tried on these events. Longs: no test (the record above: they do
 not wait).
+
+## Result (2026-11-17, training run once; `reports/fade_cut/dev.json`, trial ledger `fade-cut-2026-11-17-dev`)
+Plan `270592c`, code `067edb6`. Champion reproduced `alert_fade_test.score` exactly on all 2,349 training events.
+
+**No variant passes. The cut is close to a wash, slightly on the losing side.**
+
+| training 2025-01..2026-06 | mean/trade | win | ended by the cut / stop / hour | daily diff vs champion [98.3% bounds] | gate |
+|---|---|---|---|---|---|
+| champion (20% stop, 60 min) | +0.97% | 55% | - / 25% / 75% | - | - |
+| CUT-20 | +0.91% | 48% | 24% / 19% / 57% | -0.39% [-1.97%, +1.15%] | fail |
+| CUT-30 | +0.86% | 50% | 20% / 22% / 59% | -0.78% [-1.90%, +0.30%] | fail |
+| CUT-30-5 | +0.90% | 54% | 7% / 23% / 70% | -0.47% [-1.31%, +0.35%] | fail |
+
+Held-out 2026-07..10 (secondary): champion +1.12%, cuts +1.00% / +0.97% / +0.96%. No-news events: training champion
++1.70%, cuts +1.60% / +1.64% / +1.69%; held-out +1.53%, cuts +1.39% / +1.45% / +1.46%. Lower everywhere, never by
+much.
+
+The group the rule is about, shorts that are losing at half time (training; held-out in brackets):
+
+| | trades | cut there | held to the end | of those held: later a winner / later stopped |
+|---|---|---|---|---|
+| losing at 20 min | 563, 24% (160) | -6.2% (-5.7%) | **-6.0% (-5.1%)** | 30% / 24% |
+| losing at 30 min | 465, 20% (125) | -6.1% (-5.9%) | **-5.5% (-4.9%)** | 27% / 16% |
+| down 5% or more at 30 min | 171, 7% (46) | -10.4% (-9.8%) | **-9.5% (-7.2%)** | 19% / 30% |
+
+Reading:
+- The owner's picture is right about what these trades look like: a fifth to a quarter of all shorts are losing at
+  half time, and they end badly either way (about -5% to -6%).
+- But leaving at half time does not help. Held to the end the same trades lose a little LESS on average: about three
+  in ten come back to a profit in the second half (the squeeze-then-fade path), which pays for the one in six to one
+  in four that go on to the stop. "The buyers kept control" is true for MPU and XLAB and false often enough to cancel.
+- Unlike the profit lock, the cut costs almost nothing (0.06 to 0.11 points a trade, inside the noise). It is not
+  harmful, it is useless: the second half of a losing short is a coin flip that slightly favours holding.
+No variant becomes a shadow. No other T or L is tried on these events.
+
+Longs: no test. The live record: 11 of 15 long trades were stopped after a median of one minute; none reached its
+time exit. The long book's losses are not from waiting.
