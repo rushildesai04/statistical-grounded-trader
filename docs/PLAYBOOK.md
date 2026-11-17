@@ -121,10 +121,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    0.85% / 0.87% vs 0.90% / 0.89% modelled; net +1.18% / +1.33% at real spreads (`docs/research/real_spreads_2026-11-08.md`).
    The edge is not a cost illusion; borrow/locate is the open cost question.
    Resting limit exits do not beat the spread: fills save +0.58%, misses cost -0.59% (queue model, finding from
-   `prereg_fade_passive_exit_2026-11-08`). Test fills with trade-level data and the queue, never 1-minute bar lows.
+   `prereg_fade_passive_exit_2026-11-08`).
 14. **Losing streaks do not predict the next fade; do not stop after losses.** After the day's last two known results
    were losses, the next fade earned +2.18% (training, n 205) / +2.53% (held-out) vs +0.86% otherwise; a daily breaker
-   costs ~1.3% per session. Day halves are uncorrelated (`prereg_fade_dayflow_2026-11-08`).
+   costs ~1.3% per session. (`prereg_fade_dayflow_2026-11-08`).
 13. **Sizing by a model's ranking may help** (dev +2.37%/session, held-out secondary +8.31%), but forward evidence so
    far is negative (n 34). In shadow until n >= 300.
 
@@ -132,6 +132,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | idea | train per trade (champion +0.97%) | held-out (champion +1.12%) | file |
 |---|---|---|---|
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
+| two-line exit (owner 11-17): cover X% off the low while under the entry; X 5/10/15% | -0.21 / +0.40 / +0.47% | -0.57 / -0.24 / +0.32% | prereg_fade_profit_lock_2026-11-17 |
 | regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): gate +0.05% / -0.19% per trade (p 0.36 / 0.83); sessions have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would skip 5 of 10 sessions (skipped -4.7%) | prereg_fade_regime_gate_2026-11-13 |
 | money score: size model calls by forecast vs risk | n 3,448: high +0.24% vs rest +0.27% (p 0.57); sizing p 0.20 | not opened | prereg_money_score_2026-11-14 |
 | record score: skip a call when its stock-side record <= 0 | longs 13 skipped; shorts kept -0.12%, skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
@@ -182,10 +183,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | LONG book: skip fills opening > 1R above the trigger (RETO) | 1 of 2,242 on SIP bars: an IEX-bar effect, not a rule | - | same |
 | fade: cover when a bull flag breaks out (buy-stop at the flag high) | +0.09% per fade vs plain | +0.05% (p 0.38; no-news 0.00%) | prereg_fade_flag_2026-11-10 |
 | fade: skip when a bull flag completed in the 15 min before the alert | skipped -0.87% (p 0.17) | skipped +2.91% | same |
-| stop for the day after two losses (breaker) | skipped trades earned +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
-| skip when >= 3 fades in the prior 30 min (burst) | +0.07% skipped (n.s.) | +1.65% skipped | same |
-| fade our own price/volume spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
-| other strategies: trader rules, ORB stocks-in-play, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
+| stop for the day after two losses | skipped trades +2.18% | +2.53% | prereg_fade_dayflow_2026-11-08 |
+| skip after >= 3 fades in 30 min | +0.07% skipped (n.s.) | +1.65% skipped | same |
+| fade our own spikes (no channel) | -1.23% (n 517) | sealed | prereg_self_fade_2026-11-06 |
+| other: trader rules, ORB, crypto C1/C2/C2M, earnings, large-cap intraday | all FAIL | | docs/findings |
 
 ## 5. Loss reviews (each: facts, classification, lesson, test)
 | trade | facts (official bars) | classification | lesson / action |
@@ -291,8 +292,9 @@ stop entirely (the 5 earlier official stops were all seen live; AMIX 11-10 and t
 Real-time official data is paid (section 7 proof standard); the official bars arrive free 15 minutes late. On the
 10:04 cover: the rule has no profit line by design; +15% target, half off at +3% / +5% and a 5% trail all made less
 than holding over 3,113 fades (section 4), because the usual path is bounce then second leg down; MPU went one leg
-down and all the way back. Its low missed the tested +15% line by one cent. Not tested: a second line that arms only
-once the trade is well in profit (the owner's "two stoppage lines", to be pre-registered when specified). The note's
+down and all the way back. Its low missed the tested +15% line by one cent. The owner's "two stoppage lines" (cover once price
+rises X% off its low while still under the entry) was pre-registered and run the same day at X 5 / 10 / 15%: FAIL
+(section 4): it rescues 5-25% of losers and ends 26-88% of winners early, a net cost of 0.5 to 1.2 points a trade. The note's
 "record says shorts were OFF" came from stale lines in this file (finding 20, the score table, section 7), corrected
 the same day.
 

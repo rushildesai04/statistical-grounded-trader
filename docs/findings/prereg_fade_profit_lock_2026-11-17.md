@@ -60,3 +60,47 @@ claim is about the second group; the cost is in the first).
 1-minute official bars: the order of prints inside a minute is unknown, so the signal is a close and the fill the
 next open. LIVE, the book watches the free feed, which printed 12 one-minute bars in MPU's hour and never showed
 the $1.31 low nor the $2.05 high: a line 2 that passes here would still need the official tape live to act as tested.
+
+## Result (2026-11-17, training run once; `reports/fade_lock/dev.json`, trial ledger `fade-lock-2026-11-17-dev`)
+Plan `a11d652`, code `aca5189`. Champion reproduced `alert_fade_test.score` exactly on all 2,349 training events.
+
+**No variant passes. All three make less than holding the hour.**
+
+| training 2025-01..2026-06 | mean/trade | win | median held | ended by line 2 / stop / hour | daily diff vs champion [98.3% bounds] | gate |
+|---|---|---|---|---|---|---|
+| champion (20% stop, 60 min) | +0.97% | 55% | 60 m | - / 25% / 75% | - | - |
+| LOCK-5 | -0.21% | 53% | 9 m | 71% / 12% / 17% | -7.81% [-11.51%, -4.08%] | fail |
+| LOCK-10 | +0.40% | 56% | 34 m | 41% / 17% / 42% | -3.82% [-6.57%, -1.07%] | fail |
+| LOCK-15 | +0.47% | 55% | 55 m | 19% / 21% / 60% | -3.33% [-5.43%, -1.40%] | fail |
+
+Secondary, held-out 2026-07..10 (n 764): champion +1.12%, LOCK-5 -0.57%, LOCK-10 -0.24%, LOCK-15 +0.32%.
+No-news events only (the live book's news rule): training n 1,335 champion +1.70%, locks +0.15% / +0.92% / +1.04%;
+held-out n 504 champion +1.53%, locks -0.55% / -0.14% / +0.49%. Same order everywhere, in every entry-hour bucket.
+
+Where the money goes (training; held-out is the same picture):
+
+| | trades the champion WON (1,297; +13.3% each) | trades the champion LOST (1,048; -14.3% each) |
+|---|---|---|
+| LOCK-5 | +5.0% each; line 2 ends 88% of them | -6.6% each; 25% become winners |
+| LOCK-10 | +8.8% each; ends 53% | -9.9% each; 13% become winners |
+| LOCK-15 | +10.9% each; ends 26% | -12.4% each; 5% become winners |
+
+Reading:
+- The owner's observation is true: line 2 does rescue trades like MPU. It turns 5% to 25% of the losers into winners
+  and cuts the average loss by 2 to 8 points.
+- It costs more than it saves. The winners do not fall in a straight line: the same X% bounce off the low that marked
+  the end of MPU's drop happens inside most winning trades before their second leg down (line 2 ends 26% to 88% of
+  them early), and a winning trade is worth +13% when left alone. Winners lose 2.4 to 8.4 points each; there are more
+  winners than losers.
+- "The sellers never took control again" is known only afterwards. At 10:06 MPU looked exactly like the 53% of
+  winning trades that LOCK-10 would also have closed there.
+- Wider is less bad (15% costs half of what 5% costs) because it fires less; the limit of that direction is the
+  champion itself, which never fires.
+No variant becomes a shadow. No other X is tried on these events.
+
+**Longs (not run; reasoning from the long book's own stored test, `reports/long_risk/breakeven.csv`).** A mirror line
+needs the trade to be in profit first. Of 2,242 training long trades only 291 (13%) ever reached one stop-distance of
+profit; those average +4.5%, the other 87% average -3.1% and are never touched by a profit line. The nearest tested
+mirror (stop to the entry after +1R, owner's RETO note, `prereg_long_breakeven_2026-11-12`) changed 162 trades and
+moved the book from -2.09% to -2.05% (p 0.12). The long book's loss is entries that never work, not winners given
+back; it already has a profit line (the 2R target). A mirror test is not worth a run on this evidence.
