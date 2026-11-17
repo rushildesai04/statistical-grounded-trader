@@ -231,6 +231,33 @@ def live_bars(client: httpx.Client, symbol: str, at: datetime) -> pd.DataFrame:
     return f.dropna(subset=["ts"]).sort_values("ts").reset_index(drop=True)
 
 
+TAPE_EVERY = 60                                # seconds between official-tape stop checks (sgt.fast.tape_check)
+
+
+def official_bars(client: httpx.Client):
+    """(symbol, start, end) -> the OFFICIAL (SIP) 1-minute bars in that span, for ``tape_check``; empty on any failure
+    or while the span is too recent to be free (the check simply looks again a minute later). External bytes: only
+    rows that are whole, numeric bars are kept, at most 1,000."""
+    def bars(symbol: str, start: datetime, end: datetime) -> pd.DataFrame:
+        try:
+            r = client.get(f"/v2/stocks/{symbol}/bars", params={"timeframe": "1Min", "feed": "sip", "limit": 1000,
+                                                                 "start": start.isoformat(), "end": end.isoformat()})
+            j = r.json() if r.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            return pd.DataFrame()
+        rows = j.get("bars") if isinstance(j, dict) else None
+        if not isinstance(rows, list):
+            return pd.DataFrame()
+        ok = [x for x in rows[:1000] if isinstance(x, dict) and isinstance(x.get("t"), str)
+              and all(isinstance(x.get(k), (int, float)) and not isinstance(x.get(k), bool) for k in "ohlc")]
+        if not ok:
+            return pd.DataFrame()
+        f = pd.DataFrame({"ts": pd.to_datetime([x["t"] for x in ok], utc=True, errors="coerce"),
+                          **{n: [float(x[k]) for x in ok] for k, n in zip("ohlc", ("open", "high", "low", "close"))}})
+        return f.dropna(subset=["ts"]).sort_values("ts").reset_index(drop=True)
+    return bars
+
+
 def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
     """Company news before ``at`` from Alpaca's Benzinga feed, labelled exactly as prereg_fade_news measured it.
     None = unknown (API down); the text then says so instead of implying 'no news'."""
@@ -580,6 +607,19 @@ async def run() -> int:
                 log.exception("long book failed")
             await asyncio.sleep(LONG_EVERY)
 
+    tc = data_client()                          # official-tape stop check (owner 2026-11-17): own connection/loop
+
+    async def tape_loop():
+        from sgt.fast import tape_check
+
+        tape = official_bars(tc)
+        while True:
+            try:
+                await asyncio.to_thread(tape_check.check, db, send, tape)
+            except Exception:  # noqa: BLE001 - a late correction must never stop the listener; logged
+                log.exception("official-tape check failed")
+            await asyncio.sleep(TAPE_EVERY)
+
     ai_dc, ai_state = data_client(), AIState()
 
     async def ai_loop():                         # per-trade AI reviews: own connections, never in the trading path
@@ -591,7 +631,7 @@ async def run() -> int:
             await asyncio.sleep(AI_EVERY)
 
     tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
-             asyncio.create_task(long_loop()),
+             asyncio.create_task(long_loop()), asyncio.create_task(tape_loop()),
              asyncio.create_task(ai_loop())]
     try:
         await client.run_until_disconnected()
