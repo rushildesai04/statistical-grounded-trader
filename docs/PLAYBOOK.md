@@ -237,6 +237,15 @@ Process: `docs/runbooks/loss_review.md`; facts: `scripts/loss_review.py SYMBOL D
 AI reviews: since 2026-11-10 the per-trade review, the nightly brain and the Notes tab include the long book (before, longs never reached them).
 Long book official result (2026-11-11, owner: "real long scoring"): the live trade's OWN order (fill bar, buy-stop trigger, stop) replayed on SIP bars by the tested simulator, like the fade. Before, it was the shadow's SIP re-detection, which can be a different trade: KULR 11-10 lost live (IEX trigger $2.155, stopped -1.2%) but was recorded +1.63% (SIP trigger $2.115). Old rows are re-scored once. The long shadow stays as the rule's own measurement, so live vs tested = execution gap.
 
+**2026-11-16, the morning both alert books were off (official numbers).** 31 alerts, no trade: books off until 12:13 ET,
+and the 4 alerts after that failed the rules (repeat, news x2, price). The research record took 8 fades that day:
+HIHO -21.8% (stop), GDHG -21.8% (stop), SLSN +7.5%, GP +8.9%, RCON +26.2%, NOMA +35.7%, TDTH +37.6%, FGL +38.6%:
+average +13.9%, 6 of 8 won (record now 81 trades, -0.25% per trade, win 48%). The paper book with its rules on all day
+would have taken three of them: GDHG -21.8%, RCON +26.2%, TDTH +37.6% (HIHO, SLSN and NOMA are news names; GP and FGL
+had no shares at IBKR): about +$1,050 at the halved size. The long shadow lost on every setup that filled that day
+(9 alerts, first setup each: -1.5% to -14.4%, average about -4.5%). One day: no rule changes on it. GDHG ran from $1.87
+to about $7 through halts; the 20% stop is the only cap a short has (section 0, condition b, still open).
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert

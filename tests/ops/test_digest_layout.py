@@ -230,8 +230,17 @@ def test_fade_off_line_and_forward_record_problems_reach_the_digest(tmp_path, mo
     text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
     lines = text.splitlines()
     i = lines.index(f"\U0001F4B5 {bold('TODAY')}")
-    assert lines[i + 1].startswith(f"⏸️ {bold('fade')} {italic('OFF')} (owner 11-12, shorts deprioritized): "
-                                   "1 alerts not shorted today")
+    assert lines[i + 1].startswith(f"⏸️ {bold('fade')} {italic('OFF')} (owner's switch): 1 alerts not shorted today")
+    # 2026-11-16: back on at 12:13, and the night's digest still read "fade OFF". On again, it says so and keeps the count
+    db.set_flag(fade.OFF_FLAG, "0")
+    on = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[]).splitlines()
+    assert on[on.index(f"\U0001F4B5 {bold('TODAY')}") + 1] == (
+        f"▶️ {bold('fade')} {italic('ON')} again: 1 alert not shorted today while it was off")
+    assert not any(italic("OFF") in ln and bold("fade") in ln for ln in on)
+    with db.tx() as c:                                   # nothing skipped and the switch on: no line at all
+        c.execute("UPDATE fade_trades SET reason='x' WHERE symbol='OFFX'")
+    quiet = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    assert italic("ON") + " again" not in quiet and f"{bold('fade')} {italic('OFF')}" not in quiet
     assert f"• fade forward record (every alert): forward record unreadable (KeyError)" in lines
 
 
