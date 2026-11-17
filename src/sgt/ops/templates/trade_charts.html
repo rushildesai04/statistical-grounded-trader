@@ -236,6 +236,8 @@ h1 em { font-style: normal; color: var(--accent); }
 .tabs button { font: 600 14px var(--body); color: var(--muted); background: none; border: 0; padding: 8px 14px;
   border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
 .tabs button:hover { color: var(--ink); }
+.lablink { margin-left: auto; align-self: center; font: 600 13px var(--mono); color: var(--accent); text-decoration: none; padding: 8px 4px; }
+.lablink:hover { text-decoration: underline; }
 .tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 .mt-eq { height: 150px; min-width: 0; }
 .mt-years { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 400 11.5px var(--mono); color: var(--muted); }
@@ -321,6 +323,7 @@ footer b { color: var(--ink); font-weight: 600; }
     <button type="button" role="tab" id="tab-fade" aria-selected="true" aria-controls="pane-fade">Fade trades</button>
     <button type="button" role="tab" id="tab-models" aria-selected="false" aria-controls="pane-models">Models</button>
     <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="pane-notes">Notes</button>
+    <a id="lab-link" class="lablink" hidden>Lab: replay any alert &#8599;</a>
   </nav>
 
   <div class="pane" id="pane-fade" role="tabpanel" aria-labelledby="tab-fade">
@@ -1565,6 +1568,10 @@ function boot() {
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
   new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
+// The lab is a second page under the same secret path (2026-11-17). The link is built from the address the page
+// was opened at, so the secret is never written into the page itself; a local file has no lab next to it.
+(() => { const a = document.getElementById("lab-link");
+  if (a && location.protocol.startsWith("http")) { a.href = location.pathname.replace(/\/+$/, "") + "/lab"; a.hidden = false; } })();
 if (window.LightweightCharts && DATA) boot();
 else document.getElementById("list").append(el("div", "empty", "The chart library did not load. Reload the page."));
 </script>

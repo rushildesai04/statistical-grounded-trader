@@ -5,6 +5,10 @@ prefix: GET ``/<token>/api/notes`` (notes + AI insights) and POST ``/<token>/api
 the only write anywhere on this surface: JSON only, body <= 16 KB, same-origin only (Origin must equal the public
 base), a write rate limit, notes bounded and validated against existing trades (sgt.ops.journal), every edit kept.
 
+2026-11-17 (owner decision 5: the replay lab on the site): one more static page, ``/<token>/lab`` (or ``/lab/``),
+the file the ``lab`` job writes. Same token, same headers, GET and HEAD only, no parameters, nothing read from the
+database on the request; a missing file is a placeholder.
+
 The runner's only public surface. It serves exactly one file at ``/<token>/`` (or ``/<token>``), where the token is
 the secret ``charts_token`` (>= 32 URL-safe characters). Everything else is 404, including wrong tokens (compared in
 constant time), other methods are 405, and nothing is ever written. No directory listing, no query handling, no
@@ -30,6 +34,7 @@ from sgt.core.secrets import get_secret
 log = logging.getLogger(__name__)
 
 PAGE = Path("reports/charts/fade_tape.html")
+LAB = Path("reports/charts/lab.html")
 PORT = 8080
 MIN_TOKEN = 32
 MAX_PAGE = 8 * 1024 * 1024
@@ -42,6 +47,10 @@ HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Rob
            "Strict-Transport-Security": "max-age=31536000", "Content-Security-Policy": CSP}
 EMPTY = (b"<!doctype html><meta charset=utf-8><title>Fade Tape</title>"
          b"<p style='font-family:system-ui'>No chart page yet. It is rebuilt every 10 minutes during market hours.</p>")
+
+
+EMPTY_LAB = (b"<!doctype html><meta charset=utf-8><title>SGT Lab</title>"
+             b"<p style='font-family:system-ui'>No lab page yet. It is rebuilt every 10 minutes during market hours.</p>")
 
 
 MAX_BODY = 16 * 1024
@@ -68,11 +77,12 @@ def valid_token(token: str | None) -> bool:
     return bool(token) and len(token) >= MIN_TOKEN and bool(TOKEN_RE.fullmatch(token))
 
 
-def make_handler(token: str, page: Path = PAGE, db_factory=None, origin: str | None = None):
+def make_handler(token: str, page: Path = PAGE, db_factory=None, origin: str | None = None, lab: Path = LAB):
     if not valid_token(token):
         raise ValueError(f"charts_token must be >= {MIN_TOKEN} URL-safe characters")
     want = f"/{token}/".encode()
     bare = want[:-1]                                   # 2026-11-05: owner's pasted link dropped the trailing slash
+    lab_path = f"/{token}/lab".encode()                # 2026-11-17: the replay lab, a second static page
     api = f"/{token}/api/notes".encode()
     allowed_origin = (origin or os.environ.get("SGT_CHARTS_BASE", "https://sgt-runner.fly.dev")).rstrip("/")
     bucket, reads = _Bucket(WRITES_PER_MIN), _Bucket(READS_PER_MIN)
@@ -100,14 +110,18 @@ def make_handler(token: str, page: Path = PAGE, db_factory=None, origin: str | N
 
         def _page(self) -> None:
             path = self.path.encode()
-            if not (hmac.compare_digest(path, want) | hmac.compare_digest(path, bare)):
+            if hmac.compare_digest(path, want) | hmac.compare_digest(path, bare):
+                src, empty = page, EMPTY
+            elif hmac.compare_digest(path, lab_path) | hmac.compare_digest(path, lab_path + b"/"):
+                src, empty = lab, EMPTY_LAB
+            else:
                 self._send(404, b"not found")
                 return
             try:
-                size = page.stat().st_size
-                body = page.read_bytes() if size <= MAX_PAGE else None
+                size = src.stat().st_size
+                body = src.read_bytes() if size <= MAX_PAGE else None
             except FileNotFoundError:
-                body = EMPTY
+                body = empty
             if body is None:
                 log.error("chart page is %d bytes, over the %d limit", size, MAX_PAGE)
                 self._send(503, b"page too large")

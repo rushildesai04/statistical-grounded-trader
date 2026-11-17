@@ -4,6 +4,8 @@
     python scripts/lab.py NVDA 2026-11-14                                           # no alert: what the detectors saw
     python scripts/lab.py --random 20 [--seed 7]                                    # 20 random past alerts (tested events)
     python scripts/lab.py --events day.json                                         # a list: see EVENTS below
+    python scripts/lab.py --site --out reports/charts/lab.html                      # runner job: every alerted stock of
+                                                                                    # the last two sessions (ops DB)
     ... [--out reports/lab/lab.html]
 
 EVENTS file: ``[{"symbol": "MPU", "session": "2026-11-17", "alerts": [{"at": "2026-11-17T15:02:02Z", "type":
@@ -74,6 +76,21 @@ def from_file(path: Path) -> list[dict]:
     return [spec(r["symbol"], r["session"], r.get("alerts"), r.get("live")) for r in rows[:MAX_EVENTS]]
 
 
+def site_specs(db=None) -> list[dict]:
+    """The runner's daily list (``sgt.lab.day``), each request validated like any other; a row that is not a ticker
+    or a date is dropped, never fatal."""
+    from sgt.lab import day
+    from sgt.ops.store import OpsStore
+
+    out = []
+    for r in day.specs(db or OpsStore()):
+        try:
+            out.append(spec(r["symbol"], r["session"], r["alerts"], r["live"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out[:MAX_EVENTS]
+
+
 def build(specs: list[dict], bars_fn, now: datetime) -> list[dict]:
     """Replays for the requests that have bars; a request without bars is reported and skipped."""
     out = []
@@ -98,11 +115,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--random", type=int, metavar="N")
     ap.add_argument("--seed", type=int)
     ap.add_argument("--events", type=Path)
+    ap.add_argument("--site", action="store_true", help="the latest sessions' alerted stocks from the ops database")
     ap.add_argument("--out", type=Path, default=OUT)
     a = ap.parse_args(argv)
     specs: list[dict] = []
     if a.events:
         specs += from_file(a.events)
+    if a.site:
+        specs += site_specs()
     if a.random:
         specs += random_specs(a.random, a.seed)
     if a.symbol:
@@ -111,6 +131,11 @@ def main(argv: list[str] | None = None) -> int:
         alerts = [{"at": alert_at(a.session, a.alert), "type": a.type}] if a.alert else []
         specs.append(spec(a.symbol, a.session, alerts))
     if not specs:
+        if a.site:                                          # no alert yet: an empty page, not a failed job
+            a.out.parent.mkdir(parents=True, exist_ok=True)
+            a.out.write_text(page.render([], datetime.now(timezone.utc)))
+            print(f"0 replay(s) -> {a.out.resolve()}")
+            return 0
         ap.error("nothing to replay: give a ticker and a day, --random N or --events FILE")
 
     from fade_live import data_client
@@ -122,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(page.render(replays, now))
     print(f"{len(replays)} replay(s) -> {a.out.resolve()}")
-    return 0 if replays else 1
+    return 0 if replays or a.site else 1
 
 
 if __name__ == "__main__":

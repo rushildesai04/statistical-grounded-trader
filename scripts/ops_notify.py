@@ -56,6 +56,7 @@ JOBS = {
     "weekly": ("Friday weekly review", "Trades and positions are unaffected; only the weekly text is missing."),
     "learning": ("learning scoreboard", "Nothing was traded; the scoreboard shows the previous night."),
     "charts": ("chart page refresh", "Trades are unaffected; the chart page shows the previous version."),
+    "lab": ("replay lab page refresh", "Trades are unaffected; the lab page shows the previous version."),
     "summary": ("midnight day summary", "Trades and positions are unaffected; only tonight's summary is missing."),
     "pilotbook": ("real-money 60/40 / turn-of-month at Schwab",
                   "No real order went out in this run; the next run (5 min) retries. Exits held at Schwab are unaffected."),
