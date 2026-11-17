@@ -14,7 +14,7 @@ TOKEN = "t" * 40
 @pytest.fixture
 def server(tmp_path):
     page = tmp_path / "fade_tape.html"
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), chartserver.make_handler(TOKEN, page))
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), chartserver.make_handler(TOKEN, page, lab=tmp_path / "lab.html"))
     th = threading.Thread(target=srv.serve_forever, daemon=True)
     th.start()
     with httpx.Client(base_url=f"http://127.0.0.1:{srv.server_address[1]}", timeout=5) as c:
@@ -129,3 +129,31 @@ def test_notes_reads_are_rate_limited_too(api):
     c, _ = api
     codes = [c.get(f"/{TOKEN}/api/notes").status_code for _ in range(chartserver.READS_PER_MIN + 3)]
     assert codes[0] == 200 and 429 in codes
+
+
+def test_the_lab_is_a_second_static_page_under_the_same_secret(server):
+    """Owner 2026-11-17 (decision 5): /<token>/lab serves the lab file; same headers; nothing else opens up."""
+    c, page = server
+    lab = page.with_name("lab.html")
+    page.write_text("<title>Fade Tape</title>main")
+    r = c.get(f"/{TOKEN}/lab")
+    assert r.status_code == 200 and "No lab page yet" in r.text                 # missing file: a placeholder
+    lab.write_text("<title>SGT Lab</title>lab-ok")
+    r = c.get(f"/{TOKEN}/lab")
+    assert r.status_code == 200 and r.text.endswith("lab-ok") and r.headers["content-type"].startswith("text/html")
+    assert r.headers["referrer-policy"] == "no-referrer" and r.headers["cache-control"] == "no-store"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert c.get(f"/{TOKEN}/lab/").text == r.text and c.head(f"/{TOKEN}/lab").status_code == 200
+    assert c.get(f"/{TOKEN}/").text.endswith("main")                            # the main page is untouched
+    for bad in (f"/{TOKEN}/lab/x", f"/{TOKEN}/labs", f"/{TOKEN}/lab?x=1", f"/{TOKEN}/lab//", f"/{TOKEN[:-1]}/lab",
+                "/lab", f"/{TOKEN}/Lab", f"/{TOKEN}/lab/../lab.html"):
+        assert c.get(bad).status_code == 404, bad
+    assert c.post(f"/{TOKEN}/lab", json={}).status_code in (404, 405)            # never a write
+    assert c.put(f"/{TOKEN}/lab", content=b"x").status_code in (404, 405, 501)
+
+
+def test_an_oversized_lab_file_is_refused(server, monkeypatch):
+    c, page = server
+    page.with_name("lab.html").write_text("x" * 2000)
+    monkeypatch.setattr(chartserver, "MAX_PAGE", 1000)
+    assert c.get(f"/{TOKEN}/lab").status_code == 503

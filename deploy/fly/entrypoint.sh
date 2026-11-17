@@ -77,6 +77,9 @@ if [ "${1:-}" = "job" ]; then
     pilotbook) run reports/ops/pilot.log python /app/scripts/sms_control.py pilot ;;
     # Fade Tape chart page (2026-11-05): rebuilt from the ops DB + SIP bars; served by sgt.ops.chartserver.
     charts)    run reports/charts/run.log python /app/scripts/trade_charts.py --out reports/charts/fade_tape.html ;;
+    # Replay lab page (2026-11-17, owner decision 5): every alerted stock of the last two sessions replayed with the
+    # books' own rules; served by sgt.ops.chartserver at /<token>/lab. Read-only: bars in, one file out.
+    lab)       run reports/charts/run.log python /app/scripts/lab.py --site --out reports/charts/lab.html ;;
     # Midnight day summary (owner request 2026-11-05): trades, count, $ made/lost, $ traded.
     summary)   run reports/ops/run.log python /app/scripts/sms_control.py summary ;;
     preflight) run reports/ops/run.log python /app/scripts/preflight.py ;;

@@ -30,6 +30,7 @@ h1 { font: 800 clamp(28px, 4vw, 40px)/1 var(--display); margin: 0; }
 h1 em { font-style: normal; color: var(--accent); }
 .lede { color: var(--muted); margin: 4px 0 0; max-width: 78ch; }
 .stamp { font: 500 12px var(--mono); color: var(--muted); }
+.back { color: var(--accent); text-decoration: none; font-weight: 600; margin-right: 14px; } .back:hover { text-decoration: underline; }
 .cols { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr); } }
 .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; }
@@ -93,7 +94,7 @@ td.name { font-family: var(--body); min-width: 210px; }
       <h1>SGT <em>Lab</em></h1>
       <p class="lede">Our own rules replayed on real one-minute bars. Every mark comes from the same code the books run: if a mark looks wrong here, the system is wrong, and that is the point.</p>
     </div>
-    <div class="stamp" id="stamp"></div>
+    <div class="stamp"><a id="back" class="back" hidden>&#8592; Trades page</a> <span id="stamp"></span></div>
   </header>
   <div class="cols">
     <aside class="panel side" aria-label="Replays">
@@ -281,8 +282,11 @@ function boot() {
   document.querySelectorAll(".btn[data-f]").forEach(b => b.addEventListener("click", () => {
     filter = b.dataset.f; document.querySelectorAll(".btn[data-f]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); list(); }));
   document.getElementById("rand").addEventListener("click", () => { const rows = shown(); if (rows.length) open(rows[Math.floor(Math.random() * rows.length)][1]); });
-  if (DATA.replays.length) open(0); else { list(); document.getElementById("title").textContent = "No replays in this file"; }
+  if (DATA.replays.length) open(0); else { list(); document.getElementById("title").textContent = "No alerts to replay yet"; }
 }
+// Served on the site this page lives at <secret>/lab: the way back is built from the address, never stored in the page.
+(() => { const a = document.getElementById("back");
+  if (a && location.protocol.startsWith("http") && /\/lab\/?$/.test(location.pathname)) { a.href = location.pathname.replace(/\/lab\/?$/, "/"); a.hidden = false; } })();
 if (window.LightweightCharts && DATA) boot();
 </script>
 </body>

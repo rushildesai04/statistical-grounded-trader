@@ -317,7 +317,10 @@ the same day.
   its stop and target, the owner's bull flag finder, break of structure / change of character, our own spikes, halts,
   and a minute-by-minute list. A replay of the first k bars shows nothing the live system could not have known by then
   (tested). It is for finding rules that do not do what we think; an idea seen on a chart still goes through a
-  pre-registered test before it changes a rule (finding 6).
+  pre-registered test before it changes a rule (finding 6). On the site (2026-11-17, owner decision 5): the link
+  "Lab" next to the tabs opens a second page under the same secret address with every alerted stock of the last
+  two sessions replayed and what the live books did with it; rebuilt every 10 minutes in market hours and after
+  the nightly settle (job `lab`). Read-only: the page is one static file; nothing on it can change anything.
 - **Channel health** (nightly digest): alerts today vs the usual day; a quiet channel or a listener that stopped
   receiving it is flagged the same night, because the edge is the channel's selection (finding 11).
 
