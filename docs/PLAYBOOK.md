@@ -323,6 +323,14 @@ is 5.3 points better (+2.50% against the champion's -2.79%, 44% of them stopped)
 and they are the fade's whole profit (+2.48%, 15% stopped); entered 3 minutes late they make -0.70%. The first print
 is the right entry: which trades will squeeze is known only afterwards, and waiting to find out costs the best ones.
 
+**The short's entry second (`prereg_fade_entry_seconds_2026-11-17`, FAIL; official prints of 2,470 alerts).** The rule
+waits 10 to 70 seconds for the next minute bar. Entering at alert + 10 / 15 / 20 / 30 / 45 / 60 seconds instead:
++0.49% to +0.82% per trade against +0.97%, less in total at every second. Measured: (1) the price is flat on
+average through the first minute after an alert (entry price against the bar open: mean within 0.2%, median 0.00%),
+so no second is a better price; the fall begins after it; (2) an entry inside the minute trades 85 of the 121
+halted alerts and loses 5.5% on each; (3) it has no print to hit on the 151 thinnest fades, which make +3.44% under
+the bar rule. Moving the live entry to the bar on 2026-11-09 was right. Being minutes late costs; seconds do not.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert

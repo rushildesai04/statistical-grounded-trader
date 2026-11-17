@@ -55,3 +55,36 @@ how long the bar rule made us wait?).
 A print is not a fill: the first print after alert + s is used as the entry price for every variant and the bar
 open for the champion, the same convention on both sides. The halt list is the audit's (alerts with no bar within
 5 minutes); an alert followed by a halt later in the hour is in both legs already.
+
+## Result (2026-11-17, training run once; `reports/fade_entry_seconds/result_train.json`)
+Plan `a37c9f8`, code `049c9d1`. Prints fetched for 5,348 alert-minutes of 2,470 events (2,349 tested fades + 121
+halted alerts), none failed. Champion reproduced `alert_fade_test.score` exactly.
+
+**No variant passes. Entering inside the alert's minute gains nothing in price and loses money in total.**
+
+| enter at | trades | mean/trade | total (units) | daily diff vs champion [99.2% bounds] | gate |
+|---|---|---|---|---|---|
+| champion: next bar's open | 2,345 | +0.97% | +22.8 | - | - |
+| alert + 10 s | 2,279 | +0.49% | +11.2 | -3.30% [-6.44%, -0.39%] | fail |
+| alert + 15 s | 2,263 | +0.53% | +12.0 | -3.07% [-5.96%, -0.25%] | fail |
+| alert + 20 s | 2,229 | +0.69% | +15.5 | -2.08% [-4.72%, +0.54%] | fail |
+| alert + 30 s | 2,182 | +0.82% | +18.0 | -1.38% [-3.95%, +1.23%] | fail |
+| alert + 45 s | 2,148 | +0.73% | +15.7 | -2.01% [-4.77%, +0.74%] | fail |
+| alert + 60 s | 2,094 | +0.61% | +12.9 | -2.82% [-5.64%, +0.02%] | fail |
+
+Three things were measured that were not known before:
+1. **The price does not move, on average, in the first minute after the alert.** Entry price at alert + s against
+   the champion's bar open on the same trades: mean +0.04% / +0.07% / 0.00% / +0.02% / -0.11% / -0.19% for s = 10 ..
+   60, median 0.00% at every s. Neither force named in the plan shows up: followers do not push it higher first, and
+   the fall has not started. The drop the maps found in the first five minutes begins after the first minute. So
+   there is no better second to short; the bar's open is as good a price as any.
+2. **Entering inside the minute trades the halts.** Of the 121 halted alerts the champion never trades, an entry at
+   + 10 s trades 85 and loses 5.5% on each (-4.7 units); at + 30 s 24 (-2.6% each). This is the OMH case, counted.
+3. **It misses the thinnest stocks, which are among the best fades.** 151 tested fades had no print within 10
+   seconds of alert + 10 s (a market order there has nothing to hit); the champion made +3.44% on those against
+   +0.80% on the rest. The bar rule waits for a print and gets them.
+On the trades both rules take, the result is the same within noise (+0.72% against +0.80% at + 10 s).
+
+Reading: the 2026-11-09 decision to move the live book from "the latest print at alert + 10 s" to "the first bar
+after the alert" was right, and for more than the halts. Speed inside the first minute is not an edge here; being
+two or more MINUTES late is what costs. The held-out period was not fetched. No other s is tried.
