@@ -106,7 +106,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    +2.33%). The held-out mean was thinner than it looked: September -0.15% after costs, the +1.1% rests on July and
    October. Reading: real-but-gone or a long bad patch; undecidable at n 61. The live drift guard missed it because it
    watched 7 live no-news trades; on the forward record its win-rate test would have alarmed on 11-10. Action: shorts
-   OFF (section 2), guard reads the forward record (section 6).
+   OFF 11-12, ON 11-16 (section 2); guard: forward record (6).
 18. **Real stop fills cost ~1% per stop; only no-news alerts survive them.** SIP trades at every historical stop:
    slippage +0.82% / +1.44% mean (median ~0.35%). Net with real stops: no-news **+1.70% / +1.77%** (lower bounds
    +0.88% / +0.47%), news **-0.20% / -0.60%**; with a 1.5% locate no-news stays +0.70% / +0.77%
@@ -278,6 +278,24 @@ What the same evidence does NOT support (checked that night, descriptive):
   an overnight-only book has the same Sharpe (1.03 against 1.09) at half the return. Not a rule.
 - The alerts carry three fields (ticker, type, price) and all three are used; nothing in a message is left unread.
 
+**MPU short 2026-11-17 (first short after the switch went back on; owner: "why didnt we just sell the short when it
+reached 10:04?"; owner's pasted note asks for a stop audit).** Official bars: open $1.29, $2.03 at 10:01, alert
+10:02:02 (gaining momentum, no news, beta 0, 350,000 shares at IBKR, quarter size $1,250). Short $1.54 at 10:03. 10:04:
+low $1.31 (+14.9% open profit), close $1.33; back at the entry by 10:10-10:15; $1.78 at 10:21, $1.81 at 10:37 and
+10:51; **$2.05 at 10:54, above the $1.848 stop**; the live book covered on the 60-minute timer at 11:03 near $1.70
+and texted -12.1% (-$152). The note is right: the stop was crossed nine minutes before the exit. Cause: the live
+monitor sees the free feed only, which printed 12 one-minute bars in that hour (highest $1.80) while the official
+tape traded 433,000 shares in the 10:54 minute. The official result is the stop: about -21% (-$266). Classification:
+rule loss (a stop) plus the known live-data gap: the first of 23 live shorts where the free feed missed an official
+stop entirely (the 5 earlier official stops were all seen live; AMIX 11-10 and the FCUV long 11-13 saw theirs late).
+Real-time official data is paid (section 7 proof standard); the official bars arrive free 15 minutes late. On the
+10:04 cover: the rule has no profit line by design; +15% target, half off at +3% / +5% and a 5% trail all made less
+than holding over 3,113 fades (section 4), because the usual path is bounce then second leg down; MPU went one leg
+down and all the way back. Its low missed the tested +15% line by one cent. Not tested: a second line that arms only
+once the trade is well in profit (the owner's "two stoppage lines", to be pre-registered when specified). The note's
+"record says shorts were OFF" came from stale lines in this file (finding 20, the score table, section 7), corrected
+the same day.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
@@ -338,8 +356,8 @@ is: the tested average of the KIND of trade, on the dollars in the position.
 |---|---|---|
 | model long call | +0.25% (3,448 calls, 53% won) | GO |
 | model short call | -0.08% (3,405 calls, 50% won) | NO-GO |
-| alert long (A2) | -2.09% (2,242 trades, 14% won) | NO-GO (off) |
-| alert fade | +1.70% tested; the forward record while its guard is in alarm (-1.8% on 11-14) | NO-GO (off) |
+| alert long (A2) | -2.09% (2,242 trades, 14% won) | NO-GO by the test; ON again on paper since 11-16 (owner) |
+| alert fade | +1.70% tested; the forward record while its guard is in alarm (-1.8% on 11-14) | NO-GO while in alarm; ON again on paper since 11-16 (owner), quarter size |
 | ETF and overlay holdings | none: a basket held for comparison | yardstick |
 
 It cannot rank two trades of the same kind, so size inside a kind stays an equal risk budget. Worked example, AMD
@@ -443,11 +461,12 @@ test on these names. The held-out months stay closed.
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
   time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`); X buzz hypothesis (`prereg_fade_x_2026-11-08`, A1 cheap collection); Reddit buzz hypothesis (`prereg_fade_reddit_2026-11-08`).
 - Real money only on a strategy proven on unseen data and tradeable at a broker (borrow). Shorts also need section 0.
-- **Fade back on?** Owner's call only, under section 0. Evidence to bring: the forward record recovering (win rate back
-  near 57% over 100+ new forward trades) AND a borrow-aware test. Until then the forward record keeps scoring nightly.
-- **Nothing trades on alerts since 2026-11-13** (fade off, longs measure-only). What is still measured nightly: the
-  fade forward record, every shadow challenger, the long shadow book. A book goes live again only when a
-  pre-registered rule passes training and held-out.
+- **Fade back on: done 2026-11-16 by the owner's word, on paper** (section 0), at quarter size (drift guard) and only
+  on names IBKR can lend. Still to bring before any real money: the forward record recovering (win rate back near 57%
+  over 100+ new forward trades) AND the borrowable part alone being positive (forward n 22 so far: -2.7%).
+- **Both alert books trade on paper again since 2026-11-16** (owner: "we need to see how they perform"). Neither has a
+  rule that passed its test; still measured nightly: the fade forward record, every shadow challenger, the long
+  shadow book. Real money only for a pre-registered rule that passes training and held-out.
 - **Long side (owner's focus):** the owner's Clean Bull Flag Finder (prereg_bull_flag_finder_2026-11-13, run once);
   BoS / CHoCH with EMA 9 > 21 (owner: "nowhere to go but up") once the Pine source arrives.
 - Broker path (`docs/research/broker_borrow_2026-11-06.md`): IBKR has no locate fee and no borrow fee on same-day
