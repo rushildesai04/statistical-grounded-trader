@@ -103,7 +103,7 @@ def switches(db: OpsStore) -> list[str]:
     if fade.is_off(db):
         out.append("alert shorts (fade) are OFF: no short trades and no short texts today")
     if long_book.is_off(db):
-        out.append("alert longs are OFF: no long trades and no long texts today")
+        out.append("alert longs are measure-only: each setup is texted as seen, none is traded or counted")
     return out
 
 

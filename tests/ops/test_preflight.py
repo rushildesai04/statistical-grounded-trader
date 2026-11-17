@@ -58,7 +58,7 @@ def test_a_switched_off_book_is_said_before_the_open(tmp_path):
     db.set_flag("long_off", "1")
     db.set_flag("paused", "1")
     lines = pf.switches(db)
-    assert len(lines) == 3 and "PAUSED" in lines[0] and "alert longs are OFF" in lines[2]
+    assert len(lines) == 3 and "PAUSED" in lines[0] and "alert longs are measure-only" in lines[2]
 
 
 def test_the_switch_text_is_not_worded_as_a_fault(tmp_path):
@@ -95,7 +95,7 @@ def test_main_texts_the_switches_even_when_every_check_passes(tmp_path, monkeypa
 
     monkeypatch.setattr(calendar, "default_calendar", lambda: Open())
     assert pf.main() == 0
-    assert len(sent) == 1 and "alert longs are OFF" in sent[0] and "problem" not in sent[0]
+    assert len(sent) == 1 and "alert longs are measure-only" in sent[0] and "problem" not in sent[0]
     db.set_flag("long_off", "0")
     assert pf.main() == 0 and len(sent) == 1                       # all on: silent, as before
     assert "all checks passed" in capsys.readouterr().out

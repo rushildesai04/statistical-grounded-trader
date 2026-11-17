@@ -95,3 +95,12 @@ def test_every_stored_reason_of_the_fade_has_plain_words():
               fade.NO_PRINT_REASON):
         assert alert_feed.why(r) != r and "amendment" not in alert_feed.why(r)
     assert alert_feed.why(None) == "" and alert_feed.why("price $0.62 outside $1-50") == "price $0.62 outside $1-50"
+
+
+def test_a_watched_long_and_a_no_win_skip_read_plainly():
+    # owner 2026-11-17: measure-only longs are "seen", a setup whose target cannot beat costs is skipped
+    from sgt.ops import alert_feed as af
+
+    assert af.long_words("seen", None) == "long seen, not traded"
+    assert af.long_words("seen", -0.025) == "long seen, not traded: would have made -2.5%"
+    assert af.long_words("nowin", None) == "long setup skipped: its target could not beat costs"
