@@ -45,3 +45,28 @@ closes) and on strong closes, to show whether the weak close matters.
 No borrow in the test (the standing gap of every short here). Open and close prints are assumed tradable. Missing
 delisted names help a short's measured result less than they hurt it (a stock that vanished fell), so this bias is
 against the rule, if anything.
+
+## Result (2026-11-17, held-out scored once; `reports/alert_after_day/d2_result.json`)
+Plan `dd89f81`, code `b6fec0a`. **FAIL: the effect seen in training is not there in the held-out period.**
+
+| short the open after a weak-close alert day | events | mean net | median | won | lower bound |
+|---|---|---|---|---|---|
+| training (where it was seen) | 943 | +1.05% | +1.08% | 55% | +0.19% |
+| **held-out (the test)** | 322 | **-0.28%** | +0.27% | 52% | -2.98% |
+
+Held-out, other groups (not decided): weak close with no company news -1.47% (206), with news +1.81% (116); ALL
+alert days +0.75% (758, lower bound -0.60%); STRONG close +3.97% (149), the opposite group from training's pick.
+Without a stop 5.6% of the trades lose more than 20% and the worst lost 213% (PFSA 2026-08-17, the stock tripled
+in the session).
+
+Reading:
+- The weak-close cell was one of 25 looked at; picked for being the largest, it shrank to nothing on new data. Had
+  it been adopted from the training map it would have been a rule built on selection. This is the reason every map
+  here needs a second sample before it means anything.
+- The broad fact survives: the day after an alert day the stock tends to fall from the open (held-out, all alert
+  days, +0.75% net for a short), but not by enough to clear the bound, and which KIND of alert day falls most
+  flips between the two periods (weak closes in training, strong closes in held-out). No sub-rule is supported.
+- A short without a stop on these names has open-ended days (-213%). Any day-after short would need the stop,
+  which only minute bars can test.
+Rule D2 is closed. No other group of the after-day map is promoted from a look at the held-out numbers above (they
+were printed as the plan said, and "strong close" is now a seen cell on both periods).
