@@ -76,8 +76,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 9. **Borrow is the real-money question.** Names Alpaca can short lost -0.55%/trade held-out; live stamps show the
    biggest winners (CRIS, AEHL) had zero IBKR shares. Decided at forward n >= 300 on the IBKR-borrowable subset.
 10. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
-   setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs (`ema_cross_check_2026-11-05`,
-   `docs/research/signals_research_2026-11-05.md`). They are shown in texts as context, never as filters.
+   setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs. They are shown in texts as context, never as filters.
    On the alert long book the trader's five rules (9/24 cross, volume spike, MACD+, PSAR green, above VWAP) pick WORSE
    trades: all five true -3.13% vs -2.02% otherwise; each rule alone also worse (`prereg_trader_rules_long_2026-11-12`).
    Shorting while EMA 9 > EMA 21 IS the fade: 92-97% of alerts have 9 > 21 at entry, and those shorts made +0.73% /
@@ -94,7 +93,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    (`prereg_fade_calmskip_2026-11-08`). Inverse-volatility sizing (the textbook version) is rejected.
 19. **Two red weeks mean nothing; check for look-ahead first.** Even with the edge intact 36% of 2-week windows are
    negative (45.5% of days). A promising split (entering at a fresh high: -0.59% vs +1.99%) used the entry bar's own
-   high, which happens after the entry: with point-in-time data it vanished (`docs/research/architecture_audit_2026-11-09.md`).
+   high, which happens after the entry: with point-in-time data it vanished.
 20. **November 2026: the fade stopped working, and it is not a bug.** Forward record (every alert, same code and same
    channel-history source as the held-out test) Nov 2-12: **-3.44%/trade, win 39%, n 61**, against 57-58% wins in
    every held-out month; a 9-session stretch of held-out days is this bad 1.1% of the time (session bootstrap). Live
@@ -117,7 +116,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    semantics the pooled edge was +0.86%, not +1.01%. Fixed 2026-11-09: live entry = tested entry (OMH review,
    `prereg_fade_halt_audit_2026-11-09`).
 16. **Our cost model matches real spreads.** Real quoted bid/ask at entry and exit for 2,925 tested fades: round trip
-   0.85% / 0.87% vs 0.90% / 0.89% modelled; net +1.18% / +1.33% at real spreads (`docs/research/real_spreads_2026-11-08.md`).
+   0.85% / 0.87% vs 0.90% / 0.89% modelled; net +1.18% / +1.33% at real spreads.
    The edge is not a cost illusion; borrow/locate is the open cost question.
    Resting limit exits do not beat the spread: fills save +0.58%, misses cost -0.59% (queue model, finding from
    `prereg_fade_passive_exit_2026-11-08`).
@@ -133,6 +132,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | trailing 5% stop | -0.18% | -0.50% | prereg_fade_exits_2026-11-05 |
 | two-line exit (owner 11-17): cover X% off the low while under the entry; X 5/10/15% | -0.21 / +0.40 / +0.47% | -0.57 / -0.24 / +0.32% | prereg_fade_profit_lock_2026-11-17 |
 | half-time cut (owner 11-17): leave a short that is losing at 20 / 30 min | +0.91 / +0.86% | +1.00 / +0.97% | prereg_fade_time_cut_2026-11-17: losers held lose less |
+| timing maps (owner 11-17): leave a winning short once its low is 5-20 min old; LONG 0-90 min after the alert | +0.29..+0.84%; longs -0.95..-3.17% | not opened (0 of 39 cells) | prereg_timing_maps_2026-11-17 |
 | regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): gate +0.05% / -0.19% per trade (p 0.36 / 0.83); sessions have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would skip 5 of 10 sessions (skipped -4.7%) | prereg_fade_regime_gate_2026-11-13 |
 | money score: size model calls by forecast vs risk | n 3,448: high +0.24% vs rest +0.27% (p 0.57); sizing p 0.20 | not opened | prereg_money_score_2026-11-14 |
 | record score: skip a call when its stock-side record <= 0 | longs 13 skipped; shorts kept -0.12%, skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
@@ -157,10 +157,10 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | skip fades when small caps are risk-on (IWM >= +1% at entry) | risk-on fades did BETTER (+1.50% vs +0.94%) | n.s. | prereg_fade_mood_2026-11-06 |
 | inverse-volatility sizing (smaller in jumpy names) | +0.17% per $ vs +0.97% | +0.37% vs +1.12% | prereg_fade_volsize_2026-11-08 |
 | timed exit as a limit at the bid (2 min, then market) | queue model -0.00% (bars said +0.25%: fill artifact) | -0.06% | prereg_fade_passive_exit_2026-11-08 |
-| LONG every alert (5% stop, +5% target, 15 min; also +3/+8%, 30 min) | -1.65% (51% stopped) | -1.72% | prereg_long_family_2026-11-09 |
+| LONG every alert (5% stop, +5% target, 15 min) | -1.65% (51% stopped) | -1.72% | prereg_long_family_2026-11-09 |
 | LONG calm alerts (the quintile that loses as a short) | -0.87% | -1.11% | same |
 | LONG the reopen after a halt | -2.12% (63% stopped) | -3.52% | same |
-| LONG the first red candle after the alert (next open / break of its high) | -1.19% / -2.44% | -1.27% / -2.36% | prereg_long_setups_2026-11-10 |
+| LONG first red candle (next open / break of its high) | -1.19% / -2.44% | -1.27% / -2.36% | prereg_long_setups_2026-11-10 |
 | LONG the bull flag breakout (5% pole, 2-4 bar flag, >= 2 red, <= 50% retrace, lighter volume) | -1.72% (gross -0.82%) | -1.55% | same |
 | LONG a break of structure (close over the last swing high after a higher low) | -1.85% | -2.72% | same |
 | LONG the first red candle after a halt reopen | -1.87% / -2.83% | -0.19% / -7.01% | same |
@@ -304,6 +304,17 @@ not wait, it is stopped at once (entries, not holds). Shorts: 22 settled, 5 stop
 and 8 that lost (-6.4%): slow grinds against the short, the owner's case. A clock rule for exactly that case, "leave
 a short that is losing at half time", was pre-registered and run once (section 4): shorts losing at 30 minutes made
 -6.1% cut there and -5.5% held to the end; three in ten come back to a profit. A wash, slightly negative: not added.
+
+**Exit timing and long entry timing, mapped once (owner, 2026-11-17 15:00: "once a stock reaches its lowest and keeps
+rising for a certain amount of time ... and we still have made profit, get out"; "the longs ... entering at the most
+optimal time"; `prereg_timing_maps_2026-11-17`).** Instead of one more threshold, every such moment on 2,345 tested
+shorts: low 5 / 10 / 15 / 20 minutes old, price above it, trade in profit, by the profit on the table (12 cells). No
+cell favours leaving: with 10% or more on the table holding adds +0.4 to +2.0 points, with under 5% it is the same
+either way (-0.13% to +0.30%), and only 1% to 12% of such trades go on to the stop. For longs, a buy 0 / 5 / ... / 90
+minutes after the alert held 30 minutes (27 cells with the price against the alert price): every cell loses after
+costs, from -3.2% at the alert to -0.95% at 90 minutes; the fall fades out over about 90 minutes and then nothing
+happens, so there is no bounce to buy; buying a 10% drop is the worst cell. Both questions are closed on this
+channel's alerts: the short's hour is not the leak, and no entry time makes the long work.
 
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
