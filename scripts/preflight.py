@@ -4,6 +4,10 @@
 
 Checks: the fade listener's heartbeat (it ticks around the clock), Alpaca market data (a fresh SPY print), the ops
 database (writable) and free disk on the volume. Each failure becomes one plain-English line in a single text.
+
+Switches (2026-11-17): a book that is switched off, or a paused system, is not a fault, but it is said before the open
+every session it stays that way. On 2026-11-16 both alert books sat off all morning, 26 alerts came in, no text went
+out and the owner read the silent phone as a failure ("i havent gotten a single alert yet, something is wrong").
 """
 from __future__ import annotations
 
@@ -56,6 +60,20 @@ def check_disk(path: Path) -> str | None:
     return None if free >= MIN_FREE else f"the server disk is {1 - free:.0%} full: jobs may start failing"
 
 
+def switches(db: OpsStore) -> list[str]:
+    """One line per switch that will keep trades and their texts away today. Reads flags only."""
+    from sgt.fast import fade, long_book
+
+    out = []
+    if db.paused():
+        out.append("everything is PAUSED: no book trades until it is resumed")
+    if fade.is_off(db):
+        out.append("alert shorts (fade) are OFF: no short trades and no short texts today")
+    if long_book.is_off(db):
+        out.append("alert longs are OFF: no long trades and no long texts today")
+    return out
+
+
 def spy_trade_time() -> datetime | None:
     import pandas as pd
     from fade_live import data_client
@@ -72,9 +90,15 @@ def run(db: OpsStore, now: datetime, quote_time=spy_trade_time, disk: Path = Pat
             if p]
 
 
-def message(problems: list[str], now: datetime) -> str:
-    return ("[SGT] Pre-market check found a problem before the open:\n- " + "\n- ".join(problems)
-            + "\nPaper trading continues where it can. Reply STATUS for details.")
+def message(problems: list[str], now: datetime, off: list[str] | None = None) -> str:
+    parts = []
+    if problems:
+        parts.append("[SGT] Pre-market check found a problem before the open:\n- " + "\n- ".join(problems)
+                     + "\nPaper trading continues where it can. Reply STATUS for details.")
+    if off:
+        parts.append(("" if problems else "[SGT] Before the open: ") + "Switched off today:\n- " + "\n- ".join(off)
+                     + "\nThe system is running; these stay off until you say to turn them on.")
+    return "\n".join(parts)
 
 
 def main() -> int:
@@ -87,11 +111,16 @@ def main() -> int:
     if not default_calendar().is_session(now.astimezone(ZoneInfo("America/New_York")).date()):
         print("preflight: market closed today; nothing to check")
         return 0
-    problems = run(OpsStore(), now)
-    if not problems:
+    db = OpsStore()
+    problems = run(db, now)
+    try:
+        off = switches(db)
+    except Exception as exc:  # noqa: BLE001 - an unreadable switch is itself worth a line, never a silent pass
+        off = [f"the on/off switches could not be read ({type(exc).__name__})"]
+    if not problems and not off:
         print("preflight: all checks passed")
         return 0
-    text = message(problems, now)
+    text = message(problems, now, off)
     sms = Sms()
     try:
         sms.send(text)
