@@ -38,7 +38,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 |---|---|---|
 | entry | first 1-min bar at or after alert + 10 s (live: latest IEX trade; a print older than 90 s after a >= 10% move in 5 min looks like a halt and is not a price; without such a move it is a thin-on-IEX stock and is used) | prereg_alert_fade; RAYA / SNT fixes 2026-11-06 |
 | filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
-| stop | 20% above entry (worst case inside a bar) | prereg_alert_fade (10/20/30/none explored on train) |
+| stop | 20% above entry (worst case inside a bar). Live, the free feed can miss a move on a thin name, so since 2026-11-17 (owner decision 3A, `sgt.fast.tape_check`) the official one-minute bars, free once about 16 minutes old, are read every minute for each live short: an open trade whose stop the official tape crossed is closed there, and a trade covered later on the timer is corrected to the stop with one CORRECTION text. Estimates and texts only: the nightly official result was always computed from that tape | prereg_alert_fade (10/20/30/none explored on train); MPU 11-17 |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
 | beta (F7) | no short when the stock's beta >= 3 (owner 2026-11-10; past: >= 3 -2.14%/trade, < 1.5 +1.86%). The scanner followed the same rule on 11-10 and is paused since 11-11 (owner: longs first; it still records and scores spikes: digest line) Unknown beta still shorts: tested 2026-11-11, no-news unknown +1.03%/trade (n 367), not worse than beta < 3 (p 0.36) | fade.py, prereg_alert_fade F7; scanner.py, prereg_scanner_book A1 |
 | repeat (F8) | no short on a stock the channel alerted 1-7 calendar days earlier (multi-day runner; owner 2026-11-12 deep review). No-news: kept +2.54% vs repeats -1.01% (train), +2.55% vs -1.33% (held-out). Longs still trade these alerts | prereg_fade_repeat_days_2026-11-12 |
@@ -289,7 +289,7 @@ monitor sees the free feed only, which printed 12 one-minute bars in that hour (
 tape traded 433,000 shares in the 10:54 minute. The official result is the stop: about -21% (-$266). Classification:
 rule loss (a stop) plus the known live-data gap: the first of 23 live shorts where the free feed missed an official
 stop entirely (the 5 earlier official stops were all seen live; AMIX 11-10 and the FCUV long 11-13 saw theirs late).
-Real-time official data is paid (section 7 proof standard); the official bars arrive free 15 minutes late. On the
+Real-time official data is paid (section 7 proof standard); the official bars arrive free 15 minutes late. Since 2026-11-17 the listener reads them each minute and closes or corrects a short whose stop they crossed (section 2, row "stop"): MPU would have been corrected at 11:10 instead of at the nightly settle. On the
 10:04 cover: the rule has no profit line by design; +15% target, half off at +3% / +5% and a 5% trail all made less
 than holding over 3,113 fades (section 4), because the usual path is bounce then second leg down; MPU went one leg
 down and all the way back. Its low missed the tested +15% line by one cent. The owner's "two stoppage lines" (cover once price

@@ -262,7 +262,10 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
 
 
 EXIT_WHY = {"stop": "🛑 stop hit: price jumped 20% over our short, loss capped", "60 min": "⏰ 60 minutes up",
-            "close": "🔔 market close", VETO_EXIT: "👋 you texted NO"}
+            "close": "🔔 market close", VETO_EXIT: "👋 you texted NO",
+            # sgt.fast.tape_check (2026-11-17): the official tape crossed the stop and the free live feed did not show it
+            "stop (official tape, seen late)": "🛑 stop hit on the official tape about 15 minutes ago (the free live "
+                                               "feed did not show it), loss capped at the stop"}
 
 
 def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: float, n_day: int,
@@ -272,7 +275,7 @@ def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: flo
     and ``day_usd``; the two prices and the price move stay as traded."""
     r = dict(r)
     g = (entry - exit_px) / entry - cost
-    mark = "🛑" if why == "stop" else ("🟢" if g > 0 else "🔴")
+    mark = "🛑" if why.startswith("stop") else ("🟢" if g > 0 else "🔴")
     verb = "made" if usd >= 0 else "lost"
     lines = [f"[SGT] {mark} {bold('FADE OUT')} · {bold(r['symbol'])} · {verb} {bold(f'{_usd(usd)} ({g:+.1%})')}",
              f"Shorted ${_fmt(entry)} → bought back ${_fmt(exit_px)} · {EXIT_WHY.get(why, why)}"]
