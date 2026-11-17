@@ -323,6 +323,15 @@ is 5.3 points better (+2.50% against the champion's -2.79%, 44% of them stopped)
 and they are the fade's whole profit (+2.48%, 15% stopped); entered 3 minutes late they make -0.70%. The first print
 is the right entry: which trades will squeeze is known only afterwards, and waiting to find out costs the best ones.
 
+**After the close: the alert day is a top on every clock (`prereg_alert_after_day_2026-11-17`; 2,319 alert days).**
+From the alert day's close: overnight -1.1%, one day -2.5%, two days -3.9%, five days -6.3% on average; the median
+stock is 12.6% lower after five days and only 30% are higher. Worse with company news (-7.7% in five days) and after
+a weak close (-7.9%); a strong close is flat for a day (+0.3%) and then falls too. No long cell is positive after
+costs (0 of 25), although delisted names are missing, which flatters a long. With the 27 entry times inside the hour
+this closes the long side on this channel from one minute to five days. The short side of the same drift is large
+and unproven: it needs borrowed shares every night at unknown fees and has no loss cap over a gap (section 0); it
+could only be measured forward, with the IBKR shares and fee recorded at each close.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert

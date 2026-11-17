@@ -45,3 +45,33 @@ past the alert day is not proposed again without new information.
 Daily bars only (the close is the last regular trade; a market-on-close order is assumed to get it). Survivorship
 as above. Returns are clipped at -95% / +300% per horizon to keep a bad print or an unadjusted corporate action from
 deciding a mean; the number of clipped values is reported.
+
+## Result (2026-11-17, training map made once; `reports/alert_after_day/result_train.json`)
+Plan `ee88f9f`, code committed before any bar was fetched. Daily bars for 1,279 of 1,280 alert symbols; 2,319 of 2,349
+events scored (5 without bars, 25 without the five following sessions). **No cell is a long finding (0 of 25); the
+held-out period was not read.** Every cell's mean is at or below zero after costs, and most are far below.
+
+| after the alert day's close | all (2,319) | no news (1,327) | news (988) | closed strong (555) | closed weak (943) |
+|---|---|---|---|---|---|
+| overnight | -1.12% | -0.65% | -1.81% | +0.58% | -1.46% |
+| the next session | -1.20% | -0.85% | -1.65% | -0.03% | -2.49% |
+| one day | -2.50% | -1.65% | -3.69% | +0.31% | -4.29% |
+| two days | -3.86% | -2.77% | -5.35% | -1.02% | -5.43% |
+| five days | **-6.34%** | -5.38% | -7.67% | -2.53% | -7.87% |
+(mean return before costs; a long pays about 0.9% more.) All events: the MEDIAN stock is 5.5% lower a day later and
+12.6% lower five days later; 33% are higher after one day, 30% after five. The best cell for a long, a strong close
+held overnight, is +0.58% before costs and -0.24% after, with a bound from -3.7% to +3.4%: nothing.
+
+Reading:
+- The alert day is a top on every clock measured: the hour (the fade), the rest of the day, the night, the week.
+  This is the attention effect of the literature at full size (-6.3% in five days), and it holds although the
+  names that stopped trading are missing, which flatters a long.
+- So the long side on this channel is closed at every horizon from one minute to five days: 27 entry times inside
+  the hour and 25 cells after the close, none positive after costs. A long on a stock because this channel alerted
+  it is a trade against the strongest regularity in the data.
+- The other side is large and NOT claimed: a short from the close would have made about +2.5% in a day and +6.3% in
+  five before costs, with means far above medians' mirror because a few names multiply (16 five-day returns above
+  +300% were clipped). Holding a short overnight on these names needs shares every night at fees that can exceed the
+  drift, and a hard loss cap that a gap ignores (section 0 of the playbook). No borrow history exists to test it.
+  The only honest way to learn whether it is real money is forward: record, for each alert day, the IBKR shares
+  and fee at the close and on the following days, next to the closes. That is a proposal for the owner, not a result.
