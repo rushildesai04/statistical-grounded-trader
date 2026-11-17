@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -37,7 +37,9 @@ MIN_SCORED, MIN_CALLS = 60, 5000
 ALPHA, SEED, N_BOOT = 0.05 / 2, 20261117, 10_000
 COST = score.COST
 BAR_MIN, GRID = 15, 390
-MAX_PAGES, PAGE_LIMIT, TIMEOUT_S, MAX_RETRIES = 60, 10_000, 30.0, 6
+# The API pages on the underlying minutes: one page is about five weeks of quarter-hours (about 860 bars), so eleven
+# years is about 115 pages. Requests are spaced to stay well under the account's 200 a minute (the runner shares it).
+MAX_PAGES, PAGE_LIMIT, TIMEOUT_S, MAX_RETRIES, MIN_INTERVAL_S = 220, 10_000, 30.0, 6, 0.4
 MAX_BARS = 400_000                       # per symbol: 11 years x 252 sessions x 64 quarter-hours is about 177,000
 FUNDS = frozenset("""SPY QQQ IWM EEM EFA GDX XLF HYG GLD IVV TLT FXI TQQQ LQD XLK XLU XLV EWZ XLI DIA VXX VOO XLE XLP IEMG
 SMH IYR GDXJ XOP VWO XLY XBI IEF AGG IEFA VNQ VTI EWJ EMB MDY UVXY SQQQ KRE XLB USO VEA""".split())
@@ -111,6 +113,7 @@ def fetch_m15(sym: str, start: date = START, end: date = END) -> pd.DataFrame:
     with httpx.Client(timeout=TIMEOUT_S) as client:
         for _ in range(MAX_PAGES):
             for attempt in range(MAX_RETRIES + 1):
+                time.sleep(MIN_INTERVAL_S)
                 try:
                     r = client.get(url, params=params, headers=_alpaca_headers())
                 except httpx.TransportError:
@@ -331,9 +334,8 @@ def main(argv: list[str] | None = None) -> int:
                 return f"{s} {fetch_m15(s).ts.dt.tz_convert(ET).dt.date.nunique()} sessions, daily {len(adjusted_daily(s))}"
             except (RuntimeError, ValueError, KeyError) as e:
                 return f"{s} FAILED {type(e).__name__}: {str(e)[:80]}"
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            for line in ex.map(one, names):
-                print(line, flush=True)
+        for s in names:                                     # one at a time: the request spacing is the rate limit
+            print(one(s), flush=True)
         return 0
     train = OUT / "result_train.json"
     if a.holdout:                                           # fail closed: held-out only after the training PASS
