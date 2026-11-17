@@ -316,6 +316,13 @@ costs, from -3.2% at the alert to -0.95% at 90 minutes; the fall fades out over 
 happens, so there is no bounce to buy; buying a 10% drop is the worst cell. Both questions are closed on this
 channel's alerts: the short's hour is not the leak, and no entry time makes the long work.
 
+**The short's entry price: rest an offer above the market? (`prereg_fade_limit_entry_2026-11-17`, FAIL.)** A sell
+limit 2 / 5 / 10% above the first print for 3 or 5 minutes, market if not filled: +0.53% / +0.39% / +0.04% / -0.36%
+per trade against +0.97%. Measured why: a third of the trades squeeze 5% in the first 3 minutes; on those the offer
+is 5.3 points better (+2.50% against the champion's -2.79%, 44% of them stopped). The other two thirds fall at once,
+and they are the fade's whole profit (+2.48%, 15% stopped); entered 3 minutes late they make -0.70%. The first print
+is the right entry: which trades will squeeze is known only afterwards, and waiting to find out costs the best ones.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
