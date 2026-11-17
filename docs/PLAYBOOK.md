@@ -246,6 +246,38 @@ had no shares at IBKR): about +$1,050 at the halved size. The long shadow lost o
 (9 alerts, first setup each: -1.5% to -14.4%, average about -4.5%). One day: no rule changes on it. GDHG ran from $1.87
 to about $7 through halts; the 20% stop is the only cap a short has (section 0, condition b, still open).
 
+**Where every dollar went, all books, start to 2026-11-16 (owner that night: "why are we still losing money ... figure
+out exactly what's going on"; ledger pulled read-only from the runner).**
+| book | since | result | what it is made of |
+|---|---|---|---|
+| megacap (6 names, long and short) | 11-02 | +$4,435 | long calls +$3,624 (10 stock-days, 8 won), short calls +$1,140 (5, 3 won) |
+| megacap 15 | 11-10 | +$1,224 | long calls -$640 (12 stock-days, 5 won; AMD -$1,916), short calls +$2,063 (6, 5 won) |
+| long calls (trading book) | 11-16 | -$3 | one entry, cost only |
+| overlay (holds the six) | 11-09 | -$2,866 | a held basket: NVDA -$1,267, AMZN -$568, MSFT -$475 |
+| 60/40, dual momentum, 60/40 trend | 11-03 | -$1,555, -$3,204, -$1,239 | held baskets, no decisions: SPY, DBC, IWM fell |
+| alert shorts (fade) | 11-04 | -$2,985 on 22 trades | 5 stops -$5,388; the other 17 +$2,403 (+2.8% each). The 13 a real account could borrow: -$5,031, 3 won |
+| alert longs | 11-10 | -$1,212 on 10 trades | 7 stops -$1,833, 3 targets +$622 |
+Monday 11-16 alone: baskets -$6,443 (market -2.1%), megacap 15 -$799 (Thursday's calls held because Friday's decision
+crashed: a process loss, fixed that day), trading books -$3. Reading: the model books are UP since they started; the
+red is (a) baskets that simply hold the market, (b) the two alert books. Classification of every loss so far:
+**process** (stale megacap 15 positions -$727 to -$799; stale / pre-halt prints RAYA, FISN, OMH; all fixed in code),
+**market** (every basket dollar), **rule as tested** (every alert stop: the fade's test has 25% of trades stopped at
+-20%, the long book's test wins 14%), **not real** (9 paper shorts with no shares: +$2,046 never earnable; fixed by the
+borrow rule). No loss is unexplained.
+What the same evidence does NOT support (checked that night, descriptive):
+- "Skip morning shorts": 16 of the 22 live shorts were before 11:00 and lost -$2,600, and on the forward record
+  mornings are -2.3% (n 39) against +3.0% later (n 15). But under today's rule set (no news, beta < 3, no repeat)
+  the tested mornings made +2.68% / +1.32% per trade (training n 376 / held-out n 136; the first half-hour is the
+  weak part, +1.85% / +0.28%): skipping them would give up about half the tested profit. Not a rule.
+- Borrowable names only (the rule since 11-16): forward record, rule set and shares at IBKR, n 22: -2.7% per trade,
+  36% won; without the borrow condition n 39: +1.4%. Too few to decide; history says Alpaca-shortable names lost
+  -0.55% (finding 9). This is the open question that decides the fade, and only more forward trades answer it.
+- The forward record's 25 stops would have averaged -19% without a stop as well (worst -193%): the stop is not the
+  leak. Its 56 other trades averaged +10.9% before costs.
+- Model long calls split by time (training only): +0.29% per call = overnight +0.16% and next-day session +0.14%;
+  an overnight-only book has the same Sharpe (1.03 against 1.09) at half the return. Not a rule.
+- The alerts carry three fields (ticker, type, price) and all three are used; nothing in a message is left unread.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
