@@ -133,10 +133,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | two-line exit (owner 11-17): cover X% off the low while under the entry; X 5/10/15% | -0.21 / +0.40 / +0.47% | -0.57 / -0.24 / +0.32% | prereg_fade_profit_lock_2026-11-17 |
 | half-time cut (owner 11-17): leave a short that is losing at 20 / 30 min | +0.91 / +0.86% | +1.00 / +0.97% | prereg_fade_time_cut_2026-11-17: losers held lose less |
 | timing maps (owner 11-17): leave a winning short once its low is 5-20 min old; LONG 0-90 min after the alert | +0.29..+0.84%; longs -0.95..-3.17% | not opened (0 of 39 cells) | prereg_timing_maps_2026-11-17 |
+| skip a stock already alerted before the open that day (owner 11-17: GP) | fresh +2.81% vs warm +1.63% (n 115, p 0.24); warm still profitable | not opened | prereg_fade_premarket_warm_2026-11-17 |
 | regime gate: no fades after a poor prior 5 sessions (win share < 50%, or mean net < 0) | skipped trades -0.24% / +0.47% (n 511 / 924): gate +0.05% / -0.19% per trade (p 0.36 / 0.83); sessions have no memory (lag-1 corr +0.06) | not opened; Nov 2026 it would skip 5 of 10 sessions (skipped -4.7%) | prereg_fade_regime_gate_2026-11-13 |
-| money score: size model calls by forecast vs risk | n 3,448: high +0.24% vs rest +0.27% (p 0.57); sizing p 0.20 | not opened | prereg_money_score_2026-11-14 |
-| record score: skip a call when its stock-side record <= 0 | longs 13 skipped; shorts kept -0.12%, skipped -0.05% (p 0.29) | not opened | prereg_record_score_2026-11-14 |
-| long calls: skip earnings holds (E); cap crowded days (V) | E 47 skipped +0.78% vs +0.25% (p 0.73); V p 0.98 | not opened | prereg_long_rules_2026-11-15 |
 | LONG: owner's Clean Bull Flag Finder (exact port, EMA 9 > 21, whole session after the alert); 2R / 30 min, or hold while 9 > 21 | -1.60% / -1.78% (n 5,250 / 4,661; stopped at the flag low 55%); strength >= 75: 68 trades, noise | not opened; Nov 2026 -1.42% / -1.22% | prereg_bull_flag_finder_2026-11-13 |
 | LONG: break of structure (pivot 5) while EMA 9 > 21; same two exits | -1.45% / -1.56% (n 5,017 / 4,531). Next bar after a BoS: up 1%+ 21.4% vs 17.3% usual, mean +0.08%: true but a tenth of the cost | not opened; Nov 2026 -0.13% / -0.04% | prereg_bos_ema_2026-11-13 (A1: the owner's own Pine script, same result -1.45% / -1.59%) |
 | cover on VWAP reclaim | +0.52% | +0.22% | same |
@@ -395,6 +393,8 @@ long of 2026-11-12 ($13,400): expected about +$34 by the score (+$98 by AMD's ow
 says not to trust), normal swing +/-$990, result -$1,173: one call is noise, the edge is the average of hundreds.
 Per $100k the long-calls book has been expected to make about +$45 a day, +$230 a week, with 54% of weeks green and
 a normal week swinging about +/-$2,800 at the live size.
+
+*(Moved here from section 4 on 2026-11-17, which is kept for alert trades: the daily model's rejected rules are the money score `prereg_money_score_2026-11-14` (high forecast +0.24% vs rest +0.27%, p 0.57), the record score `prereg_record_score_2026-11-14` (p 0.29), earnings holds and crowded days `prereg_long_rules_2026-11-15` (p 0.73 / 0.98), the market filter, the fresh names and the market timer below; none passed.)*
 
 **Earnings and crowded days (`prereg_long_rules_2026-11-15`, both FAIL, nothing changed):** the two risk fixes named
 in the 11-13 review were tested on the long calls. (E) Skipping a long call held through the stock's own earnings: the

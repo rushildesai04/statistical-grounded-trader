@@ -42,3 +42,22 @@ concentrate, against later); share of events that are warm; the opposite reading
 ## What follows
 PASS + held-out: proposal to the owner. FAIL: recorded in PLAYBOOK; pre-market alerts are not proposed again as a
 filter for the short. A significantly BETTER warm group: noted as a forward-shadow lead only.
+
+## Result (2026-11-17, run once; `reports/fade_premarket_warm/result.json`)
+Plan `e729b71`, code `59da513`. **FAIL: the direction is as guessed, the size is not enough, and warm shorts still
+make money.** The held-out period was not scored.
+
+| training | trades | warm share | fresh | warm | fresh - warm | p |
+|---|---|---|---|---|---|---|
+| live rule set (no news, not a repeat, beta < 3) | 977 | 115 (12%) | +2.81% (60% won) | +1.63% (63% won) | +1.18% | 0.24 |
+| all tested fades | 2,345 | 503 (21%) | +1.13% | +0.40% | +0.72% | 0.20 |
+| news fades only | 1,010 | 333 (33%) | +0.32% | -0.59% | +0.91% | 0.21 |
+Rule set by time of day: 09:30-10:00 fresh +2.36%, warm +0.29% (69 warm trades, p 0.19); 10:00-11:00 +2.49% against
++2.83% (24); from 11:00 +3.34% against +3.30% (17).
+
+Reading: a stock the channel already alerted before the open fades less well in the first half hour, the same
+direction as the 7-day repeat rule, but under today's rules the 115 warm shorts still earned +1.63% each (+1.9 units
+in total), so skipping them gives money up, and the difference could be chance (p 0.24). After 10:00 there is no
+difference at all. No rule. Pre-market alerts are not proposed again as a filter for the short.
+Side note for the record (seen in this run, not a test): on the live rule set the training fades number 977 at
++2.67% per trade, the tested figure the live short is compared with.
