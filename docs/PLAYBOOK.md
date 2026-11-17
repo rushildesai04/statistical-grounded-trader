@@ -266,8 +266,8 @@ red is (a) baskets that simply hold the market, (b) the two alert books. Classif
 borrow rule). No loss is unexplained.
 What the same evidence does NOT support (checked that night, descriptive):
 - "Skip morning shorts": 16 of the 22 live shorts were before 11:00 and lost -$2,600, and on the forward record
-  mornings are -2.3% (n 39) against +3.0% later (n 15). But under today's rule set (no news, beta < 3, no repeat)
-  the tested mornings made +2.68% / +1.32% per trade (training n 376 / held-out n 136; the first half-hour is the
+  mornings are -2.3% (n 39) against +3.0% later (n 15). But under today's rule set (no news, beta < 3, no repeat;
+  the repeat rule approximated from the tested events) the tested mornings made +2.68% / +1.32% per trade (training n 376 / held-out n 136; the first half-hour is the
   weak part, +1.85% / +0.28%): skipping them would give up about half the tested profit. Not a rule.
 - Borrowable names only (the rule since 11-16): forward record, rule set and shares at IBKR, n 22: -2.7% per trade,
   36% won; without the borrow condition n 39: +1.4%. Too few to decide; history says Alpaca-shortable names lost
