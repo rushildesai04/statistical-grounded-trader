@@ -205,3 +205,32 @@ def test_a_number_that_is_not_finite_is_shown_blank_and_never_stops_the_page():
                      book_views=[{"symbol": "AMD", "usd": float("nan"), "score": {"usd": float("inf"), "go": True}}])
     data = json.loads(re.search(r"const DATA = (\{.*?\});\n", page, re.S).group(1))
     assert data["book_views"] == [{"symbol": "AMD", "usd": None, "score": {"usd": None, "go": True}}]
+
+
+def test_the_page_build_leaves_off_the_oldest_sessions_to_stay_under_its_budget():
+    """2026-11-17: the page had grown to 6.0 MB against the server's 8 MB limit; over it the whole site goes dark."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import trade_charts as tc
+
+    card = lambda day, n=1000: {"session": day, "blob": "x" * n}  # noqa: E731
+    cards = {"views": [card("2026-11-13"), card("2026-11-17")], "scan_views": [card("2026-11-10")],
+             "book_views": [card("2026-11-10"), card("2026-11-12"), card("2026-11-17"), {"blob": "y" * 10}]}
+    calls = []
+
+    def render(views, scan_views, book_views):
+        calls.append((len(views), len(scan_views), len(book_views)))
+        return "".join(v["blob"] for v in views + scan_views + book_views)
+
+    html, dropped = tc.fit(render, cards, budget=10_000)
+    assert dropped == [] and len(html) == 6010 and calls == [(2, 1, 4)]                 # under budget: untouched
+    html, dropped = tc.fit(render, cards, budget=3500)
+    assert dropped == ["2026-11-10", "2026-11-12"] and len(html) == 3010                # oldest sessions first
+    assert cards["scan_views"] and len(cards["book_views"]) == 4                          # the caller's lists are not changed
+    html, dropped = tc.fit(render, cards, budget=5)                                       # nothing left to drop
+    assert dropped == ["2026-11-10", "2026-11-12", "2026-11-13", "2026-11-17"] and html == "y" * 10
+    assert tc.PAGE_BUDGET < 8 * 1024 * 1024                                               # under the server's limit
+    from sgt.ops import chartserver
+    assert tc.PAGE_BUDGET < chartserver.MAX_PAGE
