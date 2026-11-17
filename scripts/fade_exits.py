@@ -2,6 +2,7 @@
 
     python scripts/fade_exits.py dev                  # exits (prereg_fade_exits_2026-11-05): trail, VWAP, EMA 9/21, target
     python scripts/fade_exits.py dev --study hold     # holds (prereg_fade_hold_2026-11-05): 2 hours, to the close
+    python scripts/fade_exits.py dev --study lock     # two-line exit (prereg_fade_profit_lock_2026-11-17): 5 / 10 / 15%
     python scripts/fade_exits.py shadow [--study S]   # nightly (runner, after the forward record): forward events
 
 `dev` is run ONCE per study. Same events, entries and costs as the frozen rule; the champion computed here equals
@@ -22,7 +23,7 @@ from alert_fade_test import LOCATE
 from fade_challengers import ET, N_BOOT, TAIL_PP, _rth, events
 from sgt.db.session import get_session, init_db
 from sgt.decision import trial_ledger
-from sgt.fast.exits import CHAMPION, EXITS, HOLDS, Exit, indicators, simulate
+from sgt.fast.exits import CHAMPION, EXITS, HOLDS, LOCKS, Exit, indicators, simulate
 from sgt.intraday.store import ParquetBarStore
 
 SEED = 20261105
@@ -34,6 +35,8 @@ class Study:
     variants: tuple[Exit, ...]
     prereg: str
     out: Path
+    date: str = "2026-11-05"           # in the trial-ledger run id
+    once: bool = False                 # refuse a second dev run (result file exists)
 
     @property
     def alpha(self) -> float:
@@ -41,7 +44,10 @@ class Study:
 
 
 STUDIES = {"exits": Study("exits", EXITS, "docs/findings/prereg_fade_exits_2026-11-05.md", Path("reports/fade_exits")),
-           "hold": Study("hold", HOLDS, "docs/findings/prereg_fade_hold_2026-11-05.md", Path("reports/fade_hold"))}
+           "hold": Study("hold", HOLDS, "docs/findings/prereg_fade_hold_2026-11-05.md", Path("reports/fade_hold")),
+           "lock": Study("lock", LOCKS, "docs/findings/prereg_fade_profit_lock_2026-11-17.md", Path("reports/fade_lock"),
+                         date="2026-11-17", once=True)}
+NEWS = {"train": Path("reports/fade_news/dev_events.csv"), "holdout": Path("reports/fade_news/holdout_events.csv")}
 # kept for callers of the first study
 PREREG, OUT, ALPHA = STUDIES["exits"].prereg, STUDIES["exits"].out, STUDIES["exits"].alpha
 
@@ -110,9 +116,35 @@ def _print(title: str, res: dict, study: Study = STUDIES["exits"]) -> None:
               f"{'PASS' if p['pass'] else 'fail'}")
 
 
+def by_champion_result(t: pd.DataFrame, study: Study) -> dict:
+    """Descriptive: what each variant does to the trades the champion WON and to the ones it LOST (the claim behind a
+    profit lock is about the second group; its cost is in the first)."""
+    out = {}
+    for name, g in (("champion won", t[t[f"net_{CHAMPION.id}"] > 0]), ("champion lost", t[t[f"net_{CHAMPION.id}"] <= 0])):
+        out[name] = {"n": int(len(g)), "champion": float(g[f"net_{CHAMPION.id}"].mean())} | {
+            x.id: {"mean": float(g[f"net_{x.id}"].mean()), "ended_by_line": float((g[f"how_{x.id}"] == "signal").mean()),
+                   "now_wins": float((g[f"net_{x.id}"] > 0).mean())} for x in study.variants}
+    return out
+
+
+def no_news(t: pd.DataFrame, split: str) -> pd.DataFrame:
+    """The events the live book would take today by its news rule (company news stamped False); empty when the
+    news file is missing."""
+    p = NEWS[split]
+    if not p.is_file():
+        return t.iloc[0:0]
+    n = pd.read_csv(p, usecols=["symbol", "session", "news_own"]).drop_duplicates(["symbol", "session"])
+    n["session"] = n.session.astype(str)
+    m = t.merge(n, on=["symbol", "session"], how="left")
+    return m[m.news_own.astype("boolean").fillna(True) == False]  # noqa: E712 - unknown news counts as news
+
+
 def cmd_dev(study: Study) -> int:
     from alert_fade_test import score as research_score
 
+    if study.once and (study.out / "dev.json").is_file():
+        print(f"{study.out / 'dev.json'} exists: this study's training run was made once and is not repeated")
+        return 2
     store = ParquetBarStore("data/alpaca")
     ev = events("train")
     t = score(ev, store, study.variants)
@@ -130,11 +162,19 @@ def cmd_dev(study: Study) -> int:
     study.out.mkdir(parents=True, exist_ok=True)
     out = {"dev": res, "holdout_secondary": sec, "by_entry_hour": hours,
            "passed": [x.id for x in study.variants if res[x.id]["pass"]]}
+    if study.once:                                          # descriptive tables of the newer pre-registrations
+        out["by_champion_result"] = {"dev": by_champion_result(t, study), "holdout": by_champion_result(ho, study)}
+        nn = {"dev": no_news(t, "train"), "holdout": no_news(ho, "holdout")}
+        out["no_news"] = {k: (evaluate(v, study) if len(v) else None) for k, v in nn.items()}
+        print("by champion result:", json.dumps(out["by_champion_result"], indent=1))
+        for k, v in out["no_news"].items():
+            if v:
+                _print(f"NO-NEWS events, {k}: {len(nn[k])}", v, study)
     (study.out / "dev.json").write_text(json.dumps(out, indent=2))
     t.to_csv(study.out / "dev_events.csv", index=False)
     init_db()
     with get_session() as s:
-        trial_ledger.record_trial(s, run_id=f"fade-{study.name}-2026-11-05-dev", kind=f"fade-{study.name}-dev",
+        trial_ledger.record_trial(s, run_id=f"fade-{study.name}-{study.date}-dev", kind=f"fade-{study.name}-dev",
                                   params={"prereg": study.prereg}, metrics=out)
     return 0
 

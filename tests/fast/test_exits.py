@@ -103,3 +103,43 @@ def test_long_mirror_stops_below_and_exits_at_the_cap():
     assert s == {"gross": pytest.approx(0.1), "how": "cap", "minutes": 60}
     s = simulate_long(frame([10.0] * 5 + [7.5] * 65, lows=[10.0] * 5 + [7.5] * 65, opens=[10.0] * 5 + [7.5] * 65), T0, 10.0)
     assert s["how"] == "stop" and s["gross"] == pytest.approx(-0.25)          # gapped through 8.00: fills at the open
+
+
+# --- the owner's two-line exit (prereg_fade_profit_lock_2026-11-17) ---------------------------------------------------
+def test_lock_variants_are_armed_where_a_rise_of_x_is_still_below_the_entry():
+    assert [(x.id, x.signal, x.cap_min, x.stop, x.give) for x in exits.LOCKS] == [
+        ("LOCK-5", "trail", 60, 0.20, 0.05), ("LOCK-10", "trail", 60, 0.20, 0.10), ("LOCK-15", "trail", 60, 0.20, 0.15)]
+    for x in exits.LOCKS:
+        arm_price = 10.0 * (1 - x.arm)
+        assert arm_price * (1 + x.give) == pytest.approx(10.0)          # the lock level at arming is the entry itself
+    trail = exits.EXITS[0]
+    assert (trail.arm, trail.give, trail.cap_min) == (0.05, 0.05, 120)    # the 2026-11-05 trail is unchanged
+
+
+def test_lock_covers_at_the_next_open_after_a_close_x_above_the_low():
+    # MPU 2026-11-17, official bars from the entry minute: in 1.54, low 1.31, then the grind back up
+    o = [1.60, 1.51, 1.334, 1.37, 1.42, 1.43, 1.50, 1.49, 1.54, 1.53]
+    h = [1.65, 1.58, 1.44, 1.46, 1.52, 1.53, 1.54, 1.54, 1.60, 1.57]
+    lo = [1.50, 1.31, 1.31, 1.37, 1.40, 1.43, 1.46, 1.47, 1.46, 1.53]
+    c = [1.51, 1.33, 1.37, 1.43, 1.46, 1.45, 1.485, 1.53, 1.528, 1.55]
+    b = frame(c, highs=h, lows=lo, opens=o)
+    five, ten, fifteen = (simulate(b, T0, 1.54, x) for x in exits.LOCKS)
+    assert five["how"] == "signal" and five["gross"] == pytest.approx((1.54 - 1.42) / 1.54) and five["minutes"] == 5
+    assert ten["how"] == "signal" and ten["gross"] == pytest.approx((1.54 - 1.43) / 1.54) and ten["minutes"] == 6
+    assert fifteen["how"] == "signal" and fifteen["gross"] == pytest.approx(0.0) and fifteen["minutes"] == 9
+    assert simulate(b, T0, 1.54, CHAMPION)["how"] == "cap"                # the champion just holds
+
+
+def test_lock_is_not_armed_by_a_shallow_dip_and_never_replaces_the_stop():
+    # dips 4% (not the 4.8% LOCK-5 needs), then rises 10%: no line-2 exit, the hour is held
+    b = frame([10.0, 9.6, 10.5, 10.6] + [10.6] * 60, lows=[10.0, 9.6, 9.6, 10.5] + [10.6] * 60)
+    s = simulate(b, T0, 10.0, exits.LOCKS[0])
+    assert s["how"] == "cap" and s["gross"] == pytest.approx(-0.06)
+    # armed, but the stop is checked first inside the bar that crosses it
+    b = frame([10.0, 9.0, 12.5], lows=[10.0, 9.0, 9.0], highs=[10.0, 10.0, 12.5], opens=[10.0, 10.0, 9.2])
+    s = simulate(b, T0, 10.0, exits.LOCKS[1])
+    assert s["how"] == "stop" and s["gross"] == pytest.approx(-0.20)
+    # a deeper low moves the line down with it: 9.0 then 8.0, a close of 8.5 is not 10% above 8.0
+    b = frame([10.0, 9.0, 8.1, 8.5, 8.9, 8.9], lows=[10.0, 9.0, 8.0, 8.1, 8.5, 8.9])
+    s = simulate(b, T0, 10.0, exits.LOCKS[1])
+    assert s["how"] == "signal" and s["minutes"] == 6 and s["gross"] == pytest.approx(0.11)   # 8.9 >= 8.8, next open 8.9

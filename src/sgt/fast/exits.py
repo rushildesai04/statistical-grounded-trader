@@ -19,13 +19,23 @@ class Exit:
     signal: str | None = None          # None (time only) | trail | vwap | ema | target
     cap_min: int = 60
     stop: float = STOP
+    arm: float = 0.05                  # trail: armed once a bar low is <= entry x (1 - arm)
+    give: float = 0.05                 # trail: cover signal = a close >= lowest low since entry x (1 + give)
+
+
+def lock(x: float) -> Exit:
+    """The owner's two-line exit (prereg_fade_profit_lock_2026-11-17): line 1 is the 20% stop; line 2 covers once the
+    price has risen ``x`` off its low while that level is still under the entry. Armed at low <= entry / (1 + x),
+    60-minute cap like the champion."""
+    return Exit(f"LOCK-{round(x * 100)}", "trail", 60, arm=1 - 1 / (1 + x), give=x)
 
 
 CHAMPION = Exit("champion")
 EXITS = (Exit("X-TRAIL", "trail", 120), Exit("X-VWAP", "vwap", 120), Exit("X-EMA", "ema", 120),
          Exit("X-TGT", "target", 60))
 HOLDS = (Exit("H120", None, 120), Exit("H-CLOSE", None, 480))     # prereg_fade_hold_2026-11-05; RTH bars end at 16:00
-TRAIL_ARM, TRAIL_GIVE, TARGET = 0.05, 0.05, 0.15
+LOCKS = (lock(0.05), lock(0.10), lock(0.15))                      # prereg_fade_profit_lock_2026-11-17
+TARGET = 0.15
 
 
 def indicators(bars: pd.DataFrame) -> pd.DataFrame:
@@ -66,8 +76,8 @@ def simulate(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float, x: Exit) -
         low = min(low, lo[i])
         fire = False
         if x.signal == "trail":
-            armed = armed or low <= entry * (1 - TRAIL_ARM)
-            fire = armed and c[i] >= low * (1 + TRAIL_GIVE)
+            armed = armed or low <= entry * (1 - x.arm)
+            fire = armed and c[i] >= low * (1 + x.give)
         elif x.signal == "vwap" and not np.isnan(vw[i]):
             fire = below and c[i] > vw[i]
             below = below or c[i] < vw[i]
