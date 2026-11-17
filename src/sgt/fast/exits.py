@@ -16,11 +16,13 @@ STOP = 0.20
 @dataclass(frozen=True, slots=True)
 class Exit:
     id: str
-    signal: str | None = None          # None (time only) | trail | vwap | ema | target
+    signal: str | None = None          # None (time only) | trail | vwap | ema | target | cut
     cap_min: int = 60
     stop: float = STOP
     arm: float = 0.05                  # trail: armed once a bar low is <= entry x (1 - arm)
     give: float = 0.05                 # trail: cover signal = a close >= lowest low since entry x (1 + give)
+    cut_min: int = 30                  # cut: minutes after the entry bar's start at which the trade is checked, once
+    cut_loss: float = 0.0              # cut: cover when that check's close is >= entry x (1 + cut_loss)
 
 
 def lock(x: float) -> Exit:
@@ -35,6 +37,8 @@ EXITS = (Exit("X-TRAIL", "trail", 120), Exit("X-VWAP", "vwap", 120), Exit("X-EMA
          Exit("X-TGT", "target", 60))
 HOLDS = (Exit("H120", None, 120), Exit("H-CLOSE", None, 480))     # prereg_fade_hold_2026-11-05; RTH bars end at 16:00
 LOCKS = (lock(0.05), lock(0.10), lock(0.15))                      # prereg_fade_profit_lock_2026-11-17
+CUTS = (Exit("CUT-20", "cut", 60, cut_min=20), Exit("CUT-30", "cut", 60, cut_min=30),   # prereg_fade_time_cut_2026-11-17
+        Exit("CUT-30-5", "cut", 60, cut_min=30, cut_loss=0.05))
 TARGET = 0.15
 
 
@@ -64,6 +68,9 @@ def simulate(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float, x: Exit) -
     vw, e9, e21 = (ind[k].to_numpy(float) for k in ("vwap", "ema9", "ema21"))
     lvl = entry * (1 + x.stop)
     low, below, armed = np.inf, False, False
+    # cut: True from the bar that closes ``cut_min`` minutes after the entry bar's start (by the clock, not bar count)
+    due = (ind.ts >= ind.ts.iloc[i0] + pd.Timedelta(minutes=x.cut_min - 1)).to_numpy()
+    checked = False
 
     def done(px: float, how: str, i: int) -> dict:
         return {"gross": (entry - px) / entry, "how": how, "minutes": i - i0 + 1}
@@ -83,6 +90,9 @@ def simulate(ind: pd.DataFrame, entry_ts: pd.Timestamp, entry: float, x: Exit) -
             below = below or c[i] < vw[i]
         elif x.signal == "ema" and i > 0:
             fire = e9[i] > e21[i] and e9[i - 1] <= e21[i - 1]
+        elif x.signal == "cut" and not checked and due[i]:
+            checked = True                               # one look, at the first bar that closes at or after T
+            fire = c[i] >= entry * (1 + x.cut_loss)
         if fire:
             return done(o[i + 1], "signal", i + 1) if i < last else done(c[i], "signal", i)
     return done(c[last], "cap", last)
