@@ -1,0 +1,289 @@
+<title>SGT Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* The replay lab: a list of replays on the left, one big chart with switchable layers, then the trades the rules
+   would take and a minute-by-minute list. Same palette as the Fade Tape page. */
+:root {
+  --bg: #eef1f5; --panel: #ffffff; --ink: #141a24; --muted: #5d6878; --rule: #d8dee7; --grid: #edf0f4;
+  --accent: #3346d3; --accent-soft: #3346d31a; --ema9: #0e8fa8; --ema21: #b4579a; --vwap: #8a6d1f; --up: #12875a;
+  --down: #cf3b2f; --alert: #c98500; --flag: #6a48c9; --struct: #0b7a8c;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
+  --accent: #8a9bff; --accent-soft: #8a9bff1f; --ema9: #4cc6dc; --ema21: #e08ccb; --vwap: #d9b85a; --up: #34c486;
+  --down: #ff6a5c; --alert: #f0b43a; --flag: #b39cff; --struct: #58cfe0; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b0f16; --panel: #121821; --ink: #e7ecf3; --muted: #8d99ab; --rule: #222b38; --grid: #18202b;
+  --accent: #8a9bff; --accent-soft: #8a9bff1f; --ema9: #4cc6dc; --ema21: #e08ccb; --vwap: #d9b85a; --up: #34c486;
+  --down: #ff6a5c; --alert: #f0b43a; --flag: #b39cff; --struct: #58cfe0; color-scheme: dark }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1480px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-left, 0px)) 40px; display: grid; gap: 16px; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.top { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: end; justify-content: space-between; }
+h1 { font: 800 clamp(28px, 4vw, 40px)/1 var(--display); margin: 0; }
+h1 em { font-style: normal; color: var(--accent); }
+.lede { color: var(--muted); margin: 4px 0 0; max-width: 78ch; }
+.stamp { font: 500 12px var(--mono); color: var(--muted); }
+.cols { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; }
+.side { padding: 12px; display: grid; gap: 10px; position: sticky; top: 12px; max-height: calc(100vh - 24px); }
+@media (max-width: 900px) { .side { position: static; max-height: none; } }
+.side input { width: 100%; font: 500 14px var(--mono); padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--bg); color: var(--ink); }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn { font: 600 12px var(--mono); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--rule); background: var(--panel);
+  color: var(--ink); cursor: pointer; }
+.btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.list { overflow: auto; display: grid; gap: 6px; min-height: 0; max-height: 62vh; }
+.item { text-align: left; border: 1px solid var(--rule); background: var(--panel); border-radius: 10px; padding: 8px 10px;
+  cursor: pointer; display: grid; gap: 3px; color: var(--ink); font: inherit; }
+.item[aria-current="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.item b { font: 700 17px var(--display); letter-spacing: .03em; }
+.item small { font: 500 11px var(--mono); color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 600 11px var(--mono); padding: 2px 7px; border-radius: 999px; border: 1px solid var(--rule); white-space: nowrap; }
+.chip.win { color: var(--up); border-color: var(--up); } .chip.loss { color: var(--down); border-color: var(--down); }
+.chip.flag { color: var(--flag); border-color: var(--flag); } .chip.none { color: var(--muted); }
+.main { display: grid; gap: 14px; min-width: 0; }
+.head2 { padding: 14px 16px 0; display: grid; gap: 6px; }
+.head2 h2 { font: 800 28px/1 var(--display); margin: 0; letter-spacing: .02em; }
+.head2 p { margin: 0; color: var(--muted); font-size: 14px; }
+.live { border-left: 3px solid var(--alert); padding: 4px 10px; background: var(--accent-soft); border-radius: 0 8px 8px 0; color: var(--ink) !important; }
+.layers { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0 16px; font: 500 13px var(--mono); }
+.layers label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; white-space: nowrap; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+#chart { height: 540px; margin: 0 6px; }
+@media (max-width: 900px) { #chart { height: 420px; } }
+.hint { padding: 0 16px 12px; color: var(--muted); font-size: 13px; margin: 0; }
+.two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+@media (max-width: 1100px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.box { padding: 14px 16px; }
+.box h3 { font: 700 13px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
+th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+tbody tr { cursor: pointer; } tbody tr[aria-selected="true"] td { background: var(--accent-soft); }
+td.name { font-family: var(--body); min-width: 210px; }
+.win { color: var(--up); } .loss { color: var(--down); }
+.tag { font: 600 10px var(--mono); padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--panel); margin-left: 6px; }
+.tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 420px; overflow: auto; }
+.tl li { display: grid; grid-template-columns: 46px 12px 1fr; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.tl li:hover { background: var(--accent-soft); }
+.tl time { font: 600 12px var(--mono); color: var(--muted); }
+.k { width: 10px; height: 10px; border-radius: 50%; display: inline-block; transform: translateY(1px); }
+.k.alert { background: var(--alert); } .k.entry { background: var(--accent); } .k.exit { background: var(--ink); }
+.k.flag { background: var(--flag); } .k.break { background: var(--struct); } .k.halt, .k.idle { background: var(--muted); }
+.k.spike { background: var(--down); }
+.empty { color: var(--muted); padding: 24px 16px; }
+.foot { color: var(--muted); font-size: 13px; max-width: 110ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>SGT <em>Lab</em></h1>
+      <p class="lede">Our own rules replayed on real one-minute bars. Every mark comes from the same code the books run: if a mark looks wrong here, the system is wrong, and that is the point.</p>
+    </div>
+    <div class="stamp" id="stamp"></div>
+  </header>
+  <div class="cols">
+    <aside class="panel side" aria-label="Replays">
+      <input id="q" type="search" placeholder="Filter by ticker" aria-label="Filter by ticker" maxlength="12" autocomplete="off">
+      <div class="btns" role="group" aria-label="Show">
+        <button class="btn" data-f="all" aria-pressed="true">All</button>
+        <button class="btn" data-f="loss" aria-pressed="false">With a loss</button>
+        <button class="btn" data-f="win" aria-pressed="false">With a win</button>
+        <button class="btn" id="rand" aria-pressed="false">Random</button>
+      </div>
+      <div class="list" id="list"></div>
+    </aside>
+    <main class="main">
+      <section class="panel">
+        <div class="head2"><h2 id="title"></h2><p id="sub"></p><p id="live" class="live" hidden></p><p id="notes" hidden></p></div>
+        <div class="layers" id="layers" role="group" aria-label="Chart layers" style="padding-top:10px"></div>
+        <div id="chart" role="img" aria-label="One-minute chart with the rules' marks"></div>
+        <p class="hint">Click a trade or a line of the list below to jump the chart to it. Stop and target lines are drawn for the selected trade. Drag to pan, scroll to zoom.</p>
+      </section>
+      <div class="two">
+        <section class="panel box">
+          <h3>Trades the rules would take here</h3>
+          <div class="scroll"><table><thead><tr><th>Rule</th><th>In</th><th>Stop</th><th>Target</th><th>Out</th><th>Why out</th><th>Move</th><th>Costs</th><th>Result</th></tr></thead><tbody id="trades"></tbody></table></div>
+          <p class="hint" id="idle" style="padding:10px 0 0"></p>
+        </section>
+        <section class="panel box"><h3>Minute by minute</h3><ol class="tl" id="tl"></ol></section>
+      </div>
+      <p class="foot">Results are the rule on the official tape, after estimated costs (spread, plus a locate fee on shorts). The lab does not know the live filters that need outside data (company news, beta, a repeat alert in the last 7 days, shares to borrow): where the live book did something else, the yellow note says so. A swing high or low is drawn at its bar but could only be known five bars later. A pattern on a chart is not an edge: every idea that comes out of this page is still tested on thousands of trades before it changes a rule.</p>
+    </main>
+  </div>
+</div>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const DATA = /*LAB*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const pct = x => x == null ? "" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
+const px = x => x == null ? "" : Number(x).toPrecision(4).replace(/\.?0+$/, "");
+const hhmm = s => { const d = new Date(s * 1000); return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0"); };
+const day = s => { const [y, m, d] = String(s).split("-").map(Number); return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }); };
+const LAYERS = [["alerts", "Alerts", "--alert", true], ["short", "Short trades", "--down", true], ["long", "Long trades", "--up", true],
+  ["flags", "Bull flags (finder)", "--flag", true], ["structure", "Structure (BoS / CHoCH)", "--struct", true],
+  ["pivots", "Swing highs / lows", "--muted", false], ["spikes", "Our spikes, halts", "--muted", true], ["avgs", "EMA 9 / 21, VWAP", "--ema9", true]];
+const on = Object.fromEntries(LAYERS.map(l => [l[0], l[3]]));
+let chart = null, candles = null, extra = [], lines = [], cur = null, sel = null, filter = "all";
+
+function worst(r) { const n = r.trades.map(t => t.net).filter(x => x != null); return n.length ? Math.min(...n) : null; }
+function best(r) { const n = r.trades.map(t => t.net).filter(x => x != null); return n.length ? Math.max(...n) : null; }
+function shown() {
+  const q = document.getElementById("q").value.trim().toUpperCase();
+  return DATA.replays.map((r, i) => [r, i]).filter(([r]) => (!q || r.symbol.includes(q)) &&
+    (filter === "all" || (filter === "loss" ? (worst(r) ?? 1) <= 0 : (best(r) ?? -1) > 0)));
+}
+function list() {
+  const box = document.getElementById("list"); box.replaceChildren();
+  const rows = shown();
+  if (!rows.length) box.append(el("p", "empty", "Nothing matches."));
+  rows.forEach(([r, i]) => {
+    const b = el("button", "item"); b.type = "button"; b.setAttribute("aria-current", String(i === cur));
+    b.append(el("b", null, r.symbol), el("small", null, day(r.session) + (r.alerts.length ? " · " + r.alerts[0].text : " · no alert")));
+    const chips = el("div", "chips");
+    r.trades.forEach(t => { if (t.net != null) chips.append(el("span", "chip " + (t.net > 0 ? "win" : "loss"), (t.side === "short" ? "short " : t.rule + " ") + pct(t.net))); });
+    if (!r.trades.length) chips.append(el("span", "chip none", "no trade"));
+    if (r.flags.length) chips.append(el("span", "chip flag", r.flags.length + " flag" + (r.flags.length > 1 ? "s" : "")));
+    b.append(chips); b.addEventListener("click", () => open(i)); box.append(b);
+  });
+}
+function theme() {
+  return { layout: { background: { color: css("--panel") }, textColor: css("--muted"), fontFamily: css("--mono") },
+    grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } }, autoSize: true, crosshair: { mode: 0 },
+    rightPriceScale: { borderColor: css("--rule"), minimumWidth: 60 },
+    timeScale: { borderColor: css("--rule"), timeVisible: true, secondsVisible: false } };
+}
+function seg(a, b, color, width, style) {            // one straight segment as its own line series
+  if (a.time >= b.time) return;
+  const s = chart.addLineSeries({ color, lineWidth: width || 2, lineStyle: style || 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  s.setData([{ time: a.time, value: a.value }, { time: b.time, value: b.value }]); extra.push(s);
+}
+function draw() {
+  const r = DATA.replays[cur];
+  extra.forEach(s => chart.removeSeries(s)); extra = [];
+  lines.forEach(l => candles.removePriceLine(l)); lines = [];
+  const marks = [];
+  if (on.avgs) [["ema9", "--ema9"], ["ema21", "--ema21"], ["vwap", "--vwap"]].forEach(([k, c]) => {
+    const s = chart.addLineSeries({ color: css(c), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, lineStyle: k === "vwap" ? 2 : 0 });
+    s.setData(r.lines[k] || []); extra.push(s); });
+  if (on.alerts) r.alerts.forEach(a => marks.push({ time: a.time, position: "aboveBar", shape: "circle", color: css("--alert"), text: "alert", size: 2 }));
+  if (on.spikes) {
+    r.spikes.forEach(s => marks.push({ time: s.time, position: "aboveBar", shape: "circle", color: css("--muted"), text: "our " + s.kind }));
+    r.halts.forEach(h => marks.push({ time: h.from, position: "belowBar", shape: "square", color: css("--muted"), text: "gap " + h.minutes + "m" }));
+  }
+  if (on.flags) r.flags.forEach(f => {
+    const c = css("--flag");
+    seg({ time: f.flag_from, value: f.flag_high }, { time: f.time, value: f.flag_high }, c, 2);
+    seg({ time: f.flag_from, value: f.flag_low }, { time: f.time, value: f.flag_low }, c, 2);
+    seg({ time: f.pole_from, value: f.pole_low }, { time: f.flag_from, value: f.pole_high }, c, 2, 2);
+    marks.push({ time: f.time, position: "belowBar", shape: "arrowUp", color: c, text: "flag " + Math.round(f.strength) });
+  });
+  if (on.structure) r.structure.breaks.forEach(b => {
+    const c = css("--struct");
+    const p = r.structure.pivots.filter(v => v.kind === "high" && v.time < b.time && Math.abs(v.price - b.level) < 1e-9).pop();
+    seg({ time: p ? p.time : b.time - 600, value: b.level }, { time: b.time, value: b.level }, c, 1, 1);
+    marks.push({ time: b.time, position: "aboveBar", shape: "arrowDown", color: c, text: b.kind === "BOS" ? "BoS" : "CHoCH" });
+  });
+  if (on.pivots) r.structure.pivots.forEach(v => marks.push({ time: v.time, position: v.kind === "high" ? "aboveBar" : "belowBar", shape: "circle", color: css("--muted"), size: 0.6 }));
+  r.trades.forEach((t, i) => {
+    if (!on[t.side === "short" ? "short" : "long"]) return;
+    const good = t.net != null && t.net > 0, c = css(t.side === "short" ? "--down" : "--up"), tag = t.side === "short" ? "short" : t.rule;
+    // the selected trade carries its prices; the others only their tag, so the labels stay readable
+    marks.push({ time: t.entry_time, position: t.side === "short" ? "aboveBar" : "belowBar", shape: t.side === "short" ? "arrowDown" : "arrowUp", color: c, text: i === sel ? tag + " in " + px(t.entry) : tag, size: i === sel ? 2 : 1 });
+    marks.push({ time: t.exit_time, position: t.side === "short" ? "belowBar" : "aboveBar", shape: "square", color: css(good ? "--up" : "--down"), text: i === sel ? "out: " + t.reason + " " + pct(t.net) : "", size: i === sel ? 2 : 1 });
+    seg({ time: t.entry_time, value: t.entry }, { time: t.exit_time, value: t.exit }, css(good ? "--up" : "--down"), i === sel ? 3 : 1, i === sel ? 0 : 2);
+  });
+  const t = sel == null ? null : r.trades[sel];
+  if (t && on[t.side === "short" ? "short" : "long"]) {
+    lines.push(candles.createPriceLine({ price: t.entry, color: css("--accent"), lineStyle: 2, lineWidth: 1, axisLabelVisible: true, title: "entry" }));
+    if (t.stop != null) lines.push(candles.createPriceLine({ price: t.stop, color: css("--down"), lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "stop" }));
+    if (t.target != null) lines.push(candles.createPriceLine({ price: t.target, color: css("--up"), lineStyle: 1, lineWidth: 1, axisLabelVisible: true, title: "target" }));
+  }
+  const byTime = new Map(r.candles.map(c => [c.time, 1]));                 // markers must sit on a bar that exists
+  const snap = x => { if (byTime.has(x)) return x; let b = r.candles[0].time; for (const c of r.candles) { if (c.time <= x) b = c.time; else break; } return b; };
+  candles.setMarkers(marks.map(m => ({ ...m, time: snap(m.time) })).sort((a, b) => a.time - b.time));
+}
+function focus(time) {
+  const r = DATA.replays[cur], first = r.candles[0].time, last = r.candles[r.candles.length - 1].time;
+  chart.timeScale().setVisibleRange({ from: Math.max(first, time - 25 * 60), to: Math.min(last, time + 45 * 60) });
+}
+function table() {
+  const r = DATA.replays[cur], body = document.getElementById("trades"); body.replaceChildren();
+  r.trades.forEach((t, i) => {
+    const tr = el("tr"); tr.tabIndex = 0; tr.setAttribute("aria-selected", String(i === sel));
+    const name = el("td", "name", t.name); if (t.book) name.append(el("span", "tag", "book takes"));
+    const res = el("td", t.net == null ? "" : (t.net > 0 ? "win" : "loss"), pct(t.net));
+    tr.append(name, el("td", null, px(t.entry) + " at " + t.entry_hm), el("td", null, px(t.stop)), el("td", null, px(t.target)),
+      el("td", null, px(t.exit) + " at " + t.exit_hm), el("td", null, t.reason), el("td", null, pct(t.gross)),
+      el("td", null, t.cost == null ? "" : (t.cost * 100).toFixed(1) + "%"), res);
+    const pick = () => { sel = i; table(); draw(); focus(t.entry_time); };
+    tr.addEventListener("click", pick); tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+    body.append(tr);
+  });
+  if (!r.trades.length) { const tr = el("tr"), td = el("td", "empty", "No rule would have traded this session."); td.colSpan = 9; tr.append(td); body.append(tr); }
+  const idle = document.getElementById("idle");
+  idle.textContent = r.idle.length ? "Set up but never filled: " + r.idle.map(x => x.name + " (" + hhmm(x.ready) + ")").join("; ") + "." : "";
+}
+function timeline() {
+  const r = DATA.replays[cur], box = document.getElementById("tl"); box.replaceChildren();
+  (r.timeline || []).forEach(e => {
+    const li = el("li"); li.tabIndex = 0; const t = el("time", null, hhmm(e.time));
+    li.append(t, el("span", "k " + e.kind), el("span", null, e.text));
+    li.addEventListener("click", () => focus(e.time)); li.addEventListener("keydown", k => { if (k.key === "Enter") focus(e.time); });
+    box.append(li);
+  });
+  if (!(r.timeline || []).length) box.append(el("li", "empty", "Nothing detected."));
+}
+function open(i) {
+  cur = i; const r = DATA.replays[i];
+  sel = r.trades.findIndex(t => t.book); if (sel < 0) sel = r.trades.length ? 0 : null;
+  document.getElementById("title").textContent = r.symbol + " · " + day(r.session);
+  document.getElementById("sub").textContent = r.bars + " one-minute bars, " + (r.from || "") + " to " + (r.to || "") + " ET · " +
+    r.summary.trades + " trade" + (r.summary.trades === 1 ? "" : "s") + " by the rules, " + r.summary.wins + " won · " + r.summary.flags + " bull flag" + (r.summary.flags === 1 ? "" : "s") + ", " + r.summary.breaks + " structure break" + (r.summary.breaks === 1 ? "" : "s");
+  const live = document.getElementById("live"); live.hidden = !r.live; live.textContent = r.live ? "Live books: " + r.live : "";
+  const notes = document.getElementById("notes"); notes.hidden = !r.notes.length; notes.textContent = r.notes.join(" · ");
+  candles.setData(r.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+  vol.setData(r.candles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? css("--up") + "55" : css("--down") + "55" })));
+  table(); timeline(); draw(); list();
+  const t = sel == null ? null : r.trades[sel];
+  if (t) focus(t.entry_time); else chart.timeScale().fitContent();
+}
+let vol = null;
+function boot() {
+  document.getElementById("stamp").textContent = "Built " + DATA.generated + " · " + DATA.replays.length + " replay" + (DATA.replays.length === 1 ? "" : "s");
+  const lay = document.getElementById("layers");
+  LAYERS.forEach(([k, label, color]) => {
+    const l = el("label"), c = el("input"); c.type = "checkbox"; c.checked = on[k];
+    c.addEventListener("change", () => { on[k] = c.checked; draw(); });
+    const sw = el("span", "sw"); sw.style.background = css(color);
+    l.append(c, sw, document.createTextNode(label)); lay.append(l);
+  });
+  chart = LightweightCharts.createChart(document.getElementById("chart"), theme());
+  candles = chart.addCandlestickSeries({ upColor: css("--up"), downColor: css("--down"), borderVisible: false, wickUpColor: css("--up"), wickDownColor: css("--down") });
+  vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", priceLineVisible: false, lastValueVisible: false });
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
+  chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.08, bottom: 0.2 } });
+  document.getElementById("q").addEventListener("input", list);
+  document.querySelectorAll(".btn[data-f]").forEach(b => b.addEventListener("click", () => {
+    filter = b.dataset.f; document.querySelectorAll(".btn[data-f]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); list(); }));
+  document.getElementById("rand").addEventListener("click", () => { const rows = shown(); if (rows.length) open(rows[Math.floor(Math.random() * rows.length)][1]); });
+  if (DATA.replays.length) open(0); else { list(); document.getElementById("title").textContent = "No replays in this file"; }
+}
+if (window.LightweightCharts && DATA) boot();
+</script>
+</body>
+</html>
