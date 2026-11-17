@@ -91,3 +91,28 @@ def test_main_refuses_a_second_run(tmp_path, monkeypatch):
     called = []
     monkeypatch.setattr(st, "collect", lambda *a: called.append(1))
     assert st.main([]) == 2 and called == []
+
+
+def test_d2_is_a_short_from_the_next_open_to_the_next_close_after_costs(monkeypatch):
+    monkeypatch.setattr(st, "N_BOOT", 400)
+    t = pd.DataFrame({"symbol": ["A", "B"], "session": ["2026-07-01", "2026-07-02"], "cost": [0.01, 0.01],
+                      "news": [False, True], "close_pos": [0.1, 0.9], "next_session": [-0.05, 0.02]})
+    assert st.d2_net(t).tolist() == pytest.approx([0.05 - 0.01 - 0.005, -0.02 - 0.01 - 0.005])
+    hold = frame(n=600, drift=0.0, seed=3)
+    hold["next_session"] = hold.next_session - 0.05 * (hold.close_pos <= 1 / 3)      # weak closes fall 5% the next day
+    r = st.d2(frame(n=600, seed=4), hold)
+    assert r["pass"] is True and r["verdict"] == "PASS" and r["holdout_weak_close"]["mean_net"] == pytest.approx(0.036, abs=0.012)
+    assert r["holdout_weak_close"]["events"] == int((hold.close_pos <= 1 / 3).sum())
+    assert abs(r["holdout_strong_close"]["mean_net"] + 0.014) < 0.012                # no drift: the costs are lost
+    flat = st.d2(frame(n=600, seed=4), frame(n=600, drift=0.0, seed=5))
+    assert flat["pass"] is False and flat["verdict"] == "FAIL"
+    few = hold[hold.close_pos <= 1 / 3].head(100)
+    assert st.d2(frame(n=600, seed=4), few)["pass"] is False                         # under 150 events
+
+
+def test_d2_refuses_a_second_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(st, "OUT", tmp_path)
+    (tmp_path / "d2_result.json").write_text("{}")
+    called = []
+    monkeypatch.setattr(st, "collect", lambda *a: called.append(1))
+    assert st.main(["--d2"]) == 2 and called == []
