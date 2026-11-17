@@ -146,10 +146,65 @@ def cells(t: pd.DataFrame) -> list[dict]:
     return out
 
 
+# --- rule D2 (docs/findings/prereg_day2_open_short_2026-11-17.md) ------------------------------------------------------
+LOCATE, D2_MIN, D2_ALPHA, WEAK = 0.005, 150, 0.05, 1 / 3
+
+
+def d2_net(t: pd.DataFrame) -> pd.Series:
+    """Net of a short opened at the next session's open and covered at its close."""
+    return -np.clip(t.next_session.to_numpy(float), *CLIP) - t.cost.to_numpy(float) - LOCATE
+
+
+def d2_stats(t: pd.DataFrame) -> dict:
+    if t.empty:
+        return {"events": 0}
+    net = pd.Series(d2_net(t), index=t.index)
+    lo, _ = bounds(net.to_numpy(float), t.session.to_numpy(), D2_ALPHA) if len(t) >= 2 else (float("nan"), 0.0)
+    worst = t.assign(net=net).nsmallest(5, "net")
+    return {"events": int(len(t)), "mean_net": float(net.mean()), "median_net": float(net.median()),
+            "win": float((net > 0).mean()), "lower": lo, "total": float(net.sum()),
+            "lose_over_20pct": float((net < -0.20).mean()),
+            "worst": [[r.symbol, r.session, round(float(r.net), 4)] for r in worst.itertuples()]}
+
+
+def d2(train: pd.DataFrame, hold: pd.DataFrame) -> dict:
+    weak = lambda t: t[t.close_pos <= WEAK]  # noqa: E731
+    h = d2_stats(weak(hold))
+    ok = bool(h["events"] >= D2_MIN and h["mean_net"] > 0 and h["lower"] > 0)
+    return {"prereg": "docs/findings/prereg_day2_open_short_2026-11-17.md", "holdout_weak_close": h, "pass": ok,
+            "verdict": "PASS" if ok else "FAIL",
+            "training_weak_close": d2_stats(weak(train)),
+            "holdout_by_news": {"no_news": d2_stats(weak(hold)[weak(hold).news == False]),  # noqa: E712
+                                "news": d2_stats(weak(hold)[weak(hold).news == True])},  # noqa: E712
+            "holdout_all_alert_days": d2_stats(hold), "holdout_strong_close": d2_stats(hold[hold.close_pos >= 2 / 3]),
+            "training_all_alert_days": d2_stats(train)}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fetch", action="store_true", help="only fetch and cache the daily bars (no number is computed)")
+    ap.add_argument("--d2", action="store_true", help="rule D2 on the held-out period, once")
     a = ap.parse_args(argv)
+    if a.d2:
+        out = OUT / "d2_result.json"
+        if out.is_file():
+            print(f"{out} exists: rule D2 was scored once and is not repeated")
+            return 2
+        store: dict[str, pd.DataFrame | None] = {}
+
+        def daily(sym: str):
+            if sym not in store:
+                p = CACHE / f"{sym}.parquet"
+                store[sym] = pd.read_parquet(p) if p.exists() else None
+            return store[sym]
+
+        train, tcov = collect("train", daily)
+        hold, hcov = collect("holdout", daily)
+        res = {**d2(train, hold), "coverage": {"train": tcov, "holdout": hcov}}
+        OUT.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=1) + "\n")
+        print(json.dumps(res, indent=1))
+        return 0
     res_path = OUT / "result_train.json"
     if not a.fetch and res_path.is_file():
         print(f"{res_path} exists: the training map was made once and is not repeated")

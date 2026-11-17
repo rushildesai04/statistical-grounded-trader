@@ -341,6 +341,13 @@ this closes the long side on this channel from one minute to five days. The shor
 and unproven: it needs borrowed shares every night at unknown fees and has no loss cap over a gap (section 0); it
 could only be measured forward, with the IBKR shares and fee recorded at each close.
 
+**A cell from that map, tested on new data, vanished (`prereg_day2_open_short_2026-11-17`, FAIL).** The map's
+largest short-side cell needed no overnight shares: short the open the day after an alert day that closed weak,
+cover at the close (+1.05% net on 943 training days). On the held-out period, never read before: -0.28% (322 days,
+lower bound -3.0%), while the opposite group, strong closes, made +4.0%. One cell of 25 picked for its size is
+mostly selection; nothing from a map is a rule until a second sample agrees. The worst day-after short lost 213%
+without a stop.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
