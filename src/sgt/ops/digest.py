@@ -244,8 +244,16 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                         (s, fade.OFF_REASON)).fetchone()[0]
         dry = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason IN "
                         f"({','.join('?' * len(fade.BORROW_REASONS))})", (s, *fade.BORROW_REASONS)).fetchone()[0]
-    head = ([f"⏸️ {bold('fade')} {italic('OFF')} (owner 11-12, shorts deprioritized): {off} alerts not "
-             "shorted today; the forward record still scores every alert"] if fade.is_off(db) or off else [])
+    # 2026-11-16: the fade went back on at 12:13 and the night's digest still read "fade OFF" for the nine alerts of
+    # the morning. The line says what is true now: off, or on again with what was skipped while it was off.
+    if fade.is_off(db):
+        head = [f"⏸️ {bold('fade')} {italic('OFF')} (owner's switch): {off} alerts not shorted today; the forward "
+                "record still scores every alert"]
+    elif off:
+        head = [f"▶️ {bold('fade')} {italic('ON')} again: {off} alert{'s' if off != 1 else ''} not shorted today while "
+                "it was off"]
+    else:
+        head = []
     if dry:                                           # owner 2026-11-16: a real account cannot short without shares
         head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted, no shares to borrow "
                     f"at IBKR ({italic('a real account could not')})")
