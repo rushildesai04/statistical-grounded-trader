@@ -42,7 +42,12 @@ KINDS = {k.key: k for k in (
     # never opened; by year the long-calls book lost in 2022 and in January to June 2026 (prereg_long_rules_2026-11-15).
     Kind("model_long", "daily model long call", 0.0025, None, 0.532, 3448,
          "3,448 long calls 2020 to mid-2026 (prereg_record_score_2026-11-14)", per="day",
-         caveat="Backtest on stocks chosen with hindsight, not yet proven live; its last half-year (Jan to Jun 2026) lost."),
+         # 2026-11-17 (prereg_fresh_names): the same model on 80 large caps it never saw, ranked on 2019 volume, FAILED
+         # its test: the book made money (+0.15% a call, 13,542 calls) but a call did not beat the average stock that
+         # day (p 0.069). The tested average above stays; the label says what it could not show.
+         caveat="Backtest on stocks chosen with hindsight, not yet proven live; its last half-year (Jan to Jun 2026) lost. "
+                "Not confirmed on unseen stocks: on 80 it never saw a long call made +0.15% and did not beat the average "
+                "stock that day."),
     Kind("model_short", "daily model short call", -0.0008, None, 0.497, 3405,
          "3,405 short calls 2020 to mid-2026 (prereg_record_score_2026-11-14)", per="day",
          caveat="Backtest on stocks chosen with hindsight, not yet proven live."),

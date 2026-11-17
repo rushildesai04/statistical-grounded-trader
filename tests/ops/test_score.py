@@ -100,3 +100,13 @@ def test_a_model_long_follows_the_long_calls_ledger_and_its_stop_rule(tmp_path):
     s = score.for_trade("model_long", 10_000, sigma=0.02, db=db)
     assert s["go"] is True and s["stopped"] is None and "Live since" not in s["caveat"]
     assert score.for_trade("model_long", 10_000, sigma=0.02, db=OpsStore(tmp_path / "x" / "ops" / "ops.db"))["go"] is True
+
+
+def test_the_model_long_score_says_it_was_not_confirmed_on_unseen_stocks():
+    # prereg_fresh_names_2026-11-17 (FAIL): the tested average stays, the caveat names what the test could not show
+    from sgt.ops import score
+
+    k = score.KINDS["model_long"]
+    assert k.ev == 0.0025 and k.n == 3448
+    assert "Not confirmed on unseen stocks" in k.caveat and "+0.15%" in k.caveat
+    assert "unseen" not in (score.KINDS["model_short"].caveat or "")

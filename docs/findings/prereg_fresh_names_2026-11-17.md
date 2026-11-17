@@ -85,3 +85,54 @@ Next to each, the 21-name record's number.
 Today's S&P-style survivorship is avoided by ranking on 2019 data, but a name that stopped trading has fewer rows.
 15:45 instead of 15:49 inputs. One cost for all names (the fresh names are the 80 most traded US stocks of 2019;
 their spreads are a few basis points). No borrow question: long only.
+
+## Result (2026-11-17, single training run; `reports/fresh_names/result_train.json`)
+Plan frozen at `8f06257`, code `68b5079` (fetch plumbing fixed in `e5ac589` before any bar of a full-history name was
+stored: the bar API pages on the underlying minutes, so the first 60-page cap cut every name but one; no decision
+logic changed). 80 names fetched, none dropped (shortest histories: RTN 1,070 sessions, AGN 1,095, XLNX 1,540).
+
+**VERDICT: FAIL.** D1 holds, D2 does not; both were required.
+
+| | fresh 80 names | the 21 names (for scale) |
+|---|---|---|
+| sessions / long calls | 1,631 / 13,542 | 1,631 / 3,448 |
+| a long call, after cost | +0.152%, 51.8% won | +0.25%, 53% won |
+| an ordinary day of the same names | +0.057% | +0.13% |
+| **D1** equal-weight ledger, mean per session | **+0.0166%**, lower bound +0.0009%, p 0.019 (needs < 0.025: holds, barely) | +0.027% |
+| **D2** calls minus all names that day, mean per session | **+0.036%**, lower bound -0.012%, **p 0.069** (needs < 0.025: FAILS) | not measured |
+| ledger: Sharpe / total / largest drawdown / worst day | 0.79 / +29.9% / -5.2% / -2.1% | 0.95 / +53.2% / -5.6% / -2.5% |
+| ledger at twice the cost | Sharpe 0.59, +21.1% | - |
+| sized like the live long-calls book (1% / volatility, 25% cap) | +53.1%, Sharpe 0.40, drawdown -38.8% | +82.6%, Sharpe 0.57, -22.3% |
+| simply holding the names, equal weight | +123.2%, Sharpe 0.69, drawdown -36.2% | (about +35% a year) |
+| names whose calls beat their own average day | 60 of 78 | 18 of 21 |
+
+Ledger by year, hundredths of a percent a day: +4.3 (2020), +1.3, +0.7 (2022), +0.2, +0.6, +2.8 (2025), +1.9
+(January to June 2026); no losing year, 2025 onward +2.5. Worst calls: XYZ 2020-03-13 -28.6%, MPC 2020-03-11 -27.0%,
+DAL 2020-03-17 -26.0%. Best names by call excess: MU, LRCX, AMAT, SHOP, CAT; worst: MPC, DAL, TWLO, BA.
+
+Reading, in plain words:
+- The idea is not empty: on stocks it never saw and that were not picked for having done well, a long call made
+  +0.15% against +0.06% for an ordinary day, three calls in four names beat their own average day, and no year lost.
+- It is smaller than the 21-name number: +0.15% against +0.25% per call after cost, or +0.19% against +0.26% before
+  cost on equal terms (the bridge below). Between a quarter and 40% of the tested average was the choice of names.
+- What the model adds is mostly WHEN, not WHICH. Pooled, a call beats an ordinary day by about +0.13%; on the same
+  day against the other 79 stocks it beats them by only +0.036%, not distinguishable from zero at the frozen level.
+  The calls bunch on days after falls, when every stock tends to bounce: the model is a dip-buying timer for the
+  group more than a stock picker (the same thing the market-filter test showed from the other side).
+- As a way to hold stocks it does not beat holding them: the live sizing on these names made +53% with a -39%
+  drawdown, holding made +123% with -36%. Per dollar actually at risk it earns more (it is invested about a tenth
+  of the time in each name), which is the only sense in which it "works".
+- Held-out stays closed (no PASS). No variant is tried on these names.
+
+Consequence (as frozen): no book change. The model long call keeps its tested average on the site with the label
+"not confirmed on unseen stocks" (`sgt.ops.score`). The forward ledger of the long-calls paper book stays the only
+judge, with its -5% stop.
+
+## Bridge (descriptive, `reports/fresh_names/bridge.json`): is the quarter-hour variant the same model?
+The known names rebuilt from quarter-hour bars against their stored 1-minute records, training window (20 names:
+RDDT has fewer than 1,000 sessions and is dropped by the same rule). Forecast correlation 0.92; 76% of the 1-minute
+long calls are also quarter-hour long calls (3,416 and 3,391 calls); mean long call before cost +0.297% (1-minute)
+and +0.260% (quarter-hour); equal-weight ledger after cost +0.027% a day, Sharpe 0.95 (1-minute) and +0.024%,
+Sharpe 0.80 (quarter-hour). So the variant is a close but slightly weaker copy (about an eighth less per call), and
+on equal terms the comparison is +0.19% per call on fresh names against +0.26% on the known ones. The 15:45 inputs
+do not explain the FAIL: D2 is a same-day comparison inside the fresh names.

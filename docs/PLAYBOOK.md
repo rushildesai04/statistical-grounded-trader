@@ -421,6 +421,20 @@ dip-buying that paid in falling markets and about broke even in rising ones: 202
 the book made money on them; January to June 2026, its worst stretch, had 12. Idea closed (no other average, index or
 threshold); held-out not opened. Do not re-propose a trend or "risk-off" filter for the long calls.
 
+**The long calls on 80 large caps the model had never seen (`prereg_fresh_names_2026-11-17`): FAIL.** The +0.25% per
+call was only ever measured on 21 names picked knowing they did well. Test: the same frozen model on the 80 most
+traded US stocks of 2019 that it had not seen (chosen on 2019 volume, so it includes later losers: BA, INTC, ROKU,
+PYPL, SNAP), 2020 to June 2026, 13,542 long calls. Both of two conditions were required. (1) The equal-weight
+long-calls book makes money: +0.017% a day, lower bound just above zero (p 0.019): holds, barely. (2) A long call
+beats the average of all 80 stocks that same day: +0.036%, p 0.069: fails. What it means: a long call made +0.15%
+after cost against +0.06% for an ordinary day, in every year, so the idea is not empty, but it is 60 to 75% of the
+21-name number, and what the model adds is mostly WHEN (it buys after falls, when everything tends to bounce), not
+WHICH stock. Sized like the live long-calls book it made +53% with a -39% drawdown where simply holding the same
+stocks made +123% with -36%. So: the long-calls book is a low-exposure dip-buying timer with a small positive tested
+average, not a stock picker and not a replacement for holding. Its score on the site keeps +0.25% with the label
+"not confirmed on unseen stocks". Do not widen the book to more names on this evidence; do not re-run or vary this
+test on these names. The held-out months stay closed.
+
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
