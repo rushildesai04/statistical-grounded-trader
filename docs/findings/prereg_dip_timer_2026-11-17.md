@@ -60,3 +60,36 @@ overlap of the two day sets. The mean next-day return of the 21 names themselves
 ## Known limits
 The names are part of the index (SPY about a third, QQQ more), so some of any effect is the names' own bounce. The
 signal is decided at 15:50 and the position taken at the close: the last ten minutes of D are not in the signal.
+
+## Result (2026-11-17, single training run; `reports/dip_timer/result_train.json`)
+Plan `fa8ebb8`, code `ed38969`. 1,631 sessions, 352 signal days (22%).
+
+**VERDICT: FAIL** (the difference is positive but not significant at the frozen level).
+
+| training 2020 to June 2026 | SPY (decides) | QQQ |
+|---|---|---|
+| next-day return after a signal day | +0.157% (53% up) | +0.198% |
+| after any other day | +0.039% (55% up) | +0.059% |
+| difference | **+0.118%, p 0.067** (needs < 0.05) | +0.139%, p 0.080 |
+| signal days after cost, lower bound | +0.147%, +0.047% (above 0: holds) | +0.188%, +0.058% |
+| the timer as a book: total / Sharpe / largest drawdown | +60% / 0.66 / -15% | +80% / 0.68 / -20% |
+| simply holding: total / Sharpe / largest drawdown | +152% / 0.81 / -34% | +250% / 0.90 / -35% |
+
+By year, SPY next-day return on signal days (days): 2020 +0.73% (49), 2021 +0.14% (68), 2022 -0.03% (106), 2023
+-0.16% (20), 2024 +0.20% (19), 2025 +0.21% (57), Jan-Jun 2026 +0.03% (33). The whole effect is 2020.
+
+Does the model add anything over "the market fell hard today"? No.
+| day set (SPY) | days | next-day return |
+|---|---|---|
+| model signal days | 352 | +0.157% |
+| naive dip days (the largest one-day falls, same causal cut) | 340 | **+0.196%** |
+| both | 151 | - |
+| signal but not a naive dip | 201 | +0.063% (an ordinary day) |
+| naive dip but not signal | 189 | +0.127% |
+
+Reading: what the model's long calls "know" about the market is that it fell today. A rule that needs no model does
+at least as well, and neither is a reliable edge: about a tenth of a percent, carried by 2020, lost in 2022 and 2023.
+As a book the timer is in the market a fifth of the time and makes two fifths of what holding makes with a lower
+risk-adjusted return. Held-out stays closed. The model's breadth is not proposed again as a market timer, and "buy
+the index after a big down day" is not proposed from this file either (it was not the registered rule and its
+numbers here are descriptive).
