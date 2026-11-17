@@ -463,6 +463,16 @@ average, not a stock picker and not a replacement for holding. Its score on the 
 "not confirmed on unseen stocks". Do not widen the book to more names on this evidence; do not re-run or vary this
 test on these names. The held-out months stay closed.
 
+**The long calls as a market timer (`prereg_dip_timer_2026-11-17`, owner decision 2A): FAIL.** If the model knows
+WHEN and not WHICH, hold the market itself on the days it calls many longs (the busiest fifth of days, cut known at
+the time). 352 such days, 2020 to June 2026: SPY the next day +0.157% against +0.039% after other days; difference
++0.118%, p 0.067 (needed < 0.05); QQQ the same picture. All of it is 2020 (+0.73% a day); 2022 and 2023 were
+negative. And a rule with no model, "the days SPY fell most", made +0.196% the next day; the model's signal days that
+were NOT such falls made +0.063%, an ordinary day. So the model's timing is "the market fell today", nothing more,
+and as a book the timer made +60% where holding SPY made +152%. Closed: do not propose the model's breadth, or a
+buy-after-a-down-day index rule, from this evidence. With the fresh-names FAIL this settles what the daily model is:
+a small, fading dip-buying tilt on large caps; not a stock picker, not a market timer, not better than holding.
+
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
