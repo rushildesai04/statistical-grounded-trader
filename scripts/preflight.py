@@ -22,6 +22,7 @@ from sgt.ops.store import OpsStore
 log = logging.getLogger("preflight")
 HEARTBEAT_STALE = timedelta(minutes=15)
 DATA_STALE = timedelta(minutes=15)
+MAX_BACK_DAYS = 10                   # days searched back for the latest regular session
 MIN_FREE = 0.10
 
 
@@ -35,13 +36,45 @@ def check_heartbeat(db: OpsStore, now: datetime) -> str | None:
     return None
 
 
-def check_data(quote_time, now: datetime) -> str | None:
+def oldest_ok(now: datetime, cal=None) -> datetime:
+    """The oldest SPY print that still means "market data works".
+
+    In regular hours: 15 minutes old. Outside them, where the 09:20 run sits, the free feed's last eligible print can
+    be far older than that on a healthy morning (2026-11-17: this check texted "market data looks stale" on 6 of the
+    last 7 mornings, every one a day on which entries were priced normally), so the newest print that MUST exist is
+    the end of the latest regular session: 15 minutes before that close. A dead feed or a bad key still fails: it
+    raises, returns nothing, or returns a print from before that close. No session in the last 10 days -> the strict
+    15 minutes (fail towards the warning)."""
+    if cal is None:
+        from sgt.intraday.calendar import default_calendar
+
+        cal = default_calendar()
+    from zoneinfo import ZoneInfo
+
+    d = now.astimezone(ZoneInfo("America/New_York")).date()
+    for _ in range(MAX_BACK_DAYS):
+        if cal.is_session(d):
+            b = cal.bounds(d)
+            if b.rth_open <= now < b.rth_close:
+                return now - DATA_STALE
+            if now >= b.rth_close:
+                return b.rth_close - DATA_STALE
+        d -= timedelta(days=1)
+    return now - DATA_STALE
+
+
+def check_data(quote_time, now: datetime, cal=None) -> str | None:
     """``quote_time()`` -> datetime of the latest SPY trade, or raises."""
     try:
         at = quote_time()
     except Exception as exc:  # noqa: BLE001 - any failure is the finding; reported in plain words
         return f"market data is not responding ({type(exc).__name__}): entries cannot be priced"
-    if at is None or now - at > DATA_STALE:
+    try:
+        floor = oldest_ok(now, cal)
+    except Exception:  # noqa: BLE001 - no calendar: the strict rule, never a silent pass
+        log.exception("preflight: session calendar failed; using the strict freshness rule")
+        floor = now - DATA_STALE
+    if at is None or at < floor:
         return "market data looks stale (no recent SPY trade): entries may be priced wrong"
     return None
 
@@ -85,9 +118,9 @@ def spy_trade_time() -> datetime | None:
     return pd.Timestamp(str(t.get("t"))).to_pydatetime(warn=False) if t.get("t") else None
 
 
-def run(db: OpsStore, now: datetime, quote_time=spy_trade_time, disk: Path = Path(".")) -> list[str]:
-    return [p for p in (check_heartbeat(db, now), check_data(quote_time, now), check_db(db, now), check_disk(disk))
-            if p]
+def run(db: OpsStore, now: datetime, quote_time=spy_trade_time, disk: Path = Path("."), cal=None) -> list[str]:
+    return [p for p in (check_heartbeat(db, now), check_data(quote_time, now, cal), check_db(db, now),
+                        check_disk(disk)) if p]
 
 
 def message(problems: list[str], now: datetime, off: list[str] | None = None) -> str:
