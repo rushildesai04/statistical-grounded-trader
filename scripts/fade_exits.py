@@ -3,6 +3,7 @@
     python scripts/fade_exits.py dev                  # exits (prereg_fade_exits_2026-11-05): trail, VWAP, EMA 9/21, target
     python scripts/fade_exits.py dev --study hold     # holds (prereg_fade_hold_2026-11-05): 2 hours, to the close
     python scripts/fade_exits.py dev --study lock     # two-line exit (prereg_fade_profit_lock_2026-11-17): 5 / 10 / 15%
+    python scripts/fade_exits.py dev --study cut      # half-time cut (prereg_fade_time_cut_2026-11-17): 20 / 30 min
     python scripts/fade_exits.py shadow [--study S]   # nightly (runner, after the forward record): forward events
 
 `dev` is run ONCE per study. Same events, entries and costs as the frozen rule; the champion computed here equals
@@ -23,7 +24,7 @@ from alert_fade_test import LOCATE
 from fade_challengers import ET, N_BOOT, TAIL_PP, _rth, events
 from sgt.db.session import get_session, init_db
 from sgt.decision import trial_ledger
-from sgt.fast.exits import CHAMPION, EXITS, HOLDS, LOCKS, Exit, indicators, simulate
+from sgt.fast.exits import CHAMPION, CUTS, EXITS, HOLDS, LOCKS, Exit, indicators, simulate
 from sgt.intraday.store import ParquetBarStore
 
 SEED = 20261105
@@ -46,7 +47,9 @@ class Study:
 STUDIES = {"exits": Study("exits", EXITS, "docs/findings/prereg_fade_exits_2026-11-05.md", Path("reports/fade_exits")),
            "hold": Study("hold", HOLDS, "docs/findings/prereg_fade_hold_2026-11-05.md", Path("reports/fade_hold")),
            "lock": Study("lock", LOCKS, "docs/findings/prereg_fade_profit_lock_2026-11-17.md", Path("reports/fade_lock"),
-                         date="2026-11-17", once=True)}
+                         date="2026-11-17", once=True),
+           "cut": Study("cut", CUTS, "docs/findings/prereg_fade_time_cut_2026-11-17.md", Path("reports/fade_cut"),
+                        date="2026-11-17", once=True)}
 NEWS = {"train": Path("reports/fade_news/dev_events.csv"), "holdout": Path("reports/fade_news/holdout_events.csv")}
 # kept for callers of the first study
 PREREG, OUT, ALPHA = STUDIES["exits"].prereg, STUDIES["exits"].out, STUDIES["exits"].alpha
@@ -127,6 +130,21 @@ def by_champion_result(t: pd.DataFrame, study: Study) -> dict:
     return out
 
 
+def by_fired(t: pd.DataFrame, study: Study) -> dict:
+    """Descriptive: the trades each variant's own line ended, and what the champion made on those same trades (for a
+    half-time cut: the trades that were losing at half time, cut there against held to the end)."""
+    out = {}
+    for x in study.variants:
+        g = t[t[f"how_{x.id}"] == "signal"].dropna(subset=[f"net_{CHAMPION.id}", f"net_{x.id}"])
+        c = g[f"net_{CHAMPION.id}"]
+        out[x.id] = {"n": int(len(g)), "share": float(len(g) / len(t)) if len(t) else None,
+                     "variant": float(g[f"net_{x.id}"].mean()) if len(g) else None,
+                     "champion": float(c.mean()) if len(g) else None,
+                     "champion_won": float((c > 0).mean()) if len(g) else None,
+                     "champion_stopped": float((g[f"how_{CHAMPION.id}"] == "stop").mean()) if len(g) else None}
+    return out
+
+
 def no_news(t: pd.DataFrame, split: str) -> pd.DataFrame:
     """The events the live book would take today by its news rule (company news stamped False); empty when the
     news file is missing."""
@@ -164,6 +182,8 @@ def cmd_dev(study: Study) -> int:
            "passed": [x.id for x in study.variants if res[x.id]["pass"]]}
     if study.once:                                          # descriptive tables of the newer pre-registrations
         out["by_champion_result"] = {"dev": by_champion_result(t, study), "holdout": by_champion_result(ho, study)}
+        out["by_fired"] = {"dev": by_fired(t, study), "holdout": by_fired(ho, study)}
+        print("ended by the variant's own line:", json.dumps(out["by_fired"], indent=1))
         nn = {"dev": no_news(t, "train"), "holdout": no_news(ho, "holdout")}
         out["no_news"] = {k: (evaluate(v, study) if len(v) else None) for k, v in nn.items()}
         print("by champion result:", json.dumps(out["by_champion_result"], indent=1))

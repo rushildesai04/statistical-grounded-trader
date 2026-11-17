@@ -143,3 +143,39 @@ def test_lock_is_not_armed_by_a_shallow_dip_and_never_replaces_the_stop():
     b = frame([10.0, 9.0, 8.1, 8.5, 8.9, 8.9], lows=[10.0, 9.0, 8.0, 8.1, 8.5, 8.9])
     s = simulate(b, T0, 10.0, exits.LOCKS[1])
     assert s["how"] == "signal" and s["minutes"] == 6 and s["gross"] == pytest.approx(0.11)   # 8.9 >= 8.8, next open 8.9
+
+
+# --- half-time cut (prereg_fade_time_cut_2026-11-17) -------------------------------------------------------------------
+def test_cut_variants_are_fixed():
+    assert [(x.id, x.signal, x.cap_min, x.stop, x.cut_min, x.cut_loss) for x in exits.CUTS] == [
+        ("CUT-20", "cut", 60, 0.20, 20, 0.0), ("CUT-30", "cut", 60, 0.20, 30, 0.0), ("CUT-30-5", "cut", 60, 0.20, 30, 0.05)]
+
+
+def test_cut_leaves_a_losing_short_at_half_time_and_holds_a_winning_one():
+    cut20, cut30, cut305 = exits.CUTS
+    grind = frame([10.0 + 0.02 * i for i in range(70)])                    # a slow grind against the short
+    s = simulate(grind, T0, 10.0, cut30)
+    assert s["how"] == "signal" and s["minutes"] == 31                      # bar 29 closes 30 min in; out at bar 30's open
+    assert s["gross"] == pytest.approx((10.0 - grind.open.iloc[30]) / 10.0)
+    assert simulate(grind, T0, 10.0, cut20)["minutes"] == 21
+    assert simulate(grind, T0, 10.0, cut305)["how"] == "signal"             # +5.8% against at minute 30
+    slow = frame([10.0 + 0.005 * i for i in range(70)])                     # +1.45% against at minute 30: not "clearly"
+    assert simulate(slow, T0, 10.0, cut305)["how"] == "cap" and simulate(slow, T0, 10.0, cut30)["how"] == "signal"
+    fall = frame([10.0 - 0.02 * i for i in range(70)])                      # working: never cut
+    for x in exits.CUTS:
+        assert simulate(fall, T0, 10.0, x) == simulate(fall, T0, 10.0, CHAMPION)
+
+
+def test_cut_looks_once_and_never_replaces_the_stop():
+    # under water at minute 30 by a hair, then the short starts losing: the cut already looked, the hour is held
+    late = frame([9.9] * 30 + [10.5] * 40)
+    s = simulate(late, T0, 10.0, exits.CUTS[1])
+    assert s["how"] == "cap" and s["gross"] == pytest.approx(-0.05)
+    # the stop inside the first half is still the stop
+    spike = frame([10.0] * 10 + [12.5] * 60, highs=[10.0] * 10 + [12.5] * 60)
+    assert simulate(spike, T0, 10.0, exits.CUTS[1])["how"] == "stop"
+    # a thin name: the minute-30 bar is missing; the first bar at or after it is the look
+    thin = frame([10.3] * 70)
+    thin = thin.drop(index=list(range(25, 35))).reset_index(drop=True)
+    s = simulate(thin, T0, 10.0, exits.CUTS[1])
+    assert s["how"] == "signal" and thin.ts.iloc[25] == T0 + pd.Timedelta(minutes=35)
