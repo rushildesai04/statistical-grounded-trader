@@ -32,7 +32,7 @@ def test_each_failure_is_one_plain_line(tmp_path):
         raise TimeoutError
 
     assert "not responding (TimeoutError)" in pf.check_data(boom, NOW)
-    assert "stale" in pf.check_data(lambda: NOW - timedelta(hours=1), NOW)
+    assert "stale" in pf.check_data(lambda: NOW - timedelta(days=4), NOW)     # older than the last regular session
     msg = pf.message(["a", "b"], NOW)
     assert msg.startswith("[SGT] Pre-market check found a problem") and "\n- a\n- b\n" in msg
 
@@ -101,3 +101,72 @@ def test_main_texts_the_switches_even_when_every_check_passes(tmp_path, monkeypa
     assert "all checks passed" in capsys.readouterr().out
     monkeypatch.setattr(pf, "switches", lambda d: (_ for _ in ()).throw(RuntimeError("x")))
     assert pf.main() == 0 and len(sent) == 2 and "could not be read (RuntimeError)" in sent[1]
+
+
+def _utc(day, hm):
+    from zoneinfo import ZoneInfo
+
+    h, m = map(int, hm.split(":"))
+    y, mo, d = map(int, day.split("-"))
+    return datetime(y, mo, d, h, m, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+
+
+def test_before_the_open_the_last_regular_print_is_fresh_enough():
+    # 2026-11-17: the 09:20 run texted "market data looks stale" on 6 of 7 mornings; the free feed prints little
+    # before the open. Tuesday 09:20: Monday's closing print is the newest print that must exist.
+    now = _utc("2026-11-17", "09:20")
+    assert pf.oldest_ok(now) == _utc("2026-11-16", "15:45")
+    assert pf.check_data(lambda: _utc("2026-11-16", "15:59"), now) is None
+    assert pf.check_data(lambda: _utc("2026-11-17", "09:01"), now) is None           # a pre-market print: fine too
+    assert "stale" in pf.check_data(lambda: _utc("2026-11-16", "15:30"), now)         # before that close's last 15 min
+    assert "stale" in pf.check_data(lambda: _utc("2026-11-13", "15:59"), now)         # a whole session old
+    assert "stale" in pf.check_data(lambda: None, now)
+    # Monday morning looks back over the weekend to Friday's close
+    assert pf.oldest_ok(_utc("2026-11-16", "09:20")) == _utc("2026-11-13", "15:45")
+    assert pf.check_data(lambda: _utc("2026-11-13", "15:59"), _utc("2026-11-16", "09:20")) is None
+
+
+def test_in_regular_hours_the_rule_is_still_fifteen_minutes():
+    now = _utc("2026-11-17", "10:30")
+    assert pf.oldest_ok(now) == now - timedelta(minutes=15)
+    assert pf.check_data(lambda: now - timedelta(minutes=14), now) is None
+    assert "stale" in pf.check_data(lambda: now - timedelta(minutes=16), now)
+    assert "stale" in pf.check_data(lambda: _utc("2026-11-16", "15:59"), now)         # yesterday's close is stale now
+    # after the close the same day's closing print is the reference
+    assert pf.oldest_ok(_utc("2026-11-17", "18:00")) == _utc("2026-11-17", "15:45")
+
+
+def test_a_broken_calendar_falls_back_to_the_strict_rule():
+    class Broken:
+        def is_session(self, d):
+            raise RuntimeError("no calendar")
+
+    now = _utc("2026-11-17", "09:20")
+    assert "stale" in pf.check_data(lambda: _utc("2026-11-16", "15:59"), now, cal=Broken())
+    assert pf.check_data(lambda: now - timedelta(minutes=5), now, cal=Broken()) is None
+
+    class Closed:
+        def is_session(self, d):
+            return False
+
+    assert pf.oldest_ok(now, Closed()) == now - timedelta(minutes=15)                 # no session found: strict
+
+
+def test_run_hands_its_calendar_to_the_data_check(tmp_path, monkeypatch):
+    import shutil
+    from collections import namedtuple
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: usage(100, 50, 50))
+
+    class Closed:
+        def is_session(self, d):
+            return False
+
+    now = _utc("2026-11-17", "09:20")
+    db = OpsStore(tmp_path / "ops.db")
+    db.set_flag("fade_heartbeat", (now - timedelta(seconds=20)).isoformat())
+    last_close = lambda: _utc("2026-11-16", "15:59")  # noqa: E731
+    assert pf.run(db, now, quote_time=last_close, disk=tmp_path) == []                 # real calendar: fine
+    (line,) = pf.run(db, now, quote_time=last_close, disk=tmp_path, cal=Closed())      # no session known: strict
+    assert "stale" in line
