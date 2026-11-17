@@ -61,3 +61,34 @@ For a decision session D (the call is made at 15:50 on D and held from D's close
   the test failed. The idea is then closed: not re-run with another average length, index or threshold.
 - Whatever the result: no real money, no change to the two long-and-short forward tests, to the deciding ledger of
   the long-calls test, or to any alert book.
+
+## Result (2026-11-16, training run once at code `5cde177`; `reports/long_market_filter/result_train.json`): FAIL
+Training: 1,631 sessions, 3,448 long calls. 333 sessions were below the 200-day average (260 of them had a long
+call): 59 in 2020, 203 in 2022, 17 in 2023, 42 in 2025, 12 in 2026, none in 2021 and 2024.
+
+| | BASE | with rule M |
+|---|---|---|
+| mean per day | +0.045% | +0.005% |
+| Sharpe | 0.57 | 0.09 |
+| total over the window | +82.6% | +2.2% |
+| largest drawdown | -22.3% | -30.3% |
+| worst day | -10.1% | -4.7% |
+
+T-M: mean difference -0.040% a day (lower bound -0.090%), p 0.96 against the 0.0167 needed: FAIL, and in the
+opposite direction.
+
+Reading:
+- The calls the rule would skip are the model's best. 1,139 long calls made below the trend: +0.64% per call, 56%
+  won. 2,309 made above it: +0.06% per call, 52% won. The BASE book earned +0.195% a day on below-trend sessions and
+  +0.006% a day on all the others: almost all of the record's profit was made while the market was below its
+  200-day average. This is the short-term-reversal prior stated above, and stronger than expected.
+- The filter only buys a smaller worst day (-4.7% against -10.1%), and pays for it with nearly the whole return and
+  a deeper drawdown (the losing stretches were above the trend, where the rule keeps trading).
+- The two losing periods that suggested the rule were not below-trend periods in the way assumed: 2022 had 203 such
+  sessions and the book made money on them (with the rule 2022 goes from -1.8 to -8.1 hundredths of a percent a
+  day); January to June 2026 had only 12.
+- Per the frozen decision rule nothing changes and the idea is closed: no other average length, index or threshold
+  is tried. Held-out stays closed.
+- What it says about the model, as information: its long calls are dip-buying that has paid in falling markets and
+  about broken even in rising ones. A down day like 2026-11-16 is the kind of day after which, historically, its
+  calls did best, not worst. That is an average over six and a half years, not a forecast for any one day.

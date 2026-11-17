@@ -380,8 +380,14 @@ left positions on; fixed 2026-11-16: with no valid live decision in the 15:50 sl
 with that rule Monday would have been $0, not -$653. (2) model: AAOI was the model's own repeated long (pred +2.4%
 on a stock that moves 9% a day; -5.6% Friday, -9.5% Monday) and it is called long again for Tuesday (6.1%, also the
 long-calls book's first trade). Nothing tested ranks one call above another (prereg_money_score, prereg_record_score,
-prereg_long_rules: all FAIL), so no rule removes it. Not yet tested: a market filter on new long calls (the long
-calls lost in 2022 and January to June 2026, both falling markets): candidate for one pre-registered run.
+prereg_long_rules: all FAIL), so no rule removes it. The one idea left, a market filter on new long calls, was
+pre-registered and run once the same evening (prereg_long_market_filter_2026-11-16): **FAIL, in the opposite
+direction.** No new long call while SPY is below its 200-day average would have cut the long book's 2020 to mid-2026
+total from +82.6% to +2.2% (Sharpe 0.57 to 0.09, largest drawdown -22.3% to -30.3%; p 0.96). The 1,139 long calls made
+below the trend earned +0.64% each (56% won); the 2,309 made above it +0.06% (52%). The model's long calls are
+dip-buying that paid in falling markets and about broke even in rising ones: 2022 had 203 below-trend sessions and
+the book made money on them; January to June 2026, its worst stretch, had 12. Idea closed (no other average, index or
+threshold); held-out not opened. Do not re-propose a trend or "risk-off" filter for the long calls.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
