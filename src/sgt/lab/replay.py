@@ -179,8 +179,14 @@ def _longs(f: pd.DataFrame, symbol: str, session: str, posted: pd.Timestamp, lab
                              exit_ts=t.exit_ts, exit_px=t.exit, reason=t.reason, gross=t.gross, stop=s.stop,
                              target=target, ready=s.ready, trigger=s.trigger))
     longs = [x for x in trades if x["side"] == "long"]
-    if longs:                                                # the live long book takes the first long to fill
-        min(longs, key=lambda x: x["entry_time"])["book"] = True
+    for x in longs:                                          # 2026-11-17: a target that cannot beat costs is not taken
+        x["nowin"] = x["cost"] is not None and x["target"] is not None and \
+            (x["target"] - x["entry"]) / x["entry"] <= x["cost"]
+        if x["nowin"]:
+            x["name"] += " (target cannot beat costs: the book skips it)"
+    can = [x for x in longs if not x["nowin"]]
+    if can:                                                  # the live long book takes the first long that can win
+        min(can, key=lambda x: x["entry_time"])["book"] = True
     return trades, idle
 
 

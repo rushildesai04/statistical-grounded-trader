@@ -139,8 +139,11 @@ def test_long_setups_come_from_the_books_own_code_and_one_is_marked_as_the_books
     r = replay.replay(f, "TEST", DAY, [{"at": at(46, 20), "type": "volume_spike"}])
     longs = [t for t in r["trades"] if t["side"] == "long"]
     assert longs and sum(t["book"] for t in longs) == 1
-    first = min(longs, key=lambda t: t["entry_time"])
-    assert first["book"] is True
+    first = min((t for t in longs if not t["nowin"]), key=lambda t: t["entry_time"])
+    assert first["book"] is True                             # the first long whose target can beat costs
+    for t in longs:
+        assert t["nowin"] == ((t["target"] - t["entry"]) / t["entry"] <= t["cost"])
+        assert ("the book skips it" in t["name"]) == t["nowin"]
     for t in longs:
         assert t["rule"] in replay.RULES and t["stop"] < t["entry"] < t["target"]
         assert t["target"] == pytest.approx(t["entry"] + 2 * (t["entry"] - t["stop"]))

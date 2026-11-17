@@ -87,28 +87,51 @@ def candidates(db: OpsStore, now: datetime) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> tuple[pt.Setup, pt.Trade] | None:
-    """The first long setup to fill on these bars (None = none yet)."""
+# Owner 2026-11-17 (decision 4, found with the replay lab on MPU: buy 1.51, stop 1.50, target 1.53 on a stock that
+# costs 1.3% to trade): a long whose 2R target, IF HIT, does not beat the estimated round-trip cost cannot win. On the
+# stored long-book test 211 of 2,242 training trades (9%) were such trades: none won except one gap fill, mean -1.26%;
+# held-out 52 of 724, -1.20% (docs/findings/prereg_long_nowin_2026-11-17.md). Such a fill is not taken; the book
+# takes the next setup of that alert that can win, if one fills.
+def no_win(symbol: str, s: pt.Setup, t: pt.Trade) -> bool:
+    """True when the 2R target would not beat the estimated cost of the trade. No cost estimate -> False (not judged)."""
+    c = est_costs.cost("long", symbol, t.entry_ts.to_pydatetime(), t.entry)
+    return c is not None and t.entry > 0 and pt.RR * (t.entry - s.stop) / t.entry <= c
+
+
+Fill = tuple[pt.Setup, pt.Trade]
+
+
+def fills(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> tuple[Fill | None, Fill | None]:
+    """(the first long setup to fill that can win, the first one that filled but cannot); each None when there is
+    none yet. Ties on the fill bar go by LONG_KINDS."""
     found, _ = long_shadow.setups(f, {**row, "status": "live"})     # halts decided from the bars, as the shadow
-    fills = []
+    ok, dead = [], []
     for s in found:
         if s.side != "long":
             continue
         t = pt.simulate(f, s, latest=latest)
         if t is not None:
-            fills.append((t.entry_ts, LONG_KINDS.index(s.kind), s, t))
-    if not fills:
-        return None
-    _, _, s, t = min(fills, key=lambda x: (x[0], x[1]))
-    return s, t
+            (dead if no_win(row["symbol"], s, t) else ok).append((t.entry_ts, LONG_KINDS.index(s.kind), s, t))
+    pick = lambda xs: min(xs, key=lambda x: (x[0], x[1]))[2:] if xs else None  # noqa: E731
+    return pick(ok), pick(dead)
+
+
+def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> Fill | None:
+    """The first long setup to fill that the book would take (None = none yet)."""
+    return fills(f, row, latest)[0]
 
 
 # Owner 2026-11-13 (option A "measure-only"): the long book is a tested loser in every slice (A2 training -2.09% per
 # trade, win 14%; every time-of-day bucket, setup and stop width negative) and the owner's bull flag and BoS rules also
-# failed. Flag ``long_off``: "0" or absent = on, anything else = off (fail closed: no new longs, no texts). Open longs
+# failed. Flag ``long_off``: "0" or absent = on, anything else = off (fail closed: no new longs). Open longs
 # still exit and settle; the nightly long shadow (long_shadow) keeps scoring every alert, so nothing stops being
 # measured. Back on only by the owner's word, for a rule that passed its pre-registered test.
+# Owner 2026-11-17 (decision 1B: "measure-only + one 'seen, not traded' text"): while off, the book still WATCHES. The
+# long it would have opened is recorded with status ``seen`` and texted once as seen, not traded: no position, no
+# exit text, never in a total (every total reads open / est_closed / settled). The nightly settle scores what it
+# would have made on official bars (the row stays ``seen``), so the measurement is of the book's own rule.
 OFF_FLAG = "long_off"
+SEEN, NOWIN = "seen", "nowin"       # long_trades.status: watched while off / filled but could not beat costs
 
 
 def is_off(db: OpsStore) -> bool:
@@ -127,22 +150,28 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
     opened = 0
     for row in candidates(db, now):
         try:
-            if db.paused() or approvals.disarmed(db, now) or is_off(db):
+            if db.paused() or approvals.disarmed(db, now):
                 continue
-            with db.tx() as c:
-                n_open = c.execute("SELECT COUNT(*) FROM long_trades WHERE status='open'").fetchone()[0]
-            if n_open >= MAX_OPEN:
-                continue
+            off = is_off(db)                               # measure-only: watched and texted as seen, never opened
+            if not off:
+                with db.tx() as c:
+                    n_open = c.execute("SELECT COUNT(*) FROM long_trades WHERE status='open'").fetchone()[0]
+                if n_open >= MAX_OPEN:
+                    continue
             f = rth(bars(row["symbol"], now), now)
-            hit = first_fill(f, row, long_shadow._latest(row["session"])) if len(f) else None
+            hit, dead = fills(f, row, long_shadow._latest(row["session"])) if len(f) else (None, None)
             if hit is None:
-                if _window_over(row, now):
-                    _insert(db, row, None, None, "none", now)
+                if _window_over(row, now):                 # nothing the book takes: say whether a no-win fill was why
+                    _insert(db, row, *(dead or (None, None)), NOWIN if dead else "none", now)
                 continue
             s, t = hit
             if pd.Timestamp(now) - t.entry_ts > LIVE_LAG:
                 _insert(db, row, s, t, "missed", now)
                 log.info("long %s %s filled %s, before the book saw it: missed", row["symbol"], s.kind, t.entry_ts)
+                continue
+            if off:
+                if _insert(db, row, s, t, SEEN, now):
+                    send(seen_text(db, row["symbol"], s, t))
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
@@ -269,7 +298,8 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
             "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules FROM long_trades WHERE "
-            "status='est_closed' OR (status='settled' AND entry IS NULL) ORDER BY id")]
+            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status=? AND settled_at IS NULL) "
+            "ORDER BY id", (SEEN,))]
     out = []
     stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
     for r in rows:
@@ -288,22 +318,26 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
 def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, stale: str) -> str | None:
     """One long's official result (see settle). None = nothing changed (bars not there yet)."""
     f = bars(r["symbol"], r["session"])
+    seen = r["status"] == SEEN                         # a watched long: scored for the record, never becomes a trade
     if f is None or not len(f):
-        if r["session"] <= stale and _set(db, r["id"], r["status"], status="void", reason="no official SIP bars"):
+        if r["session"] <= stale and _set(db, r["id"], r["status"], reason="no official SIP bars",
+                                          **({"settled_at": iso(now)} if seen else {"status": "void"})):
             return f"{r['symbol']} {r['kind']} void"
         return None                                    # review F-1 (shadow): an outage day is retried, never final
     trigger = None if r["trigger"] is None else float(r["trigger"])
     s = pt.Setup(r["kind"], "long", pd.Timestamp(r["entry_ts"]), trigger, float(r["stop"]))
     t = pt.simulate(f, s, latest=long_shadow._latest(r["session"]), red_exit=r.get("rules") == RULES)
     if t is None:
-        return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], status="void", reason=NO_FILL) \
-            else None
+        gone = {"settled_at": iso(now)} if seen else {"status": "void"}
+        return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], reason=NO_FILL, **gone) else None
     rt = float(cost_fn(r["symbol"], t.entry_ts.to_pydatetime(), t.entry))
     net = t.gross - rt
-    if not _set(db, r["id"], r["status"], status="settled", entry=t.entry, fill_ts=iso(t.entry_ts.to_pydatetime()),
-                exit=t.exit, exit_ts=iso(t.exit_ts.to_pydatetime()), exit_reason=t.reason, gross=t.gross, cost_rt=rt,
-                net=net, settled_at=iso(now)):
+    if not _set(db, r["id"], r["status"], status=SEEN if seen else "settled", entry=t.entry,
+                fill_ts=iso(t.entry_ts.to_pydatetime()), exit=t.exit, exit_ts=iso(t.exit_ts.to_pydatetime()),
+                exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now)):
         return None
+    if seen:
+        return f"{r['symbol']} {r['kind']} seen, not traded: would have made {net:+.2%}"
     was = f" (re-scored, was {float(r['net']):+.2%})" if r["status"] == "settled" and r["net"] is not None else ""
     return f"{r['symbol']} {r['kind']} {net:+.2%}{was}"
 
@@ -321,6 +355,18 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
             f"trades (live paper test)\nhttps://www.tradingview.com/chart/?symbol={symbol}")
 
 
+def seen_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
+    """The one text of a watched long while the book is measure-only: what it would have done, plainly not a trade."""
+    risk = (t.entry - s.stop) / t.entry
+    out = min(t.entry_ts + pt.HOLD, pd.Timestamp(default_close(t.entry_ts.tz_convert(ET).date().isoformat())))
+    return (f"[SGT] 👀 LONG SEEN, not traded: {symbol} @ ${t.entry:.2f}\n"
+            f"Setup: {NAMES.get(s.kind, s.kind)} · stop ${s.stop:.2f} ({-risk:.1%}) · target ${target(s, t):.2f} "
+            f"(+{pt.RR * risk:.1%}) · would be out by {out.tz_convert(ET):%H:%M} ET\n"
+            f"Measure-only (your choice): no position, not in the totals. What it would have made is on the site "
+            f"tonight.\nTested on past alerts: {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over "
+            f"{TESTED_N.get(s.kind, 0):,} trades")
+
+
 def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
     # 2026-11-16: quoted after the estimated round-trip spread (est_costs), like the official result will be
     net = t.gross - (est_costs.cost("long", r["symbol"], dict(r).get("entry_ts"), t.entry) or 0.0)
@@ -336,7 +382,8 @@ def today_line(db: OpsStore, session: str) -> str | None:
     """Digest TODAY line for the long book (estimates until settled)."""
     with db.tx() as c:
         rows = c.execute("SELECT symbol, kind, status, entry_ts, est_entry, est_exit, net, weight FROM long_trades WHERE "
-                         "session=? AND status NOT IN ('none','missed') ORDER BY id", (session,)).fetchall()
+                         "session=? AND status IN ('open','est_closed','settled','void') ORDER BY id",
+                         (session,)).fetchall()
     # review F-2: a void long has no official result: say so instead of showing its estimate
     if not rows:
         return None
@@ -347,6 +394,18 @@ def today_line(db: OpsStore, session: str) -> str | None:
         state = "void" if r["status"] == "void" else ("open" if g is None else f"{g:+.1%}")
         bits.append(f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])} {state}")
     return f"longs (paper) {len(rows)} trades: " + ", ".join(bits)
+
+
+def seen_line(db: OpsStore, session: str) -> str | None:
+    """Digest line for the longs WATCHED that day while the book was measure-only (never part of a total)."""
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, kind, net FROM long_trades WHERE session=? AND status=? ORDER BY id",
+                         (session, SEEN)).fetchall()
+    if not rows:
+        return None
+    bits = [f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])}" + ("" if r["net"] is None else f" {r['net']:+.1%}")
+            for r in rows]
+    return f"longs seen, not traded ({len(rows)}; not in the total): " + ", ".join(bits)
 
 
 def record_line(db: OpsStore) -> str | None:

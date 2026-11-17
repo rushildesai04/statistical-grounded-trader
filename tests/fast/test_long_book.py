@@ -454,13 +454,87 @@ def test_long_size_follows_the_drift_scale(db):
 
 
 @pytest.mark.parametrize("flag, n", [(None, 1), ("0", 1), ("1", 0), ("yes", 0)])
-def test_long_off_blocks_new_longs_and_texts_only(db, flag, n):
-    """Owner 2026-11-13 option A (measure-only): no new longs or texts while off; absent / "0" is unchanged."""
+def test_long_off_opens_nothing_and_texts_the_setup_as_seen(db, flag, n):
+    """Owner 2026-11-13 (measure-only) and 2026-11-17 (decision 1B: one "seen, not traded" text): while off no long
+    is opened, the one it would have opened is recorded as seen and texted once; absent / "0" is unchanged."""
     alert_row(db)
     if flag is not None:
         db.set_flag(lb.OFF_FLAG, flag)
     sent = []
-    assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == n and len(trades(db)) == n and len(sent) == n
+    assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == n
+    (t,) = trades(db)
+    assert t["status"] == ("open" if n else "seen") and len(sent) == 1
+    assert ("LONG SEEN, not traded: ABCD @ $10.55" in sent[0]) == (n == 0)
+    assert ("🟢 LONG ABCD" in sent[0]) == (n == 1)
+
+
+def test_a_seen_long_is_never_a_trade_and_is_scored_for_the_record(db):
+    alert_row(db)
+    db.set_flag(lb.OFF_FLAG, "1")
+    sent = []
+    lb.tick(db, feed(DAY), sent.append, now=at(3))
+    (t,) = trades(db)
+    assert (t["kind"], t["est_entry"], t["stop"], t["status"], t["rules"]) == ("L4b", 10.55, 10.2, "seen", "A2")
+    assert t["weight"] == pytest.approx(0.05 * lb.risk_weight(10.55, 10.2))          # the size it would have had
+    assert "no position, not in the totals" in sent[0] and "stop $10.20" in sent[0] and "would be out by" in sent[0]
+    lb.tick(db, feed(DAY), sent.append, now=at(50))                                   # nothing to exit, no second text
+    assert [x["status"] for x in trades(db)] == ["seen"] and len(sent) == 1
+    assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None and lb.nav(db) == fade.NAV0
+    assert lb.seen_line(db, "2026-11-09") == "longs seen, not traded (1; not in the total): ABCD red-candle break"
+    # the nightly settle scores what it would have made on official bars; the row stays "seen"
+    out = lb.settle(db, sip({"ABCD": DAY}), cost, now=datetime(2026, 11, 10, 2, 0, tzinfo=timezone.utc))
+    (t,) = trades(db)
+    assert t["status"] == "seen" and t["net"] is not None and t["settled_at"] is not None and t["entry"] == 10.55
+    assert out == [f"ABCD L4b seen, not traded: would have made {t['net']:+.2%}"]
+    assert lb.nav(db) == fade.NAV0 and lb.record_line(db) is None                     # still in no total
+    assert lb.seen_line(db, "2026-11-09").endswith(f"ABCD red-candle break {t['net']:+.1%}")
+    assert lb.settle(db, sip({"ABCD": DAY}), cost, now=datetime(2026, 11, 10, 3, 0, tzinfo=timezone.utc)) == []
+
+
+def test_a_seen_long_that_never_fills_on_official_bars_is_closed_once(db):
+    alert_row(db)
+    db.set_flag(lb.OFF_FLAG, "1")
+    lb.tick(db, feed(DAY), [].append, now=at(3))
+    flat = bars([(10.0, 10.1, 9.9, 10.0, 100)] * 60)                                  # official tape never trades 10.55
+    now = datetime(2026, 11, 10, 2, 0, tzinfo=timezone.utc)
+    assert lb.settle(db, sip({"ABCD": flat}), cost, now=now) == ["ABCD L4b void"]
+    (t,) = trades(db)
+    assert t["status"] == "seen" and t["net"] is None and t["reason"] == lb.NO_FILL and t["settled_at"] is not None
+    assert lb.settle(db, sip({"ABCD": flat}), cost, now=now) == []     # not retried
+
+
+def test_a_long_whose_target_cannot_beat_costs_is_not_taken(db, monkeypatch):
+    """Owner 2026-11-17 (decision 4; MPU: buy 1.51, stop 1.50, target 1.53 at 1.3% costs)."""
+    ts = pd.Timestamp("2026-11-09 15:03", tz="UTC")
+    tight = pt.Setup("L4a", "long", ts, None, 9.99)
+    wide = pt.Setup("L4a", "long", ts, None, 9.50)
+    trade = pt.Trade("L4a", "long", ts, 10.0, ts, 10.0, "time", 0.0)
+    c = est_costs.cost("long", "ABCD", ts.to_pydatetime(), 10.0)
+    assert 0.002 < c < 0.05
+    assert lb.no_win("ABCD", tight, trade) is True                                    # 2R = 0.2% against the cost
+    assert lb.no_win("ABCD", wide, trade) is False                                    # 2R = 10%
+    edge = pt.Setup("L4a", "long", ts, None, 10.0 * (1 - 0.999 * c / 2))              # 2R just under the cost: cannot win
+    assert lb.no_win("ABCD", edge, trade) is True
+    # on DAY the red-candle break (L4b) fills first; when it cannot win the book takes the red-candle close instead
+    alert_row(db)
+    monkeypatch.setattr(lb, "no_win", lambda sym, s, t: s.kind == "L4b")
+    sent = []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == 1
+    (t,) = trades(db)
+    assert (t["kind"], t["est_entry"]) == ("L4a", 10.3) and "red-candle close" in sent[0]
+    assert t["status"] == "est_closed" and t["reason"] == "target"                    # its 10.50 target traded that bar
+
+
+def test_only_no_win_fills_leave_a_marker_and_no_text(db, monkeypatch):
+    alert_row(db)
+    monkeypatch.setattr(lb, "no_win", lambda sym, s, t: True)
+    sent = []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == 0 and trades(db) == []   # still inside its window
+    late = (POSTED + pd.Timedelta(fade.MAX_ENTRY_DELAY) + ls.REOPEN_MAX + pt.WATCH + lb.GRACE).to_pydatetime()
+    assert lb.tick(db, feed(DAY), sent.append, now=late) == 0
+    (t,) = trades(db)
+    assert t["status"] == "nowin" and t["kind"] in ("L4a", "L4b") and sent == []
+    assert lb.today_line(db, "2026-11-09") is None and lb.seen_line(db, "2026-11-09") is None
 
 
 def test_an_open_long_still_exits_after_the_switch(db):
@@ -480,4 +554,5 @@ def test_digest_says_longs_are_off(db):
     db.set_flag(lb.OFF_FLAG, "1")
     text = digest.build(db, datetime(2026, 11, 9, 20, 50, tzinfo=ZoneInfo("America/New_York")), fills=[],
                         problems=[], broker=None, research=[])
-    assert "(owner 11-13, measure only): the long shadow still scores every alert" in text
+    assert "(your choice): each setup is texted as seen, none is traded or counted" in text
+    assert "measure only): the long shadow" not in text                             # the 11-13 wording is gone

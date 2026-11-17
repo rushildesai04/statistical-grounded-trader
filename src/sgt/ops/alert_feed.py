@@ -34,7 +34,9 @@ WHY = {
 _CODE = re.compile(r"\s*\((?:[^()]*(?:amendment|owner|prereg)[^()]*)\)")
 _WINDOW = re.compile(r"^outside 09:30-(\d\d:\d\d)$")
 LONG = {"none": "no long setup filled", "missed": "long setup filled before the book was on", "open": "long open",
-        "void": "long void (did not fill on official bars)"}
+        "void": "long void (did not fill on official bars)",
+        "nowin": "long setup skipped: its target could not beat costs"}
+SEEN = "long seen, not traded"                      # measure-only (owner 2026-11-17): watched, texted, never a trade
 
 
 def why(reason: str | None) -> str:
@@ -70,6 +72,8 @@ def long_words(status: str | None, net) -> str:
         return ""
     if status in ("settled", "est_closed"):
         return "long taken" + (_pct(net) if status == "settled" else " (closed, official tonight)")
+    if status == "seen":
+        return SEEN + (f": would have made{_pct(net)}" if net is not None else "")
     return LONG.get(status, str(status)[:MAX_TEXT])
 
 
