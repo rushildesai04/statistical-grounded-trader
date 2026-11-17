@@ -183,8 +183,37 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
             alerts = alert_feed.rows(db)
         except Exception:  # noqa: BLE001 - logged; the page builds without the list
             log.exception("alert feed failed")
-    return charts.render(views, now, standalone=standalone, learning=learning, models=models, journal=entries,
-                         scan_views=scan_views, overview=summary, book_views=model_cards, alerts=alerts)
+    html, dropped = fit(
+        lambda views, scan_views, book_views: charts.render(
+            views, now, standalone=standalone, learning=learning, models=models, journal=entries,
+            scan_views=scan_views, overview=summary, book_views=book_views, alerts=alerts),
+        {"views": views, "scan_views": scan_views, "book_views": model_cards})
+    if dropped:
+        log.warning("chart page over %d bytes: cards of %s left off (oldest first)", PAGE_BUDGET, ", ".join(dropped))
+        print(f"page over budget: cards of {', '.join(dropped)} left off")
+    return html
+
+
+# 2026-11-17: the page was 6.0 MB and growing about 0.5 MB a trading day (one card per model trade), and the server
+# refuses a page over 8 MB (chartserver.MAX_PAGE): in a few days the whole site would have answered "page too large".
+# The build now keeps the page under a budget by leaving off the cards of the OLDEST sessions first, and says so.
+PAGE_BUDGET = 7 * 1024 * 1024
+
+
+def fit(render, cards: dict[str, list[dict]], budget: int = PAGE_BUDGET) -> tuple[str, list[str]]:
+    """``render(**cards)`` -> page; while it is over ``budget`` bytes, every card of the oldest session still on it
+    is left off and the page is rendered again. Returns (page, sessions left off). With no card left to drop the
+    page is returned as it is (the server's own limit then decides)."""
+    dropped: list[str] = []
+    while True:
+        html = render(**cards)
+        if len(html.encode()) <= budget:
+            return html, dropped
+        days = sorted({str(v.get("session") or "")[:10] for vs in cards.values() for v in vs} - {""})
+        if not days:
+            return html, dropped
+        cards = {k: [v for v in vs if str(v.get("session") or "")[:10] != days[0]] for k, vs in cards.items()}
+        dropped.append(days[0])
 
 
 MAX_BOOK_TRADES = 60

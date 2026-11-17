@@ -233,6 +233,12 @@ def replay(bars: pd.DataFrame, symbol: str, session: str, alerts: list[dict] | N
         if kind not in fade.CELLS:
             row["why"] = "alert type is not one the rule trades"
             continue
+        # As fade.on_alert: an alert whose tested entry minute is outside the rule's hours is filtered and does NOT
+        # use up the stock's one event of the day (2026-11-17: a pre-market alert on GP hid its 09:30 trades).
+        last = fade.last_entry(date.fromisoformat(out["session"]))
+        if not fade.FIRST_ENTRY <= fade.entry_start(at.to_pydatetime()).astimezone(fade.ET).time() <= last:
+            row["why"] = f"outside the rule's hours (09:30 to {last:%H:%M} ET)"
+            continue
         started = row["traded"] = True
         short, why = _fade(f, ind, sym, out["session"], at, label)
         if short:

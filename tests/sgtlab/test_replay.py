@@ -85,6 +85,19 @@ def test_only_the_first_tradable_alert_starts_trades():
     assert sum(t["rule"] == "fade" for t in r["trades"]) == 1
 
 
+def test_an_alert_outside_the_rules_hours_does_not_use_up_the_days_event():
+    # GP 2026-11-17 on the site: a pre-market alert came first and the 09:30 alert's trades were not shown
+    c = [10.0] * 10 + [10.5, 11.0, 11.6, 12.1] + [11.0] * 80
+    pre = (OPEN - pd.Timedelta(minutes=25)).isoformat()                     # 09:05 ET
+    r = replay.replay(bars(c), "TEST", DAY, [{"at": pre, "type": "volume_spike"}, {"at": at(10, 30), "type": "new_high"}])
+    assert [a["traded"] for a in r["alerts"]] == [False, True]
+    assert "outside the rule's hours (09:30 to 15:44 ET)" in r["alerts"][0]["why"]
+    (short,) = [t for t in r["trades"] if t["rule"] == "fade"]
+    assert short["entry_hm"] == "09:41"
+    late = replay.replay(bars([10.0] * 390), "TEST", DAY, [{"at": at(380), "type": "new_high"}])   # 15:50 ET
+    assert late["alerts"][0]["traded"] is False and not late["trades"]
+
+
 def test_an_alert_into_a_halt_is_not_shorted_and_says_why():
     c = [10.0] * 40
     f = bars(c, skip=range(11, 25))                               # nothing prints for 14 minutes after the alert
@@ -98,7 +111,7 @@ def test_price_and_hours_rules_are_applied_and_explained():
     assert any("outside $1 to $50" in n for n in r["notes"]) and not r["trades"]
     late = bars([10.0] * 390)
     r = replay.replay(late, "TEST", DAY, [{"at": at(380), "type": "new_high"}])        # 15:50 ET: after the last entry
-    assert any("outside the rule's hours" in n for n in r["notes"])
+    assert "outside the rule's hours" in r["alerts"][0]["why"] and not r["trades"]
 
 
 def test_no_alert_uses_our_own_spike_or_says_nothing_would_trade():
