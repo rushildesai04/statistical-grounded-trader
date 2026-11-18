@@ -384,6 +384,35 @@ Not fixed by this: every long setup still loses in its test; an on-time text mak
 profitable. The trader's actual claim (buy the 9/21 cross while volume is already there) is under its own test on
 official prints (`prereg_ema_instant_volume_2026-11-18`).
 
+**Root cause of the three longs of 2026-11-18 (CUE, SVRE, CLRO; watched, not traded) and two gaps in our own
+pipeline (owner: "was it because the alerts came in too late? ... find gaps in the implementation").** Rebuilt
+minute by minute on the official tape and on the free feed the book reads.
+- CUE (**rule as tested**): the spike topped at 4.00 in the 09:33 candle; the channel's alert was posted 09:34:08,
+  after the top. The rule bought the first red candle's close at 3.61 (09:36), the stock fell to 3.27 by 09:42 and
+  only then ran to 4.04 (10:04). The red-candle exit sold at 3.54 (-3.2%); holding to the stop would have lost 7.6%.
+- SVRE (**rule as tested**): alert 09:51:14, top 1.15 at 09:54, -24% by 10:17. Bought 1.055, stopped in the same
+  minute (-3.6%); the stop saved 18 points. The short was the right side and was blocked (no shares to borrow).
+- CLRO (**process: our data feed**): the red candle's low was 7.16 on the free feed and 7.13 on the real tape. The
+  stop at 7.16 was touched to the cent and the long was out at -1.7%; on the real candle it is not stopped and the
+  target fills in the same minute (+2.0%).
+First reading given to the owner that morning ("all three ran 9 to 12% after the entry, the direction was right")
+was wrong for CUE and SVRE: it read the 30-minute high and ignored the path. Path first, then the extremes.
+**Gap 1, the alert reaches us late.** Over all 362 alerts received (11-04 to 11-18) the row is written a median
+27.7 s after the channel's posting time (mean 29.3, 90th percentile 52.9; within 5 s: 9%). On 11-18 every alert
+landed at second :32 of its minute: the Telegram library re-asks the channel on the server's timer (about 60 s),
+the channel is not pushed to us. It delays every text and the short's entry (live entry a median 13 s after the
+tested bar's open); it did not decide the three longs (entries two minutes after the alert). Owner 2026-11-18:
+leave it for now.
+**Gap 2, the free feed is not the tape.** It carried 2.0%, 0.2% and 0.5% of the volume of those three stocks; 6
+to 22 of about 70 minutes had no bar at all. On the 18 earlier live longs against the same setup found on the
+official tape: same entry minute in 12, the live stop tighter than the real candle's low in 12 (median 0.5%),
+and on the 14 scored both ways the live book made -3.54% per trade against -1.47% for the rule on real candles.
+The live long book has not been trading the tested rule; it has been trading it on different candles. Owner
+2026-11-18: connect Schwab market data, keep the free feed as the fallback. `sgt.intraday.schwab_md` reads Schwab's
+1-minute candles (read-only, not wired into a book); `scripts/schwab_md_check.py` must first show on a real login
+that they match the official tape and arrive in real time. Option 2 (bars in real time) is only worth building on
+a full-tape source: faster bars from the free feed would be faster wrong candles.
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
