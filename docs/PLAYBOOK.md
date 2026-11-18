@@ -78,8 +78,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 10. **Chart signals carry no edge here.** EMA 9/21 cross (46,711), RSI, MACD, PSAR, PVT, VWAP, the trader's full
    setup, 30+ signals in a learned model: about 0 before 0.7-1.4% costs. Shown in texts, never filters.
    On alert longs the trader's five rules pick WORSE trades: all true -3.13% vs -2.02%
-   (`prereg_trader_rules_long_2026-11-12`). At the EXACT 9/21 cross price, no delay (69,720): -0.87% net;
-   1 in 3 fails within its minute; a minute's wait costs 0 (`prereg_ema_exact_cross_2026-11-18`).
+   (`prereg_trader_rules_long_2026-11-12`). 9/21 cross at its EXACT price (69,720): -0.87% net; on prints
+   with 3x volume (7,608): -0.71%; a minute later: 0.05% (`prereg_ema_instant_volume_2026-11-18`).
    Shorting while EMA 9 > EMA 21 IS the fade: 92-97% of alerts have 9 > 21 at entry, and those shorts made +0.73% /
    +0.94% (no-news +1.42% / +1.31%) train / held-out; buying there is the losing side (-1.65%, L1).
 11. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x
