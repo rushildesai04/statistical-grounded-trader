@@ -32,7 +32,7 @@ PRICE_BUCKETS = (("below $1", 0, 1), ("$1-2", 1, 2), ("$2-5", 2, 5), ("$5-10", 5
 
 def spike_events(path: Path = EVENTS) -> pd.DataFrame:
     """The SPIKE cross minutes of the exact-cross training run (the only minutes a trigger can fall in)."""
-    t = pd.read_csv(path)
+    t = pd.read_csv(path, converters={"symbol": str})      # 2026-11-18: the ticker NA is a ticker, not a missing value
     t = t[t.SPIKE.astype(bool)].copy()
     t["ts"] = pd.to_datetime(t.ts, utc=True)
     t["session"] = t.session.astype(str)

@@ -97,3 +97,13 @@ def test_a_second_run_is_refused(tmp_path, capsys):
     (tmp_path / "result_train.json").write_text("{}")
     assert st.main(["--out", str(tmp_path)]) == 2
     assert "not repeated" in capsys.readouterr().out
+
+
+def test_the_ticker_na_is_read_as_a_ticker(tmp_path):
+    """2026-11-18: the default parser read the stock NA as a missing value; the fetch crashed on it and a run would
+    have dropped its events without a word."""
+    p = tmp_path / "events.csv"
+    pd.DataFrame({"ts": ["2026-01-05 15:00:00+00:00"] * 3, "SPIKE": [True, True, False], "symbol": ["NA", "ZZZ", "NA"],
+                  "session": ["2026-01-05"] * 3}).to_csv(p, index=False)
+    t = st.spike_events(p)
+    assert list(t.symbol) == ["NA", "ZZZ"] and t.symbol.map(type).eq(str).all()
