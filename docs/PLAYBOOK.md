@@ -632,6 +632,22 @@ worse lately, 7 better. Live (13 sessions for six names, 6 for fifteen): 46 call
 6) and SHORT calls (20 calls, +0.90% each) that have no edge in the long record (4,551 calls, -0.03%). The live
 run does not show the models getting better; it is a short lucky stretch until it lasts. None beats holding.
 
+**The trader's trend matrix as the long book's exit (SKYA, 2026-11-18;** `prereg_trend_matrix_exit_2026-11-18`**).**
+SKYA: bought 3.33, the 30-minute timer sold 3.40, the stock closed 4.13 (high 4.39). The trader: stay in while the
+1-minute column of his matrix (MACD 12/31/10, EMA 34, RSI 14, Bollinger middle, Supertrend 10/3, PVT 15) is all
+green; MACD red = start leaving. Tested from the book's own entries on 2,139 trades: MACD exit -2.31% per trade,
+any-of-six exit -2.20%, the book's exits -2.07%. The median trade lasts ONE minute under either: two in three are
+stopped before a trend exists, the rest see a red condition at once. Entering only when the column is all green
+is worse (-2.15% against -1.77%). SKYA by the same code: MACD and PVT were red at the candle before the entry, so
+the rule sells a minute later for +0.3%. The matrix describes a trend once it is under way; it does not pick the
+one alert in six that has legs. Kept as context for a card, never as the exit. Fifth "stay in the runner" idea to
+lose (MACD hold, swing-low trail, half at target, runner exits, this).
+**Earnings follow-through on mid-size stocks (**`prereg_earnings_midcap_2026-11-18`**; scanner input, owner's
+pick).** Large caps were tested 2026-11-03 and failed on held-out. The same single rule (a move of 5% or more on
+the earnings day, enter at that close in its direction, five sessions, hedged) on 683 mid-size stocks, 2017-2023:
+6,522 events, -0.28% per event after a 0.30% cost (+0.02% before it); both legs negative; held-out not opened.
+Not a scanner input.
+
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
