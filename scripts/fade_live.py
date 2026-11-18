@@ -231,7 +231,7 @@ def live_bars(client: httpx.Client, symbol: str, at: datetime) -> pd.DataFrame:
     return f.dropna(subset=["ts"]).sort_values("ts").reset_index(drop=True)
 
 
-TAPE_EVERY = 60                                # seconds between official-tape stop checks (sgt.fast.tape_check)
+TAPE_EVERY = 30                                # seconds between official-tape stop checks (sgt.fast.tape_check); 60 until 2026-11-18 (owner)
 PRINT_PAGES, PRINT_LIMIT = 5, 10_000            # official prints of one text's two minutes: bounded
 
 
@@ -308,7 +308,8 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
 SCAN_TIMEOUT = 15.0                            # the multi-symbol bars request is large
 MAX_SCAN_TEXTS_DAY = 80                        # anti-spam ceiling on scanner texts (2 per trade)
 SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 120, 10
-LONG_EVERY, MAX_LONG_TEXTS_DAY = 30, 100        # live paper long book: pass every 30 s (bars close each minute)
+LONG_EVERY, MAX_LONG_TEXTS_DAY = 15, 100        # live paper long book: pass every 15 s (30 until 2026-11-18, owner: a
+                                                # closed candle and a fill are seen, and texted, sooner)
 
 
 class ScanState:
@@ -566,12 +567,40 @@ async def run() -> int:
         except Exception:  # noqa: BLE001 - logged; the hourly poll re-fetches anything missed
             log.exception("storing message %s failed", msg.id)
 
+    from sgt.fast import chan_poll
+
+    poll_state = chan_poll.State()
+
+    def take(msg, how: str) -> None:           # one handler for push and poll: a message is handled once
+        if not poll_state.seen.add(msg.id):
+            return
+        posted = msg.date.astimezone(timezone.utc)
+        for a in to_alerts(msg.message or "", posted, msg.id):
+            log.info("alert %s %s -> %s (%s, %.0f s after posting)", a.symbol, a.alert_type, fade.on_alert(db, a), how,
+                     (utcnow() - posted).total_seconds())
+
     @client.on(events.NewMessage(chats=CHANNEL))
     async def on_new(ev):
-        posted = ev.message.date.astimezone(timezone.utc)
-        for a in to_alerts(ev.message.message or "", posted, ev.message.id):
-            log.info("alert %s %s -> %s", a.symbol, a.alert_type, fade.on_alert(db, a))
+        take(ev.message, "push")
         record(ev.message)
+
+    async def channel_loop():                  # owner 2026-11-18: the channel is asked every 15 s, not only pushed
+        from telethon.errors import FloodWaitError
+
+        while True:
+            every = chan_poll.interval(db.flag(chan_poll.FLAG))
+            await asyncio.sleep(every or chan_poll.EVERY)
+            if not every or not chan_poll.active(utcnow()):
+                continue
+            try:
+                await chan_poll.poll_once(lambda **kw: client.get_messages(CHANNEL, **kw), poll_state,
+                                          lambda m: take(m, "poll"))
+            except FloodWaitError as exc:      # Telegram asks us to slow down: obey, the push path keeps working
+                pause = chan_poll.flood_pause(getattr(exc, "seconds", None))
+                log.warning("channel check paused %d s (Telegram flood wait)", pause)
+                await asyncio.sleep(pause)
+            except Exception:  # noqa: BLE001 - the extra check must never stop the listener; logged, tried again
+                log.exception("channel check failed")
 
     @client.on(events.MessageEdited(chats=CHANNEL))
     async def on_edit(ev):                     # research excludes edited alerts; the book keeps the trade, flagged
@@ -664,7 +693,7 @@ async def run() -> int:
 
     tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
              asyncio.create_task(long_loop()), asyncio.create_task(tape_loop()),
-             asyncio.create_task(ai_loop())]
+             asyncio.create_task(ai_loop()), asyncio.create_task(channel_loop())]
     try:
         await client.run_until_disconnected()
     finally:
