@@ -348,6 +348,15 @@ lower bound -3.0%), while the opposite group, strong closes, made +4.0%. One cel
 mostly selection; nothing from a map is a rule until a second sample agrees. The worst day-after short lost 213%
 without a stop.
 
+**The multi-day drift on stocks that can really be borrowed: a forward test, clock running
+(`prereg_after_day_borrow_forward_2026-11-17`).** The runner has stored the IBKR stock-loan list (shares and annual
+fee, about 19,000 symbols) every 15 minutes since 2026-11-04 (`data/borrow/`, about 11 MB a day). So from that date
+the missing ingredient of the after-day finding exists. Frozen rule: on alert days whose stock is lendable at the
+close for a $2,500 position, short the close and cover after one or five sessions (earlier if the shares disappear),
+after the spread and the highest fee seen. Scored ONCE at 300 borrowable alert days, roughly three to four months
+away; until then `scripts/after_day_borrow_study.py --count` shows only how many days are eligible. A PASS would
+still need a loss cap and the owner's word (section 0).
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
@@ -532,6 +541,7 @@ a small, fading dip-buying tilt on large caps; not a stock picker, not a market 
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
   spending (paid data, AI beyond ~$1/month) until a book is proven. Tracked nightly in the digest "Live vs tested".
+- Forward, at 300 borrowable alert days: the multi-day short on lendable stocks (`prereg_after_day_borrow_forward_2026-11-17`).
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
   time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`); X buzz hypothesis (`prereg_fade_x_2026-11-08`, A1 cheap collection); Reddit buzz hypothesis (`prereg_fade_reddit_2026-11-08`).
 - Real money only on a strategy proven on unseen data and tradeable at a broker (borrow). Shorts also need section 0.
