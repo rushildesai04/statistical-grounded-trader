@@ -616,6 +616,22 @@ and as a book the timer made +60% where holding SPY made +152%. Closed: do not p
 buy-after-a-down-day index rule, from this evidence. With the fresh-names FAIL this settles what the daily model is:
 a small, fading dip-buying tilt on large caps; not a stock picker, not a market timer, not better than holding.
 
+**A scanner on the alphas: the signal list tested first (owner 2026-11-18, option A;**
+`prereg_scanner_signals_2026-11-18`**).** Our own channel-style alerts (volume spike, new high / low of day, burst,
+9/21 cross on volume; up and down) on the 20 liquid alphas, 2016-2024 minute candles, 68,474 signals: after each
+signal the stock moves -0.02% to +0.05% in the next 15 minutes to the close, against a 0.04% cost. No cell passes
+following or fading; held-out not opened. Fourth fast-signal family to find nothing on these stocks. The free
+feed is good enough there (candles within 0.05% of the tape on 94-99% of minutes), the data is not the limit: the
+signals carry no information. The scanner is not built on price-and-volume events.
+**Model scorecard, 2026-11-18 (owner: "the models are getting better", asked for a plain score per model;
+descriptive, already-seen record).** Grade = do the model's LONG calls beat an ordinary day of that stock
+(2018-2026 out of sample, then the last 12 months): A GOOGL (+0.48% a call), AMZN (+0.36%); B AMD, WMT, AVGO;
+C MSFT, NFLX, JPM, NVDA, MA, AAPL, AAOI, V, TSLA, UNH, META; D XOM, RDDT, LLY, COST, ORCL. All 21: long calls
++0.27% against +0.12% for an ordinary day over 8 years, but -0.03% over the last 12 months (556 calls); 11 models
+worse lately, 7 better. Live (13 sessions for six names, 6 for fifteen): 46 calls, 30 winners, mostly NVDA (6 of
+6) and SHORT calls (20 calls, +0.90% each) that have no edge in the long record (4,551 calls, -0.03%). The live
+run does not show the models getting better; it is a short lucky stretch until it lasts. None beats holding.
+
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
