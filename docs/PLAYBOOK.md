@@ -48,6 +48,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | **long switch** | **MEASURE-ONLY from 2026-11-17** (owner, decision 1B, `prereg_long_nowin_2026-11-17`): the book watches every alert; the long it would have opened is texted once as "LONG SEEN, not traded" and stored as `seen`; no position, in no total; the nightly settle scores what it would have made. Was ON 2026-11-16 12:13 ET to 11-17 (owner; section 0): 4 trades on 11-17, about -$182. Was OFF from 2026-11-13 (owner, option A "measure-only"): the long book loses in every tested slice (A2 training -2.09% per trade, win 14%; every time-of-day bucket, setup and stop width) and the owner's bull flag and BoS rules failed too. Flag `long_off` (absent or "0" = on, anything else = off): no new longs, no texts; open longs still exit and settle; the nightly long shadow keeps scoring every alert. Back on only by the owner's word for a rule that passed its test | long_book.py OFF_FLAG, owner 2026-11-13 |
 | drift guard | nightly: a live-monitor alarm (one-sided CUSUM k 0.5 / h 5 sd vs the tested expectancy, or win rate below tested at p < 0.01 after 20 trades) halves that book's size for NEW trades (floor 25%); never raises size, never closes a trade; restored only on the owner's word. Fade and long book. Since 2026-11-12 night it also judges the fade's FORWARD record (every alert, frozen rule, SIP; tested +1.12%, win 57.3%): an alarm there cuts the fade book. Read one session late (the record is written 21:20, the digest runs 20:50) | sgt.learning.live_monitor, owner 2026-11-12 |
 | long book (paper) | first long setup to fill per alert WHOSE 2R TARGET BEATS THE ESTIMATED COST (2026-11-17, owner decision 4: 9% of tested trades could not win, 0 real winners; `long_book.no_win`); stop, 2R target, 30 min; since A2 (2026-11-12): size x min(1, 2.68% / stop distance) and out at the next open when the fill candle closes below the entry (tested -1.88% vs -2.29% per dollar: still losing) | prereg_long_risk_2026-11-12 A2 |
+| long texts (2026-11-18) | a pending long order is texted once when its setup's last candle closes, before the fill (`sgt.fast.long_armed`); the fill text follows about a minute later as before. Nightly, the official price at each text is stored beside the booked fill (`sgt.fast.text_px`) and shown in the digest. Booking unchanged. | owner 2026-11-18, option 1; section 5 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
 | texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |
@@ -356,6 +357,31 @@ close for a $2,500 position, short the close and cover after one or five session
 after the spread and the highest fee seen. Scored ONCE at 300 borrowable alert days, roughly three to four months
 away; until then `scripts/after_day_borrow_study.py --count` shows only how many days are eligible. A PASS would
 still need a loss cap and the owner's word (section 0).
+
+**The long texts were late, and the paper fills were back-dated (owner, 2026-11-18: "challenge our work ... the
+signals come in late for the actual buys"; live audit of all 18 longs with an entry, 11-10 to 11-17, on official bars
+and prints).** Classification: **process** (our own design), on top of a rule that is late by construction.
+Three layers: (1) the channel alert fires a median 27 minutes and +19% after the stock's last 9/21 cross (15 trades
+with a warmed EMA); (2) the book then waits a median 3.8 minutes for its pullback candle; (3) the book learned of a
+fill only when the FILL bar had closed (closed 1-minute bars of the free feed, read every 30 s), so the text went out
+64 to 88 s (median 79 s) after the booked price. In those seconds the price moved a median 2.4% (mean 3.7%) against
+a median stop distance of 2.8%: more than the whole stop in 8 of 14; the stop level had already traded in 6, the
+target was already passed in 2 (GEVO, GP). ADXN: booked 5.30, stopped on a wick inside the entry minute (-3%), 5.52
+when the text arrived, +22% within 30 minutes. ZDGE: booked 3.28 and a -2.8% stop loss; the first official print a
+minute later was 2.89. So the long record is the rule's result at prices our own signal could not have traded, and a
+person reading the texts could not follow it. Shorts: the live entry is a median 13 s after the rule's bar; live
+price 1.2% worse than booked on 10 trades (not distinguishable from zero); not the problem.
+Fix, owner's choice (option 1, then option 2 once this is validated): (a) `sgt.fast.long_armed`: the order is texted
+the moment the setup's last candle is seen closed, BEFORE the fill ("LONG SETUP ARMED": buy-stop level, or buy at
+market now with the last price; stop, target, how long the order lives), once per setup, at most two per alert, not
+for an order that cannot beat costs; (b) `sgt.fast.text_px`: every night the official price at the moment each text
+went out is stored beside the booked fill, with what buying THERE made (`text_px`, `text_how`, `text_gross`; armed
+texts: `long_armed.px`), and the digest shows it. The book's own fills and totals are unchanged. Option 2 (bars
+built in-process from the live trade stream, so a candle's close is known within about a second) follows after a
+few sessions show the armed text arriving before the entry.
+Not fixed by this: every long setup still loses in its test; an on-time text makes the rule followable, not
+profitable. The trader's actual claim (buy the 9/21 cross while volume is already there) is under its own test on
+official prints (`prereg_ema_instant_volume_2026-11-18`).
 
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.

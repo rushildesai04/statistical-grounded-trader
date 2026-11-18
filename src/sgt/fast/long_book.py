@@ -144,8 +144,10 @@ def _window_over(row: dict, now: datetime) -> bool:
     return pd.Timestamp(now) >= posted + pd.Timedelta(fade.MAX_ENTRY_DELAY) + long_shadow.REOPEN_MAX + pt.WATCH + GRACE
 
 
-def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int:
-    """One pass: open new longs, then advance open ones. Returns the number of longs opened."""
+def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None) -> int:
+    """One pass: open new longs, then advance open ones. Returns the number of longs opened. ``arm`` (a text sender,
+    owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills (``sgt.fast.long_armed``);
+    None = no armed texts. The book's own fills and texts are the same either way."""
     now = now or utcnow()
     opened = 0
     for row in candidates(db, now):
@@ -163,6 +165,8 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
             if hit is None:
                 if _window_over(row, now):                 # nothing the book takes: say whether a no-win fill was why
                     _insert(db, row, *(dead or (None, None)), NOWIN if dead else "none", now)
+                elif arm is not None and len(f):
+                    _arm(db, row, f, now, off, arm)
                 continue
             s, t = hit
             if pd.Timestamp(now) - t.entry_ts > LIVE_LAG:
@@ -180,6 +184,18 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None) -> int
             log.exception("long candidate %s failed", row["id"])
     _advance(db, bars, send, now)
     return opened
+
+
+def _arm(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool, arm) -> None:
+    """Text a pending setup once, before it fills. Never lets a failure reach the book: logged."""
+    try:
+        from sgt.fast import long_armed
+
+        msg = long_armed.note(db, row, f, now, off)
+        if msg:
+            arm(msg)
+    except Exception:  # noqa: BLE001 - the armed text is an extra; the book's own pass must go on
+        log.exception("armed text for %s failed", row["id"])
 
 
 def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime) -> bool:

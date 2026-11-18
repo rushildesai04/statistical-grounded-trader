@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS long_trades(
   kind TEXT, status TEXT NOT NULL, trigger REAL, stop REAL, target REAL, weight REAL, entry_ts TEXT, est_entry REAL,
   est_last REAL, est_exit REAL, est_exit_at TEXT, reason TEXT, net REAL, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_long_status ON long_trades(status, session);
+CREATE TABLE IF NOT EXISTS long_armed(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, fade_id INTEGER NOT NULL, symbol TEXT NOT NULL, session TEXT NOT NULL,
+  ready TEXT NOT NULL, kinds TEXT, ref REAL, trigger REAL, stop REAL, texted_at TEXT, note TEXT, px REAL, px_at TEXT,
+  px_note TEXT, created_at TEXT NOT NULL, UNIQUE(fade_id, ready));
 CREATE TABLE IF NOT EXISTS long_shadow(
   id INTEGER PRIMARY KEY AUTOINCREMENT, fade_id INTEGER NOT NULL, symbol TEXT NOT NULL, session TEXT NOT NULL,
   kind TEXT NOT NULL, side TEXT, ready TEXT, trigger REAL, stop REAL, entry_ts TEXT, entry REAL, exit_ts TEXT,
@@ -93,7 +97,9 @@ COLUMNS = {
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
         "entry": "REAL", "fill_ts": "TEXT", "exit": "REAL", "exit_ts": "TEXT", "exit_reason": "TEXT", "gross": "REAL",
         "cost_rt": "REAL", "settled_at": "TEXT",
-        "rules": "TEXT"},                    # 2026-11-12: the long-book rule version a trade opened under (None = before A2)
+        "rules": "TEXT",                     # 2026-11-12: the long-book rule version a trade opened under (None = before A2)
+        # 2026-11-18 (sgt.fast.text_px): the official price when the fill text went out, and buying there
+        "text_px": "REAL", "text_px_at": "TEXT", "text_how": "TEXT", "text_gross": "REAL"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }
