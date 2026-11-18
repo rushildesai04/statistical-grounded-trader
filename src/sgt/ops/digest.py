@@ -338,6 +338,13 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     if fails:
         needs.append("jobs FAILED: " + ", ".join(fails))
     needs += list(problems)
+    from sgt.ops import text_guard                                 # 2026-11-18: a text that did not go out is said
+
+    try:
+        lost = text_guard.missed_line(db, day)
+    except Exception:  # noqa: BLE001 - one digest line must never block the digest
+        lost = "texts not delivered today: the count could not be read"
+    needs += [lost] if lost else []
     record: list[str] = []
     try:                                              # learning-loop audit F1: live vs tested, per book
         from sgt.learning import live_monitor
