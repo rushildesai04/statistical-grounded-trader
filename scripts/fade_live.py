@@ -232,6 +232,37 @@ def live_bars(client: httpx.Client, symbol: str, at: datetime) -> pd.DataFrame:
 
 
 TAPE_EVERY = 60                                # seconds between official-tape stop checks (sgt.fast.tape_check)
+PRINT_PAGES, PRINT_LIMIT = 5, 10_000            # official prints of one text's two minutes: bounded
+
+
+def official_prints(client: httpx.Client):
+    """(symbol, start, end) -> OFFICIAL (SIP) prints in that span as rows (ns, price, size), cleaned as the research
+    cleans them, for ``sgt.fast.text_px``; None on any failed request (the caller retries another night). External
+    bytes: at most PRINT_PAGES pages, rows that do not parse are dropped by ``clean_trades``."""
+    from sgt.decision.intrabar import clean_trades
+
+    def prints(symbol: str, start: datetime, end: datetime):
+        rows, token = [], None
+        for _ in range(PRINT_PAGES):
+            params = {"feed": "sip", "limit": PRINT_LIMIT, "start": start.isoformat(), "end": end.isoformat()}
+            if token:
+                params["page_token"] = token
+            try:
+                r = client.get(f"/v2/stocks/{symbol}/trades", params=params)
+                j = r.json() if r.status_code == 200 else None
+            except (httpx.HTTPError, ValueError):
+                return None
+            if not isinstance(j, dict):
+                return None
+            got = j.get("trades")
+            if got is not None and not isinstance(got, list):
+                return None
+            rows += [x for x in (got or []) if isinstance(x, dict)]
+            token = j.get("next_page_token")
+            if not isinstance(token, str) or not token:
+                break
+        return clean_trades(rows)
+    return prints
 
 
 def official_bars(client: httpx.Client):
@@ -602,7 +633,8 @@ async def run() -> int:
 
         while True:
             try:
-                await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send)
+                await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send,
+                                        None, long_send)     # arm: texted before the fill (owner 2026-11-18)
             except Exception:  # noqa: BLE001 - the long book must never stop the listener; logged
                 log.exception("long book failed")
             await asyncio.sleep(LONG_EVERY)
@@ -829,6 +861,14 @@ def cmd_settle() -> int:
         print("long book settle: " + (", ".join(lb) or "nothing due"))
     except Exception:  # noqa: BLE001 - review F-3: its own label; never blocks the fade's settlement
         log.exception("long book settle failed")
+    try:                                         # owner 2026-11-18: the official price when each long text went out
+        from sgt.fast import text_px
+
+        with data_client() as pc:
+            tp = text_px.run(db, official_prints(pc), sip_session_tools()[0])
+        print("long text prices: " + (", ".join(tp) or "nothing due"))
+    except Exception:  # noqa: BLE001 - a measurement; never blocks the settlement
+        log.exception("long text prices failed")
     return 0
 
 
