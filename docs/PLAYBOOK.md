@@ -420,8 +420,11 @@ plans, each run once.
 tested alerts. The free feed (a median 0.55% of the volume) does NOT make the long book worse: found on its
 candles the book makes -1.34% per trade (1,463 trades), on real candles -2.07% (2,139); the 665 alerts the feed
 shows no setup for are the rule's worst (-2.95%, 9% wins). The morning's claim from 14 live trades is withdrawn.
-Its stops are 0.6% too tight (median); a stop 0.5% lower is worth about 0.2 points per trade (training; held-out
-check pending). 45% of the rule's trades are stopped on the bar they fill; for "buy the open after the first red
+Its stops are 0.6% too tight (median). A lower stop passed the frozen gate on training and, for the registered
+2.0% pad, on the held-out events too (822 events), but per trade it is worth +0.07 to +0.15 points there and not
+distinguishable from zero: the gate (size x net) rewards the smaller size of a wider stop. Not adopted as a
+repair; the same saving is a smaller size. Held-out confirms the main finding: free feed -1.84% per trade against
+-2.32% on real candles. 45% of the rule's trades are stopped on the bar they fill; for "buy the open after the first red
 candle" 68%, with 13% winners.
 (2) `prereg_scenario_map_2026-11-18`: every alert placed by how far the stock had already run from its low
 (RUN) and whether it was still at its high. The median alert arrives 45% above the day's low. The plain long

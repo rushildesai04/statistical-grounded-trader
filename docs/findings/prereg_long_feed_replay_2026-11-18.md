@@ -105,3 +105,33 @@ gives the per-trade result of all three, and the proposal to the owner will rest
   fifth 9%; yet the net result gets WORSE as the stop widens (-1.35% to -2.50%), because a wider stop loses
   more each time and the win rate barely moves (13% to 19%). Neither a tight nor a wide stop saves this entry.
 - Break of structure (441 trades): 2% stopped on the fill bar, 20% wins, -1.52%. Bull flag v2: 27 trades.
+
+## Held-out result (2026-11-18, run once; `reports/long_feed_replay/result_holdout.json`)
+822 events from 2026-07-01 on, 87 sessions; free-feed bars for all 774 stock-days (2 had none; median share of
+volume 0.57%). TAPE reproduces the stored held-out test exactly (724 trades, 0 mismatched, 0 extra).
+
+| leg | trades | mean net per trade | win | contribution per event |
+|---|---|---|---|---|
+| TAPE | 689 | -2.32% | 14% | -1.15% |
+| LIVE | 487 | -1.84% | 18% | -0.65% |
+| LIVE, stop 0.5% lower | 508 | -1.71% | 20% | -0.60% |
+| LIVE, stop 1.0% lower | 511 | -1.72% | 20% | -0.57% |
+| LIVE, stop 2.0% lower | 519 | -1.60% | 21% | -0.45% |
+
+- **A again: no handicap.** LIVE - TAPE per event +0.50% [+0.33, +0.67]. Same picture as training: same setup and
+  fill minute in 186 of 481 events both trade, live stop tighter in 73% (median 0.68%), 208 events only the tape
+  trades.
+- **B, the registered test (pad 2.0%): PASS by the frozen gate** (PAD - LIVE per event +0.20%, lower bound +0.07%).
+  The other two would not have passed (+0.05% and +0.08%, lower bounds below 0).
+- **Per trade, on the same 487 trades (the number the proposal rests on):** -1.84% becomes -1.76% (0.5%),
+  -1.77% (1.0%), -1.69% (2.0%); differences +0.07 [-0.09, +0.24], +0.07 [-0.13, +0.28] and +0.15 [-0.14, +0.45]
+  points; win rate 18% to 19-20%. None is distinguishable from zero. The 2.0% pad passes the gate mostly because
+  a wider stop makes the book trade smaller, and a smaller losing book loses less.
+
+Put to the owner as written in the plan, with this recommendation: do not present the pad as a repair. It is
+worth about 0.1 point per trade at best, on a book that loses 1.7 to 1.8% per trade; the same money is saved,
+honestly labelled, by a smaller size. The stop stays where it is unless the owner wants the pad.
+
+Correction to the record: both runs of this study drew their bootstrap through the shared helper of
+`trader_rules_long_study` (seed 20261112, 10,000 resamples), not the seed 20261118 written in the plan. The
+intervals above are from that seed; nothing was re-run.
