@@ -71,3 +71,58 @@ counts 0).
 RUN and OFF use official bars; live they would come from the free feed's candles (a median 0.55% of the volume),
 so a live scenario switch needs its own replay on those candles before it is trusted. The LONG leg has no stop on
 purpose: Part A asks where the stock goes, Part B asks how to get in.
+
+## Result (2026-11-18; training run once, then the one training pass scored once on the held-out events)
+Plan `19e33b9`, code `a562769` (held-out mode `714e48f`, written after the training run; it repeats the frozen
+test with the training cut points and adds nothing). Training: 2,337 events, 354 sessions (8 left out: fewer than
+5 bars before the alert). RUN cut points (training terciles): 33.6% and 63.1%.
+
+**Where alerts arrive.** The median alert comes when the stock is already 44.7% above its low of the day and
+4.3% below its high. The "early" third is still about 22% off the low. On this channel an alert is late by
+construction: it reports a move that has happened.
+
+| scenario (training) | events | LONG, 30 min, after costs | wins | SHORT (tested fade) | wins |
+|---|---|---|---|---|---|
+| early, at the high | 276 | -2.09% | 34% | -0.34% | 53% |
+| early, off the high | 503 | -1.72% | 36% | -1.18% | 51% |
+| middle, at the high | 214 | -0.05% | 42% | -2.44% | 49% |
+| middle, off the high | 565 | -4.34% | 29% | +2.14% | 62% |
+| late, at the high | 192 | -4.11% | 34% | +2.42% | 53% |
+| late, off the high | 587 | -4.53% | 32% | +2.98% | 57% |
+| all | 2,337 | -3.15% | 34% | +0.95% | 55% |
+
+**Part A, LONG: no scenario passes.** The plain long loses in every scenario (best: middle of the run and at
+the high, -0.05%, lower bound -3.07%). Half an hour after an alert the typical stock has been 7% higher and 10%
+lower than the alert price: the swings are there, the drift is down.
+**Part A, SHORT: one scenario passed on training** (late and off the high: +2.98% against +0.27% for the rest,
+lower bound of the difference +0.08% at alpha 0.05 / 12) **and was NOT confirmed on the held-out events**
+(764 events: 139 in the scenario, +1.51% against +1.04%, lower bound of the difference -2.41%).
+
+| scenario (held-out) | events | LONG, 30 min | SHORT |
+|---|---|---|---|
+| early, at the high | 89 | -1.76% | -0.87% |
+| early, off the high | 191 | -1.41% | -0.19% |
+| middle, at the high | 72 | -2.39% | +0.68% |
+| middle, off the high | 211 | -5.07% | +2.45% |
+| late, at the high | 62 | -0.71% | +3.15% |
+| late, off the high | 139 | -4.07% | +1.51% |
+
+**Part B, HOLD: FAIL.** HOLD1 805 trades, -1.23% per trade, 28% wins (lower bound -1.81%); HOLD2 577 trades,
+-1.46%, 31% wins. Today's entry on the same events at equal size: -1.17%, stopped on its entry bar 61% of the
+time. Waiting for the low to hold skips two events in three (so it loses less per event: +0.61 points) and the
+trades it keeps lose as much as before. Held-out: -0.75% to -5.91% by scenario. The entry minute is not where the
+money is lost; the drift after the alert is.
+
+## Reading
+1. "Was the alert too late?" Yes, always, in the sense that matters for a long: by the time this channel alerts,
+   the stock is up 22% to 98% from its low, and in every scenario, in both samples, buying it loses.
+2. No long rule comes out of the place-in-the-move scenarios, and the new entry does not rescue the old one.
+   Together with the timing maps (every entry time 0 to 90 minutes after the alert loses) this closes "a better
+   way into the same alert" for longs. A long that works has to be in BEFORE the alert, or be a different trade.
+3. A lead, NOT a result (it was seen in both samples before being defined, so neither can confirm it): the fade
+   loses on EARLY alerts in both samples (training -0.34% and -1.18%; held-out -0.87% and -0.19%) and earns in
+   the middle and late bands except middle-at-the-high on training. If real, a third of the shorts are the losing
+   third. It can only be settled forward: tag every live alert with its band and judge on new alerts.
+4. Leads in the reported splits (same warning): alert types "resumed", "intraday high" and "volume spike" carry
+   the fade (+3.0% to +4.8% on training); "price level" loses as a short; calm stocks (small 1-minute swings
+   before the alert) lose as shorts (-1.00%) and wild ones earn (+2.76%).
