@@ -72,7 +72,7 @@ def test_count_reports_eligibility_and_no_outcome():
     ev = pd.DataFrame({"symbol": ["AAA", "BBB", "AAA", "CCC"], "session": ["2026-11-16", "2026-11-16", "2026-11-27", "2026-11-17"],
                        "cost_rt": 0.01})
     n = st.count(ev, lambda s: d if s in ("AAA", "BBB") else None, lambda day: full if day == "2026-11-16" else None)
-    assert n == {"alert_days": 4, "with_bars_and_5_sessions": 2, "borrow_known": 2, "borrowable": 1}
+    assert n == {"alert_days": 4, "no_daily_bars": 1, "with_bars_and_5_sessions": 2, "borrow_known": 2, "borrowable": 1}
     assert not any(k in json.dumps(n) for k in ("net", "ret", "mean"))
 
 
@@ -103,3 +103,15 @@ def test_the_decision_run_is_refused_before_the_count_and_after_a_result(tmp_pat
     assert st.main(["--count"]) == 0
     (tmp_path / "result.json").write_text("{}")
     assert st.main([]) == 2
+
+
+def test_daily_bars_are_asked_up_to_yesterday(monkeypatch, tmp_path):
+    """2026-11-17: an end date of today is refused by the data plan (403) and the first count had no bars at all."""
+    from datetime import date
+
+    import alert_after_day_study as base
+
+    monkeypatch.setattr(st, "DAILY", tmp_path)
+    monkeypatch.setattr(base, "fetch", lambda sym: None)
+    st.daily_loader(date(2026, 11, 18))
+    assert base.END == "2026-11-17" and base.CACHE == tmp_path / "2026-11-17"
