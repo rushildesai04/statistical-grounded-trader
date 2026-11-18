@@ -862,6 +862,21 @@ def sip_session_tools():
     return bars, (lambda sym, ts, px: cost.round_trip(sym, ts, px)[0])
 
 
+def sip_day_frames():
+    """(symbol, session) -> that day's OFFICIAL 1-minute bars, every segment (pre-market included), cached on disk:
+    what the scenario label needs (the day's low and high before the alert). Empty when the bars are not there."""
+    store, fetch = ParquetBarStore(BARS), AlpacaHistoricalBars(feed="sip").fetch
+    seen: set[tuple[str, str]] = set()
+
+    def bars(symbol: str, session: str) -> pd.DataFrame:
+        day = date.fromisoformat(session)
+        if (symbol, session) not in seen:
+            backfill([symbol], day, day, store=store, fetch=fetch)
+            seen.add((symbol, session))
+        return store.read_frame(symbol, day, day)
+    return bars
+
+
 def settle_long_shadow(db: OpsStore, tools=None) -> list[str]:
     """Owner 2026-11-10 "paper-run the longs": the tested long setups on today's settled alerts, paper only."""
     from sgt.fast import long_shadow
@@ -891,6 +906,13 @@ def cmd_settle() -> int:
         print("long book settle: " + (", ".join(lb) or "nothing due"))
     except Exception:  # noqa: BLE001 - review F-3: its own label; never blocks the fade's settlement
         log.exception("long book settle failed")
+    try:                                         # owner 2026-11-18: where in its move each alert arrived (a label)
+        from sgt.fast import scenario
+
+        tg = scenario.tag(db, sip_day_frames())
+        print(f"scenario labels: {len(tg)} new" + (": " + ", ".join(tg[:12]) if tg else ""))
+    except Exception:  # noqa: BLE001 - a label; never blocks the settlement
+        log.exception("scenario labels failed")
     try:                                         # owner 2026-11-18: the official price when each long text went out
         from sgt.fast import text_px
 

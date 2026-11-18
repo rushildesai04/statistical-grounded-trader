@@ -283,6 +283,10 @@ def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
 
     late = text_px.line(db, day.isoformat())
     off += [f"\u23F1 {late}"] if late else []
+    from sgt.fast import scenario                                   # 2026-11-18: the alert's place in the move (label)
+
+    place = scenario.line(db, day.isoformat())
+    off += [f"\U0001F9ED {place}"] if place else []
     if not lt:
         return off, 0.0
     today = long_book.nav(db, day) - long_book.nav(db, day - timedelta(days=1))

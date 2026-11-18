@@ -92,6 +92,8 @@ COLUMNS = {
         "rd_rank": "INTEGER", "rd_mentions": "INTEGER", "rd_upvotes": "INTEGER",              # Reddit (ApeWisdom)
         "rd_mentions_prev": "INTEGER",                                                         # at alert, 2026-11-08
         "beta": "REAL",                      # amendment F7 (2026-11-10): beta at entry; >= 3 is not shorted
+        # 2026-11-18 (sgt.fast.scenario): where in its move the stock was at the alert, from official bars, nightly
+        "scen_run": "REAL", "scen_off": "REAL", "scen_band": "TEXT", "scen_where": "TEXT", "scen_note": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
