@@ -77,3 +77,13 @@ EXACT is an upper bound: it assumes a fill at the cross price with no spread cro
 model charges the usual round trip on top. P* treats the minute as one continuous path: when a minute gaps over
 P* between prints, the real first price above it is higher (again in EXACT's favour). Several crosses of one stock
 in one session all count; the session bootstrap covers their dependence.
+
+## Amendment 1 (2026-11-18, before the script exists and before any number): the mechanics made exact
+The sentence in "Entries" about dropped entries was loose (read literally it removes the 5-minute mark, because
+PLUS5 always enters after it). It is replaced by:
+- A thin stock has minutes with no trade. "open[i+k]" is the open of the first regular-hours bar at or after k
+  minutes past minute i; the mark at h is the close of the last regular-hours bar at or before h minutes past
+  minute i.
+- An event needs minute i + 6 at or before the session's last regular bar. PLUS5 is not scored at the 5-minute
+  mark. At a mark, an event is kept only when every entry scored there has its bar at or before the mark's bar, so
+  all entries are compared on the same events.
