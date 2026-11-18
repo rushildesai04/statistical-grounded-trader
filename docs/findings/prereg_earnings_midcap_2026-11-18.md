@@ -54,3 +54,27 @@ has no events here. The worst continuations after a fall (to zero) and the best 
 both missing; the long-minus-short design and the SPY hedge keep general market and survivor drift out of the
 result, not this. Shorting needs borrow: the short leg is reported apart so the long leg can be judged alone.
 Entry at the close of R assumes the move is known a few minutes before the close, as the daily models decide.
+
+## Result (2026-11-18, development run once; `reports/earnings_midcap/result_dev.json`)
+Plan `fd31be9`, code `f6b0188`. Universe 1,118 symbols; 313 have no current SEC ticker mapping (delisted names and
+funds), 695 have filings and bars, 683 have events in the window. 18,149 earnings events 2017-2023; 6,522 with a
+move of 5% or more on the earnings day (about 78 a month). (The earlier study's ticker list, excluded here, has
+99 names; its text says 98.)
+
+**Development: FAIL.** Mean net per event -0.281% (lower bound -0.436%), 47% winners; before the 0.30% cost the
+follow-through is +0.02%, nothing. At twice the cost -0.58%. The held-out years stay closed.
+
+| view | events | mean net |
+|---|---|---|
+| long leg (after a rise) | 3,347 | -0.20% |
+| short leg (after a fall) | 3,175 | -0.37% |
+| move 5-10% / 10-20% / above 20% | 4,220 / 1,907 / 395 | -0.25% / -0.21% / -1.01% |
+| exit after 1 / 3 / 5 sessions | 6,522 | -0.27% / -0.22% / -0.28% |
+| least / middle / most traded third | 2,189 / 2,179 / 2,154 | -0.13% / -0.46% / -0.25% |
+| 2017 to 2023, by year | | +0.06, -0.48, -0.24, -0.47, -0.43, +0.08, -0.47% |
+
+Reading: on these mid-size stocks a 5% earnings-day move is followed by no further move in the same direction
+over the next week; the biggest moves (above 20%) partly reverse. The large caps showed +0.41% in the same years
+under the same rule and lost it afterwards; the mid-size stocks do not show it at all. Survivors-only events
+would, if anything, flatter the long leg, and it is negative. The earnings follow-through is closed for mid-size
+stocks too: it is not a scanner input.
