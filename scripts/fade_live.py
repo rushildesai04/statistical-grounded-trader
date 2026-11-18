@@ -308,6 +308,8 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
 SCAN_TIMEOUT = 15.0                            # the multi-symbol bars request is large
 MAX_SCAN_TEXTS_DAY = 80                        # anti-spam ceiling on scanner texts (2 per trade)
 SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 120, 10
+MAX_ARMED_TEXTS_DAY = 100                      # armed-setup texts: their own count, so they can never use up the
+                                                # limit of the trade texts (entry and exit of every long)
 LONG_EVERY, MAX_LONG_TEXTS_DAY = 15, 100        # live paper long book: pass every 15 s (30 until 2026-11-18, owner: a
                                                 # closed candle and a fill are seen, and texted, sooner)
 
@@ -511,21 +513,19 @@ def data_client() -> httpx.Client:
 
 
 class CappedSms:
-    """Fade texts are best-effort and capped per ET day; a failed text never stops the book."""
+    """Trade texts, capped per ET day per book. Never silent (2026-11-18, ``sgt.ops.text_guard``): a text over the limit
+    or a send that failed twice is recorded and shown in the digest; a failed text never stops the book."""
 
-    def __init__(self, db: OpsStore, event: str = "fade_text", cap: int = MAX_FADE_TEXTS_DAY) -> None:
-        self.db, self.sms, self.event, self.cap = db, Sms(), event, cap
+    def __init__(self, db: OpsStore, event: str = "fade_text", cap: int = MAX_FADE_TEXTS_DAY, label: str = "short") -> None:
+        self.db, self.sms, self.event, self.cap, self.label = db, Sms(), event, cap, label
 
     def __call__(self, text: str) -> None:
-        day = datetime.now(ET).date()
-        since = datetime.combine(day, datetime.min.time(), tzinfo=ET)
-        if self.db.count_events(self.event, since) >= self.cap:
-            return
+        from sgt.ops import text_guard
+
         try:
-            self.sms.send(text)
-            self.db.audit(self.event, n=len(text))
+            text_guard.send_capped(self.db, self.sms.send, self.event, self.cap, text, self.label)
         except Exception as exc:  # noqa: BLE001 - notification only, logged
-            log.error("fade text failed: %s", type(exc).__name__)
+            log.error("%s text failed: %s", self.label, type(exc).__name__)
 
 
 def to_alerts(text: str, posted_at: datetime, message_id: int) -> list[fade.LiveAlert]:
@@ -616,7 +616,7 @@ async def run() -> int:
                 log.exception("channel catch-up failed")
             await asyncio.sleep(POLL_EVERY)
 
-    real_send = CappedSms(db, "pilot_text", MAX_PILOT_TEXTS_DAY)
+    real_send = CappedSms(db, "pilot_text", MAX_PILOT_TEXTS_DAY, "real-money")
     real = PilotHandle(db, real_send)          # Schwab real-money pilot; None unless SGT_PILOT_SCHWAB=1
 
     async def loop():
@@ -644,7 +644,7 @@ async def run() -> int:
     log.info("listening on %s", CHANNEL)
     sc = data_client()                          # scanner: own connection, own loop (never delays the fade's stops)
     scan_quote, scan_state = iex_quote(sc), ScanState()
-    scan_send = CappedSms(db, "scanner_text", MAX_SCAN_TEXTS_DAY)   # owner 2026-11-09: text every trade, all books
+    scan_send = CappedSms(db, "scanner_text", MAX_SCAN_TEXTS_DAY, "scanner")   # owner 2026-11-09: text every trade, all books
 
     async def scan_loop():
         while True:
@@ -655,7 +655,8 @@ async def run() -> int:
             await asyncio.sleep(SCAN_EVERY)
 
     lc = data_client()                          # live paper long book (option A "longs first"): own connection/loop
-    long_send = CappedSms(db, "long_text", MAX_LONG_TEXTS_DAY)
+    long_send = CappedSms(db, "long_text", MAX_LONG_TEXTS_DAY, "long")
+    arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY, "armed long setup")
 
     async def long_loop():
         from sgt.fast import long_book
@@ -663,7 +664,7 @@ async def run() -> int:
         while True:
             try:
                 await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send,
-                                        None, long_send)     # arm: texted before the fill (owner 2026-11-18)
+                                        None, arm_send)      # arm: texted before the fill (owner 2026-11-18)
             except Exception:  # noqa: BLE001 - the long book must never stop the listener; logged
                 log.exception("long book failed")
             await asyncio.sleep(LONG_EVERY)
