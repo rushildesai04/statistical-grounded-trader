@@ -75,10 +75,11 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
    its squeeze and fell back below our entry 15 minutes later.
 9. **Borrow is the real-money question.** Names Alpaca can short lost -0.55%/trade held-out; live stamps show the
    biggest winners (CRIS, AEHL) had zero IBKR shares. Decided at forward n >= 300 on the IBKR-borrowable subset.
-10. **Chart signals carry no edge here.** EMA 9/21 cross (46,711 signals), RSI, MACD, PSAR, PVT, VWAP, the trader's full
-   setup, 30+ signals in a learned model: about 0 before 0.7-1.4% round-trip costs. They are shown in texts as context, never as filters.
-   On the alert long book the trader's five rules (9/24 cross, volume spike, MACD+, PSAR green, above VWAP) pick WORSE
-   trades: all five true -3.13% vs -2.02% otherwise; each rule alone also worse (`prereg_trader_rules_long_2026-11-12`).
+10. **Chart signals carry no edge here.** EMA 9/21 cross (46,711), RSI, MACD, PSAR, PVT, VWAP, the trader's full
+   setup, 30+ signals in a learned model: about 0 before 0.7-1.4% costs. Shown in texts, never filters.
+   On alert longs the trader's five rules pick WORSE trades: all true -3.13% vs -2.02%
+   (`prereg_trader_rules_long_2026-11-12`). At the EXACT 9/21 cross price, no delay (69,720): -0.87% net;
+   1 in 3 fails within its minute; a minute's wait costs 0 (`prereg_ema_exact_cross_2026-11-18`).
    Shorting while EMA 9 > EMA 21 IS the fade: 92-97% of alerts have 9 > 21 at entry, and those shorts made +0.73% /
    +0.94% (no-news +1.42% / +1.31%) train / held-out; buying there is the losing side (-1.65%, L1).
 11. **The edge is the channel's selection, not the price pattern.** Spikes we detect ourselves (5% in 5 min, 5x

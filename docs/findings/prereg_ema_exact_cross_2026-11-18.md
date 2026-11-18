@@ -87,3 +87,40 @@ PLUS5 always enters after it). It is replaced by:
 - An event needs minute i + 6 at or before the session's last regular bar. PLUS5 is not scored at the 5-minute
   mark. At a mark, an event is kept only when every entry scored there has its bar at or before the mark's bar, so
   all entries are compared on the same events.
+
+## Result (2026-11-18, training run once; `reports/ema_exact_cross/result_train.json`)
+Plan `3ef80d8` + amendment `8cb03a9`, code `8989b7c`. 69,720 exact cross-ups, 2,194 stocks, 375 sessions.
+**Claim A: FAIL.** RISING + EXACT net: -0.83% (5 min), -0.87% (15), -0.87% (30); lower bounds -0.89%, -0.96%, -1.00%.
+
+| volume rule | events | fake-outs | EXACT gross 5 / 15 / 30 min | EXACT net (30 min) | NEXT gross 30 min | NEXT price vs EXACT (mean [95%], median) |
+|---|---|---|---|---|---|---|
+| ALL | 69,720 | 34.2% | -0.06% / -0.09% / -0.09% | -0.79% | -0.03% | -0.05% [-0.06, -0.04], -0.01% |
+| RISING (tradeable) | 11,554 | 30.5% | -0.10% / -0.14% / -0.14% | -0.87% | -0.10% | -0.04% [-0.06, -0.01], 0.00% |
+| SPIKE (look-ahead) | 9,686 | 32.0% | +0.26% / +0.29% / +0.29% | -0.46% | -0.02% | +0.31% [+0.27, +0.35], +0.15% |
+
+Fake-outs against crosses that held (EXACT gross at 30 min): ALL -0.70% / +0.23%; RISING -1.00% / +0.24%;
+SPIKE -1.08% / +0.93% (net +0.19% on the 6,579 that held; the same events bought a minute later: +0.04% gross).
+
+Reading:
+1. Bought at the exact cross price with no delay and no slippage, the plain 9/21 cross loses before costs
+   (-0.06% to -0.14%) and 0.8% to 0.9% after them, with or without rising volume known at the time. Win rate
+   after costs 24% to 35%. No time of day is positive (best: 10:30-14:59, -0.03% gross at 30 minutes).
+2. A minute of delay does not cost anything on what can be known at the cross: the next minute opens 0.04% to
+   0.05% BELOW the cross price on average (median 0; higher in 44% of cases). The reason is the fake-outs: about
+   one cross in three is undone before its own minute closes, and those lose 0.7% to 1.1% within half an hour.
+3. The comment is right about what a finished chart shows. A chart only draws the crosses that held. On those,
+   with a big volume bar, the cross price is 0.93% below the price 30 minutes later and the whole move is inside
+   the cross minute: a minute later the same events are flat (+0.04%). So "exactly at the cross was the best entry
+   and a minute later it was gone" is true of every cross one can see afterwards. It cannot be bought: at the
+   instant of the cross neither the final volume of the minute nor whether the cross holds is known, and buying
+   every cross that looks the same at that instant pays for the winners with the fake-outs (SPIKE, both kinds
+   together: +0.29% gross against 0.75% of costs, and that still uses the minute's final volume).
+4. The tradeable form of "volume already exploding at the instant of the cross" was replayed on official prints
+   on 2026-10-19 (`reports/decision/intrabar.report.md`, one second of latency, 2,742 entries): gross -0.17%, net
+   -0.98%; waiting for the bar's close cost 0.05% on average. The two tests agree.
+5. Data speed is not the limit: EXACT is the result of a perfect, instant feed and fill, and it loses. The live
+   book reads real-time free prints (one exchange, thin) and decides on closed 1-minute bars every 30 seconds;
+   a paid full real-time tape would move its entries by seconds to a minute, which item 2 prices at about zero.
+
+Verdict: recorded; finding 10 of the playbook stands with the exact-entry version added. No other span, volume
+threshold or horizon is tried on these events.
