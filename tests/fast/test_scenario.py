@@ -112,7 +112,9 @@ def test_one_failing_alert_never_blocks_the_others(db):
 
 def test_old_sessions_are_left_alone(db):
     alert(db, session="2026-10-01", posted=pd.Timestamp("2026-10-01 15:00:09", tz="UTC"))
-    assert sc.tag(db, lambda s, d: day(), NIGHT) == [] and rows(db)[0]["scen_band"] is None
+    calls = []
+    assert sc.tag(db, lambda s, d: calls.append(s) or day(), NIGHT) == []
+    assert rows(db)[0]["scen_band"] is None and rows(db)[0]["scen_note"] is None and calls == []     # not even asked
 
 
 def test_digest_line_lists_only_alerts_that_became_trades(db):
