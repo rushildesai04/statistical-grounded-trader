@@ -196,6 +196,26 @@ def leg(t: pd.DataFrame, net: str, c: str, stopped: str | None = None) -> dict:
     return out
 
 
+def same_trades(t: pd.DataFrame) -> dict:
+    """Per trade, on the trades LIVE takes: net and win rate before and after each pad (size plays no part here)."""
+    out = {}
+    for p in PADS:
+        col = f"pad{p:g}_net"
+        if col not in t.columns:
+            continue
+        x = t[t.live_net.notna() & t[col].notna()]
+        d = (x[col] - x.live_net).to_numpy(float)
+        m = boot_mean(x.session.to_numpy(), d) if len(x) > 1 else np.array([])
+        out[f"{p:.1%}"] = {"trades": int(len(x)), "live_net": float(x.live_net.mean()) if len(x) else None,
+                           "pad_net": float(x[col].mean()) if len(x) else None,
+                           "diff": float(d.mean()) if len(x) else None,
+                           "diff_lo95": float(np.quantile(m, 0.025)) if len(m) else None,
+                           "diff_hi95": float(np.quantile(m, 0.975)) if len(m) else None,
+                           "live_win": float((x.live_net > 0).mean()) if len(x) else None,
+                           "pad_win": float((x[col] > 0).mean()) if len(x) else None}
+    return out
+
+
 def evaluate(t: pd.DataFrame) -> dict:
     for col in ("tape_c", "live_c", "tape_net", "live_net", *(f"pad{p:g}_{k}" for p in PADS for k in ("c", "net")),
                 *(f"tape_pad{p:g}_{k}" for p in PADS for k in ("c", "net")), "live_kind", "tape_kind", "live_void",
@@ -217,6 +237,7 @@ def evaluate(t: pd.DataFrame) -> dict:
     for v in res["B_pads"].values():
         v["pass"] = bool(v.get("lower_one_sided") is not None and v["lower_one_sided"] > 0)       # no bound = fail
     res["B_pass"] = [k for k, v in res["B_pads"].items() if v["pass"]]
+    res["per_trade_same_trades"] = same_trades(t)
     res["tape_pads_vs_tape"] = {f"{p:.1%}": paired(t, f"tape_pad{p:g}_c", "tape_c") for p in PADS}
     both = t[t.live_kind.notna() & t.tape_kind.notna()]
     same = both[both.live_kind == both.tape_kind]
@@ -237,9 +258,9 @@ def evaluate(t: pd.DataFrame) -> dict:
     return res
 
 
-def reproduces(t: pd.DataFrame, base: pd.DataFrame) -> tuple[bool, str]:
+def reproduces(t: pd.DataFrame, base: pd.DataFrame, split: str = "train") -> tuple[bool, str]:
     """TAPE without the cost check must be the stored test's trade (kind, fill bar, red-exit net) on every stored row."""
-    b = base[base.split == "train"].assign(session=lambda x: x.session.astype(str), entry_ts=lambda x: pd.to_datetime(x.entry_ts, utc=True))
+    b = base[base.split == split].assign(session=lambda x: x.session.astype(str), entry_ts=lambda x: pd.to_datetime(x.entry_ts, utc=True))
     m = b.merge(t[["symbol", "session", "halt", "base_kind", "base_entry_ts", "base_e_net"]], on=["symbol", "session", "halt"], how="left")
     bad = m[(m.kind != m.base_kind) | (m.entry_ts != m.base_entry_ts) | ((m.e_net - m.base_e_net).abs() > 1e-9) | m.base_kind.isna()]
     extra = int(t.base_kind.notna().sum()) - len(b)
@@ -250,12 +271,19 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fetch", action="store_true", help="only fetch and cache the free feed's bars (no number is computed)")
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--holdout", action="store_true", help="the held-out events, once, only after a training PASS of B")
     a = ap.parse_args(argv)
-    res_path = a.out / "result_train.json"
+    split = "holdout" if a.holdout else "train"
+    res_path = a.out / f"result_{split}.json"
     if not a.fetch and res_path.is_file():
-        print(f"{res_path} exists: the training run was made once and is not repeated")
+        print(f"{res_path} exists: the {split} run was made once and is not repeated")
         return 2
-    ev = events("train")
+    if a.holdout:
+        train = a.out / "result_train.json"
+        if not train.is_file() or not json.loads(train.read_text()).get("B_pass"):
+            print("the held-out events are opened only after a training PASS of B")
+            return 2
+    ev = events(split)
     if a.fetch:
         import httpx
 
@@ -293,13 +321,13 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         raise SystemExit(f"{missing} event days have no cached free-feed bars: run --fetch first; nothing reported")
     t = pd.DataFrame(rows)
-    ok, why = reproduces(t, pd.read_csv(BASE, converters={"symbol": str}))
+    ok, why = reproduces(t, pd.read_csv(BASE, converters={"symbol": str}), split)
     if not ok:
         raise SystemExit(f"TAPE does not reproduce the stored test ({why}): nothing reported")
     res = {"prereg": "docs/findings/prereg_long_feed_replay_2026-11-18.md", "reproduction": why, **evaluate(t)}
     a.out.mkdir(parents=True, exist_ok=True)
     res_path.write_text(json.dumps(res, indent=1, default=str) + "\n")
-    t.to_csv(a.out / "train_events.csv", index=False)
+    t.to_csv(a.out / f"{split}_events.csv", index=False)
     print(json.dumps(res, indent=1, default=str))
     return 0
 

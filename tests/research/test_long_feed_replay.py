@@ -136,3 +136,17 @@ def test_a_second_run_is_refused(tmp_path, capsys):
     (tmp_path / "result_train.json").write_text("{}")
     assert st.main(["--out", str(tmp_path)]) == 2
     assert "not repeated" in capsys.readouterr().out
+
+
+def test_the_held_out_events_stay_closed_without_a_training_pass(tmp_path, capsys):
+    assert st.main(["--holdout", "--out", str(tmp_path)]) == 2 and "only after a training PASS" in capsys.readouterr().out
+    (tmp_path / "result_train.json").write_text('{"B_pass": []}')
+    assert st.main(["--holdout", "--out", str(tmp_path)]) == 2
+    (tmp_path / "result_holdout.json").write_text("{}")
+    assert st.main(["--holdout", "--out", str(tmp_path)]) == 2 and "not repeated" in capsys.readouterr().out
+
+
+def test_per_trade_view_ignores_size():
+    t = table(n=300, handicap=-0.004, pad_gain=0.002)
+    v = st.same_trades(t)["1.0%"]
+    assert v["trades"] == 300 and v["diff"] == pytest.approx(0.002) and v["diff_lo95"] <= v["diff"] <= v["diff_hi95"]

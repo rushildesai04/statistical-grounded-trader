@@ -61,3 +61,47 @@ share (thin half against thick half).
 Past free-feed bars as served today stand in for what the live book saw at the time (on the 2026-11-18 rows they
 show the same opens and lows as the live rows). Both legs use the event's modelled cost. The live book's 30-second
 polling and its text delay are not modelled: fills are at the bar prices, as the book books them.
+
+## Result (2026-11-18, training run once; `reports/long_feed_replay/result_train.json`)
+Plan `2bdc2db`, code `01dd252`. 2,464 events, 354 sessions; free-feed bars for all 2,372 stock-days (14 had none).
+TAPE reproduces the stored test exactly (2,242 stored trades, 0 mismatched, 0 extra). The free feed carried a median
+0.55% of a session's volume (10th to 90th percentile: 0.25% to 1.74%).
+
+| leg | trades | mean net per trade | win | contribution per event | stopped on the fill bar |
+|---|---|---|---|---|---|
+| TAPE (the tested rule, real candles) | 2,139 | -2.07% | 16% | -1.19% | 45% |
+| LIVE (found on the free feed, scored on the tape) | 1,463 (+106 void) | -1.34% | 21% | -0.58% | 35% |
+| LIVE, stop 0.5% lower | 1,529 | -1.12% | 25% | -0.47% | |
+| LIVE, stop 1.0% lower | 1,549 | -1.09% | 26% | -0.42% | |
+| LIVE, stop 2.0% lower | 1,559 | -1.12% | 25% | -0.38% | |
+
+**A. The handicap is NOT real: it has the other sign.** LIVE - TAPE per event: +0.61% [+0.51, +0.70]. The book on
+the free feed's candles loses LESS than the tested rule on real candles, per event and per trade (-1.34% against
+-2.07%; on the 1,380 events both trade: -1.31% against -1.60%). The claim of that morning (the thin feed makes the
+live book worse; 14 trades, -3.54% against -1.47%) was a small-sample reading and is withdrawn. What is true:
+the two are different books. Same setup in 807 of the 1,474 events both trade, same setup and fill minute in 585;
+the live stop is tighter in 77% (median 0.58%); the feed sees a halt 79 times where there was none; and 665 events
+the rule trades on the tape produce no trade on the feed. Those 665 are the rule's worst trades (-2.95% per
+trade, win 9%, 55% stopped on the fill bar): a stock with too few prints on the small exchange to draw a setup is
+a stock the long rule should not touch. The thin feed has been acting as a crude liquidity filter.
+
+**B. All three pads PASS** (PAD - LIVE per event: +0.11% [lower bound +0.07], +0.16% [+0.10], +0.20% [+0.12]).
+Read with one warning about the gate I froze: contribution is size x net and the size shrinks as the stop
+widens, so on a book that loses, a wider stop "improves" contribution partly by trading smaller. Per trade, on the
+same 1,463 trades: -1.34% becomes -1.11% (0.5%), -1.10% (1.0%), -1.16% (2.0%); win rate 21% to 25%. So about
+0.2 points per trade is real and it is all there at 0.5%; the rest of the 2.0% pad's score is smaller size. The
+same pads on the real-candle rule: +0.15, +0.08 and -0.03 points per trade. A lower stop repairs the feed's
+too-tight low; it is not a better rule.
+
+Per the plan the pad with the highest lower bound (2.0%) is scored once on the held-out events; the report there
+gives the per-trade result of all three, and the proposal to the owner will rest on the per-trade numbers.
+
+## Leads seen in the event file (exploratory; each needs its own frozen plan before it is a result)
+- 45% of the tested rule's trades are stopped on the bar they fill; for the setup the live book takes most
+  ("red-candle close": buy the open after the first red candle, stop at its low; 1,045 trades) it is 68%, with a
+  13% win rate. With a target of twice the risk a trade needs to win more than a third of the time. The setup's
+  geometry, not its direction, kills it: a 1.8% stop (median) inside minutes that swing 6% to 9%.
+- By stop distance: the tightest fifth (under 1.35%) is stopped on the fill bar 77% of the time, the widest
+  fifth 9%; yet the net result gets WORSE as the stop widens (-1.35% to -2.50%), because a wider stop loses
+  more each time and the win rate barely moves (13% to 19%). Neither a tight nor a wide stop saves this entry.
+- Break of structure (441 trades): 2% stopped on the fill bar, 20% wins, -1.52%. Bull flag v2: 27 trades.
