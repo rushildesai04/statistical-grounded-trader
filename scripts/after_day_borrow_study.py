@@ -101,10 +101,14 @@ def forward_events(path: Path = FORWARD) -> pd.DataFrame:
 
 def count(events: pd.DataFrame, daily_of, snaps) -> dict:
     """Eligibility only: no return is computed or returned."""
-    n = {"alert_days": int(len(events)), "with_bars_and_5_sessions": 0, "borrow_known": 0, "borrowable": 0}
+    n = {"alert_days": int(len(events)), "no_daily_bars": 0, "with_bars_and_5_sessions": 0, "borrow_known": 0,
+         "borrowable": 0}
     for r in events.itertuples(index=False):
         d = daily_of(r.symbol)
-        if d is None or r.session not in d.index:
+        if d is None or d.empty:
+            n["no_daily_bars"] += 1                        # a failed fetch is counted, never silently an empty record
+            continue
+        if r.session not in d.index:
             continue
         i = d.index.get_loc(r.session)
         if not isinstance(i, int) or i + 5 >= len(d):
@@ -148,7 +152,11 @@ def daily_loader(today: date):
     """Adjusted daily bars per symbol through ``today`` (fetched once per run into its own cache)."""
     import alert_after_day_study as base
 
-    base.CACHE, base.END = DAILY / today.isoformat(), today.isoformat()
+    # 2026-11-17 (first count on the runner): an end date of TODAY is refused by the free data plan ("recent SIP
+    # data", HTTP 403) and every symbol came back without bars. The bars are asked up to yesterday; today's close is
+    # never needed before tomorrow (an alert day needs its five following sessions).
+    end = today - timedelta(days=1)
+    base.CACHE, base.END = DAILY / end.isoformat(), end.isoformat()
     memo: dict[str, pd.DataFrame | None] = {}
 
     def daily_of(sym: str):
