@@ -61,3 +61,38 @@ A signal's trade enters at the next candle's open: a live scanner on polled cand
 alpha minutes move about 0.1 to 0.2%, so seconds matter less than on small caps, but they are not modelled). The
 cost is a flat figure, not each minute's spread. Twenty stocks picked knowing they became giants: they rise on an
 average day, which favours every long cell slightly (about 0.001% per minute held).
+
+## Result (2026-11-18, training run once; `reports/scanner_signals/result_train.json`)
+Plan `e6fbb6c`, code `d061a90`. 20 stocks, 2,264 sessions (2016-01-04 to 2024-12-31), 68,474 first-of-the-day
+signals: about 30 a day across the 20 stocks.
+
+**No cell passes, in either direction.** The held-out sessions stay closed.
+
+| signal | a day | move after it, before costs: 15 min / 60 min / to the close | best net (follow) | best net (fade) |
+|---|---|---|---|---|
+| volume spike up | 3.3 | +0.016% / +0.027% / +0.026% | -0.014% | -0.057% |
+| volume spike down | 3.3 | +0.003% / -0.000% / -0.002% | -0.038% | -0.038% |
+| new high of day | 7.8 | +0.012% / +0.023% / +0.036% | -0.004% | -0.052% |
+| new low of day | 7.5 | -0.001% / +0.007% / +0.005% | -0.033% | -0.039% |
+| burst up | 0.9 | -0.009% / +0.004% / -0.018% | -0.037% | -0.022% |
+| burst down | 1.2 | +0.001% / +0.032% / +0.051% | +0.011% (lower bound -0.088%) | -0.041% |
+| 9/21 cross up on volume | 3.1 | +0.010% / +0.008% / +0.007% | -0.031% | -0.047% |
+| 9/21 cross down on volume | 3.0 | +0.010% / +0.002% / -0.005% | -0.030% | -0.036% |
+
+(For a down signal the move is that of the short: positive = the stock kept falling.)
+
+Reading:
+1. After every one of the eight signals the stock moves, on average, between -0.02% and +0.05% over the next
+   15 minutes to the close: nothing, against a cost of 0.04% (0.08% at twice the cost: every cell negative both
+   ways). Win rates 44% to 52%.
+2. The small positive numbers after UP signals to the close (+0.03%) are these stocks' ordinary drift (they rose
+   on an average day through these years), not information in the signal; the down signals show no mirror image.
+3. The one cell above zero after costs (short after a down burst, held to the close: +0.011%) has a lower bound
+   of -0.088% and is one of 48 tests.
+4. AAOI apart (0.30% round trip): every cell -0.2% to -0.4% after costs.
+5. This is the fourth family of fast signals to find nothing on these stocks (30-minute models, learned fast
+   books, opening range and intraday momentum, now channel-style events). On big liquid stocks a price-and-volume
+   event on a 1-minute chart tells nothing about the next hour.
+
+Verdict: recorded. The scanner is not built on these signals. A scanner needs a different kind of input than
+price and volume events on liquid stocks; candidates need their own frozen plan.
