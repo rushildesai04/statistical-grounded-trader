@@ -62,3 +62,49 @@ gross of FAST against the event's modelled cost by cost quartile (is there a gro
 A print is not a fill: FAST buys at a print one second after the trigger, in a minute that is trading 3x its
 usual volume; the modelled cost charges the usual spread. The base volume comes from bars and the live volume
 from cleaned prints (odd lots and off-tape prints excluded), so a few triggers come later than on a chart.
+
+## Result (2026-11-18, training run once; `reports/ema_instant_volume/result_train.json`)
+Plan `e737a25`, code `42bf5a6`. Official prints of all 9,686 SPIKE minutes. Run note: a first start was stopped
+before it wrote or showed any number, because the print fetch had crashed on the stock with the ticker NA (the CSV
+parser read it as a missing value; 9 events would have been dropped silently). Fixed with a test, the 7 missing
+minutes fetched, then the one run.
+
+**Gate: FAIL.** 7,608 triggers (79% of the SPIKE minutes), 7,168 filled within a minute. Net lower bounds: HOLD
+-0.86%, -0.85%, -0.91%; CUT -0.85%, -0.83%, -0.84% (5 / 15 / 30 minutes).
+
+| entry | gross 5 min | gross 15 min | gross 30 min | net 30 min | win after costs (30 min) |
+|---|---|---|---|---|---|
+| FAST, hold | +0.01% | +0.06% | +0.06% | -0.71% | 36% |
+| FAST, cut a failed cross | +0.00% | +0.07% | +0.11% | -0.66% | 30% |
+| NEXT (next minute's open) | -0.03% | +0.01% | +0.00% | -0.76% | 35% |
+| PLUS1 | -0.08% | -0.05% | -0.05% | -0.81% | 35% |
+
+The cost of waiting, on events knowable at the time: the next minute's open is 0.05% above FAST on average
+[+0.02, +0.08] (median 0; higher in 38% of cases); a further minute 0.11% [+0.06, +0.16].
+
+Reading:
+1. The trader's rule in its strongest form that can be acted on (the cross while the minute has already traded 3x,
+   bought one second later) moves +0.06% before costs in 15 to 30 minutes, against 0.76% of costs. Selling a failed
+   cross at the next open adds 0.05 points at 30 minutes and takes 6 points off the win rate.
+2. Waiting does cost something here, and the sign is the trader's: 0.05% for one minute, 0.11% for two. It is real
+   (the interval excludes zero) and about a fifteenth of the cost of the trade. "Most of the opportunity is gone
+   after a minute" is true as a share (+0.06% becomes +0.00%) because there is almost no opportunity to lose.
+3. Where the look-ahead row's +0.29% went: the volume arrives late in the minute (trigger at second 37, median), and
+   by then the price is already above the cross price: FAST fills a median 0.39% (mean 0.89%) above it. The
+   cheap price exists only before the volume does.
+4. Failed crosses are 23% of the triggers (32% without the volume condition): volume at the cross helps the cross
+   hold, and the ones that hold make +0.28% gross in 30 minutes (net -0.49%); the ones that fail lose 0.45% to 0.68%.
+5. No reported group is positive after costs: no price band (best -10 at 5 minutes, -0.45%), no time of day, no
+   cost quartile (cheapest quarter, cost 0.45%: gross -0.07% to +0.00%; the dearest quarter has the largest gross,
+   +0.63% with the cut at 30 minutes, against 1.33% of costs). Costs are not what kills it: the gross move is about
+   zero wherever trading is cheap.
+
+Verdict: recorded. The plain 9/21 cross is closed in all three forms: seen at the bar's close (2026-11-05), at the
+exact cross price (2026-11-18), and on prints with the volume already there (this file).
+
+## What this test does NOT cover (stated so nobody reads more into it)
+- Stocks at the moment of a channel alert: the universe is every cross on gapper days, not the alert names; on the
+  18 live longs the alert came a median 27 minutes and +19% after the last cross.
+- A real chart's EMA in the first hour: the EMAs start with the session's first pre-market bar.
+- A discretionary exit: only "hold to the mark" and "sell a failed cross" were scored.
+- The lateness of our own long texts, which is real and separate (`sgt.fast.long_armed`, playbook section 5).
