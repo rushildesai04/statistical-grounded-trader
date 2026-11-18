@@ -217,10 +217,56 @@ def evaluate(t: pd.DataFrame) -> dict:
     return res
 
 
+def holdout(t: pd.DataFrame, train: dict) -> dict:
+    """The training passes, unchanged, on the held-out events: each passing scenario's and entry's own test again."""
+    sess = t.session.to_numpy()
+    names = train.get("short_scenarios", []) + train.get("long_scenarios", []) + train.get("hold_pass", [])
+    alpha = ALPHA / max(1, len(names))
+    out: dict = {"events": int(len(t)), "sessions": int(t.session.nunique()), "alpha_each": alpha, "all": describe(t),
+                 "scenarios": {k: describe(g) for k, g in t.groupby("scenario")}, "confirmed": [], "tests": {}}
+    for name in train.get("short_scenarios", []):
+        inside = (t.scenario == name).to_numpy()
+        lo = None
+        if inside.sum() >= MIN_CELL and (~inside).sum() >= MIN_CELL:
+            lo = float(np.quantile(boot_groups(sess[inside], t.short.to_numpy(float)[inside], sess[~inside],
+                                               t.short.to_numpy(float)[~inside]), alpha))
+        out["tests"][f"SHORT {name}"] = {"events": int(inside.sum()), "short": float(t.short[inside].mean()) if inside.any() else None,
+                                         "rest": float(t.short[~inside].mean()), "diff_lower": lo, "pass": bool(lo is not None and lo > 0)}
+    for name in train.get("long_scenarios", []):
+        inside = (t.scenario == name).to_numpy()
+        lo = lower(sess[inside], t.long_30.to_numpy(float)[inside], alpha) if inside.sum() >= MIN_CELL else None
+        out["tests"][f"LONG {name}"] = {"events": int(inside.sum()), "long_30": float(t.long_30[inside].mean()) if inside.any() else None,
+                                        "lower": lo, "pass": bool(lo is not None and lo > 0)}
+    for col in train.get("hold_pass", []):
+        lo = lower(sess, t[col].to_numpy(float), alpha)
+        out["tests"][col] = {"trades": int(t[col].notna().sum()), "mean": float(t[col].mean()), "lower": lo, "pass": bool(lo is not None and lo > 0)}
+    out["confirmed"] = [k for k, v in out["tests"].items() if v["pass"]]
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument("--holdout", action="store_true", help="the held-out events, once, only for what passed on training")
     a = ap.parse_args(argv)
+    if a.holdout:
+        train_path, ho_path = a.out / "result_train.json", a.out / "result_holdout.json"
+        if ho_path.is_file():
+            print(f"{ho_path} exists: the held-out run was made once and is not repeated")
+            return 2
+        train = json.loads(train_path.read_text()) if train_path.is_file() else {}
+        if not (train.get("short_scenarios") or train.get("long_scenarios") or train.get("hold_pass")):
+            print("the held-out events are opened only for something that passed on training")
+            return 2
+        t, skipped = collect(events("holdout"), ParquetBarStore("data/alpaca"))
+        if t.empty:
+            raise SystemExit("no events: nothing reported")
+        t, _ = assign(t, tuple(train["run_edges"]))
+        res = {"prereg": train["prereg"], "left_out": int(skipped), "run_edges": train["run_edges"], **holdout(t, train)}
+        ho_path.write_text(json.dumps(res, indent=1) + "\n")
+        t.to_csv(a.out / "holdout_events.csv", index=False)
+        print(json.dumps(res, indent=1))
+        return 0
     res_path = a.out / "result_train.json"
     if res_path.is_file():
         print(f"{res_path} exists: the training run was made once and is not repeated")

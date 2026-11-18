@@ -126,3 +126,16 @@ def test_small_cells_fail_closed():
 def test_a_second_run_is_refused(tmp_path, capsys):
     (tmp_path / "result_train.json").write_text("{}")
     assert st.main(["--out", str(tmp_path)]) == 2 and "not repeated" in capsys.readouterr().out
+
+
+def test_held_out_repeats_only_what_passed_with_the_training_edges(tmp_path, capsys):
+    assert st.main(["--holdout", "--out", str(tmp_path)]) == 2 and "only for something that passed" in capsys.readouterr().out
+    t, edges = st.assign(table(seed=5))
+    late_off = (t.scenario == "late, off the high")
+    t.loc[late_off, "short"] += 0.05
+    out = st.holdout(t, {"short_scenarios": ["late, off the high"], "long_scenarios": [], "hold_pass": []})
+    assert out["confirmed"] == ["SHORT late, off the high"] and out["alpha_each"] == st.ALPHA
+    flat = st.holdout(st.assign(table(seed=5))[0], {"short_scenarios": ["late, off the high"]})
+    assert flat["confirmed"] == [] and flat["tests"]["SHORT late, off the high"]["pass"] is False
+    (tmp_path / "result_holdout.json").write_text("{}")
+    assert st.main(["--holdout", "--out", str(tmp_path)]) == 2 and "not repeated" in capsys.readouterr().out
