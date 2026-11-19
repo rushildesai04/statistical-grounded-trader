@@ -101,3 +101,31 @@ half-hour marks on the previous minute's close: live, the free feed is accurate 
 94 to 99% of minutes on mega-caps, `prereg_long_feed_replay_2026-11-18`), but that was measured on stocks, not on
 these two funds. Shorting an index fund is not the borrow problem small caps are, but it is still a short: the
 owner's section-0 rules apply before any real money.
+
+## Amendment A1 (2026-11-19, after the freeze, BEFORE any code of this study touched a real bar)
+The contamination statement above is wrong in one place, found while writing the scorer: this repository already
+holds a study of intraday momentum on these two funds. `prereg_anomalies_2026-10-31` (test A1, script
+`scripts/intraday_momentum_study.py`) tested the rule of Gao, Han, Li and Zhou: the sign of the move from the
+previous close to 10:00 decides a position from 15:30 to the close. Result on SPY, 2018-07-02 to 2026-10-29
+(2,056 days): -0.021% a day after 1 basis point a side, 44% of days up, lower bound -0.037%, both halves negative,
+QQQ the same: FAIL, "the published effect is gone after publication (gross about 0)".
+So, corrected:
+- The first half-hour's move and the last half-hour's return of SPY and QQQ HAVE been computed here, through
+  2026-10-29, as one aggregate and two halves. No result was reported for 2024-05 onward alone, and no band, VWAP
+  stop or half-hourly rule was ever computed.
+- The prior for a pass is lower than the plan says: the paper names Gao et al. as the work it extends, and the
+  part of this rule's result that comes from holding a morning trend into the close is the effect that failed
+  here. The lead's prior for PASS: about one in five.
+- Why the test is still run: the rule is materially different (it enters at any half-hour mark when price
+  leaves a volatility band and leaves on a VWAP stop, and the paper claims it kept working through 2018 to 2024,
+  the years in which our own test found the simpler effect gone). That claim is exactly what data after the
+  paper can check, and the check is cheap.
+- Nothing in the rule, the gate, the decision cell or the statistic changes. The scorer is
+  `scripts/noise_area_study.py` (the earlier study's script keeps its name and is untouched); results go to
+  `reports/noise_area/`.
+- Process note: the lead offered this idea to the owner on 2026-11-19 without naming the earlier failed test,
+  against the standing rule to search `docs/findings` before calling an idea untested. The search used the
+  rule's name and missed a file named after "anomalies".
+- The previous commit's message names this amendment, but a failed step left it out of that commit; it is added
+  here, still before any run.
+

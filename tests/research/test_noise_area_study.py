@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-import intraday_momentum_study as st  # noqa: E402
+import noise_area_study as st  # noqa: E402
 
 
 def day_bars(day: str, path, n: int = st.DAY_MIN, volume: float = 1000.0, skip=()):
