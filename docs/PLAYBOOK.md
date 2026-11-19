@@ -717,6 +717,14 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **Long book review 2026-11-19 (`docs/findings/long_review_2026-11-19.md`).** Live: 17 longs, 6 wins, -2.18% per
+  trade, book -$1,495. Tested on the official tape: -2.07% / -2.32% per trade, 15.6% wins; about thirty long ideas on
+  these alerts, none positive in both samples, most negative before costs. Cause: the stock falls after the alert on
+  average, the trades are scalps against a 1% round-trip cost, the entry is right one time in six. Outside research
+  points the same way (attention stocks fall; most day traders lose). Put to the owner: (1) smaller size per long
+  while every long still trades and is texted, (2) the trader's method built as his rule once his five answers
+  are in, (3) a long-side test in liquid instruments (the published intraday trend rule). No new entry / exit /
+  stop variant on the same alerts.
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
   spending (paid data, AI beyond ~$1/month) until a book is proven. Tracked nightly in the digest "Live vs tested".
