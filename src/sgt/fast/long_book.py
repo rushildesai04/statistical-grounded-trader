@@ -282,7 +282,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
-                send(entry_text(db, row["symbol"], s, t) + matrix_line(raw, now))
+                send(entry_text(db, row["symbol"], s, t) + matrix_line(raw, now) + context_line(db, row["id"]))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
     _advance(db, bars, send, now)
@@ -293,6 +293,18 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
     except Exception:  # noqa: BLE001 - tracked beside the book; it never stops the book
         log.exception("trader's rule tracking failed")
     return opened
+
+
+def context_line(db: OpsStore, fade_id: int) -> str:
+    """What the news / filings / social sources said at the alert, as an extra line for the entry text ("" when
+    nothing was read; owner 2026-11-19, ``sgt.fast.alert_context``). Never raises."""
+    try:
+        from sgt.fast import alert_context
+
+        return alert_context.line(db, fade_id)
+    except Exception:  # noqa: BLE001 - an extra line; the text itself must go out
+        log.exception("context line failed")
+        return ""
 
 
 def matrix_line(raw: pd.DataFrame, now: datetime) -> str:

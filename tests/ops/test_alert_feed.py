@@ -206,3 +206,20 @@ def test_the_channel_history_is_read_only_and_a_missing_one_never_stops_the_page
     (tmp_path / "broken.db").write_text("not a database")
     assert tc.channel_alerts(db, tmp_path / "broken.db") == []                        # logged, the page builds without it
 
+
+
+def test_each_alert_carries_what_the_sources_said_and_unlisted_ones_carry_nothing(tmp_path):
+    """Owner 2026-11-19: news, filings, StockTwits and Reddit are read for every alert and shown in the list."""
+    db = OpsStore(tmp_path / "ops.db")
+    with db.tx() as c:
+        a = _alert(c, "SRC", "2026-11-19", "15:00", "filtered", fade.NEWS_REASON)
+        _alert(c, "BARE", "2026-11-19", "15:05", "filtered", "outside 09:30-15:44")
+        c.execute("UPDATE fade_trades SET ctx_news_own=1, news_kind='OFFERING', ctx_head=?, filing_8k=1, st_n60=41, rd_rank=7 "
+                  "WHERE id=?", ("SRC prices $5M offering " + "x" * 300, a))
+    got = {r["symbol"]: r for r in alert_feed.rows(db)}
+    assert got["SRC"]["context"] == "news: offering · 8-K today · StockTwits 41/hr · Reddit #7"
+    assert got["SRC"]["headline"].startswith("SRC prices $5M offering") and len(got["SRC"]["headline"]) == 160
+    assert (got["BARE"]["context"], got["BARE"]["headline"]) == ("", "")
+    extra = alert_feed.rows(db, channel_alerts=[{"symbol": "GHOST", "at": "2026-11-19T15:10:00+00:00", "type": "premarket_high"}])
+    ghost = [r for r in extra if r["symbol"] == "GHOST"]
+    assert all((r["context"], r["headline"]) == ("", "") for r in ghost)

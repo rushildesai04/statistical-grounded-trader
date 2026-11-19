@@ -280,3 +280,16 @@ def test_a_crowded_day_reads_a_bounded_number_of_candidates_per_pass_and_starves
     lb.tick(few, look, [].append, now=at(5))
     lb.tick(few, look, [].append, now=at(5, 15))
     assert asked == names[:n] * 2                                # at the bound: every candidate, every pass
+
+
+def test_the_entry_text_says_what_the_sources_said_at_the_alert(db):
+    """Owner 2026-11-19: news, filings, StockTwits and Reddit are read for every alert; the long text shows them."""
+    fid = alert_row(db)
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET ctx_news_own=0, ctx_news_earn=0, news_kind='NONE', st_n60=12 WHERE id=?", (fid,))
+    sent = []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(14)) == 1
+    assert sent[0].endswith("\n\U0001F4F0 At the alert: no company news · StockTwits 12/hr")
+    other = alert_row(db, "BARE")
+    assert lb.tick(db, feed(DAY), sent.append, now=at(14, 15)) == 1 and other
+    assert "At the alert" not in sent[-1]                        # nothing read: no line, the text still goes out

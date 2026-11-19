@@ -384,6 +384,11 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         lr = long_book.record_line(db)
         if lr:
             lines.append(f"{bold('long book')} " + lr.removeprefix("long book "))
+        from sgt.fast import alert_context
+
+        lc = alert_context.long_cases_line(db)      # owner 2026-11-19: longs scored by the news case of their alert
+        if lc:
+            lines.append(lc)
     except Exception:  # noqa: BLE001 - informational line
         lines.append("long book: record unavailable")
     lines += hold_lines(db)

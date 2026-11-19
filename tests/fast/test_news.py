@@ -27,7 +27,7 @@ def test_dnut_earnings_counts_and_only_before_the_alert():
     ])
     f = news.flags("DNUT", ALERT, a)
     assert f == {"news_any": True, "news_own": True, "news_earn": True, "news_n": 1,
-                 "headline": "Krispy Kreme Raises FY2026 Sales Guidance"}
+                 "headline": "Krispy Kreme Raises FY2026 Sales Guidance", "news_kind": "EARNINGS"}
 
 
 def test_roundups_and_other_symbols_are_not_company_news():
@@ -35,7 +35,7 @@ def test_roundups_and_other_symbols_are_not_company_news():
     f = news.flags("DNUT", ALERT, a)
     assert f["news_any"] and not f["news_own"] and not f["news_earn"] and f["headline"] is None
     assert news.flags("DNUT", ALERT, frame([])) == {"news_any": False, "news_own": False, "news_earn": False,
-                                                    "news_n": 0, "headline": None}
+                                                    "news_n": 0, "headline": None, "news_kind": "NONE"}
 
 
 def test_non_earnings_company_news_is_own_but_not_earn():

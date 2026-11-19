@@ -55,6 +55,7 @@ DEVICE = "SGT fade listener (Fly)"              # how the session shows in Teleg
 BARS = Path("data/fast")                       # own store: never mixes with research bar stores
 TICK = 10                                      # seconds between monitor passes (approval -> entry latency)
 CONTEXT_BUDGET = 8.0                           # seconds for all informational lookups of one trade text
+ALERT_CONTEXT_EVERY = 10                       # seconds between passes of the every-alert source reads (alert_context)
 POLL_EVERY = 3600                              # seconds between gap-filling channel polls (research record)
 FORWARD_START = datetime(2026, 10, 30, tzinfo=timezone.utc)   # alert_fade_forward.FORWARD_START (amendment F1)
 MAX_FADE_TEXTS_DAY = 40
@@ -194,9 +195,14 @@ def iex_context(client: httpx.Client, db: OpsStore | None = None):
 _POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ctx")
 
 
-def gather(jobs: dict, budget: float) -> dict:
+_ALERT_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="alertctx")   # every-alert reads: their own workers,
+#                                                  so a slow source there never delays a trade text's lookups (_POOL)
+
+
+def gather(jobs: dict, budget: float, pool: ThreadPoolExecutor | None = None) -> dict:
     """Run informational lookups in parallel; each result or None if it failed or missed the shared deadline."""
-    futs = {k: _POOL.submit(f) for k, f in jobs.items()}
+    pool = pool or _POOL
+    futs = {k: pool.submit(f) for k, f in jobs.items()}
     deadline = time.monotonic() + budget
     out = {}
     for k, fut in futs.items():
@@ -685,6 +691,22 @@ async def run() -> int:
                 log.exception("long book failed")
             await asyncio.sleep(LONG_EVERY)
 
+    cc = data_client()                          # every-alert source reads (owner 2026-11-19): own connection/loop
+
+    async def context_loop():
+        from sgt.fast import alert_context
+
+        looks = {"news": lambda sym, at: live_news(cc, sym, at),
+                 "filings": lambda sym, at: filings.lookup(sym, at, since_8k=news.window_start(at)),
+                 "social": social.lookup, "reddit": reddit.lookup}      # not X: it costs money per lookup
+        while True:
+            try:
+                await asyncio.to_thread(alert_context.stamp, db, looks,
+                                        lambda jobs, budget: gather(jobs, budget, _ALERT_POOL))
+            except Exception:  # noqa: BLE001 - a read for the record must never stop the listener; logged
+                log.exception("alert context failed")
+            await asyncio.sleep(ALERT_CONTEXT_EVERY)
+
     tc = data_client()                          # official-tape stop check (owner 2026-11-17): own connection/loop
 
     async def tape_loop():
@@ -709,7 +731,7 @@ async def run() -> int:
             await asyncio.sleep(AI_EVERY)
 
     tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
-             asyncio.create_task(long_loop()), asyncio.create_task(tape_loop()),
+             asyncio.create_task(long_loop()), asyncio.create_task(tape_loop()), asyncio.create_task(context_loop()),
              asyncio.create_task(ai_loop()), asyncio.create_task(channel_loop())]
     try:
         await client.run_until_disconnected()

@@ -450,7 +450,7 @@ def _context(db: OpsStore, r, context) -> dict:
     cols = {"conf": confidence(r["alert_type"], ctx, datetime.fromisoformat(r["posted_at"]))[0]}   # v2, A2
     if n:
         cols.update(news_own=int(bool(n.get("news_own"))), news_earn=int(bool(n.get("news_earn"))),
-                    news_head=n.get("headline"))
+                    news_head=n.get("headline"), news_kind=n.get("news_kind"))
     fl = ctx.get("filings")
     if fl:
         cols.update(filing_dilution=int(bool(fl.get("dilution_30d"))), filing_form=fl.get("dilution_form"),
@@ -529,9 +529,9 @@ def _company_news(db: OpsStore, r, flags: dict | None) -> bool:
     own, earn = int(bool(flags.get("news_own"))), int(bool(flags.get("news_earn")))
     if own or earn:
         _set(db, r["id"], "pending", status="filtered", reason=NEWS_REASON, news_own=own, news_earn=earn,
-             news_head=flags.get("headline"))
+             news_head=flags.get("headline"), news_kind=flags.get("news_kind"))
         return True
-    _set(db, r["id"], "pending", news_own=0, news_earn=0)
+    _set(db, r["id"], "pending", news_own=0, news_earn=0, news_kind=flags.get("news_kind"))
     return False
 
 

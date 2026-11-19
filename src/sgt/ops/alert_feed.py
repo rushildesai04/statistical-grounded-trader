@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sgt.fast import fade, would_have
+from sgt.fast import alert_context, fade, would_have
 from sgt.ops.store import OpsStore
 
 ET = ZoneInfo("America/New_York")
@@ -135,7 +135,7 @@ def unlisted(db: OpsStore, channel_alerts: list[dict] | None, max_sessions: int 
         typ = str(a.get("alert_type") or "")
         out.append({"id": None, "session": et.date().isoformat(), "at": et.strftime("%H:%M"), "symbol": sym[:12],
                     "type": typ[:40], "short": "not shorted", "why": NO_HEADLINE if typ == "news" else NOT_IN_RULES,
-                    "would": "", "would_n": None, "long": "", "traded": False, "_t": t})
+                    "would": "", "would_n": None, "long": "", "traded": False, "context": "", "headline": "", "_t": t})
     out.sort(key=lambda r: r["_t"], reverse=True)
     return out[:limit]
 
@@ -152,6 +152,7 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
             return []
         got = c.execute(
             "SELECT f.id, f.symbol, f.session, f.alert_type, f.posted_at, f.status, f.reason, f.net, f.wh_net, f.wh_note, "
+            f"f.ctx_head, f.news_head, {', '.join('f.' + k.strip() for k in alert_context.CTX_COLS.split(','))}, "
             "l.status AS l_status, l.net AS l_net FROM fade_trades f LEFT JOIN long_trades l ON l.fade_id=f.id "
             f"WHERE f.session IN ({','.join('?' * len(days))}) ORDER BY f.session DESC, f.posted_at DESC, f.id DESC "
             "LIMIT ?", (*days, limit)).fetchall()
@@ -165,7 +166,9 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
                     "why": "" if shorted or r["status"] in ("pending", "ask") else why(r["reason"]),
                     "would": would_words(r["status"], r["wh_net"], r["wh_note"]),
                     "would_n": r["wh_net"] if r["status"] in would_have.NOT_TAKEN else None,
-                    "long": long_words(r["l_status"], r["l_net"]), "traded": bool(shorted or longed)})
+                    "long": long_words(r["l_status"], r["l_net"]), "traded": bool(shorted or longed),
+                    "context": alert_context.words(r)[:160],
+                    "headline": str(r["news_head"] or r["ctx_head"] or "")[:160]})
     extra = unlisted(db, channel_alerts, max_sessions, limit)
     if extra:                                              # one list, newest first within each session
         old = datetime.min.replace(tzinfo=timezone.utc)
