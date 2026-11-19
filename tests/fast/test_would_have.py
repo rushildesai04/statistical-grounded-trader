@@ -1,13 +1,16 @@
 """What an alert the short book did not take would have made (owner 2026-11-18, option A). A measurement."""
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from alert_fade_test import cover as research_cover
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))   # runs alone too, not only in the full suite
+from alert_fade_test import cover as research_cover  # noqa: E402
 from sgt.fast import fade
 from sgt.fast import would_have as wh
 from sgt.fast.est_costs import LOCATE
