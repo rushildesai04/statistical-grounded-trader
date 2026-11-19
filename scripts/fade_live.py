@@ -572,17 +572,17 @@ async def run() -> int:
 
     poll_state = chan_poll.State()
 
-    def take(msg, how: str) -> None:           # one handler for push and poll: a message is handled once
-        if not poll_state.seen.add(msg.id):
-            return
+    def dispatch(msg, how: str) -> None:       # the work itself: every alert of the message goes to the books
         posted = msg.date.astimezone(timezone.utc)
         for a in to_alerts(msg.message or "", posted, msg.id):
             log.info("alert %s %s -> %s (%s, %.0f s after posting)", a.symbol, a.alert_type, fade.on_alert(db, a), how,
                      (utcnow() - posted).total_seconds())
 
+    take = chan_poll.pushed(poll_state, dispatch)   # push: one "seen" check, then dispatch (2026-11-19 fix)
+
     @client.on(events.NewMessage(chats=CHANNEL))
     async def on_new(ev):
-        take(ev.message, "push")
+        take(ev.message)
         record(ev.message)
 
     async def channel_loop():                  # owner 2026-11-18: the channel is asked every 15 s, not only pushed
@@ -595,7 +595,7 @@ async def run() -> int:
                 continue
             try:
                 await chan_poll.poll_once(lambda **kw: client.get_messages(CHANNEL, **kw), poll_state,
-                                          lambda m: take(m, "poll"))
+                                          lambda m: dispatch(m, "poll"))   # poll_once did the "seen" check itself
             except FloodWaitError as exc:      # Telegram asks us to slow down: obey, the push path keeps working
                 pause = chan_poll.flood_pause(getattr(exc, "seconds", None))
                 log.warning("channel check paused %d s (Telegram flood wait)", pause)

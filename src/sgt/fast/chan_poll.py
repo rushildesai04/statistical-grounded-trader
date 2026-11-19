@@ -79,9 +79,27 @@ def flood_pause(seconds) -> int:
     return min(max(s, 1), FLOOD_CAP_S) + 1
 
 
+def pushed(state: State, dispatch):
+    """The handler for the PUSH path: ``take(message)`` passes a message to ``dispatch(message, "push")`` unless the
+    poll (or an earlier push) already handled it. Returns whether it was dispatched.
+
+    The poll does its own check in ``poll_once`` and must be given ``dispatch`` itself, never this guard: a message
+    goes through exactly ONE "seen" check. Until 2026-11-19 both paths shared one guarded handler, so a message the
+    poll found first was marked seen by ``poll_once`` and then refused by the handler as already seen: dropped, and
+    the later push was dropped too (adversarial review 2026-11-19; no alert was lost in the two sessions it ran: the
+    pushed update had always arrived first)."""
+    def take(message) -> bool:
+        if not state.seen.add(message.id):
+            return False
+        dispatch(message, "push")
+        return True
+    return take
+
+
 async def poll_once(get_messages, state: State, handle) -> int:
     """One check. ``get_messages(**kw)`` -> messages (each with an int ``id``); ``handle(message)`` is called once per
-    NEW message, oldest first. Returns how many it handled. The first call only records the newest id."""
+    NEW message, oldest first. Returns how many it handled. The first call only records the newest id.
+    ``handle`` must do the work itself and must NOT check ``state.seen`` again (see ``pushed``)."""
     if state.last_id is None:
         ids = [m.id for m in await get_messages(limit=1) if isinstance(getattr(m, "id", None), int)]
         state.last_id = max(ids, default=0)

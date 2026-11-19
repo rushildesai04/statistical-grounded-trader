@@ -53,6 +53,31 @@ def test_a_message_the_push_path_already_took_is_not_handled_again():
     assert not st.seen.add(9)                                   # and push, arriving later, finds 9 handled
 
 
+def test_a_message_the_poll_finds_first_reaches_the_books_exactly_once():
+    """The bug of 2026-11-18/19: poll and push shared one guarded handler, so a message the poll found first was
+    marked seen by the poll and then refused by the handler, and the later push was refused too: the alert was lost.
+    With the listener's real wiring (the guard for push, the work itself for the poll) every message is dispatched
+    once, whichever path sees it first."""
+    ch, st, done = Channel([7]), cp.State(), []
+    dispatch = lambda m, how: done.append((m.id, how))                  # noqa: E731
+    take = cp.pushed(st, dispatch)
+    run(cp.poll_once(ch.get, st, lambda m: dispatch(m, "poll")))       # baseline
+    ch.ids += [8]
+    assert run(cp.poll_once(ch.get, st, lambda m: dispatch(m, "poll"))) == 1 and done == [(8, "poll")]   # poll first
+    assert take(msg(8)) is False and done == [(8, "poll")]             # the late push of the same message: not twice
+    assert take(msg(9)) is True and done[-1] == (9, "push")            # push first
+    ch.ids += [9, 10]
+    assert run(cp.poll_once(ch.get, st, lambda m: dispatch(m, "poll"))) == 1 and done == [(8, "poll"), (9, "push"), (10, "poll")]
+    assert take(msg(10)) is False and take(msg(9)) is False and len(done) == 3
+    # the old wiring, kept here as the proof of the defect: a guarded handler given to the poll drops the message
+    st2, lost = cp.State(), []
+    old = cp.pushed(st2, lambda m, how: lost.append(m.id))
+    ch2 = Channel([1])
+    run(cp.poll_once(ch2.get, st2, old))
+    ch2.ids += [2]
+    assert run(cp.poll_once(ch2.get, st2, old)) == 1 and lost == []    # "handled 1", dispatched nothing
+
+
 def test_old_or_malformed_messages_are_ignored():
     st, got = cp.State(last_id=10), []
 
@@ -112,4 +137,7 @@ def test_the_listener_runs_the_check_and_the_shorter_intervals():
 
     src = Path(fl.__file__).read_text()
     assert fl.LONG_EVERY == 15 and fl.TAPE_EVERY == 30 and fl.TICK == 10
-    assert "asyncio.create_task(channel_loop())" in src and 'take(ev.message, "push")' in src and 'take(m, "poll")' in src
+    assert "asyncio.create_task(channel_loop())" in src
+    # 2026-11-19: one "seen" check per message. The push path goes through the guard; the poll gets the work itself.
+    assert "take = chan_poll.pushed(poll_state, dispatch)" in src and "take(ev.message)" in src
+    assert 'lambda m: dispatch(m, "poll")' in src and 'take(m, "poll")' not in src
