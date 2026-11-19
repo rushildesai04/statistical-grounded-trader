@@ -27,7 +27,9 @@ HALT_REASON = "no_entry"          # attach_trades status: no bar within 5 min of
                                   # stores it as the void reason ("no bars in window" is a different case)
 TESTED = {"L4a": -0.0119, "L4b": -0.0244, "L5": -0.0172, "L6": -0.0185, "L7a": -0.0187, "L7b": -0.0283,
           "S2": -0.0138,                  # training mean net per trade, prereg_long_setups_2026-11-10 (all FAIL)
-          "L5v2": -0.0205, "S2v2": -0.0185}   # owner-graded bull flag v2, prereg_flag_v2_2026-11-10 (both FAIL)
+          "L5v2": -0.0205, "S2v2": -0.0185,   # owner-graded bull flag v2, prereg_flag_v2_2026-11-10 (both FAIL)
+          "L8": -0.0079}                      # base break, training, official tape (long_cases_2026-11-19; held-out -1.12%)
+SHADOW_TESTED = [v for k, v in TESTED.items() if k != "L8"]   # what the shadow itself runs (L8 is the live book's)
 Bars = Callable[[str, str], pd.DataFrame]   # (symbol, session) -> RTH 1-minute bars, ts = bar start UTC
 Cost = Callable[[str, datetime, float], float]
 
@@ -135,4 +137,4 @@ def record_line(db: OpsStore) -> str | None:
     avg = sum(r["n"] * r["m"] for r in rows) / n
     parts = ", ".join(f"{r['kind']} {r['n']} avg {r['m']:+.1%}" for r in rows)
     return (f"long shadow (paper, no orders) {n} trades, avg {avg:+.2%}/trade: {parts}; "
-            f"tested {min(TESTED.values()):+.1%} to {max(TESTED.values()):+.1%}")
+            f"tested {min(SHADOW_TESTED):+.1%} to {max(SHADOW_TESTED):+.1%}")

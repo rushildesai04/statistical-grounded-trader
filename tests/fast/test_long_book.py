@@ -16,6 +16,19 @@ TEST_W = lb.PROBE_USD / 100_000                                 # 2026-11-19: an
 T1 = pd.Timestamp("2026-11-09 15:01", tz="UTC")
 
 
+LEGACY_KINDS = ("L5v2", "L5", "L4b", "L6", "L4a", "L7b", "L7a")
+
+
+@pytest.fixture(autouse=True)
+def one_minute_setups(monkeypatch):
+    """These tests drive the book's machinery (fills, exits, texts, settle) through the one-minute setups it traded
+    until 2026-11-19. The live default since then (base break) has its own file: tests/fast/test_long_base.py."""
+    from sgt.fast import long_book, patterns
+
+    monkeypatch.setattr(long_book, "LIVE_KINDS", LEGACY_KINDS)
+    monkeypatch.setattr(long_book, "LIVE_WATCH", patterns.WATCH)
+
+
 @pytest.fixture()
 def db(tmp_path):
     return OpsStore(tmp_path / "ops.db")
