@@ -26,7 +26,9 @@ log = logging.getLogger(__name__)
 SOURCES = ("news", "filings", "social", "reddit")      # free; X (paid per lookup) is not in this list on purpose
 FRESH = timedelta(minutes=10)           # an alert older than this is not stamped: the read would describe a later time
 MAX_PER_PASS = 3                        # alerts read in one pass (each: len(SOURCES) requests in parallel)
-BUDGET = 8.0                            # seconds for one alert's sources together; a late one is unknown
+BUDGET = 12.0                           # seconds for one alert's sources together; a late one is unknown. Above the
+#                                         slowest source on a cold cache (Reddit: 5 s first page + 6 s table budget);
+#                                         this loop is in no hurry and has its own workers
 Lookup = Callable[[str, datetime], dict | None]         # (symbol, at) -> the source's dict, None = unknown
 Gather = Callable[[dict, float], dict]                  # ({name: job}, budget seconds) -> {name: result or None}
 KIND_WORDS = {"OFFERING": "offering", "EARNINGS": "earnings", "CLINICAL": "clinical / FDA", "DEAL": "deal / contract",
@@ -75,7 +77,8 @@ def stamp(db: OpsStore, lookups: dict[str, Lookup], gather: Gather, now: datetim
     for r in due(db, now):
         try:
             at = datetime.fromisoformat(r["posted_at"])
-            jobs = {k: (lambda f=lookups[k]: f(r["symbol"], at)) for k in SOURCES if k in lookups}
+            jobs = {k: (lambda f=lookups[k], sym=r["symbol"], at=at: f(sym, at))     # bound now: a job that outlives
+                    for k in SOURCES if k in lookups}                                # the budget must not see the next alert
             res = gather(jobs, BUDGET) if jobs else {}
             got = [k for k in SOURCES if res.get(k)]
             if not got:

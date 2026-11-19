@@ -177,6 +177,20 @@ def test_one_alert_failing_does_not_stop_the_others(db):
     assert row(db, a)["ctx_at"] is None and row(db, b)["ctx_at"]
 
 
+def test_a_job_that_outlives_the_budget_still_asks_about_its_own_alert(db):
+    put(db, "ONE")
+    put(db, "TWO")
+    late, asked = [], []
+
+    def lazy(jobs, budget):                                      # the news job misses the budget: it runs later
+        late.append(jobs.pop("news"))
+        return gather(jobs, budget)
+    assert ac.stamp(db, looks(news=lambda s, at: (asked.append(s), NEWS)[1]), lazy, now=T10) == 2
+    for job in late:
+        job()
+    assert asked == ["ONE", "TWO"] and ac.BUDGET >= 11           # and the budget covers the slowest source (Reddit, cold)
+
+
 def test_a_row_stamped_meanwhile_is_not_stamped_again(db):
     rid = put(db, "RACE")
 
