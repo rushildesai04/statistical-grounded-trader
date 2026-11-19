@@ -96,6 +96,12 @@ COLUMNS = {
         "scen_run": "REAL", "scen_off": "REAL", "scen_band": "TEXT", "scen_where": "TEXT", "scen_note": "TEXT",
         # owner 2026-11-18 (option A): what an alert the book did NOT take would have made (sgt.fast.would_have)
         "wh_entry": "REAL", "wh_net": "REAL", "wh_note": "TEXT",
+        # owner 2026-11-19 ("connect to reddit and news articles and sources"): the free sources read for EVERY alert at
+        # alert time (sgt.fast.alert_context), not only for a short that is entered. news_kind: sgt.fast.news.kind_of
+        # The news read lands in its OWN columns: news_own IS NULL is how the short book's news gate (fade F6) knows it
+        # has not judged an alert yet, so this read must never fill news_own / news_earn.
+        "news_kind": "TEXT", "ctx_news_own": "INTEGER", "ctx_news_earn": "INTEGER", "ctx_head": "TEXT",
+        "ctx_at": "TEXT", "ctx_note": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars

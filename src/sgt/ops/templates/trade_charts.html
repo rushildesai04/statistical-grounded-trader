@@ -383,7 +383,7 @@ footer b { color: var(--ink); font-weight: 600; }
       <tbody id="gate-rows"></tbody></table>
       <div class="small" style="padding:6px 8px">Would-have = the rule's short from official prices (20% stop, 60 minutes, after costs). Not a trade and not in any total. A short with no shares to borrow could not have been placed by a real account.</div></div>
     <div class="learn-wrap"><table class="learn-table">
-      <thead><tr><th>Time ET</th><th>Stock</th><th>Alert</th><th>Short</th><th>Why not</th><th>Would have made</th><th>Long</th></tr></thead>
+      <thead><tr><th>Time ET</th><th>Stock</th><th>Alert</th><th>Short</th><th>Why not</th><th>Would have made</th><th>Long</th><th>News and sources at the alert</th></tr></thead>
       <tbody id="feed-rows"></tbody></table></div>
   </section>
 
@@ -819,6 +819,9 @@ function feed(day) {
       el("td", null, a.why || ""),
       el("td", a.would_n == null ? null : (a.would_n > 0 ? "pos" : a.would_n < 0 ? "neg" : null), a.would || ""),
       el("td", a.long && a.long.startsWith("long taken") ? (a.long.includes("+") ? "pos" : a.long.includes("-") ? "neg" : null) : null, a.long || ""));
+    const src = el("td", null, a.context || "");            // owner 2026-11-19: news, filings, StockTwits, Reddit read for every alert
+    if (a.headline) src.title = String(a.headline);         // the latest company headline on hover (text only)
+    tr.append(src);
     body.append(tr); });
   const gates = (DATA.gates || []).filter(g => g.session === day), gbody = document.getElementById("gate-rows");
   gbody.replaceChildren();
