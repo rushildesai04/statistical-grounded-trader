@@ -28,7 +28,7 @@ STEP = 30                                    # decisions at HH:00 and HH:30
 COSTS = {"paper": 0.0045, "careful": 0.02}   # dollars per share, each side
 START_VALUE = 100_000.0
 VOL_TARGET, MAX_LEV = 0.02, 4.0              # the paper's volatility-targeted size (reported only)
-GATE_TRADES = (1.3, 2.3)
+GATE_ORDERS = (1.3, 2.3)                     # amendment A2: the paper's "Avg. Trade x Day" counts ORDERS (2 a round trip)
 BLOCK, ALPHA, SEED, N_BOOT = 5, 0.05, 20261119, 10_000
 
 
@@ -206,11 +206,14 @@ def describe(d: pd.DataFrame) -> dict:
 
 
 def gate(rep: dict) -> dict:
-    """The replication gate: the rule's mechanics (trades a day) and its sign, on the paper's own setting."""
+    """The replication gate: the rule's mechanics (orders a day, the paper's unit: every round trip is two orders)
+    and its sign, on the paper's own setting. Amendment A2: as first written the bound was applied to round trips."""
     tpd, tot = rep.get("trades_per_day"), rep.get("total_return")
-    ok_t = tpd is not None and GATE_TRADES[0] <= tpd <= GATE_TRADES[1]
+    orders = None if tpd is None else 2 * tpd
+    ok_t = orders is not None and GATE_ORDERS[0] <= orders <= GATE_ORDERS[1]
     ok_s = tot is not None and tot > 0
-    return {"trades_per_day": tpd, "trades_ok": bool(ok_t), "total_return": tot, "sign_ok": bool(ok_s), "pass": bool(ok_t and ok_s)}
+    return {"trades_per_day": tpd, "orders_per_day": orders, "trades_ok": bool(ok_t), "total_return": tot, "sign_ok": bool(ok_s),
+            "pass": bool(ok_t and ok_s)}
 
 
 def decide(d: pd.DataFrame) -> dict:

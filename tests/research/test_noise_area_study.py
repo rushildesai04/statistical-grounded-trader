@@ -173,9 +173,11 @@ def test_the_bound_gate_and_verdicts():
     assert st.decide(d(good))["verdict"] == "PASS" and st.decide(d(-good))["verdict"] == "FAIL"
     weak = np.r_[np.full(300, 0.0102), np.full(300, -0.01)]                                    # a positive mean the bound cannot confirm
     assert st.decide(d(weak))["verdict"] == "LEAD"
-    assert st.gate({"trades_per_day": 1.8, "total_return": 0.4})["pass"]
-    assert not st.gate({"trades_per_day": 3.0, "total_return": 0.4})["pass"] and not st.gate({"trades_per_day": 1.8, "total_return": -0.1})["pass"]
-    assert not st.gate({})["pass"]
+    ok = st.gate({"trades_per_day": 0.9, "total_return": 0.4})                                  # 0.9 round trips = 1.8 orders a day
+    assert ok["pass"] and ok["orders_per_day"] == pytest.approx(1.8)
+    assert not st.gate({"trades_per_day": 1.8, "total_return": 0.4})["pass"]                    # 3.6 orders a day: not the paper's rule
+    assert not st.gate({"trades_per_day": 0.6, "total_return": 0.4})["pass"] and not st.gate({"trades_per_day": 0.9, "total_return": -0.1})["pass"]
+    assert not st.gate({})["pass"] and st.GATE_ORDERS == (1.3, 2.3)
 
 
 class _Vault:

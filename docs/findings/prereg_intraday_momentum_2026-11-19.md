@@ -129,3 +129,35 @@ So, corrected:
 - The previous commit's message names this amendment, but a failed step left it out of that commit; it is added
   here, still before any run.
 
+## Amendment A2 (2026-11-19, after the replication run, BEFORE any unlock of the out-of-sample period)
+The gate FAILED as written (0.89 round trips a day against the 1.3 to 2.3 bound). The run, kept unchanged as
+`reports/noise_area/result_replication_as_first_run.json`: SPY, rule B, the paper's setting, 2016-01-25 to
+2024-04-30: total return +75.5% (7.0% a year, volatility 6.8%, Sharpe 1.04), worst day -4.78%, largest drawdown
+11.7%, 39.1% of round trips and 43.8% of traded days profitable, 1,852 round trips = 0.89 a day. The paper for
+2007 to 2024: 9.7% a year, volatility 7.7%, Sharpe 1.24, worst day -4.8%, drawdown 12%, 37% and 43%, "1.8".
+
+Criterion (1) was mis-specified in units. The paper's "Avg. Trade x Day" counts orders (two for every round
+trip, a definitional identity). Restated in that unit: orders a day between 1.3 and 2.3; observed 1.78, beside
+the paper's 1.8. (Equivalently 0.65 to 1.15 round trips a day; observed 0.89.)
+Why this reading is forced by the paper and not by the result:
+- The paper's own arithmetic: an average profit of $0.09 a share per trade at an average SPY price of $247
+  (0.036% a round trip) gives about +300% over 3,834 round trips and about +1,500% over 7,668; the paper reports
+  +380% to +393%. Only the half count fits.
+- Falsification considered and rejected: the base rule A, whose mechanics leave nothing to read (in above the
+  band, out at the close or on the opposite band), shows the same factor (0.634 round trips a day against the
+  paper's 1.3: 2.05), so an error in rule B's stop or entry cannot be the cause. The share of profitable round
+  trips (A 54% vs 53%, B 39% vs 37%), the worst day, the drawdown and the sign agree with the paper.
+- The paper is not consistent in its wording: elsewhere "trade" plainly means a round trip (the hit ratio, the
+  largest losing trade, the holding period per trade). It is the numbers, not the word, that settle the unit.
+- An independent referee (adversarial pass, 2026-11-19) tried to falsify this reading, reproduced the
+  arithmetic, and ruled: proceed, under the conditions below.
+The honest limit: the reading was looked for because the gate failed. That is why it rests on the paper's own
+numbers, is written here before anything else is opened, and changes nothing but the unit.
+
+What changes: ONLY `gate()` and its constant in `scripts/noise_area_study.py`. `simulate`, the decision cell,
+costs, fills, the statistic, the seed and the samples are unchanged. The replication run is repeated with the
+amended gate; every number in its result other than the `gate` block must be identical to the first run, and the
+diff of the scorer must show nothing but the gate. If either check fails: STOP. Criterion (2) (a positive total
+return) is kept. The out-of-sample period is then opened once, as planned. It has not been read: the vault has
+recorded no unlock for this study.
+
