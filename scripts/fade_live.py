@@ -773,7 +773,6 @@ def early_cover(store: ParquetBarStore, symbol: str, session: str, entry_ts: pd.
 
 LIVE_ENTRY = "official at the live entry (not a tested event: {why})"
 NO_TAPE = "no trade on the full tape after the live entry"
-HOLD = pd.Timedelta(minutes=60)
 
 
 def at_live_entry(store: ParquetBarStore, symbol: str, session: str, entered_at: pd.Timestamp) -> dict | None:
@@ -784,23 +783,16 @@ def at_live_entry(store: ParquetBarStore, symbol: str, session: str, entered_at:
     has no bar after the live entry: the trade could not have happened."""
     from sgt.brokers.costs import GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT, GAPPER_REST_MULT
     from sgt.decision.features import CostModelAdapter
+    from sgt.fast import would_have
 
     d = date.fromisoformat(session)
     f = store.read_frame(symbol, d, d)
     if f.empty:
         return None
     f = f.assign(ts=pd.to_datetime(f.ts, utc=True))
-    rth = f[(f.segment == "rth") & (f.ts >= entered_at.ceil("min"))].sort_values("ts")
-    if rth.empty or not float(rth.open.iloc[0]) > 0:
-        return None
-    entry_ts, entry = rth.ts.iloc[0], float(rth.open.iloc[0])
-    c = cover(rth[rth.ts < entry_ts + HOLD], entry, fade.STOP)
-    if c is None:
-        return None
     cost = CostModelAdapter(GAPPER_COST_MODEL, tag="gapper", open_hour_mult=GAPPER_OPEN_HOUR_MULT, rest_mult=GAPPER_REST_MULT)
-    rt = float(cost.round_trip(symbol, entry_ts.to_pydatetime(), entry)[0])
-    g = (entry - c) / entry
-    return {"entry_ts": entry_ts, "entry": entry, "cost_rt": rt, "gross": g, "net": g - rt - LOCATE, "cover": c}
+    return would_have.short_from(f[f.segment == "rth"].sort_values("ts"), entered_at, symbol,
+                                 lambda sym, ts, px: cost.round_trip(sym, ts, px)[0])
 
 
 def _not_tested(r, why: str, entered: dict, store: ParquetBarStore) -> dict:
@@ -967,6 +959,13 @@ def cmd_settle() -> int:
         print(f"scenario labels: {len(tg)} new" + (": " + ", ".join(tg[:12]) if tg else ""))
     except Exception:  # noqa: BLE001 - a label; never blocks the settlement
         log.exception("scenario labels failed")
+    try:                                         # owner 2026-11-18 (option A): what each alert NOT shorted would have
+        from sgt.fast import would_have         # made, for the site's alert list; never in a total
+
+        wh = would_have.run(db, sip_day_frames(), sip_session_tools()[1])
+        print(f"alerts not shorted, scored: {len(wh)}" + (": " + ", ".join(wh[:12]) if wh else ""))
+    except Exception:  # noqa: BLE001 - a measurement; never blocks the settlement
+        log.exception("would-have scoring failed")
     try:                                         # owner 2026-11-18: the official price when each long text went out
         from sgt.fast import text_px
 

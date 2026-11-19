@@ -176,17 +176,18 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     if db is not None:
         from sgt.ops import overview
         summary = overview.build(db, now, learning)      # Overview tab (owner 2026-11-13); sections fail to None
-    alerts = []
+    alerts, gates = [], []
     if db is not None:
         try:                                             # the alert list must never stop the page (owner 2026-11-16)
             from sgt.ops import alert_feed
             alerts = alert_feed.rows(db)
+            gates = alert_feed.gates(db)                 # owner 2026-11-18 (option A): what each gate stopped
         except Exception:  # noqa: BLE001 - logged; the page builds without the list
             log.exception("alert feed failed")
     html, dropped = fit(
         lambda views, scan_views, book_views: charts.render(
             views, now, standalone=standalone, learning=learning, models=models, journal=entries,
-            scan_views=scan_views, overview=summary, book_views=book_views, alerts=alerts),
+            scan_views=scan_views, overview=summary, book_views=book_views, alerts=alerts, gates=gates),
         {"views": views, "scan_views": scan_views, "book_views": model_cards})
     if dropped:
         log.warning("chart page over %d bytes: cards of %s left off (oldest first)", PAGE_BUDGET, ", ".join(dropped))

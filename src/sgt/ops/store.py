@@ -94,6 +94,8 @@ COLUMNS = {
         "beta": "REAL",                      # amendment F7 (2026-11-10): beta at entry; >= 3 is not shorted
         # 2026-11-18 (sgt.fast.scenario): where in its move the stock was at the alert, from official bars, nightly
         "scen_run": "REAL", "scen_off": "REAL", "scen_band": "TEXT", "scen_where": "TEXT", "scen_note": "TEXT",
+        # owner 2026-11-18 (option A): what an alert the book did NOT take would have made (sgt.fast.would_have)
+        "wh_entry": "REAL", "wh_net": "REAL", "wh_note": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
