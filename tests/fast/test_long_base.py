@@ -206,6 +206,29 @@ def test_the_window_stays_open_for_a_late_base_break(db):
     assert trades(db)[0]["kind"] == "L8"
 
 
+def test_after_a_halt_the_base_is_built_from_the_reopen_and_the_reopen_red_candle_is_not_bought(db):
+    """An alert into a halt: the start bar is the reopen. The halt-reopen red-candle setups (L7) are shadow-only now;
+    the live book waits for a base after the reopen like after any alert."""
+    with db.tx() as c:
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, reason,"
+                  " weight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  ("HALT", "2026-11-09", "volume_spike", POSTED.isoformat(), "-1", 7, "skipped",
+                   "no trade print within 5 min (halted or no quote)", 0.05, POSTED.isoformat()))
+    reopen = POSTED.floor("min") + 9 * pt.BAR
+    red = (10.5, 10.55, 10.2, 10.3, 400)                         # a red candle right after the reopen (the old L7 entry)
+    day = bars([SPIKE, red] + [QUIET] * 10 + [BREAK, FILL, RUN] + [AFTER] * 40, start=reopen)
+    found, start = ls.setups(day, {"posted_at": POSTED.isoformat(), "status": "live"})
+    assert start == reopen and {s.kind for s in found} & {"L7a", "L7b"}
+    sent = []
+    for k in range(0, 2 * 13 + 1):
+        assert lb.tick(db, feed(day), sent.append, now=(reopen + pd.Timedelta(seconds=30 * k)).to_pydatetime()) == 0
+    assert trades(db) == []                                      # 13 minutes after the reopen: nothing bought
+    assert lb.tick(db, feed(day), sent.append, now=(reopen + 14 * pt.BAR).to_pydatetime()) == 1
+    (t,) = trades(db)
+    assert (t["kind"], t["rules"], t["est_entry"], t["stop"]) == ("L8", "B1", 10.6, 10.25)
+    assert pd.Timestamp(t["entry_ts"]) == reopen + 13 * pt.BAR
+
+
 def test_a_base_break_long_has_no_red_candle_exit_live_or_in_the_official_result(db):
     """The red-candle exit (rules A2) was tested on the one-minute setups; the base break was tested without it."""
     alert_row(db)
