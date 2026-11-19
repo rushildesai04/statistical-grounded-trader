@@ -51,6 +51,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | long texts (2026-11-18) | a pending long order is texted once when its setup's last candle closes, before the fill (`sgt.fast.long_armed`); the fill text follows about a minute later as before. Nightly, the official price at each text is stored beside the booked fill (`sgt.fast.text_px`) and shown in the digest. Booking unchanged. | owner 2026-11-18, option 1; section 5 |
 | how often it looks (2026-11-18, owner) | the alert channel is asked for new posts every 15 s during the session (`sgt.fast.chan_poll`; before, only Telegram's own timer, about 60 s: alerts reached the book a median 27.7 s late). Long book pass every 15 s (was 30). Official-tape stop check every 30 s (was 60). Short monitor every 10 s (unchanged). Flag `chan_poll_s` sets the channel interval (0 = off). | owner 2026-11-18 |
 | scenario label (2026-11-18) | every alert is labelled nightly from official bars with its place in the move: RUN band (early up to 33.6% above the day's low, middle up to 63.1%, late above) and at / off the high (`sgt.fast.scenario`, `fade_trades.scen_*`); shown in the digest for each traded alert. A LABEL: no book reads it. It exists so scenario rules can be judged on new alerts (`prereg_early_alert_fade_forward_2026-11-18`: are fades on early alerts the losing third? decided once at 300 new alerts). | prereg_scenario_map_2026-11-18 |
+| trader's matrix (2026-11-18, owner: "take the trader's advice to heart") | every long text (armed, entry, seen) carries the trader's trend matrix: green conditions out of six on the 1, 2, 3 and 5 minute charts (MACD 12/31/10, EMA 34, RSI 14, Bollinger middle, Supertrend 10/3, PVT 15) and what is red on the 1-minute one (`sgt.fast.trend_matrix`). His rule is tracked on every long of the day, traded or watched, also after the book's own exit: when MACD turns red after having been green since the entry, or at the close, one text "TRADER'S RULE" with his exit price, stored in `long_trades.tr_exit_*` and shown in the digest beside the book's exit (`sgt.fast.trader_rule`). The book's fills, exits and totals do not read it. Free-feed candles: estimates. | owner 2026-11-18; prereg_trend_book_2026-11-18 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
 | texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |
@@ -632,6 +633,31 @@ worse lately, 7 better. Live (13 sessions for six names, 6 for fifteen): 46 call
 6) and SHORT calls (20 calls, +0.90% each) that have no edge in the long record (4,551 calls, -0.03%). The live
 run does not show the models getting better; it is a short lucky stretch until it lasts. None beats holding.
 
+**The trader's trend matrix as the long book's exit (SKYA, 2026-11-18;** `prereg_trend_matrix_exit_2026-11-18`**).**
+SKYA: bought 3.33, the 30-minute timer sold 3.40, the stock closed 4.13 (high 4.39). The trader: stay in while the
+1-minute column of his matrix (MACD 12/31/10, EMA 34, RSI 14, Bollinger middle, Supertrend 10/3, PVT 15) is all
+green; MACD red = start leaving. Tested from the book's own entries on 2,139 trades: MACD exit -2.31% per trade,
+any-of-six exit -2.20%, the book's exits -2.07%. The median trade lasts ONE minute under either: two in three are
+stopped before a trend exists, the rest see a red condition at once. Entering only when the column is all green
+is worse (-2.15% against -1.77%). SKYA by the same code: MACD and PVT were red at the candle before the entry, so
+the rule sells a minute later for +0.3%. The matrix describes a trend once it is under way; it does not pick the
+one alert in six that has legs. Kept as context for a card, never as the exit. Fifth "stay in the runner" idea to
+lose (MACD hold, swing-low trail, half at target, runner exits, this).
+**Earnings follow-through on mid-size stocks (**`prereg_earnings_midcap_2026-11-18`**; scanner input, owner's
+pick).** Large caps were tested 2026-11-03 and failed on held-out. The same single rule (a move of 5% or more on
+the earnings day, enter at that close in its direction, five sessions, hedged) on 683 mid-size stocks, 2017-2023:
+6,522 events, -0.28% per event after a 0.30% cost (+0.02% before it); both legs negative; held-out not opened.
+Not a scanner input.
+
+**The trend matrix as the trader uses it (**`prereg_trend_book_2026-11-18`**; owner 2026-11-18: "take the
+trader's advice to heart").** His words read again: in while the 1-minute column is all green, out when MACD GOES
+red, in again when it is green again; a rule for a stock in play all session, not one exit on our entry. On every
+alerted stock-day of the training set (2,464): 16,643 round trips, 7 a day, 11 minutes each; -0.21% a round trip
+before costs, -1.15% after; 24% winners; the best 1% average +62%. The first entry after the alert loses (-1.58%
+before costs); all later ones together are flat. Better on stocks above $10 (+0.29% before costs). So the rule
+does what he says, it stays with the rare runner, and applied to everything it does not pay: his edge is in which
+alert and which moment, which is what to learn from him. Decision (owner): the matrix is shown in the long texts
+and cards and his rule is tracked on every live long.
 **Scanner inputs, second round (owner 2026-11-18: "let's do both").** (1) Pre-market gaps by kind of news
 (`prereg_gap_news_2026-11-18`): 6,311 gaps of 10% or more, 2024-10 to 2026-03, classed from company headlines
 before the open. A gapper falls 1.0% from its open on average; buying it loses 2% after costs whatever the news.

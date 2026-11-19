@@ -98,5 +98,6 @@ def test_the_listener_gives_armed_texts_their_own_count():
     import fade_live as fl
 
     src = Path(fl.__file__).read_text()
-    assert 'arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY' in src and "None, arm_send)" in src
-    assert "None, long_send)" not in src
+    assert 'arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY' in src and "None, arm_send, rule_send)" in src
+    assert 'rule_send = CappedSms(db, "trader_text", MAX_TRADER_TEXTS_DAY' in src       # the trader's rule: its own count too
+    assert "None, long_send" not in src
