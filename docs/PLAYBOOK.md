@@ -720,6 +720,9 @@ night it cannot finish is texted and caught up on the next run.
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new
   spending (paid data, AI beyond ~$1/month) until a book is proven. Tracked nightly in the digest "Live vs tested".
 - Forward, at 300 borrowable alert days: the multi-day short on lendable stocks (`prereg_after_day_borrow_forward_2026-11-17`).
+- Forward, at 300 no-news alerts with a band (about four months at 3 to 4 a day; counted nightly by
+  `scripts/early_alert_forward.py`, decided automatically once): no fade on EARLY alerts
+  (`prereg_early_alert_fade_forward_2026-11-18`; 24 of 73 forward alerts so far had a live news flag and a band).
 - Forward n >= 300 (about 6-8 weeks): keep/drop the fade; IBKR-borrowable subset; news vs no-news live; brain and
   time-of-day sizing; StockTwits buzz hypothesis (`prereg_fade_stocktwits_2026-11-06`); X buzz hypothesis (`prereg_fade_x_2026-11-08`, A1 cheap collection); Reddit buzz hypothesis (`prereg_fade_reddit_2026-11-08`).
 - Real money only on a strategy proven on unseen data and tradeable at a broker (borrow). Shorts also need section 0.

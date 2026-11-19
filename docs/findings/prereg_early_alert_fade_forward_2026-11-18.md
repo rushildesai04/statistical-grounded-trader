@@ -36,3 +36,21 @@ that night only the count is read; no mean by band is looked at.
 ## Known limits
 About 20 qualifying alerts a day: the decision is roughly three weeks away. The live book trades only what can be
 borrowed; the test is of the rule's signal on all qualifying alerts, as every earlier test of the fade.
+
+## Amendment (2026-11-18 night, before any forward result by band was read)
+Written when the scorer (`scripts/early_alert_forward.py`) was built. Only COUNTS of the forward alerts had been
+read; no result by band, by news flag or in total was looked at for this test.
+
+1. Pace, corrected. "About 20 qualifying alerts a day" was wrong: the forward record holds the first qualifying
+   alert per stock and day, about 7 a day (73 from 2026-11-04 to 2026-11-18), and about half of them are news
+   names, which the live rule does not fade. The sample grows by 3 to 4 alerts a day: 300 is about four months
+   away, not three weeks. The count is printed every night.
+2. Every qualifying alert counts, whether or not the live book reached it (as the plan says). 20 of the 73 carry no
+   live news flag (the live check never ran: the alert was skipped earlier, or pre-dates the check) and 7 have no
+   stored alert row. For those the scorer fills, once and for good (`fills.csv`): the band from official bars with
+   the label's own functions (`sgt.fast.scenario`), and the news flag with the live rule's own lookup (the same
+   request and `sgt.fast.news.flags`) at the alert's posting time. A news alert is news. A flag that cannot be read
+   is unknown; that alert waits and is asked again the next night.
+3. The decision is automatic: the nightly step decides on the first night the count reaches 300 and writes
+   `result.json`; it is never repeated.
+
