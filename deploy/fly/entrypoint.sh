@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/megacap_ext reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold reports/fade_brain reports/fade_tod reports/learning reports/fade_confsize reports/megacap_overlay reports/fade_pricesize reports/fade_calmskip reports/fade_volup reports/fade_evsize reports/insights data/alpaca data/etf_yf data/borrow
+mkdir -p reports/megacap_forward reports/megacap_ext reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold reports/fade_brain reports/fade_tod reports/learning reports/fade_confsize reports/megacap_overlay reports/fade_pricesize reports/fade_calmskip reports/fade_volup reports/fade_evsize reports/insights data/alpaca data/etf_yf data/borrow reports/early_alert_forward
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -61,7 +61,9 @@ if [ "${1:-}" = "job" ]; then
     fadesettle) run reports/fast/run.log python /app/scripts/fade_live.py settle ;;
     # Plan 2026-11-04: IBKR borrow snapshots (W1) and the decisive forward research record on the runner (W2).
     borrow)    run reports/fast/borrow.log python /app/scripts/fade_live.py borrow ;;
-    fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram ;;
+    # 2026-11-18 (prereg_early_alert_fade_forward): after the record, the early-alert test's count (decided once at 300).
+    fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram
+               run reports/early_alert_forward/run.log python /app/scripts/early_alert_forward.py night ;;
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
     fadeexits) run reports/fade_exits/run.log python /app/scripts/fade_exits.py shadow ;;
     fadehold)  run reports/fade_hold/run.log python /app/scripts/fade_exits.py shadow --study hold ;;
