@@ -53,3 +53,33 @@ Per kind: gaps, share of all gaps, mean gross and net both ways, win rates; by g
 The open is taken at the first candle's open: a real order pays the opening spread (the cost model's opening
 multiple stands for it) and, for a short, needs shares to borrow, which history cannot show. Headlines are
 classed by words, not read. The gapper list was built from today's symbols: stocks delisted since are missing.
+
+## Result (2026-11-18, training run once; `reports/gap_news/result_train.json`)
+Plan and code as committed before the run. 6,311 gaps, 375 sessions.
+
+**No cell passes, long or short.** The held-out sessions stay closed.
+
+| kind of news | share of gaps | gaps | move from the open to the close | long, net | short, net (lower bound) |
+|---|---|---|---|---|---|
+| none | 62% | 3,882 | -0.76% | -1.84% | -0.82% |
+| earnings | 20% | 1,268 | +0.00% | -0.93% | -1.43% |
+| other news | 8% | 519 | -2.03% | -3.12% | +0.43% (-2.38%) |
+| deal, contract | 4% | 270 | -4.13% | -5.22% | +2.54% (-1.23%) |
+| clinical, FDA | 3% | 196 | -1.99% | -3.10% | +0.39% (-10.78%) |
+| offering | 2% | 107 | -3.46% | -4.50% | +1.92% (too few to test) |
+| analyst | 1% | 69 | -2.01% | -3.09% | +0.43% (too few) |
+| all | | 6,311 | -0.96% | -2.01% | -0.60% |
+
+Reading:
+1. A stock that gaps up 10% or more falls from its open on average (-1.0% in the first hour, the same by the
+   close); 38% to 39% are higher at the close than at the open. Buying a gapper at the open loses 2% after costs
+   whatever the news.
+2. The kind of news does sort them: earnings gaps hold (0.0%), gaps on a deal or contract headline give back
+   4.1% by the close, offerings 3.5%. None clears the bar after costs and the 0.5% for borrowing: the best, the
+   short of a deal gap to the close, makes +2.54% a trade with a lower bound of -1.23% across 28 tests.
+3. Leads, not results: (a) deal and contract gaps fade (270 gaps); (b) offering gaps fade hardest (107, too few
+   to test, -10.8% when the gap is above 50%); (c) gaps of 20 to 50% with NO news were up 2.1% by the close
+   (767 gaps) while smaller and larger ones fell. Each would need its own frozen plan, and the two fades need
+   shares to borrow at the open, which is where the alert fade already stands.
+
+Verdict: recorded. Gaps by kind of news are not a scanner input as tested.
