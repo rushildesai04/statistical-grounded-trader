@@ -665,7 +665,10 @@ Earnings gaps hold (0.0%), deal and contract gaps give back 4.1% by the close, o
 or short (best: short a deal gap to the close, +2.54%, lower bound -1.23% over 28 tests). Held-out not opened.
 Leads only: deal and offering gaps fade; no-news gaps of 20 to 50% rose. (2) The stock-loan list as a scanner
 (`prereg_borrow_scan_forward_2026-11-18`): shares drying up or the fee doubling, scored both ways over 1 and 5
-sessions; forward only, decided once at 300 events; until then only counts are read.
+sessions; forward only, decided once at 300 events; until then only counts are read. The recorder runs on the
+runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrowscan`, log
+`reports/borrow_scan/run.log`): it compares yesterday's closing list with the one before and stores the events; a
+night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
