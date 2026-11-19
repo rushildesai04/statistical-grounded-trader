@@ -101,7 +101,9 @@ COLUMNS = {
         "cost_rt": "REAL", "settled_at": "TEXT",
         "rules": "TEXT",                     # 2026-11-12: the long-book rule version a trade opened under (None = before A2)
         # 2026-11-18 (sgt.fast.text_px): the official price when the fill text went out, and buying there
-        "text_px": "REAL", "text_px_at": "TEXT", "text_how": "TEXT", "text_gross": "REAL"},
+        "text_px": "REAL", "text_px_at": "TEXT", "text_how": "TEXT", "text_gross": "REAL",
+        # 2026-11-18 (sgt.fast.trend_matrix): where the trader's rule would have left this long (MACD going red)
+        "tr_exit_px": "REAL", "tr_exit_at": "TEXT", "tr_why": "TEXT"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

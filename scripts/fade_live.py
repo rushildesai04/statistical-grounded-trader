@@ -308,6 +308,7 @@ def live_news(client: httpx.Client, symbol: str, at: datetime) -> dict | None:
 SCAN_TIMEOUT = 15.0                            # the multi-symbol bars request is large
 MAX_SCAN_TEXTS_DAY = 80                        # anti-spam ceiling on scanner texts (2 per trade)
 SCAN_EVERY, UNIVERSE_EVERY, UNIVERSE_MAX, SCAN_PAGES = 60, timedelta(minutes=5), 120, 10
+MAX_TRADER_TEXTS_DAY = 60                      # one text per long when the trader's rule would leave it
 MAX_ARMED_TEXTS_DAY = 100                      # armed-setup texts: their own count, so they can never use up the
                                                 # limit of the trade texts (entry and exit of every long)
 LONG_EVERY, MAX_LONG_TEXTS_DAY = 15, 100        # live paper long book: pass every 15 s (30 until 2026-11-18, owner: a
@@ -657,6 +658,7 @@ async def run() -> int:
     lc = data_client()                          # live paper long book (option A "longs first"): own connection/loop
     long_send = CappedSms(db, "long_text", MAX_LONG_TEXTS_DAY, "long")
     arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY, "armed long setup")
+    rule_send = CappedSms(db, "trader_text", MAX_TRADER_TEXTS_DAY, "trader's rule")
 
     async def long_loop():
         from sgt.fast import long_book
@@ -664,7 +666,7 @@ async def run() -> int:
         while True:
             try:
                 await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send,
-                                        None, arm_send)      # arm: texted before the fill (owner 2026-11-18)
+                                        None, arm_send, rule_send)   # armed text; the trader's rule (2026-11-18)
             except Exception:  # noqa: BLE001 - the long book must never stop the listener; logged
                 log.exception("long book failed")
             await asyncio.sleep(LONG_EVERY)
