@@ -16,10 +16,10 @@ re-run and no held-out sample was opened.
 | The trade was over when the text arrived | 8 of 14 priced texts (through the stop, or past the target) | the text is about a minute behind the fill |
 | By setup | first red candle 1 of 6; red-candle break 3 of 7; break of structure 2 of 2; halt reopen 0 of 2 | too few to rank setups |
 
-The 13 notes on these trades (owner and the reviewer model) say the same thing in each loss: bought after the spike
+The 13 notes stored on these trades say the same thing in each loss: bought after the spike
 had already turned, stopped in the entry minute. Their "best exit in hindsight" lines are hindsight (playbook 3.6).
 
-## 2. The tested record (stored results; train 2025-01 to 2026-06, held-out after)
+## 2. The tested record (stored results; training 2025-01-03 to 2026-06-30, held-out 2026-07-01 to 2026-11-04)
 On the official tape the book's rules make 2,139 trades in training: -2.07% per trade, 15.6% wins. Held-out: -2.32%.
 
 | Setup (official tape) | Train n | Train net | Train wins | Held-out n | Held-out net | Held-out wins |
