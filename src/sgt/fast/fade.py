@@ -567,7 +567,9 @@ def due(db: OpsStore, now: datetime | None = None) -> pd.DataFrame:
 
 def settle(db: OpsStore, official: Official, now: datetime | None = None) -> list[str]:
     """Book official results. ``official(due_rows)`` returns per ``id``: qualifies (bool), entry_ts, entry, cover,
-    cost_rt, gross, net (research code). Non-qualifying events (e.g. official entry outside $1-50) are void."""
+    cost_rt, gross, net (research code) and ``why``. A taken short is never cut (owner 2026-11-18): one that is not a
+    tested event (e.g. official entry outside $1-50) comes back scored at its live entry, with ``why`` saying so
+    (stored as the reason). Void only when ``official`` has no result at all: no trade was possible on the tape."""
     now = now or utcnow()
     d = due(db, now)
     if d.empty:
@@ -583,6 +585,9 @@ def settle(db: OpsStore, official: Official, now: datetime | None = None) -> lis
             lines.append(f"{r.symbol} void")
             continue
         rule = {k: float(o[k]) for k in ("rule_entry", "rule_net") if k in o and pd.notna(o[k])}
+        why = o.get("why")
+        if isinstance(why, str) and why and getattr(r, "reason", None) != VETO_EXIT:
+            rule["reason"] = why                             # how this result was made, when not the tested way
         if _set(db, r.id, r.status, status="settled", entry_ts=str(o["entry_ts"]), entry=float(o["entry"]),
                 cover=float(o["cover"]), cost_rt=float(o["cost_rt"]), gross=float(o["gross"]), net=float(o["net"]),
                 settled_at=iso(now), **rule):

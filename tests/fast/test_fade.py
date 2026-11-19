@@ -202,6 +202,42 @@ def test_official_uses_the_research_scorer(tmp_path, monkeypatch):
     assert not late.loc[3].qualifies
 
 
+def test_a_taken_short_that_is_not_a_tested_event_is_scored_at_its_live_entry_not_cut(tmp_path, monkeypatch, db):
+    """Owner 2026-11-18: "you can't cut trades that already happened in real life". The official price is outside
+    $1-50 (not a tested event; void until then): the result is the short a real account would have sent at the live
+    entry. Void only when the tape has nothing after it."""
+    store = ParquetBarStore(tmp_path / "bars")
+    write_bars(store, "PENNY", {m: (0.90, 0.90) for m in range(30, 34)} | {m: (0.80, 0.80) for m in range(34, 200)})
+    monkeypatch.setattr(fl, "BARS", tmp_path / "bars")
+    monkeypatch.setattr(fl, "backfill", lambda *a, **k: {})
+    live = (T10 + timedelta(minutes=3, seconds=20)).isoformat()                     # entered live at 10:03:20
+    base = {"alert_type": "volume_spike", "posted_at": T10.isoformat(), "session": "2026-11-02"}
+    due = pd.DataFrame([{**base, "id": 1, "symbol": "PENNY", "est_entry_at": live},
+                        {**base, "id": 2, "symbol": "PENNY", "est_entry_at": (T10 + timedelta(hours=7)).isoformat()},
+                        {**base, "id": 3, "symbol": "PENNY", "est_entry_at": None}])
+    res = fl.official(due, now=T10 + timedelta(hours=10)).set_index("id")
+    r = res.loc[1]
+    assert r.qualifies and r.why.startswith("official at the live entry") and r.entry == pytest.approx(0.80)
+    assert pd.Timestamp(r.entry_ts) == pd.Timestamp(T10 + timedelta(minutes=4))    # the first official minute after it
+    assert r.gross == pytest.approx(0.0) and r.net == pytest.approx(-r.cost_rt - LOCATE) and r.cost_rt > 0
+    assert pd.isna(r.rule_entry) and pd.isna(r.rule_net)                            # not the tested timing's result
+    assert not res.loc[2].qualifies and res.loc[2].why.startswith(fl.NO_TAPE)       # after the close: could not happen
+    assert not res.loc[3].qualifies                                                 # no live entry on the row
+    spike = ParquetBarStore(tmp_path / "bars2")
+    write_bars(spike, "PENNY", {m: (0.80, 0.80) for m in range(30, 40)} | {40: (0.80, 1.00)} | {m: (0.90, 0.90) for m in range(41, 200)})
+    got = fl.at_live_entry(spike, "PENNY", "2026-11-02", pd.Timestamp(live))
+    assert got["cover"] == pytest.approx(0.96) and got["gross"] == pytest.approx(-0.20)   # the rule's 20% stop applies
+
+    ap.arm(db, T10)
+    fade.on_alert(db, alert("PENNY", mid=1), now=T10)
+    fade.monitor(db, Outbox(), lambda s: 10.0, now=T10 + timedelta(seconds=20))
+    one = lambda d: res.loc[[1]].reset_index().assign(id=int(d.id.iloc[0]))  # noqa: E731
+    assert fade.settle(db, one, now=T10 + timedelta(hours=2)) == [f"PENNY {r.net:+.2%}"]
+    (row,) = rows(db)
+    assert row["status"] == "settled" and row["reason"].startswith("official at the live entry") and row["rule_net"] is None
+    assert fade.nav(db) == pytest.approx(fade.NAV0 * (1 + row["weight"] * r.net))
+
+
 def test_disarm_before_entry_cancels_pending(db):
     # regression F-1 (review 2026-11-03): DISARM / PAUSE inside the reaction window must not open the trade
     ap.arm(db, T10)

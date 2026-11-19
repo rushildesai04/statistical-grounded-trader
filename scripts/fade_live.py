@@ -737,12 +737,13 @@ def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
     delayed = a.assign(posted_at=posted)[(real != posted).to_numpy()]
     rule = _score(delayed, store, now).set_index("id") if len(delayed) else pd.DataFrame()
     ok = out.qualifies.astype(bool)
-    out["rule_entry"] = out.entry.where(ok)
-    out["rule_net"] = out.net.where(ok)
+    tested = ok & (out.why.fillna("") == "")           # a result at the live entry is not the tested timing's result
+    out["rule_entry"] = out.entry.where(tested)
+    out["rule_net"] = out.net.where(tested)
     for i, r in out.iterrows():
         if r.id in rule.index:
             q = rule.loc[r.id]
-            hit = bool(q["qualifies"])
+            hit = bool(q["qualifies"]) and not q["why"]
             out.at[i, "rule_entry"], out.at[i, "rule_net"] = (q["entry"], q["net"]) if hit else (None, None)
     if "reason" in due:
         info = due.set_index("id")
@@ -770,8 +771,52 @@ def early_cover(store: ParquetBarStore, symbol: str, session: str, entry_ts: pd.
     return cover(f[(f.segment == "rth") & (f.ts >= entry_ts) & (f.ts < end)], entry, fade.STOP)
 
 
+LIVE_ENTRY = "official at the live entry (not a tested event: {why})"
+NO_TAPE = "no trade on the full tape after the live entry"
+HOLD = pd.Timedelta(minutes=60)
+
+
+def at_live_entry(store: ParquetBarStore, symbol: str, session: str, entered_at: pd.Timestamp) -> dict | None:
+    """Owner 2026-11-18 ("you can't cut trades that already happened in real life"): the official result of a short
+    that was taken and texted but is not a tested event (no official bar within 5 minutes of the alert, an official
+    price outside $1-50). It is the order a real account would have sent at the live entry: short at the open of the
+    first official regular-hours minute after it, the rule's stop, 60 minutes, the same costs. None = the full tape
+    has no bar after the live entry: the trade could not have happened."""
+    from sgt.brokers.costs import GAPPER_COST_MODEL, GAPPER_OPEN_HOUR_MULT, GAPPER_REST_MULT
+    from sgt.decision.features import CostModelAdapter
+
+    d = date.fromisoformat(session)
+    f = store.read_frame(symbol, d, d)
+    if f.empty:
+        return None
+    f = f.assign(ts=pd.to_datetime(f.ts, utc=True))
+    rth = f[(f.segment == "rth") & (f.ts >= entered_at.ceil("min"))].sort_values("ts")
+    if rth.empty or not float(rth.open.iloc[0]) > 0:
+        return None
+    entry_ts, entry = rth.ts.iloc[0], float(rth.open.iloc[0])
+    c = cover(rth[rth.ts < entry_ts + HOLD], entry, fade.STOP)
+    if c is None:
+        return None
+    cost = CostModelAdapter(GAPPER_COST_MODEL, tag="gapper", open_hour_mult=GAPPER_OPEN_HOUR_MULT, rest_mult=GAPPER_REST_MULT)
+    rt = float(cost.round_trip(symbol, entry_ts.to_pydatetime(), entry)[0])
+    g = (entry - c) / entry
+    return {"entry_ts": entry_ts, "entry": entry, "cost_rt": rt, "gross": g, "net": g - rt - LOCATE, "cover": c}
+
+
+def _not_tested(r, why: str, entered: dict, store: ParquetBarStore) -> dict:
+    """The row of a taken short that is not a tested event: its result at the live entry, or void when the full tape
+    has nothing after it (or the row carries no live entry time)."""
+    at = pd.to_datetime(entered.get(r.id), utc=True, errors="coerce")
+    o = at_live_entry(store, r.symbol, str(r.session), at) if pd.notna(at) else None
+    if o is None:
+        return {"id": r.id, "qualifies": False, "why": why if pd.isna(at) else f"{NO_TAPE} ({why})", "entry_ts": None,
+                "entry": None, "cost_rt": None, "gross": None, "net": None, "cover": None}
+    return {"id": r.id, "qualifies": True, "why": LIVE_ENTRY.format(why=why), **o}
+
+
 def _score(a: pd.DataFrame, store: ParquetBarStore, now: datetime) -> pd.DataFrame:
     t = attach_trades(a[["id", "symbol", "alert_type", "posted_at", "session", "has_news"]], store)
+    entered = dict(zip(a.id, a.est_entry_at)) if "est_entry_at" in a else {}
     ev = primary_events(t)
     sc = score(ev.assign(session=ev.session.astype(str)), store) if len(ev) else pd.DataFrame()
     rows = []
@@ -782,15 +827,14 @@ def _score(a: pd.DataFrame, store: ParquetBarStore, now: datetime) -> pd.DataFra
             ok = pd.notna(s.net)
             if not ok and not late:
                 continue                       # window bars missing: retry
-            rows.append({"id": r.id, "qualifies": bool(ok), "why": "" if ok else "no bars in window",
-                         "entry_ts": r.entry_ts, "entry": s.entry, "cost_rt": s.cost_rt, "gross": s.gross,
-                         "net": s.net, "cover": s.entry * (1 - s.gross) if ok else None})
+            rows.append({"id": r.id, "qualifies": True, "why": "", "entry_ts": r.entry_ts, "entry": s.entry,
+                         "cost_rt": s.cost_rt, "gross": s.gross, "net": s.net, "cover": s.entry * (1 - s.gross)}
+                        if ok else _not_tested(r, "no bars in window", entered, store))
         elif r.status == "no_bars" and not late:
             continue
         else:
             why = r.status if r.status != "ok" else "outside research filters (window / $1-50)"
-            rows.append({"id": r.id, "qualifies": False, "why": why, "entry_ts": None, "entry": None,
-                         "cost_rt": None, "gross": None, "net": None, "cover": None})
+            rows.append(_not_tested(r, why, entered, store))
     return pd.DataFrame(rows, columns=["id", "qualifies", "why", "entry_ts", "entry", "cost_rt", "gross", "net",
                                        "cover"])
 
@@ -908,6 +952,14 @@ def cmd_settle() -> int:
         print("long book settle: " + (", ".join(lb) or "nothing due"))
     except Exception:  # noqa: BLE001 - review F-3: its own label; never blocks the fade's settlement
         log.exception("long book settle failed")
+    try:                                         # owner 2026-11-18: a texted long is never cut; its official result
+        from sgt.fast import text_order         # is the order a real account would have sent at the text
+
+        with data_client() as pc:
+            to = text_order.run(db, official_prints(pc), *sip_session_tools())
+        print("long orders at the text: " + (", ".join(to) or "nothing due"))
+    except Exception:  # noqa: BLE001 - its own label; never blocks the rest of the settlement
+        log.exception("long orders at the text failed")
     try:                                         # owner 2026-11-18: where in its move each alert arrived (a label)
         from sgt.fast import scenario
 
