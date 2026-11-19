@@ -8,7 +8,7 @@ if [ "$(id -u)" = "0" ]; then
   exec setpriv --reuid=sgt --regid=sgt --init-groups "$0" "$@"
 fi
 cd "${SGT_HOME:?}"
-mkdir -p reports/megacap_forward reports/megacap_ext reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold reports/fade_brain reports/fade_tod reports/learning reports/fade_confsize reports/megacap_overlay reports/fade_pricesize reports/fade_calmskip reports/fade_volup reports/fade_evsize reports/insights data/alpaca data/etf_yf data/borrow reports/early_alert_forward
+mkdir -p reports/megacap_forward reports/megacap_ext reports/forward reports/rebalance reports/ops reports/fast reports/alert_fade reports/fade_challengers reports/fade_exits reports/fade_hold reports/fade_brain reports/fade_tod reports/learning reports/fade_confsize reports/megacap_overlay reports/fade_pricesize reports/fade_calmskip reports/fade_volup reports/fade_evsize reports/insights data/alpaca data/etf_yf data/borrow reports/early_alert_forward reports/borrow_scan
 
 run() {  # run <log> <cmd...>: timestamped, exit code recorded, never silent
   log="$1"; shift
@@ -64,6 +64,8 @@ if [ "${1:-}" = "job" ]; then
     # 2026-11-18 (prereg_early_alert_fade_forward): after the record, the early-alert test's count (decided once at 300).
     fadeforward) run reports/alert_fade/run.log python /app/scripts/alert_fade_forward.py --no-telegram
                run reports/early_alert_forward/run.log python /app/scripts/early_alert_forward.py night ;;
+    # 2026-11-18 (prereg_borrow_scan_forward): the stock-loan list as a scanner; events of finished sessions, counts only.
+    borrowscan) run reports/borrow_scan/run.log python /app/scripts/borrow_scan.py record ;;
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
     fadeexits) run reports/fade_exits/run.log python /app/scripts/fade_exits.py shadow ;;
     fadehold)  run reports/fade_hold/run.log python /app/scripts/fade_exits.py shadow --study hold ;;

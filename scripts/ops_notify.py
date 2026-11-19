@@ -40,6 +40,7 @@ JOBS = {
     "fadesettle": ("fade official results", "They are retried on the next run; positions are unaffected."),
     "borrow": ("borrow-fee snapshot", "Trades are unaffected; borrow details may be missing from trade texts."),
     "fadeforward": ("fade forward research record", "Nothing was traded; it catches up on the next run."),
+    "borrowscan": ("stock-loan list scan", "Research record only; nothing was traded; it catches up on the next run."),
     "fadechallengers": ("fade challenger shadow scoring", "Nothing was traded; it catches up on the next run."),
     "fadeexits": ("fade exit shadow scoring", "Nothing was traded; it catches up on the next run."),
     "fadehold": ("fade longer-hold shadow scoring", "Nothing was traded; it catches up on the next run."),
