@@ -724,6 +724,18 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **The other books by case (2026-11-19, `docs/findings/book_cases_2026-11-19.md`; exploration).** The long book's
+  question put to every other book. FADE: its entry is right. Waiting for the stock to prove itself, which fixed
+  the long entry, destroys the short (short a base breakdown: -1.86% / -1.32% on alerts where the rule made +7%);
+  covering when the long book's base break fires changes nothing. The fade's lever is which alerts: it is paid on
+  big fast spikes (up 50%+ from the day's low: about +5% in both periods) and loses on small ones (under 20%:
+  -2%), which is the early-alert forward test already running. DAILY MODEL: more than half of its long calls (days
+  the stock is not down 1%) earn an ordinary day; all the edge is in down-day calls (+0.70% on the 8 names looked
+  at, +0.58% on the 13 not looked at, against +0.25% / +0.33% for any down day without the model). The registered
+  `megacap_long` book is not changed; a second ledger of down-day calls is put to the owner. SCANNER: what sorts
+  the channel's alerts does not sort our own spikes; it stays paused and its sealed sample stays sealed. ETF
+  baskets are a yardstick. For real money: 36% of fades overlap a long base break on the same stock, so one
+  position per stock is needed there.
 - **Long book cases (2026-11-19, `docs/findings/long_cases_2026-11-19.md`): the entry was the flaw the earlier tests
   could not see.** Every earlier long test asked "one rule for every alert" and bought a one-minute structure with
   a one-candle stop; none looked at what the stock did after the alert before buying. Exploration over 3,277 alerts,
