@@ -287,6 +287,10 @@ def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
 
     place = scenario.line(db, day.isoformat())
     off += [f"\U0001F9ED {place}"] if place else []
+    from sgt.fast import trader_rule                                # 2026-11-18: the trader's rule beside the book's exit
+
+    his = trader_rule.line(db, day.isoformat())
+    off += [f"\U0001F4D0 {his}"] if his else []
     if not lt:
         return off, 0.0
     today = long_book.nav(db, day) - long_book.nav(db, day - timedelta(days=1))

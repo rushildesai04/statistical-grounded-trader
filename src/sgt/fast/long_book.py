@@ -144,10 +144,11 @@ def _window_over(row: dict, now: datetime) -> bool:
     return pd.Timestamp(now) >= posted + pd.Timedelta(fade.MAX_ENTRY_DELAY) + long_shadow.REOPEN_MAX + pt.WATCH + GRACE
 
 
-def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None) -> int:
+def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None) -> int:
     """One pass: open new longs, then advance open ones. Returns the number of longs opened. ``arm`` (a text sender,
     owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills (``sgt.fast.long_armed``);
-    None = no armed texts. The book's own fills and texts are the same either way."""
+    None = no armed texts. ``rule`` (a text sender): the trader's rule is texted when it would leave a long
+    (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way."""
     now = now or utcnow()
     opened = 0
     for row in candidates(db, now):
@@ -160,13 +161,14 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                     n_open = c.execute("SELECT COUNT(*) FROM long_trades WHERE status='open'").fetchone()[0]
                 if n_open >= MAX_OPEN:
                     continue
-            f = rth(bars(row["symbol"], now), now)
+            raw = bars(row["symbol"], now)
+            f = rth(raw, now)
             hit, dead = fills(f, row, long_shadow._latest(row["session"])) if len(f) else (None, None)
             if hit is None:
                 if _window_over(row, now):                 # nothing the book takes: say whether a no-win fill was why
                     _insert(db, row, *(dead or (None, None)), NOWIN if dead else "none", now)
                 elif arm is not None and len(f):
-                    _arm(db, row, f, now, off, arm)
+                    _arm(db, row, f, now, off, arm, matrix_line(raw, now))
                 continue
             s, t = hit
             if pd.Timestamp(now) - t.entry_ts > LIVE_LAG:
@@ -175,25 +177,43 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if off:
                 if _insert(db, row, s, t, SEEN, now):
-                    send(seen_text(db, row["symbol"], s, t))
+                    send(seen_text(db, row["symbol"], s, t) + matrix_line(raw, now))
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
-                send(entry_text(db, row["symbol"], s, t))
+                send(entry_text(db, row["symbol"], s, t) + matrix_line(raw, now))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
     _advance(db, bars, send, now)
+    try:                                       # owner 2026-11-18: the trader's rule, tracked beside every long
+        from sgt.fast import trader_rule
+
+        trader_rule.track(db, bars, rule, now)
+    except Exception:  # noqa: BLE001 - tracked beside the book; it never stops the book
+        log.exception("trader's rule tracking failed")
     return opened
 
 
-def _arm(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool, arm) -> None:
+def matrix_line(raw: pd.DataFrame, now: datetime) -> str:
+    """The trader's matrix as an extra line for a long text ("" when it cannot be read). Never raises."""
+    try:
+        from sgt.fast import trend_matrix
+
+        ln = trend_matrix.line(trend_matrix.snapshot(raw, now))
+        return f"\n{ln}" if ln else ""
+    except Exception:  # noqa: BLE001 - an extra line; the text itself must go out
+        log.exception("trader's matrix line failed")
+        return ""
+
+
+def _arm(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool, arm, extra: str = "") -> None:
     """Text a pending setup once, before it fills. Never lets a failure reach the book: logged."""
     try:
         from sgt.fast import long_armed
 
         msg = long_armed.note(db, row, f, now, off)
         if msg:
-            arm(msg)
+            arm(msg + extra)
     except Exception:  # noqa: BLE001 - the armed text is an extra; the book's own pass must go on
         log.exception("armed text for %s failed", row["id"])
 
