@@ -54,9 +54,9 @@ def result(px: float, ts: pd.Timestamp, rest: np.ndarray, bars: pd.DataFrame, st
         return {"how": "red", "exit": px, "exit_ts": ts}                  # the live trade sold as it was texted
     for t, p in ((int(x[0]), float(x[1])) for x in rest):
         if p <= stop:
-            return {"how": "stop", "exit": min(stop, p), "exit_ts": pd.Timestamp(t, tz="UTC")}
+            return {"how": "stop", "exit": min(stop, p), "exit_ts": pd.Timestamp(t, tz="UTC").floor("us")}
         if p >= target:
-            return {"how": "target", "exit": target, "exit_ts": pd.Timestamp(t, tz="UTC")}
+            return {"how": "target", "exit": target, "exit_ts": pd.Timestamp(t, tz="UTC").floor("us")}
     minute = ts.floor("min")
     later = bars[(bars.ts > minute) & (bars.ts < until)]
     for b in later.itertuples():

@@ -40,7 +40,7 @@ def first_print(tr: np.ndarray | None, at: datetime) -> tuple[pd.Timestamp, floa
     i = int(np.searchsorted(tr[:, 0], t0, side="left"))
     if i >= len(tr) or tr[i, 0] > t0 + int(WINDOW.total_seconds() * 1e9) or not tr[i, 1] > 0:
         return None
-    ts = pd.Timestamp(int(tr[i, 0]), tz="UTC")
+    ts = pd.Timestamp(int(tr[i, 0]), tz="UTC").floor("us")       # prints are stamped in ns; a datetime holds us
     rest = tr[i + 1:]
     return ts, float(tr[i, 1]), rest[rest[:, 0] < (ts.floor("min") + pt.BAR).value]
 

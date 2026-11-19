@@ -103,6 +103,17 @@ def test_the_rule_is_recorded_once_and_texted_also_after_the_books_own_exit(db):
     assert tr.line(db, "2026-11-09").startswith("trader's rule on today's longs (before costs): ABCD book +2.0% / his rule ")
 
 
+def test_an_exit_found_hours_later_is_recorded_but_not_texted(db):
+    """2026-11-19: the module's first deploy at 23:09 ET texted about longs closed hours before. A late find is
+    written down for the record and the digest; the phone stays quiet."""
+    long_row(db)
+    sent = []
+    night = (pd.Timestamp("2026-11-10 04:09:07", tz="UTC")).to_pydatetime()            # 23:09 ET, the same session date
+    assert tr.track(db, lambda sym, now: UP_DOWN, sent.append, night) == 1
+    assert rows(db)[0]["tr_why"] is not None and sent == []
+    assert tr.line(db, "2026-11-09") is not None
+
+
 def test_one_look_a_minute_and_no_text_without_a_sender(db):
     long_row(db)
     calls = []
