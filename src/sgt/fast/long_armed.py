@@ -61,7 +61,7 @@ def group(f: pd.DataFrame, row: dict, now: datetime, latest: pd.Timestamp) -> tu
     """The earliest pending long setups of this alert (same ``ready``), the lines worth texting, and why none is."""
     from sgt.fast import long_book
 
-    found, _ = long_shadow.setups(f, {**row, "status": "live"})
+    found = long_book.live_setups(f, row)
     live = [s for s in found if s.side == "long" and pending(f, s, now, latest)]
     if not live:
         return None

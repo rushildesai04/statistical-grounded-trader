@@ -29,12 +29,27 @@ from sgt.ops import approvals
 from sgt.ops.store import OpsStore, iso, utcnow
 
 log = logging.getLogger(__name__)
-LONG_KINDS = ("L5v2", "L5", "L4b", "L6", "L4a", "L7b", "L7a")     # tie order when two fill on the same bar
+LONG_KINDS = ("L5v2", "L8", "L5", "L4b", "L6", "L4a", "L7b", "L7a")     # tie order when two fill on the same bar
 NAMES = {"L5v2": "bull flag breakout", "L5": "bull flag breakout (v1)", "L4b": "red-candle break",
-         "L6": "break of structure",
+         "L6": "break of structure", "L8": "base break",
          "L4a": "red-candle close", "L7b": "halt reopen: red-candle break", "L7a": "halt reopen: red-candle close"}
 TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31,     # prereg_long_setups training
-            "L5v2": 199}                                                                   # prereg_flag_v2 training
+            "L5v2": 199,                                                                   # prereg_flag_v2 training
+            "L8": 874}                                                        # long_cases_2026-11-19, training, official tape
+# 2026-11-19 (owner: "explore the problem and find a fix ... add on top of the complexity and cases for the LONG book";
+# docs/findings/long_cases_2026-11-19.md). The setups the LIVE book takes. Until this date it took the first of the
+# one-minute setups to fill (L4a/L4b first red candle, L6 break of structure, L7 halt reopen) with a stop at one
+# candle's low: 45% of those trades were stopped in the entry minute and 15.6% won (-2.07% / -2.32% a trade,
+# training / held-out). The base break (patterns.base_break: wait for some minutes in a narrow range after the alert,
+# buy the close above it and above VWAP, stop under the whole base) won 36% / 33% and lost -0.79% / -1.12%; found on
+# the free feed's bars and traded on the tape (the live path) -0.82% / -1.29%. On the alerts where NO base forms the
+# one-minute setups lost the most (-2.46% / -2.44%): waiting for the base is what skips them. Not yet a winner after
+# costs: it runs at test size until live trades decide. The one-minute setups are not deleted: they stay in the
+# nightly shadow (long_shadow) and can be put back by adding their kinds here.
+LIVE_KINDS = ("L8", "L5v2")
+RULES_BASE = "B1"                    # long_trades.rules of a base-break long: stop under the base, 2R, HOLD; no red-candle
+                                     # exit (that exit belongs to the one-minute setups it was tested on)
+LIVE_WATCH = max(pt.WATCH, pt.BASE_WATCH)   # how long after its start bar an alert can still produce a setup
 MAX_OPEN = 40
 GRACE = pd.Timedelta(minutes=pt.TRIGGER_BARS + 2)          # after WATCH: the last setup's order can still fill
 MARGIN = pd.Timedelta(minutes=15)                           # candidates outlive the window so the "none" marker lands
@@ -128,7 +143,7 @@ def rth(f: pd.DataFrame, now: datetime) -> pd.DataFrame:
 def candidates(db: OpsStore, now: datetime) -> list[dict]:
     """Today's research alerts still inside their long window, with no long trade yet."""
     session = now.astimezone(ET).date().isoformat()
-    since = iso(now - (pt.WATCH + GRACE + MARGIN + pd.Timedelta(fade.MAX_ENTRY_DELAY)
+    since = iso(now - (LIVE_WATCH + GRACE + MARGIN + pd.Timedelta(fade.MAX_ENTRY_DELAY)
                        + long_shadow.REOPEN_MAX).to_pytimedelta())
     with db.tx() as c:
         rows = c.execute(
@@ -153,12 +168,20 @@ def no_win(symbol: str, s: pt.Setup, t: pt.Trade) -> bool:
 Fill = tuple[pt.Setup, pt.Trade]
 
 
+def live_setups(f: pd.DataFrame, row: dict) -> list[pt.Setup]:
+    """The setups the live book may take for one alert on the closed bars ``f``: the start bar and the halt handling
+    of the shadow (long_shadow.setups), the base break from that start bar, kept to LIVE_KINDS."""
+    found, start = long_shadow.setups(f, {**row, "status": "live"})     # halts decided from the bars, as the shadow
+    if start is None:
+        return []
+    return [s for s in found + pt.base_break(f, start) if s.kind in LIVE_KINDS]
+
+
 def fills(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> tuple[Fill | None, Fill | None]:
     """(the first long setup to fill that can win, the first one that filled but cannot); each None when there is
     none yet. Ties on the fill bar go by LONG_KINDS."""
-    found, _ = long_shadow.setups(f, {**row, "status": "live"})     # halts decided from the bars, as the shadow
     ok, dead = [], []
-    for s in found:
+    for s in live_setups(f, row):
         if s.side != "long":
             continue
         t = pt.simulate(f, s, latest=latest)
@@ -193,7 +216,33 @@ def is_off(db: OpsStore) -> bool:
 
 def _window_over(row: dict, now: datetime) -> bool:
     posted = pd.Timestamp(row["posted_at"]).tz_convert("UTC")
-    return pd.Timestamp(now) >= posted + pd.Timedelta(fade.MAX_ENTRY_DELAY) + long_shadow.REOPEN_MAX + pt.WATCH + GRACE
+    return pd.Timestamp(now) >= posted + pd.Timedelta(fade.MAX_ENTRY_DELAY) + long_shadow.REOPEN_MAX + LIVE_WATCH + GRACE
+
+
+# 2026-11-19: with the base break an alert that has not traded stays a candidate for its whole window (before, 87% of
+# alerts had a one-minute fill within minutes and left the list), and every candidate costs one bar request a pass.
+# The busiest stored day (2026-11-11, 55 alerts) had 27 alerts inside one window: 108 requests a minute from this loop
+# alone on a data key the short book's stop checks share. Bounded: at most MAX_LOOKS candidates are read per pass, the
+# ones not read for the longest first. Up to MAX_LOOKS candidates (every day but two of the last eleven) nothing
+# changes; above it each candidate is read every second pass (every third above 2 x MAX_LOOKS).
+MAX_LOOKS = 15
+_looked: dict[int, datetime] = {}      # fade id -> when the book last read its bars (this process)
+
+
+def _turn(rows: list[dict], now: datetime) -> list[dict]:
+    """The candidates to read this pass: all of them up to MAX_LOOKS, else the MAX_LOOKS not read for the longest
+    (never read first; ties by id), in id order."""
+    ids = {r["id"] for r in rows}
+    for k in [k for k in _looked if k not in ids]:
+        del _looked[k]
+    pick = rows
+    if len(rows) > MAX_LOOKS:
+        never = datetime.min.replace(tzinfo=now.tzinfo)
+        pick = sorted(sorted(rows, key=lambda r: (_looked.get(r["id"], never), r["id"]))[:MAX_LOOKS], key=lambda r: r["id"])
+        log.info("long book: %d candidates, reading %d this pass", len(rows), len(pick))
+    for r in pick:
+        _looked[r["id"]] = now
+    return pick
 
 
 def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None) -> int:
@@ -203,7 +252,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
     (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way."""
     now = now or utcnow()
     opened = 0
-    for row in candidates(db, now):
+    for row in _turn(candidates(db, now), now):
         try:
             if db.paused() or approvals.disarmed(db, now):
                 continue
@@ -279,7 +328,8 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
             "entry_ts, est_entry, est_last, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
              s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
-             t.entry if t else None, t.entry if t else None, iso(now), RULES)).rowcount == 1
+             t.entry if t else None, t.entry if t else None, iso(now),
+             RULES_BASE if s is not None and s.kind == "L8" else RULES)).rowcount == 1
 
 
 def target(s: pt.Setup, t: pt.Trade) -> float:
@@ -515,4 +565,9 @@ def record_line(db: OpsStore) -> str | None:
     cap = probe_usd(db)
     size = "" if cap is None else f"; test size ${cap:,.0f} a long until {PROOF_N} live trades prove it"
     return (f"long book (paper) {n} trades, avg {m:+.2%}/trade, book ${nav(db):,.0f}; "
-            f"tested {min(long_shadow.TESTED.values()):+.1%} to {max(long_shadow.TESTED.values()):+.1%}{size}")
+            f"tested {min(_live_tested()):+.1%} to {max(_live_tested()):+.1%}{size}")
+
+
+def _live_tested() -> list[float]:
+    """The tested per-trade results of the setups the live book takes now."""
+    return [long_shadow.TESTED[k] for k in LIVE_KINDS if k in long_shadow.TESTED] or [0.0]

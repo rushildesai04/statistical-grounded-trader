@@ -49,12 +49,14 @@ RULES = """Books (paper):
 - alert fade: SHORT a small cap ($1-50) at the first 1-minute bar after a momentum alert from one Telegram channel,
   only when there is NO company news (rule F6); 20% stop; exit after 60 minutes or at the close.
 - scanner (experiment): SHORT our own detected spike (5% in 5 min, 5x volume, new high), 0.5% size, same exits.
-- long book (paper measurement, owner priority since 2026-11-10): BUY after a channel alert when one of the trader's
-  setups triggers on closed 1-minute bars within 30 minutes: first red candle (L4a/L4b), bull flag breakout (L5v2:
-  pole to a new high of day, 2-4 red flag candles on falling volume), break of structure (L6), first red candle after
-  a halt reopen (L7a/L7b). Buy-stop at the trigger, stop below the setup, target 2x the risk, else exit after 30
-  minutes; the first setup to fill per alert. Every setup LOST on 2,000+ past alerts (-1.2% to -2.8% per trade;
-  the first-fill rule -2.29%), so this book measures them live; a loss is the expected outcome, not news.
+- long book (paper, test size $500 a trade): BUY after a channel alert. Since 2026-11-19 the entry is the BASE BREAK
+  (L8): after the alert the stock spends about 10 minutes in a range of at most 8%, then a 1-minute candle CLOSES
+  above that range and above session VWAP, within 60 minutes of the alert; buy the next open, stop under the whole
+  base, target 2x the risk, else exit after 30 minutes. The bull flag breakout (L5v2) is also taken; the first to
+  fill per alert. Before that date the book bought one-minute setups (first red candle L4a/L4b, break of structure
+  L6, halt reopen L7a/L7b) with a stop at one candle's low: 45% were stopped in the entry minute, 15% won, -2.1% a
+  trade. The base break on past alerts: 36% wins, -0.8% a trade (held-out -1.1%): better, still a loss after costs,
+  so a losing trade is the expected outcome, not news. Alerts where no base forms are not traded.
 Tested facts: no-news fades earn about +1.7% per trade after real stop fills, 55-58% win; about 25% of trades hit the
 stop; stocks often squeeze before fading (finding 4); halts right after the alert lose; chart-pattern exits and
 'wait for a breakdown' lose over thousands of trades; hindsight always finds a better exit (84% of fades show +3%

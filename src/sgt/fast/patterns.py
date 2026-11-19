@@ -204,6 +204,47 @@ def bos_long(bars: pd.DataFrame, start: pd.Timestamp) -> list[Setup]:
     return []
 
 
+# 2026-11-19 (owner: "explore the problem and find a fix ... add on top of the complexity and cases for the LONG
+# book"). The one-minute setups above buy within minutes of the alert with a stop at a single candle's low: on the
+# official tape 45% of those trades are stopped in the entry minute and 15.6% win. Waiting until the stock has built
+# a BASE (some minutes in a narrow range) and then closes above it, above the session's average price, with the stop
+# under the whole base, was stopped in the entry minute 1% of the time and won 35% / 30% (training / held-out) of its
+# trades; per trade it lost -0.86% / -1.30% where the one-minute setups lost -2.07% / -2.32%. Still not a winner after
+# costs (about break-even before them): it is the better-built rule, run at test size until live trades decide.
+BASE_MIN = pd.Timedelta(minutes=10)         # the base: this long before the break, all of it after the alert's start bar
+BASE_MIN_BARS = 5                           # bars that must exist in it (a thin feed has no bar for a quiet minute)
+BASE_MAX_RANGE = 0.08                       # (highest high - lowest low) / lowest low of the base
+BASE_WATCH = pd.Timedelta(minutes=60)       # the break must come within this long after the start bar
+
+
+def session_vwap(bars: pd.DataFrame) -> np.ndarray:
+    """The running volume-weighted price of ``bars`` (typical price x volume), known at each bar's close."""
+    v = bars.volume.to_numpy(float)
+    cv = np.cumsum(v)
+    typ = ((bars.high + bars.low + bars.close) / 3).to_numpy(float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(cv > 0, np.cumsum(typ * v) / cv, np.nan)
+
+
+def base_break(bars: pd.DataFrame, start: pd.Timestamp) -> list[Setup]:
+    """L8: the first bar, BASE_MIN to BASE_WATCH after ``start``, that CLOSES above the high of the base (the bars of
+    the BASE_MIN before it: at least BASE_MIN_BARS of them, in a range of at most BASE_MAX_RANGE) and above the
+    session VWAP of ``bars`` -> buy at the next bar's open, stop at the base's low. Decided from closed bars only."""
+    if bars.empty:
+        return []
+    ts, h, lo, c = bars.ts, bars.high.to_numpy(float), bars.low.to_numpy(float), bars.close.to_numpy(float)
+    vw = session_vwap(bars)
+    for j in np.flatnonzero(((ts >= start + BASE_MIN) & (ts <= start + BASE_WATCH)).to_numpy()):
+        a = int(ts.searchsorted(ts.iloc[j] - BASE_MIN, side="left"))
+        if j - a < BASE_MIN_BARS:                           # (every bar of it is at/after ``start``: j is BASE_MIN past it)
+            continue
+        hi_w, lo_w = float(h[a:j].max()), float(lo[a:j].min())
+        if lo_w > 0 and (hi_w - lo_w) / lo_w <= BASE_MAX_RANGE and c[j] > hi_w and vw[j] == vw[j] and c[j] > vw[j]:
+            return [Setup("L8", "long", ts.iloc[j] + BAR, None, lo_w,
+                          {"base_high": hi_w, "base_low": lo_w, "break_ts": ts.iloc[j], "vwap": float(vw[j])})]
+    return []
+
+
 def simulate(bars: pd.DataFrame, s: Setup, hold: pd.Timedelta = HOLD, rr: float = RR,
              latest: pd.Timestamp | None = None, *, red_exit: bool = False) -> Trade | None:
     """Fill and exit ``s`` on ``bars`` (see module doc). None = no fill (expired, cancelled, or entry beyond the stop).

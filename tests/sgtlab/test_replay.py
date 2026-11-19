@@ -152,8 +152,10 @@ def test_long_setups_come_from_the_books_own_code_and_one_is_marked_as_the_books
     r = replay.replay(f, "TEST", DAY, [{"at": at(46, 20), "type": "volume_spike"}])
     longs = [t for t in r["trades"] if t["side"] == "long"]
     assert longs and sum(t["book"] for t in longs) == 1
-    first = min((t for t in longs if not t["nowin"]), key=lambda t: t["entry_time"])
-    assert first["book"] is True                             # the first long whose target can beat costs
+    from sgt.fast import long_book
+
+    first = min((t for t in longs if not t["nowin"] and t["rule"] in long_book.LIVE_KINDS), key=lambda t: t["entry_time"])
+    assert first["book"] is True                             # the first of the live book's setups whose target can beat costs
     for t in longs:
         assert t["nowin"] == ((t["target"] - t["entry"]) / t["entry"] <= t["cost"])
         assert ("the book skips it" in t["name"]) == t["nowin"]
@@ -228,3 +230,18 @@ def test_cli_random_is_repeatable_and_build_skips_what_has_no_bars(tmp_path, cap
     got = lab.build([lab.spec("AAA", DAY), lab.spec("BBB", DAY)], lambda s, d: one if s == "AAA" else pd.DataFrame(),
                     datetime.now(timezone.utc))
     assert [r["symbol"] for r in got] == ["AAA"] and "BBB 2026-11-17: no bars" in capsys.readouterr().out
+
+
+def test_the_lab_shows_the_base_break_as_the_long_books_trade():
+    """2026-11-19: the live long book buys the base break; the one-minute setups are shown but are not its trade."""
+    quiet, n = (10.35, 10.45, 10.25, 10.35), 60
+    rows = [(10.0, 10.02, 9.98, 10.0)] * 31 + [(10.0, 10.5, 10.0, 10.4), (10.5, 10.55, 10.2, 10.3)] + [quiet] * 10 + [
+        (10.4, 10.65, 10.4, 10.6), (10.6, 10.62, 10.5, 10.5), (10.5, 11.5, 10.5, 11.4)] + [(11.4, 11.45, 11.3, 11.4)] * n
+    o, h, lo, c = (list(x) for x in zip(*rows))
+    f = bars(c, opens=o, highs=h, lows=lo)
+    r = replay.replay(f, "TEST", DAY, [{"at": at(30, 20), "type": "volume_spike"}])
+    longs = [t for t in r["trades"] if t["side"] == "long"]
+    (book,) = [t for t in longs if t["book"]]
+    assert book["rule"] == "L8" and book["name"].startswith("Long: base break") and book["stop"] == 10.25
+    assert book["entry"] == 10.6 and book["reason"] == "target"          # its fill candle closed red: no red-candle exit
+    assert any(t["rule"] in ("L4a", "L4b") and t["entry_time"] < book["entry_time"] for t in longs)   # earlier, not the book's

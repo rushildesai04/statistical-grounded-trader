@@ -38,7 +38,8 @@ RULES = {"fade": "Short the alert (20% stop, 60 min)", "scan": "Short our own sp
          "L5v2": "Long: bull flag breakout", "S2v2": "Short: bull flag fails", "L5": "Long: bull flag breakout (v1)",
          "S2": "Short: bull flag fails (v1)", "L6": "Long: break of structure",
          "L7a": "Long: first red candle after a halt, buy next open",
-         "L7b": "Long: first red candle after a halt, buy break of its high"}
+         "L7b": "Long: first red candle after a halt, buy break of its high",
+         "L8": "Long: base break (some minutes in a narrow range, then a close above it and above VWAP)"}
 EXIT_WORDS = {"stop": "stop", "target": "target", "time": "time limit", "red": "fill candle closed red",
               "cap": "60 minutes", "signal": "signal"}
 
@@ -160,13 +161,18 @@ def _fade(f: pd.DataFrame, ind: pd.DataFrame, symbol: str, session: str, posted:
 
 
 def _longs(f: pd.DataFrame, symbol: str, session: str, posted: pd.Timestamp, label: str) -> tuple[list[dict], list[dict]]:
-    """Every long setup the books look for after this alert, simulated as the live long book exits (red fill candle
-    out at the next open). Returns (trades, setups that never filled)."""
+    """Every long setup the books look for after this alert, simulated as the live long book exits them (one-minute
+    setups: red fill candle out at the next open; the base break: stop, target or time only). Returns (trades, setups
+    that never filled)."""
+    from sgt.fast import long_book
+
     found, t0 = long_shadow.setups(f, {"posted_at": posted.isoformat(), "status": "skipped"})
+    if t0 is not None:
+        found = found + pt.base_break(f, t0)                 # 2026-11-19: the live long book's entry
     trades, idle = [], []
     latest = long_shadow._latest(session)
     for s in found:
-        t = pt.simulate(f, s, latest=latest, red_exit=s.side == "long")
+        t = pt.simulate(f, s, latest=latest, red_exit=s.side == "long" and s.kind != "L8")
         if t is None:
             idle.append({"rule": s.kind, "name": RULES.get(s.kind, s.kind), "side": s.side, "start": label,
                          "ready": _t(s.ready), "trigger": s.trigger, "stop": s.stop,
@@ -184,8 +190,8 @@ def _longs(f: pd.DataFrame, symbol: str, session: str, posted: pd.Timestamp, lab
             (x["target"] - x["entry"]) / x["entry"] <= x["cost"]
         if x["nowin"]:
             x["name"] += " (target cannot beat costs: the book skips it)"
-    can = [x for x in longs if not x["nowin"]]
-    if can:                                                  # the live long book takes the first long that can win
+    can = [x for x in longs if not x["nowin"] and x["rule"] in long_book.LIVE_KINDS]
+    if can:                                                  # the live long book takes the first of ITS setups that can win
         min(can, key=lambda x: x["entry_time"])["book"] = True
     return trades, idle
 
