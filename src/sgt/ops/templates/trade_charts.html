@@ -376,8 +376,14 @@ footer b { color: var(--ink); font-weight: 600; }
   <section class="learn" id="feed" hidden aria-label="Every alert of this day">
     <div class="learn-head"><span class="label">Every alert this day</span>
       <span class="small" id="feed-sub"></span></div>
+    <!-- 2026-11-18 (owner, option A): the gates stay in the money book; what each one stopped and what those alerts
+         would have made as shorts is shown here, never in a total. From DATA.gates (textContent only). -->
+    <div class="learn-wrap" id="gate-wrap" hidden><table class="learn-table">
+      <thead><tr><th>Stopped by</th><th>Alerts</th><th>With a result</th><th>Average would-have</th><th>Would have won</th><th id="gate-usd">Sum</th></tr></thead>
+      <tbody id="gate-rows"></tbody></table>
+      <div class="small" style="padding:6px 8px">Would-have = the rule's short from official prices (20% stop, 60 minutes, after costs). Not a trade and not in any total. A short with no shares to borrow could not have been placed by a real account.</div></div>
     <div class="learn-wrap"><table class="learn-table">
-      <thead><tr><th>Time ET</th><th>Stock</th><th>Alert</th><th>Short</th><th>Why not</th><th>Long</th></tr></thead>
+      <thead><tr><th>Time ET</th><th>Stock</th><th>Alert</th><th>Short</th><th>Why not</th><th>Would have made</th><th>Long</th></tr></thead>
       <tbody id="feed-rows"></tbody></table></div>
   </section>
 
@@ -811,8 +817,20 @@ function feed(day) {
     tr.append(el("td", null, a.at || ""), el("td", null, a.symbol), el("td", null, KIND[a.type] || String(a.type || "").replace(/_/g, " ")),
       el("td", a.short && a.short.startsWith("shorted") ? (a.short.includes("+") ? "pos" : a.short.includes("-") ? "neg" : null) : null, a.short || ""),
       el("td", null, a.why || ""),
+      el("td", a.would_n == null ? null : (a.would_n > 0 ? "pos" : a.would_n < 0 ? "neg" : null), a.would || ""),
       el("td", a.long && a.long.startsWith("long taken") ? (a.long.includes("+") ? "pos" : a.long.includes("-") ? "neg" : null) : null, a.long || ""));
     body.append(tr); });
+  const gates = (DATA.gates || []).filter(g => g.session === day), gbody = document.getElementById("gate-rows");
+  gbody.replaceChildren();
+  document.getElementById("gate-wrap").hidden = !gates.length;
+  const pct = x => x == null ? "" : (x > 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
+  if (gates.length && gates[0].size != null) document.getElementById("gate-usd").textContent = "Sum at $" + Math.round(gates[0].size).toLocaleString("en-US") + " a short";
+  gates.forEach(g => { const tr = el("tr");
+    tr.append(el("td", null, g.gate), el("td", null, String(g.n)), el("td", null, String(g.scored)),
+      el("td", g.avg == null ? null : (g.avg > 0 ? "pos" : g.avg < 0 ? "neg" : null), pct(g.avg)),
+      el("td", null, g.scored ? g.won + " of " + g.scored : ""),
+      el("td", g.usd == null ? null : (g.usd > 0 ? "pos" : g.usd < 0 ? "neg" : null), g.usd == null ? "" : money(g.usd)));
+    gbody.append(tr); });
   return { n: rows.length, traded };
 }
 

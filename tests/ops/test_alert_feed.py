@@ -104,3 +104,50 @@ def test_a_watched_long_and_a_no_win_skip_read_plainly():
     assert af.long_words("seen", None) == "long seen, not traded"
     assert af.long_words("seen", -0.025) == "long seen, not traded: would have made -2.5%"
     assert af.long_words("nowin", None) == "long setup skipped: its target could not beat costs"
+
+
+def test_an_alert_not_shorted_shows_what_it_would_have_made_and_each_gate_is_summed(tmp_path):
+    """Owner 2026-11-18 (option A): the gates stay in the money book; the site shows what each one stopped and what
+    those alerts would have made. A measurement: a taken trade never carries one."""
+    from sgt.fast import would_have
+
+    db = _db(tmp_path)
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET wh_net=0.031, wh_entry=5.0 WHERE symbol='NEWS'")
+        c.execute("UPDATE fade_trades SET wh_net=-0.2 WHERE symbol='DRY'")
+        c.execute("UPDATE fade_trades SET wh_note=? WHERE symbol IN ('EARLY','HALT')", (would_have.NO_TRADE,))
+        c.execute("UPDATE fade_trades SET wh_net=0.5 WHERE symbol='WON'")            # can never happen; never shown
+        c.execute("UPDATE fade_trades SET weight=0.05 WHERE status='settled'")
+        d = "2026-11-16"
+        _alert(c, "NEWS2", d, "14:31", "filtered", fade.NEWS_REASON)
+        c.execute("UPDATE fade_trades SET wh_net=-0.011 WHERE symbol='NEWS2'")
+        for px in ("0.6321", "0.9100"):
+            _alert(c, "P" + px[-2:], d, "15:20", "filtered", f"price {px} outside $1-50")
+        c.execute("UPDATE fade_trades SET wh_net=0.04 WHERE symbol='P21'")
+    by = {r["symbol"]: r for r in alert_feed.rows(db)}
+    assert (by["NEWS"]["would"], by["NEWS"]["would_n"]) == ("+3.1%", 0.031) and by["DRY"]["would"] == "-20.0%"
+    assert by["EARLY"]["would"] == "no result: no regular-hours trade within 5 minutes" and by["EARLY"]["would_n"] is None
+    assert by["OFFD"]["would"] == "scored tonight"                                # not scored yet: said, not blank
+    assert (by["WON"]["would"], by["WON"]["would_n"], by["LIVE"]["would"]) == ("", None, "")
+    g = {x["gate"]: x for x in alert_feed.gates(db) if x["session"] == "2026-11-16"}
+    news = g["company news today: fades on news names only break even"]
+    size = fade.entry_notional(db)
+    assert (news["n"], news["scored"], news["won"]) == (2, 2, 1) and abs(news["avg"] - 0.01) < 1e-12
+    assert abs(news["usd"] - 0.02 * size) < 1e-9 and news["size"] == size
+    price = g["price outside $1 to $50"]                                          # one gate, whatever the price was
+    assert (price["n"], price["scored"], price["avg"]) == (2, 1, 0.04)
+    hours = g["outside the rule's hours (09:30 to 15:44 ET)"]
+    assert (hours["n"], hours["scored"], hours["avg"], hours["usd"]) == (1, 0, None, None)
+    assert "shorted" not in " ".join(g) and all(x["session"] != "2026-11-13" or x["n"] for x in alert_feed.gates(db))
+    assert alert_feed.gates(OpsStore(tmp_path / "empty.db")) == []
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET weight=NULL")                               # the size cannot be read: no dollars,
+    assert {x["usd"] for x in alert_feed.gates(db)} == {None}                        # the list is still shown
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET weight=0.05 WHERE status='settled'")
+    page = charts.render([], datetime(2026, 11, 16, 20, tzinfo=timezone.utc), alerts=alert_feed.rows(db), gates=alert_feed.gates(db))
+    data = json.loads(page.split("const DATA = ", 1)[1].split(";\n", 1)[0])
+    assert len(data["gates"]) == len(alert_feed.gates(db)) and 'id="gate-rows"' in page and "Would have made" in page
+    assert "Not a trade and not in any total" in page and "DATA.gates" in page
+    assert charts.render([], datetime(2026, 11, 16, 20, tzinfo=timezone.utc)).count('"gates": []') == 1
+
