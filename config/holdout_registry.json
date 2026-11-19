@@ -109,6 +109,17 @@
         "2026-10-16"
       ],
       "prereg": "docs/findings/prereg_big_flush_2026-11-10.md"
+    },
+    "intraday-momentum-2026-11": {
+      "train": [
+        "2016-01-04",
+        "2024-04-30"
+      ],
+      "holdout": [
+        "2024-05-01",
+        "2026-10-30"
+      ],
+      "prereg": "docs/findings/prereg_intraday_momentum_2026-11-19.md"
     }
   }
 }
