@@ -658,6 +658,14 @@ before costs); all later ones together are flat. Better on stocks above $10 (+0.
 does what he says, it stays with the rare runner, and applied to everything it does not pay: his edge is in which
 alert and which moment, which is what to learn from him. Decision (owner): the matrix is shown in the long texts
 and cards and his rule is tracked on every live long.
+**Scanner inputs, second round (owner 2026-11-18: "let's do both").** (1) Pre-market gaps by kind of news
+(`prereg_gap_news_2026-11-18`): 6,311 gaps of 10% or more, 2024-10 to 2026-03, classed from company headlines
+before the open. A gapper falls 1.0% from its open on average; buying it loses 2% after costs whatever the news.
+Earnings gaps hold (0.0%), deal and contract gaps give back 4.1% by the close, offerings 3.5%; no cell passes long
+or short (best: short a deal gap to the close, +2.54%, lower bound -1.23% over 28 tests). Held-out not opened.
+Leads only: deal and offering gaps fade; no-news gaps of 20 to 50% rose. (2) The stock-loan list as a scanner
+(`prereg_borrow_scan_forward_2026-11-18`): shares drying up or the fee doubling, scored both ways over 1 and 5
+sessions; forward only, decided once at 300 events; until then only counts are read.
 
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
