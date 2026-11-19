@@ -151,3 +151,58 @@ def test_an_alert_not_shorted_shows_what_it_would_have_made_and_each_gate_is_sum
     assert "Not a trade and not in any total" in page and "DATA.gates" in page
     assert charts.render([], datetime(2026, 11, 16, 20, tzinfo=timezone.utc)).count('"gates": []') == 1
 
+
+def test_channel_alerts_that_never_became_a_row_are_listed_and_change_nothing_else(tmp_path):
+    """Owner 2026-11-19: nothing the channel sent may be unknown. Alert types outside the rules and news tags with no
+    headline are listed from the channel's own history; nothing is written to the ops database."""
+    db = _db(tmp_path)
+    with db.tx() as c:
+        mid = c.execute("SELECT message_id FROM fade_trades WHERE symbol='NEWS'").fetchone()[0]
+        before = c.execute("SELECT COUNT(*) FROM fade_trades").fetchone()[0]
+    heard = [{"symbol": "SEAT", "alert_type": "premarket_high", "posted_at": "2026-11-16 12:56:38", "has_news": None, "message_id": 901},
+             {"symbol": "POAS", "alert_type": "news", "posted_at": "2026-11-16T14:43:13+00:00", "has_news": 0, "message_id": 902},
+             {"symbol": "NEWS", "alert_type": "news", "posted_at": "2026-11-16T14:30:00+00:00", "has_news": 1, "message_id": mid},   # has a row
+             {"symbol": "SAT", "alert_type": "new_high", "posted_at": "2026-11-14T15:00:00+00:00", "has_news": None, "message_id": 903},  # no session listed
+             {"symbol": "X" * 40, "alert_type": "t" * 90, "posted_at": "2026-11-16T15:00:00+00:00", "has_news": None, "message_id": 904},
+             {"symbol": "BAD", "alert_type": "new_high", "posted_at": "not a time", "has_news": None, "message_id": 905},
+             {"symbol": "", "alert_type": "new_high", "posted_at": "2026-11-16T15:00:00+00:00", "has_news": None, "message_id": 906}]
+    rows = alert_feed.rows(db, channel_alerts=heard)
+    today = [r for r in rows if r["session"] == "2026-11-16"]
+    assert [r["symbol"] for r in today] == ["ODD", "LIVE", "WON", "HALT", "DRY", "X" * 12, "OFFD", "POAS", "NEWS", "SEAT", "EARLY"]
+    by = {r["symbol"]: r for r in rows}
+    assert (by["SEAT"]["at"], by["SEAT"]["why"], by["SEAT"]["short"]) == ("07:56", "alert type not in the rules", "not shorted")
+    assert by["POAS"]["why"] == "news tag with no headline attached: not in the rules" and not by["POAS"]["traded"]
+    assert (by["SEAT"]["would"], by["SEAT"]["would_n"], by["SEAT"]["long"], by["SEAT"]["id"]) == ("", None, "", None)
+    assert len(by["X" * 12]["type"]) == 40 and "SAT" not in by and "BAD" not in by and all("_t" not in r for r in rows)
+    assert sum(r["symbol"] == "NEWS" for r in rows) == 1                               # an alert with a row is listed once
+    assert alert_feed.rows(db) == [r for r in rows if r["id"] is not None]             # without the history: as before
+    g = {x["gate"]: x for x in alert_feed.gates(db, channel_alerts=heard) if x["session"] == "2026-11-16"}
+    assert (g["alert type not in the rules"]["n"], g["alert type not in the rules"]["scored"]) == (3, 0)
+    assert "alert type not in the rules" not in {x["gate"] for x in alert_feed.gates(db)}
+    with db.tx() as c:
+        assert c.execute("SELECT COUNT(*) FROM fade_trades").fetchone()[0] == before  # the ops database is not touched
+    page = charts.render([], datetime(2026, 11, 16, 20, tzinfo=timezone.utc), alerts=rows)
+    assert "alert type not in the rules" in page
+
+
+def test_the_channel_history_is_read_only_and_a_missing_one_never_stops_the_page(tmp_path):
+    import sqlite3
+
+    import trade_charts as tc
+
+    db = _db(tmp_path)
+    assert tc.channel_alerts(db, tmp_path / "nothing.db") == []
+    p = tmp_path / "sgt.db"
+    with sqlite3.connect(p) as s:
+        s.execute("CREATE TABLE crowd_alerts(channel TEXT, message_id INTEGER, idx INTEGER, symbol TEXT, alert_type TEXT, "
+                  "posted_at TEXT, has_news INTEGER)")
+        s.executemany("INSERT INTO crowd_alerts VALUES (?,?,?,?,?,?,?)",
+                      [("-1", 1, 0, "SEAT", "premarket_high", "2026-11-16 12:56:38", None),
+                       ("-1", 2, 0, "POAS", "news", "2026-11-16 14:43:13", 0),
+                       ("other-channel", 3, 0, "ZZZ", "new_high", "2026-11-16 15:00:00", None)])
+    got = tc.channel_alerts(db, p)
+    assert [a["symbol"] for a in got] == ["POAS", "SEAT"] and set(got[0]) == {"symbol", "alert_type", "posted_at", "has_news", "message_id"}
+    assert len(tc.channel_alerts(db, p, limit=1)) == 1
+    (tmp_path / "broken.db").write_text("not a database")
+    assert tc.channel_alerts(db, tmp_path / "broken.db") == []                        # logged, the page builds without it
+
