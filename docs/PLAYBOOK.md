@@ -28,6 +28,19 @@ scenario"; interview answer "IBKR has shares"): the LIVE book now takes a short 
 (section 2, row "borrow"). That closes (a) for the live book only: the backtest still has no borrow in it, and (b) is open. Standing consequence: an alert book is never
 left off silently; "off" is the owner's choice in the moment, and the phone must still show the system is alive.
 
+**A trade that was texted is never cut (owner 2026-11-18 night).** "you can't cut trades that already happened in real
+life ... we are trying to model this like actual real life with actual trades when we connect up real money." The
+cause: GMM long 11-18 was texted bought $1.785 and sold $1.88, then the nightly summary read "GMM void" and it left
+the book: the tested order did not fill on the official tape (the fill minute opened at the stop), and the code
+dropped such a trade. Two longs (VTSI 11-13, GMM 11-18) and two shorts (NTCL 11-05, OMH 11-09) had been cut this
+way, winners and losers alike. Rule: a trade the system texted as taken always gets an official result. When the
+tested order has none on the full tape, the result is the order a real account would have sent at that moment: for a
+long, bought at the first official print after the fill text, with its own stop, target and exit rule
+(`sgt.fast.text_order`); for a short, sold at the first official minute after the live entry, the rule's stop, 60
+minutes (`fade_live.at_live_entry`). The stored reason says which way a result was made. Void is left only for a
+trade that could not have happened: no trade at all on the full tape after the text. Nothing is switched off without
+the owner saying so in the moment.
+
 ## 1. What we trade and why it works
 Short small caps ($1-50) right after a MetaTradings momentum alert. Mechanism: retail-attention buying sprees in small
 caps are followed by falling prices (Barber, Huang, Odean, Schwarz, "Attention Induced Trading and Returns"); the alert
@@ -52,6 +65,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | how often it looks (2026-11-18, owner) | the alert channel is asked for new posts every 15 s during the session (`sgt.fast.chan_poll`; before, only Telegram's own timer, about 60 s: alerts reached the book a median 27.7 s late). Long book pass every 15 s (was 30). Official-tape stop check every 30 s (was 60). Short monitor every 10 s (unchanged). Flag `chan_poll_s` sets the channel interval (0 = off). | owner 2026-11-18 |
 | scenario label (2026-11-18) | every alert is labelled nightly from official bars with its place in the move: RUN band (early up to 33.6% above the day's low, middle up to 63.1%, late above) and at / off the high (`sgt.fast.scenario`, `fade_trades.scen_*`); shown in the digest for each traded alert. A LABEL: no book reads it. It exists so scenario rules can be judged on new alerts (`prereg_early_alert_fade_forward_2026-11-18`: are fades on early alerts the losing third? decided once at 300 new alerts). | prereg_scenario_map_2026-11-18 |
 | trader's matrix (2026-11-18, owner: "take the trader's advice to heart") | every long text (armed, entry, seen) carries the trader's trend matrix: green conditions out of six on the 1, 2, 3 and 5 minute charts (MACD 12/31/10, EMA 34, RSI 14, Bollinger middle, Supertrend 10/3, PVT 15) and what is red on the 1-minute one (`sgt.fast.trend_matrix`). His rule is tracked on every long of the day, traded or watched, also after the book's own exit: when MACD turns red after having been green since the entry, or at the close, one text "TRADER'S RULE" with his exit price, stored in `long_trades.tr_exit_*` and shown in the digest beside the book's exit (`sgt.fast.trader_rule`). The book's fills, exits and totals do not read it. Free-feed candles: estimates. | owner 2026-11-18; prereg_trend_book_2026-11-18 |
+| no cut trades (2026-11-18, owner) | a texted trade whose tested order has no official fill is scored as the order a real account would have sent at the text (long: first official print after the fill text, own stop / target / red exit; short: first official minute after the live entry, 20% stop, 60 minutes), costs as always; void only when the full tape has no trade after the text. | section 0 |
 | approval | not ARMed: enters at the tested time, text carries "NO <code> = exit now" (F5) | prereg_alert_fade F5 |
 | confidence | 100 x P(trades like this are profitable on average): news x time of day, 38-99 | prereg_fade_news A2 |
 | texts | trade card, news, SEC filings, StockTwits buzz, X buzz (counts exact; newest-10 sample; <= $0.055 per alert), Reddit buzz (ApeWisdom 24h mentions, free), chart read, borrow, TradingView link | fade_texts.py, xsocial.py, reddit.py |

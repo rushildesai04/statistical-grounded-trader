@@ -326,14 +326,17 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
     live entry). Before 2026-11-11 the official result was the shadow's SIP RE-DETECTION of the setup, which can be a
     different trade (KULR 11-10 lost live at the IEX trigger 2.155; the shadow's SIP trigger 2.115 won +1.63%); rows
     settled that way (no official entry stored) are re-scored once. The shadow stays as the rule's own measurement.
-    Void, never left hanging (review F-1): the order did not fill on SIP; no SIP bars within STALE_DAYS."""
+    Never left hanging (review F-1): no SIP bars within STALE_DAYS = void. A texted long whose order does not fill
+    on SIP is NOT void (owner 2026-11-18: a trade that was texted happened): it stays ``est_closed`` with reason
+    NO_FILL and ``sgt.fast.text_order.run`` (next in the nightly job) books the order a real account would have sent
+    at the text."""
     now = now or utcnow()
     today = now.astimezone(ET).date().isoformat()
     with db.tx() as c:                    # final pass F-1: a long still open from an earlier session (listener down
         c.execute("UPDATE long_trades SET status='est_closed', reason='closed by settle (listener missed the exit)' "
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
-            "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules FROM long_trades WHERE "
+            "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules, reason FROM long_trades WHERE "
             "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status=? AND settled_at IS NULL) "
             "ORDER BY id", (SEEN,))]
     out = []
@@ -364,8 +367,12 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
     s = pt.Setup(r["kind"], "long", pd.Timestamp(r["entry_ts"]), trigger, float(r["stop"]))
     t = pt.simulate(f, s, latest=long_shadow._latest(r["session"]), red_exit=r.get("rules") == RULES)
     if t is None:
-        gone = {"settled_at": iso(now)} if seen else {"status": "void"}
-        return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], reason=NO_FILL, **gone) else None
+        if seen:
+            return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], reason=NO_FILL, settled_at=iso(now)) else None
+        # 2026-11-18 (owner: "you can't cut trades that already happened"): not void; sgt.fast.text_order books it
+        new = r.get("reason") != NO_FILL or r["status"] != "est_closed"
+        return (f"{r['symbol']} {r['kind']} not filled on the full tape: scored as bought at the text"
+                if _set(db, r["id"], r["status"], status="est_closed", reason=NO_FILL) and new else None)
     rt = float(cost_fn(r["symbol"], t.entry_ts.to_pydatetime(), t.entry))
     net = t.gross - rt
     if not _set(db, r["id"], r["status"], status=SEEN if seen else "settled", entry=t.entry,

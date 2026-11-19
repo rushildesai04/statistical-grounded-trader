@@ -185,12 +185,25 @@ def test_live_loss_stays_a_loss_when_sip_would_have_found_a_winner(db):
     assert trades(db)[0]["exit_reason"] == "stop" and trades(db)[0]["net"] < 0
 
 
-def test_order_that_never_fills_on_sip_is_void(db):
+def test_a_texted_long_whose_order_never_fills_on_sip_is_not_cut(db):
+    """Owner 2026-11-18: "you can't cut trades that already happened in real life". It was void until then; now it
+    waits (still a trade, with its estimate) for the order at the text, and that books its official result."""
+    from sgt.fast import text_order
+
     live_long(db)
     thru = DAY.copy()
     thru.loc[2:8, ["open", "high", "low", "close"]] = [10.1, 10.15, 10.0, 10.1]   # opens through the stop: cancelled
-    assert lb.settle(db, sip({"ABCD": thru}), cost, now=NIGHT) == ["ABCD L4b void"]
-    assert (trades(db)[0]["status"], trades(db)[0]["reason"]) == ("void", lb.NO_FILL)
+    assert lb.settle(db, sip({"ABCD": thru}), cost, now=NIGHT) == ["ABCD L4b not filled on the full tape: scored as bought at the text"]
+    assert (trades(db)[0]["status"], trades(db)[0]["reason"]) == ("est_closed", lb.NO_FILL)
+    assert lb.settle(db, sip({"ABCD": thru}), cost, now=NIGHT) == []              # said once; nothing changes meanwhile
+    assert "void" not in lb.today_line(db, "2026-11-09")
+    got = text_order.run(db, lambda sym, a, b: None, sip({"ABCD": thru}), cost, now=NIGHT)
+    assert got == [] and trades(db)[0]["status"] == "est_closed"                   # prints request failed: asked again
+    got = text_order.run(db, lambda sym, a, b: text_order.NO_PRINTS, sip({"ABCD": thru}), cost, now=NIGHT)
+    (t,) = trades(db)
+    assert len(got) == 1 and t["status"] == "settled" and t["reason"] == text_order.REASON
+    assert t["entry"] == 10.1 and t["exit"] == 10.1 and t["net"] == pytest.approx(-COST)   # bought under the stop: out at once
+    assert lb.nav(db) == pytest.approx(fade.NAV0 * (1 + t["weight"] * t["net"]))
 
 
 def test_settle_waits_for_complete_sip_bars(db):
