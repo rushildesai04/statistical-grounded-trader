@@ -437,6 +437,34 @@ one or two candles FAILED (-1.23% / -1.46% per trade against -1.17% for today's 
 What it means: there is no better way into the same alert for a long. Lead for the short book, to be judged on
 new alerts only: fades on EARLY alerts (RUN under about 34%) lost in both samples (-0.2% to -1.2%).
 
+**2026-11-18, official (the day the site looked good; owner: "I've only seen good results on the site today").**
+Trading books +$427: fade +$409 (one short), longs +$18 (one settled). Model books: megacap +$86, megacap 15 -$88,
+long calls +$14, overlay +$302; yardsticks -$67 / -$936 / -$171 (market).
+- Short GMM (intraday high; middle of its run, off the high): 2.0588 to 1.36 in the hour, +32.7% net, +$409 at
+  the guard's 25% size. 10,000 shares on the IBKR list at a 505% annual fee. **Rule win.**
+- Long SKYA (break of structure; middle of its run, at the high): 3.34 to 3.39 on the 30-minute timer, +0.78% net,
+  +$18; the stock closed 4.13 (high 4.39). Rule win, small. The trader on it: see section 6b (his matrix, now in
+  the texts and tracked on every long).
+- Long GMM (red-candle break): the site showed +5.3% (+$262); **void** officially. The free feed's fill minute
+  opened 1.78; the real one opened 1.74, at the stop, and traded 1.73, so the order is cancelled by the book's own
+  rule. A resting buy-stop would probably have filled at 1.785 and reached the 1.875 target at 11:16: the void is
+  the rule's caution, not a loss. Classification: **execution gap (thin feed)**, in our favour on the site and
+  against us in the record.
+- Three longs watched before the owner switched the book back on at 10:46 (CUE -3.19%, SVRE -3.62%, CLRO -1.74%;
+  about -$358 at the book's sizes): not trades, not in a total. Root causes in the entry above.
+So the day was good because of the short. The five long setups together: 2 small wins, 3 losses, about -$340 had
+all been traded. Live long record after it: 16 trades, 5 wins.
+What changed that day (all live by the night's deploy): armed long texts (first samples 60 s ahead of the fill
+text), the alert channel asked every 15 s (the seven alerts after it arrived a median 11.6 s after posting, two
+of them 22 and 42 s: watched), no text lost silently, the nightly scenario label (24 alerts labelled the first
+night), the price at each long text (`text_px`: CUE 3.53 against a booked 3.57; SVRE already past its target at
+1.11; CLRO 7.38; SKYA 3.37), the trader's matrix in the long texts and his rule tracked.
+Deep look at the long book the same day (exploratory, both samples, 1,892 replayed live-style trades cut about 60
+ways by setup, place in the move, alert type, news, time, price, stop distance and pairs of these): not one slice
+positive in both samples; least bad $5-10 stocks (-0.31% / -0.42%) and 11:00-13:00 (-0.86% / -0.57%).
+Correction: SKYA was first described to the owner as a "late, at the high" alert from a rough reading; the
+official label is middle, at the high (61% above the day's low; the late band starts at 63.1%).
+
 ## 6. How the system gets smarter
 - Every idea becomes a pre-registered rule, tested once on train with a champion guard; held-out is secondary.
 - Ideas that pass dev, and ideas that can only be tested forward, run as **shadow challengers** on every live alert
