@@ -161,3 +161,35 @@ diff of the scorer must show nothing but the gate. If either check fails: STOP. 
 return) is kept. The out-of-sample period is then opened once, as planned. It has not been read: the vault has
 recorded no unlock for this study.
 
+## Result (2026-11-19, each step run once; vault unlock recorded once, trial ledger `vault:intraday-momentum-2026-11`) — VERDICT: FAIL
+Decision cell (SPY, rule B, next-bar fills, careful costs, 2024-05-01 to 2026-10-30, 628 sessions):
+**mean -0.003% a day, total -2.3% (-0.9% a year), Sharpe -0.13, lower bound -0.025% a day. The mean is not above
+zero: FAIL.** 556 round trips (0.89 a day), 37.6% profitable. First half +4.8%, second half -6.8%; 2024 +1.4%,
+2025 +0.3%, 2026 -3.9%. With the paper's own costs: +0.4% in total. The rule that earned 7.0% a year here in 2016
+to 2024 (and 9.7% in the paper) earned nothing in the two and a half years after the paper's sample.
+
+Reported beside it, deciding nothing:
+| | total | a year | Sharpe | drawdown |
+|---|---|---|---|---|
+| SPY decision cell | -2.3% | -0.9% | -0.13 | -10.9% |
+| SPY, paper costs | +0.4% | +0.2% | 0.06 | -9.8% |
+| SPY, fills at the decision price | -2.3% | -0.9% | -0.13 | -11.0% |
+| SPY, base rule A | +5.3% | +2.1% | 0.28 | -8.3% |
+| SPY, volatility-targeted size | -3.3% | -1.3% | -0.02 | -25.4% |
+| QQQ, same cell (robustness only) | +26.8% | +10.0% | 1.12 | -8.1% |
+
+QQQ, which the plan named a robustness check that "cannot produce a pass on its own", was positive in both halves
+(+17.1%, +8.3%) and in each year, and its lower bound is above zero (+0.004% a day). It is NOT a pass and is not
+treated as one: the paper is about SPY, SPY failed, and two funds that move together giving opposite answers
+under one rule is a reason to trust neither number, not to pick the better one. It is recorded as an observation.
+
+Replication period, for the record (SPY, the paper's setting, 2016-01-25 to 2024-04-30): +75.5%, 7.0% a year,
+Sharpe 1.04, 39% of round trips profitable; by year -3.6%, -2.5%, +22.8%, +1.2%, +0.5%, +9.8%, +17.6%, +11.8%,
++3.6% (to April 2024). The decision cell on the same period (next-bar fills, careful costs): 4.6% a year,
+Sharpe 0.69: the careful cost and the realistic fill take about a third of the paper-setting return.
+
+What follows (as frozen): recorded; the rule is not tried again in another form on this data. The one thing that
+could still turn the QQQ observation into evidence is days that do not exist yet: a forward-only record of the
+same frozen rule (no size, no texts), decided once after 250 new sessions. That is the owner's call and is not
+started by this study.
+

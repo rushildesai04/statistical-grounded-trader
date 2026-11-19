@@ -718,6 +718,15 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **Intraday momentum on SPY, the published "noise area" rule: FAIL out of sample (`prereg_intraday_momentum_2026-11-19`,
+  2026-11-19).** The rule of Zarattini, Aziz and Barbon (2024; long or short at half-hour marks when price leaves a
+  volatility band, VWAP trailing stop) reproduced inside the paper's sample here (2016 to 2024-04: +7.0% a year,
+  Sharpe 1.04) and earned nothing on the 628 sessions after it (2024-05 to 2026-10: -2.3% in total after careful
+  costs, Sharpe -0.13). QQQ under the same rule made +26.8% (Sharpe 1.12) but was a robustness check by the plan
+  and is not a pass. With `prereg_anomalies_2026-10-31` A1 (the simpler published version, also FAIL) this closes
+  intraday index momentum: do not re-test it in another form on this data. Process notes kept in the plan: the
+  earlier test was missed when the idea was first offered (amendment A1), and the replication gate's unit was
+  wrong (orders, not round trips; amendment A2, ruled on by an independent referee before the unlock).
 - **Long book review 2026-11-19 (`docs/findings/long_review_2026-11-19.md`).** Live: 17 longs, 6 wins, -2.18% per
   trade, book -$1,495. Tested on the official tape: -2.07% / -2.32% per trade, 15.6% wins; about thirty long ideas on
   these alerts, none positive in both samples, most negative before costs. Cause: the stock falls after the alert on
