@@ -572,9 +572,24 @@ async def run() -> int:
     poll_state = chan_poll.State()
 
     def dispatch(msg, how: str) -> None:       # the work itself: every alert of the message goes to the books
-        posted = msg.date.astimezone(timezone.utc)
-        for a in to_alerts(msg.message or "", posted, msg.id):
-            log.info("alert %s %s -> %s (%s, %.0f s after posting)", a.symbol, a.alert_type, fade.on_alert(db, a), how,
+        # 2026-11-19 (review): a message is marked seen before this runs, so a failure here must never pass quietly:
+        # each alert is tried on its own, a failure is logged with its trace and written to the audit log, and the
+        # other alerts of the message (and the channel history, in the push path) still go through.
+        try:
+            posted = msg.date.astimezone(timezone.utc)
+            alerts = to_alerts(msg.message or "", posted, msg.id)
+        except Exception:  # noqa: BLE001 - logged and audited; the listener goes on
+            log.exception("message %s could not be read as alerts", getattr(msg, "id", "?"))
+            db.audit("alert_failed", message_id=getattr(msg, "id", None), stage="parse", how=how)
+            return
+        for a in alerts:
+            try:
+                did = fade.on_alert(db, a)
+            except Exception:  # noqa: BLE001 - logged and audited; the next alert is still handled
+                log.exception("alert %s %s (message %s) failed", a.symbol, a.alert_type, msg.id)
+                db.audit("alert_failed", message_id=msg.id, symbol=str(a.symbol)[:12], stage="book", how=how)
+                continue
+            log.info("alert %s %s -> %s (%s, %.0f s after posting)", a.symbol, a.alert_type, did, how,
                      (utcnow() - posted).total_seconds())
 
     take = chan_poll.pushed(poll_state, dispatch)   # push: one "seen" check, then dispatch (2026-11-19 fix)

@@ -141,3 +141,5 @@ def test_the_listener_runs_the_check_and_the_shorter_intervals():
     # 2026-11-19: one "seen" check per message. The push path goes through the guard; the poll gets the work itself.
     assert "take = chan_poll.pushed(poll_state, dispatch)" in src and "take(ev.message)" in src
     assert 'lambda m: dispatch(m, "poll")' in src and 'take(m, "poll")' not in src
+    # 2026-11-19: a message is marked seen before dispatch runs, so a failing alert is logged AND audited, one by one
+    assert src.count('db.audit("alert_failed"') == 2 and "did = fade.on_alert(db, a)" in src and "continue" in src.split("did = fade.on_alert(db, a)")[1][:400]
