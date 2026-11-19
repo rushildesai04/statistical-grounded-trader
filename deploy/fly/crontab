@@ -28,6 +28,8 @@
 */15 8-16 * * 1-5 /app/deploy/entrypoint.sh job borrow
 # Plan 2026-11-04 W2: alert-fade forward research record (amendment F1) on the runner, after official bars.
 5 21 * * 1-5   /app/deploy/entrypoint.sh job fadeforward
+# 2026-11-18: stock-loan list scanner (forward test, counts only until its decision): yesterday's closing lists.
+12 21 * * 1-5  /app/deploy/entrypoint.sh job borrowscan
 # Fade challengers in shadow (prereg_fade_challengers_2026-11-04), after the forward record's bars are stored.
 20 21 * * 1-5  /app/deploy/entrypoint.sh job fadechallengers
 # Fade exits in shadow (prereg_fade_exits_2026-11-05): trail / VWAP / EMA 9-21 / target vs the 60-min champion.

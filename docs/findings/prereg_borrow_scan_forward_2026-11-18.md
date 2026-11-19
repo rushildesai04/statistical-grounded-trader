@@ -35,3 +35,10 @@ bound = fail): PASS when the lower bound of the mean net is above 0. Until that 
 About two weeks of lists exist; the decision is some weeks away (the count is reported nightly). One broker's
 list is not the whole lending market. A short on a stock whose shares have just vanished cannot be opened: the
 short leg of DRY is scored for understanding, not as a trade that could be done.
+
+## Amendment (2026-11-18, before the recorder has run on any list)
+Plumbing only, fixed before any stored list was compared: (1) a session whose pair of lists shows more than 3,000
+changes is a broken list, not 3,000 events: it has no events and is written to `broken.json`; (2) a symbol on the
+list that is not a plain ticker (1 to 5 letters, optional class letter) has no price bar and is no event;
+(3) sessions are processed strictly in order: a failed price request stops the night's run there (the job reports
+it), so the once-in-10-sessions rule always sees the earlier events.
