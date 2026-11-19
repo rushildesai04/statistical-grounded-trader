@@ -72,7 +72,7 @@ def text(r: dict, x: dict) -> str:
     book = "" if r.get("est_exit") is None else (f" Book's own exit: ${float(r['est_exit']):.2f} "
                                                  f"({float(r['est_exit']) / entry - 1:+.1%}).")
     tag = "watched, not traded" if r["status"] == long_book.SEEN else "paper"
-    return (f"[SGT] 📐 TRADER'S RULE {r['symbol']} ({tag}): {x['why']} at {x['at'].tz_convert(ET):%H:%M} ET. His exit about "
+    return (f"[SGT] 📐 TREND HOLD {r['symbol']} ({tag}): {x['why']} at {x['at'].tz_convert(ET):%H:%M} ET. Holding until then: about "
             f"${x['px']:.2f}, {his:+.1%} from the ${entry:.2f} entry, before costs.{book}")
 
 
@@ -86,5 +86,5 @@ def line(db: OpsStore, session: str) -> str | None:
     bits = []
     for r in rows:
         book = "open" if r["est_exit"] is None else f"{r['est_exit'] / r['est_entry'] - 1:+.1%}"
-        bits.append(f"{r['symbol']} book {book} / his rule {r['tr_exit_px'] / r['est_entry'] - 1:+.1%}")
-    return "trader's rule on today's longs (before costs): " + ", ".join(bits)
+        bits.append(f"{r['symbol']} book {book} / held {r['tr_exit_px'] / r['est_entry'] - 1:+.1%}")
+    return "longs held until MACD turned, no stop (a measurement, before costs): " + ", ".join(bits)
