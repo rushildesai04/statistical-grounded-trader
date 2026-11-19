@@ -20,12 +20,16 @@ from sgt.ops.store import OpsStore, iso
 
 log = logging.getLogger(__name__)
 STILL_IN = "still in at the close"
+# 2026-11-19: the first deploy of this module (23:09 ET) texted four "trader's rule" messages about longs that had
+# closed hours earlier. An exit found long after it happened is recorded but not texted.
+FRESH = pd.Timedelta(minutes=30)
 EVERY_S, MAX_ROWS = 55, 40                # candles close once a minute: one look a minute per long is enough
 _last: dict[str, datetime] = {}           # per store: when the last look was made (the book passes every 15 s)
 
 
 def track(db: OpsStore, bars: long_book.LiveBars, send, now: datetime) -> int:
-    """Record, once per long of today, where the trader's rule leaves it; text it when ``send`` is given."""
+    """Record, once per long of today, where the trader's rule leaves it; text it when ``send`` is given and the
+    exit is at most FRESH old (a restart hours later records it without a text)."""
     key = str(db.path)
     if key in _last and (now - _last[key]).total_seconds() < EVERY_S:
         return 0
@@ -55,7 +59,7 @@ def track(db: OpsStore, bars: long_book.LiveBars, send, now: datetime) -> int:
                                (x["px"], iso(x["at"].to_pydatetime()), x["why"], r["id"])).rowcount == 1
             if ok:
                 done += 1
-                if send is not None:
+                if send is not None and pd.Timestamp(now) - pd.Timestamp(x["at"]) <= FRESH:
                     send(text(r, x))
         except Exception:  # noqa: BLE001 - one trade failing never blocks the others; logged, tried again next pass
             log.exception("trader's rule for long %s failed", r["id"])
