@@ -11,6 +11,8 @@ import argparse
 import json
 import logging
 import re
+import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -103,6 +105,29 @@ def long_rows(db: OpsStore | None) -> list[dict]:
     return out
 
 
+CHANNEL_DB, CHANNEL_ROWS = Path("sgt.db"), 3000
+
+
+def channel_alerts(db: OpsStore, path: Path | None = None, limit: int = CHANNEL_ROWS) -> list[dict]:
+    """The alert channel's own stored history, newest first (read-only): every parsed alert, also the ones that never
+    became a row in the ops database. Only the channels the book listens to. Empty when the history is not there or
+    cannot be read: the page is then built from the rows alone (logged)."""
+    path = path or CHANNEL_DB
+    try:
+        with db.tx() as c:
+            chans = [str(r[0]) for r in c.execute("SELECT DISTINCT channel FROM fade_trades LIMIT 8")]
+        if not chans or not path.is_file():
+            return []
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)) as s:
+            s.row_factory = sqlite3.Row
+            return [dict(r) for r in s.execute(
+                "SELECT symbol, alert_type, posted_at, has_news, message_id FROM crowd_alerts WHERE channel IN "  # noqa: S608
+                f"({','.join('?' * len(chans))}) ORDER BY posted_at DESC LIMIT ?", (*chans, limit))]
+    except Exception:  # noqa: BLE001 - the list is an extra; the page must build without it
+        log.exception("channel history not read")
+        return []
+
+
 def size_usd(t: dict, db: OpsStore | None) -> float:
     """Dollars a fade puts to work: its share of the book value before its day."""
     base = fade.nav(db, through=date.fromisoformat(t["session"]) - timedelta(days=1)) if db else fade.NAV0
@@ -180,8 +205,9 @@ def build(trades: list[dict], db: OpsStore | None, now: datetime, standalone: bo
     if db is not None:
         try:                                             # the alert list must never stop the page (owner 2026-11-16)
             from sgt.ops import alert_feed
-            alerts = alert_feed.rows(db)
-            gates = alert_feed.gates(db)                 # owner 2026-11-18 (option A): what each gate stopped
+            heard = channel_alerts(db)                   # owner 2026-11-19: alerts that never became a row, listed too
+            alerts = alert_feed.rows(db, channel_alerts=heard)
+            gates = alert_feed.gates(db, channel_alerts=heard)   # owner 2026-11-18 (option A): what each gate stopped
         except Exception:  # noqa: BLE001 - logged; the page builds without the list
             log.exception("alert feed failed")
     html, dropped = fit(

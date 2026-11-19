@@ -9,7 +9,7 @@ written to the page with ``textContent`` only.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from sgt.fast import fade, would_have
@@ -37,6 +37,11 @@ _PRICE = re.compile(r"^price \S+ outside \$1-50$")
 LONG = {"none": "no long setup filled", "missed": "long setup filled before the book was on", "open": "long open",
         "void": "long void (no trade was possible on the full tape)",
         "nowin": "long setup skipped: its target could not beat costs"}
+# owner 2026-11-19 ("yes"): a channel alert that never became a row is listed too, so nothing is unknown. These come
+# from the channel's own history (the caller reads it); they are never written to ``fade_trades``, so no rule, count
+# or repeat check can see them.
+NOT_IN_RULES = "alert type not in the rules"
+NO_HEADLINE = "news tag with no headline attached: not in the rules"
 SEEN = "long seen, not traded"                      # measure-only (owner 2026-11-17): watched, texted, never a trade
 
 
@@ -96,9 +101,50 @@ def _et(posted_at: str | None) -> str:
         return ""
 
 
-def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS) -> list[dict]:
+def _when(posted_at) -> datetime | None:
+    """A stored posting time as an aware datetime (a time with no zone is UTC); None when it cannot be read."""
+    try:
+        t = posted_at if isinstance(posted_at, datetime) else datetime.fromisoformat(str(posted_at).strip().replace(" ", "T"))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo is not None else t.replace(tzinfo=timezone.utc)
+
+
+def unlisted(db: OpsStore, channel_alerts: list[dict] | None, max_sessions: int = MAX_SESSIONS,
+             limit: int = MAX_ROWS) -> list[dict]:
+    """Channel alerts (symbol, alert_type, posted_at, has_news, message_id) of the listed sessions that never became
+    a row: an alert type the rules do not use, or a news tag with no headline. One list row each, newest first.
+    Untrusted channel text: bounded here like every other row."""
+    if not channel_alerts:
+        return []
+    with db.tx() as c:
+        days = [str(r[0])[:10] for r in c.execute("SELECT DISTINCT session FROM fade_trades ORDER BY session DESC LIMIT ?",
+                                                  (max_sessions,))]
+        if not days:
+            return []
+        known = {(r[0], str(r[1])) for r in c.execute(
+            f"SELECT message_id, symbol FROM fade_trades WHERE session IN ({','.join('?' * len(days))})", days)}  # noqa: S608
+    out = []
+    for a in channel_alerts:
+        t, sym = _when(a.get("posted_at")), str(a.get("symbol") or "")
+        if t is None or not sym or (a.get("message_id"), sym) in known:
+            continue
+        et = t.astimezone(ET)
+        if et.date().isoformat() not in days:
+            continue
+        typ = str(a.get("alert_type") or "")
+        out.append({"id": None, "session": et.date().isoformat(), "at": et.strftime("%H:%M"), "symbol": sym[:12],
+                    "type": typ[:40], "short": "not shorted", "why": NO_HEADLINE if typ == "news" else NOT_IN_RULES,
+                    "would": "", "would_n": None, "long": "", "traded": False, "_t": t})
+    out.sort(key=lambda r: r["_t"], reverse=True)
+    return out[:limit]
+
+
+def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
+         channel_alerts: list[dict] | None = None) -> list[dict]:
     """Alerts of the latest ``max_sessions`` sessions that have any, newest first: session, time ET, symbol, alert
-    type, what the short did and why not, what the long did, and whether either book traded it."""
+    type, what the short did and why not, what the long did, and whether either book traded it. With
+    ``channel_alerts`` (the channel's own history) the alerts that never became a row are listed among them."""
     with db.tx() as c:
         days = [r[0] for r in c.execute("SELECT DISTINCT session FROM fade_trades ORDER BY session DESC LIMIT ?",
                                         (max_sessions,))]
@@ -113,17 +159,21 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS) 
     for r in got:
         shorted = r["status"] in ENTERED
         longed = r["l_status"] in ENTERED
-        out.append({"id": r["id"], "session": str(r["session"])[:10], "at": _et(r["posted_at"]),
+        out.append({"_t": _when(r["posted_at"]), "id": r["id"], "session": str(r["session"])[:10], "at": _et(r["posted_at"]),
                     "symbol": str(r["symbol"])[:12], "type": str(r["alert_type"] or "")[:40],
                     "short": short_words(r["status"], r["net"]),
                     "why": "" if shorted or r["status"] in ("pending", "ask") else why(r["reason"]),
                     "would": would_words(r["status"], r["wh_net"], r["wh_note"]),
                     "would_n": r["wh_net"] if r["status"] in would_have.NOT_TAKEN else None,
                     "long": long_words(r["l_status"], r["l_net"]), "traded": bool(shorted or longed)})
-    return out
+    extra = unlisted(db, channel_alerts, max_sessions, limit)
+    if extra:                                              # one list, newest first within each session
+        old = datetime.min.replace(tzinfo=timezone.utc)
+        out = sorted(out + extra, key=lambda r: (r["session"], r["_t"] or old), reverse=True)[:limit]
+    return [{k: v for k, v in r.items() if k != "_t"} for r in out]
 
 
-def gates(db: OpsStore, max_sessions: int = MAX_SESSIONS) -> list[dict]:
+def gates(db: OpsStore, max_sessions: int = MAX_SESSIONS, channel_alerts: list[dict] | None = None) -> list[dict]:
     """Per session and gate (the reason in plain words): alerts stopped, how many have a would-have result, its
     average, how many would have won, and the sum in dollars at the size of one short today. Most alerts first.
     A measurement for the owner's eye (2026-11-18, option A): never part of a total."""
@@ -143,6 +193,8 @@ def gates(db: OpsStore, max_sessions: int = MAX_SESSIONS) -> list[dict]:
     for r in got:
         gate = "price outside $1 to $50" if _PRICE.match((r["reason"] or "").strip()) else (why(r["reason"]) or "no reason stored")
         agg.setdefault((str(r["session"])[:10], gate), []).append(r["wh_net"])
+    for a in unlisted(db, channel_alerts, max_sessions, MAX_ROWS * 4):     # counted, never scored: no rule fits them
+        agg.setdefault((a["session"], NOT_IN_RULES), []).append(None)
     out = []
     for (session, gate), nets in agg.items():
         x = [float(v) for v in nets if v is not None]
