@@ -648,6 +648,16 @@ the earnings day, enter at that close in its direction, five sessions, hedged) o
 6,522 events, -0.28% per event after a 0.30% cost (+0.02% before it); both legs negative; held-out not opened.
 Not a scanner input.
 
+**The trend matrix as the trader uses it (**`prereg_trend_book_2026-11-18`**; owner 2026-11-18: "take the
+trader's advice to heart").** His words read again: in while the 1-minute column is all green, out when MACD GOES
+red, in again when it is green again; a rule for a stock in play all session, not one exit on our entry. On every
+alerted stock-day of the training set (2,464): 16,643 round trips, 7 a day, 11 minutes each; -0.21% a round trip
+before costs, -1.15% after; 24% winners; the best 1% average +62%. The first entry after the alert loses (-1.58%
+before costs); all later ones together are flat. Better on stocks above $10 (+0.29% before costs). So the rule
+does what he says, it stays with the rare runner, and applied to everything it does not pay: his edge is in which
+alert and which moment, which is what to learn from him. Decision (owner): the matrix is shown in the long texts
+and cards and his rule is tracked on every live long.
+
 ## 7. Open questions and decision points
 - **Proof standard (owner 2026-11-09, fixed in advance):** a book is PROVEN only when its own LIVE trades reach
   n >= 300 and the 95% interval of mean net per trade (official, after real costs) is entirely above zero. No new

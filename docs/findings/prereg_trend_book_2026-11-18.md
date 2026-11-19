@@ -50,3 +50,38 @@ a liquid name) next to the modelled cost.
 A chart carries earlier days into its averages; here they start with the day's first pre-market candle. The
 trader acts by eye on a live chart and picks his stocks; this is every alerted stock, mechanically, at the next
 candle's open. His 3 and 5 minute columns are not used.
+
+## Result (2026-11-18, training run once; `reports/trend_book/result_train.json`)
+Plan `9514d67`, code as committed before the run. 2,464 alerted stock-days; the rule traded on 96% of them.
+
+**Neither rule passes the gate.** The held-out events stay closed.
+
+| | TREND (1M column) | TREND2 (1M and 2M) |
+|---|---|---|
+| round trips | 16,643 (7.1 a stock-day) | 11,368 (4.9) |
+| time in a round trip (median) | 11 minutes | 10 minutes |
+| per round trip BEFORE costs | -0.21% [-0.37, -0.03] | -0.34% [-0.57, -0.11] |
+| modelled cost | 0.95% | 0.94% |
+| per round trip after costs | -1.15% (lower bound -1.32%) | -1.28% (-1.51%) |
+| winners | 24% | 24% |
+| best 1% of round trips, average | +62% | +67% |
+| worst 1%, average | -26% | -28% |
+
+What the reported numbers say about the method itself:
+1. **It is a rule for catching the rare big one, and it does catch it.** One round trip in a hundred makes +62% on
+   average; one in four wins at all. Run on every alerted stock all session, the many small losses add up to a
+   little more than the few big wins (-0.2% before costs), and then costs take 0.95% each time, seven times a day.
+2. **The first entry after the alert is where it loses** (-1.58% before costs, 2,446 round trips); every later
+   round trip together is flat before costs (+0.03%, 14,197). In the first hour -1.2%, after 13:00 +0.02%. The
+   matrix turning green right at the alert is the top of the first spike more often than the start of a leg.
+3. **It is better on dearer stocks**: above $10, +0.29% before costs (2,244 round trips; -0.38% after); $1 to $2,
+   -0.36%.
+4. At a careful trader's cost (0.2% a round trip) the whole set is still -0.41%.
+
+What this run cannot say: whether the trader makes money with it. He does not take every alert, he does not
+enter on the first green of the first spike, and he reads the tape. The run says the matrix alone, applied to
+everything, is not the edge; the choice of stock and moment is. That is the part to learn from him: which alert
+he would trade and which green he would wait out.
+
+Verdict: recorded. As planned, independently of the gate: the matrix goes into the live texts and cards and the
+rule is tracked on every live long, so real days show what it does where a person would use it.
