@@ -194,7 +194,7 @@ def test_a_texted_long_whose_order_never_fills_on_sip_is_not_cut(db):
     thru = DAY.copy()
     thru.loc[2:8, ["open", "high", "low", "close"]] = [10.1, 10.15, 10.0, 10.1]   # opens through the stop: cancelled
     assert lb.settle(db, sip({"ABCD": thru}), cost, now=NIGHT) == ["ABCD L4b not filled on the full tape: scored as bought at the text"]
-    assert (trades(db)[0]["status"], trades(db)[0]["reason"]) == ("est_closed", lb.NO_FILL)
+    assert (trades(db)[0]["status"], trades(db)[0]["reason"]) == ("est_closed", f"{lb.NO_FILL}; live exit target")
     assert lb.settle(db, sip({"ABCD": thru}), cost, now=NIGHT) == []              # said once; nothing changes meanwhile
     assert "void" not in lb.today_line(db, "2026-11-09")
     got = text_order.run(db, lambda sym, a, b: None, sip({"ABCD": thru}), cost, now=NIGHT)

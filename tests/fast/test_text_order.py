@@ -32,7 +32,7 @@ def prints(rows):
     return np.array([[(TEXT + pd.Timedelta(seconds=s)).value, p, 100.0] for s, p in rows], dtype=float).reshape(-1, 3)
 
 
-def long(db, status="est_closed", reason=lb.NO_FILL, stop=1.74, target=1.875, rules=lb.RULES, created=TEXT, fid=1, session=DAY):
+def long(db, status="est_closed", reason=f"{lb.NO_FILL}; live exit target", stop=1.74, target=1.875, rules=lb.RULES, created=TEXT, fid=1, session=DAY):
     with db.tx() as c:
         return c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, entry_ts, "
                          "est_entry, est_exit, reason, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -52,10 +52,14 @@ def run(db, pr, day, now=NIGHT):
 FLAT = [(1.80, 1.81, 1.79, 1.80)] * 40
 
 
+UNTIL = pd.Timestamp("2026-11-18 16:40", tz="UTC")              # the live fill bar 16:10 + the 30-minute hold
+
+
 def test_result_walks_the_prints_of_the_minute_then_the_bars():
-    r = lambda px, rest, day, red=False: to.result(px, TEXT, prints(rest)[:, :], bars(day), 1.74, 1.875, red)  # noqa: E731
+    r = lambda px, rest, day, red=False: to.result(px, TEXT, prints(rest), bars(day), 1.74, 1.875, red, UNTIL)  # noqa: E731
     assert r(1.74, [], FLAT) == {"how": "stop", "exit": 1.74, "exit_ts": TEXT}                    # bought into the stop
     assert r(1.90, [], FLAT) == {"how": "target", "exit": 1.90, "exit_ts": TEXT}                  # already past the target
+    assert r(1.80, [], FLAT, True) == {"how": "red", "exit": 1.80, "exit_ts": TEXT}               # the live trade left red
     assert r(1.80, [(5, 1.82), (9, 1.88)], FLAT)["how"] == "target" and r(1.80, [(5, 1.88)], FLAT)["exit"] == 1.875
     got = r(1.80, [(5, 1.73)], FLAT)
     assert (got["how"], got["exit"]) == ("stop", 1.73) and got["exit_ts"] == TEXT + pd.Timedelta(seconds=5)
@@ -63,11 +67,22 @@ def test_result_walks_the_prints_of_the_minute_then_the_bars():
     assert (r(1.80, [], up)["how"], r(1.80, [], up)["exit"]) == ("target", 1.875)
     gap = [(1.80, 1.81, 1.79, 1.80), (1.70, 1.71, 1.60, 1.65)]
     assert (r(1.80, [], gap)["how"], r(1.80, [], gap)["exit"]) == ("stop", 1.70)                   # a gap under the stop
-    assert (r(1.79, [], FLAT)["how"], r(1.79, [], FLAT)["exit"]) == ("time", 1.80)                 # the close after the hold
-    red = [(1.80, 1.81, 1.76, 1.77), (1.78, 1.79, 1.77, 1.78)]
-    assert (r(1.80, [], red, True)["how"], r(1.80, [], red, True)["exit"]) == ("red", 1.78)        # A2: sold at the next open
-    assert r(1.80, [], red, False)["how"] == "time"
-    assert r(1.80, [], red[:1], True) == {"how": "red", "exit": 1.77, "exit_ts": M}                # no later bar: that close
+    drift = FLAT[:28] + [(1.80, 1.81, 1.79, 1.82)] + [(1.80, 1.95, 1.60, 1.90)] * 11              # 16:39 closes 1.82
+    got = r(1.79, [], drift)
+    assert (got["how"], got["exit"], got["exit_ts"]) == ("time", 1.82, UNTIL - pt.BAR)             # the live hold's end, not later
+    dip = [(1.80, 1.81, 1.76, 1.77), (1.78, 1.79, 1.77, 1.78)]
+    assert r(1.80, [], dip)["how"] == "time"              # a red minute after the text is NOT a new red exit
+    assert r(1.80, [], dip[:1]) == {"how": "time", "exit": 1.77, "exit_ts": M}                     # no later bar: that close
+
+
+def test_how_the_live_trade_left_is_kept_or_read_off_an_older_row():
+    base = {"stop": 1.74, "target": 1.875, "entry_ts": "2026-11-18T16:10:00+00:00", "est_exit_at": "2026-11-18T16:16:00+00:00"}
+    assert to.live_exit({**base, "reason": f"{lb.NO_FILL}; live exit red", "est_exit": 1.9}) == "red"
+    assert to.live_exit({**base, "reason": lb.NO_FILL, "est_exit": 1.88}) == "target"             # GMM, voided before the fix
+    assert to.live_exit({**base, "reason": lb.NO_FILL, "est_exit": 1.74}) == "stop"
+    assert to.live_exit({**base, "reason": lb.NO_FILL, "est_exit": 1.80}) == "time"
+    assert to.live_exit({**base, "reason": lb.NO_FILL, "est_exit": 1.80, "est_exit_at": "2026-11-18T16:11:00+00:00"}) == "red"
+    assert to.live_exit({**base, "reason": f"{lb.NO_FILL}; live exit unknown", "est_exit": None}) == "time"
 
 
 def test_the_gmm_long_is_scored_as_bought_at_the_text_and_sold_at_its_target(db):
@@ -115,13 +130,14 @@ def test_only_longs_waiting_for_it_are_touched(db):
     a = long(db, status="settled", reason="time", fid=1)
     b = long(db, status="est_closed", reason="target", fid=2)                      # still to be scored the tested way
     c = long(db, status="void", reason=lb.NO_FILL, fid=3)                          # an old void is not restated here
+    assert len(run(db, prints([(1, 1.8)]), bars(FLAT))) == 0
     d = long(db, status=lb.SEEN, reason=lb.NO_FILL, fid=4)
     assert run(db, prints([(1, 1.8)]), bars(FLAT)) == []
     assert [row(db, i)["status"] for i in (a, b, c, d)] == ["settled", "est_closed", "void", lb.SEEN]
 
 
-def test_a_long_opened_before_the_red_exit_rule_keeps_its_own_exit(db):
-    long(db, rules=None)
-    red = bars([(1.80, 1.81, 1.76, 1.77), (1.78, 1.79, 1.77, 1.78)] + [(1.78, 1.79, 1.77, 1.78)] * 30)
-    run(db, prints([(1, 1.80)]), red)
-    assert row(db)["exit_reason"] == "time"
+def test_a_long_that_left_red_live_is_bought_and_sold_at_once(db):
+    long(db, reason=f"{lb.NO_FILL}; live exit red")
+    run(db, prints([(1, 1.80)]), bars(FLAT))
+    t = row(db)
+    assert (t["exit_reason"], t["entry"], t["exit"]) == ("red", 1.80, 1.80) and t["net"] == pytest.approx(-COST)

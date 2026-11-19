@@ -370,9 +370,11 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
         if seen:
             return f"{r['symbol']} {r['kind']} void" if _set(db, r["id"], r["status"], reason=NO_FILL, settled_at=iso(now)) else None
         # 2026-11-18 (owner: "you can't cut trades that already happened"): not void; sgt.fast.text_order books it
-        new = r.get("reason") != NO_FILL or r["status"] != "est_closed"
+        if str(r.get("reason") or "").startswith(NO_FILL) and r["status"] == "est_closed":
+            return None                                # already waiting for it
+        waits = f"{NO_FILL}; live exit {r.get('reason') or 'unknown'}"       # the live exit is kept: text_order reads it
         return (f"{r['symbol']} {r['kind']} not filled on the full tape: scored as bought at the text"
-                if _set(db, r["id"], r["status"], status="est_closed", reason=NO_FILL) and new else None)
+                if _set(db, r["id"], r["status"], status="est_closed", reason=waits) else None)
     rt = float(cost_fn(r["symbol"], t.entry_ts.to_pydatetime(), t.entry))
     net = t.gross - rt
     if not _set(db, r["id"], r["status"], status=SEEN if seen else "settled", entry=t.entry,
