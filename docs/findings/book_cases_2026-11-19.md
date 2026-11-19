@@ -110,7 +110,7 @@ changing them would remove the yardstick.
 | Book | Change | Why |
 |---|---|---|
 | alert fade | none | its entry is right; the "which alerts" lead is already in a clean forward test |
-| daily model long calls | owner's choice: a second ledger "down-day long calls only" beside the registered book | all of the tested edge is in those calls, on 21 of 21 names' pooled record |
+| daily model long calls | owner's choice: a second ledger "down-day long calls only" beside the registered book | all of the tested edge is in those calls, on both sets of names (8 and 13) |
 | scanner | none, stays paused | the channel's situation does not transfer to our own spikes |
 | ETF yardsticks | none | a yardstick |
 | real money (later) | one position per stock across the short and long books | 36% of fades overlap a long base break |
