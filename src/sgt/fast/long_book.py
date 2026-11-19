@@ -16,6 +16,7 @@ that holds. Respects PAUSE / DISARM; no entry after the last entry minute; at mo
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, timedelta
 from typing import Callable
 
@@ -56,10 +57,61 @@ def risk_weight(entry: float, stop: float) -> float:
     return min(1.0, RISK_D50 / d) if d > 0 else 0.0
 
 
-def weight(db: OpsStore, s: pt.Setup, t: pt.Trade, v: float) -> float:
-    """Share of the long book for this fill: the SIZE setting x the risk weight x the drift scale (live_monitor)."""
+# 2026-11-19 (owner: "act on it"; adversarial pass of that day): on the official tape the book's rules win 15.6% of
+# their trades and need 32.6% to break even (held-out 13.9% vs 31.2%); live 17 trades, -2.2% each. No stop, target
+# or size SHAPE closes that: tight-stop trades lose less per dollar than wide-stop ones in both samples (-1.6% vs
+# -2.4% / -2.8%), so the risk weight below stays as tested. What changes is the exposure: until the book is PROVEN
+# by the owner's own standard (playbook section 7: PROOF_N settled live trades and the 95% interval of their mean
+# net above zero) a long is a TEST-size trade, at most PROBE_USD (x the risk weight x the drift scale). Every long
+# still trades, is texted and is shown; the per-trade percentages that the proof standard reads do not depend on
+# size. The owner can set another amount with the flag (dollars); a value that cannot be read never raises size.
+PROBE_USD, PROBE_FLAG, PROOF_N = 500.0, "long_probe_usd", 300
+PROBE_MIN, PROBE_MAX = 10.0, 100_000.0
+
+
+def proven(db: OpsStore) -> bool:
+    """The proof standard for this book: at least PROOF_N settled live longs whose mean net per trade has a 95%
+    interval (mean -/+ 1.96 standard errors) entirely above zero."""
+    with db.tx() as c:
+        x = [float(r[0]) for r in c.execute("SELECT net FROM long_trades WHERE status='settled' AND net IS NOT NULL")]
+    if len(x) < PROOF_N:
+        return False
+    m = sum(x) / len(x)
+    var = sum((v - m) ** 2 for v in x) / (len(x) - 1)
+    return m - 1.96 * math.sqrt(var / len(x)) > 0
+
+
+def probe_usd(db: OpsStore) -> float | None:
+    """The most dollars one long may put to work while the book is unproven; None once it is proven (full size)."""
+    if proven(db):
+        return None
+    raw = db.flag(PROBE_FLAG)
+    if raw is None or not str(raw).strip():
+        return PROBE_USD
+    try:
+        v = float(raw)
+    except ValueError:
+        v = math.nan
+    if not (math.isfinite(v) and PROBE_MIN <= v <= PROBE_MAX):
+        log.error("long test-size flag is %r: using $%.0f", str(raw)[:20], PROBE_USD)
+        return PROBE_USD
+    return v
+
+
+def full_weight(db: OpsStore, s: pt.Setup, t: pt.Trade, v: float) -> float:
+    """What the fill would get at full size: the SIZE setting x the risk weight x the drift scale (live_monitor)."""
     from sgt.learning import live_monitor
     return fade.trade_weight(db, v) * risk_weight(t.entry, s.stop) * live_monitor.scale(db, BOOK)
+
+
+def weight(db: OpsStore, s: pt.Setup, t: pt.Trade, v: float) -> float:
+    """Share of the long book for this fill: the full-size weight, with the SIZE setting capped at the test size
+    while the book is unproven (``probe_usd``)."""
+    from sgt.learning import live_monitor
+    base, cap = fade.trade_weight(db, v), probe_usd(db)
+    if cap is not None:
+        base = min(base, cap / v) if v > 0 else 0.0
+    return base * risk_weight(t.entry, s.stop) * live_monitor.scale(db, BOOK)
 LiveBars = Callable[[str, datetime], pd.DataFrame]          # (symbol, now) -> today's 1-minute bars (ts = start, UTC)
 
 
@@ -391,9 +443,11 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
     v = nav(db)
     usd = weight(db, s, t, v) * v                                      # the size actually booked (_insert)
     sized = " (sized to the stop)" if risk_weight(t.entry, s.stop) < 1 else ""
+    full = full_weight(db, s, t, v) * v
+    paper = f"(paper, test size; full size ${full:,.0f})" if full - usd > 0.5 else "(paper)"
     risk = (t.entry - s.stop) / t.entry
     out = min(t.entry_ts + pt.HOLD, pd.Timestamp(default_close(t.entry_ts.tz_convert(ET).date().isoformat())))
-    return (f"[SGT] 🟢 LONG {symbol} @ ${t.entry:.2f} · ${usd:,.0f} (paper){sized}\n"
+    return (f"[SGT] 🟢 LONG {symbol} @ ${t.entry:.2f} · ${usd:,.0f} {paper}{sized}\n"
             f"Setup: {NAMES.get(s.kind, s.kind)} · stop ${s.stop:.2f} ({-risk:.1%}) · target ${target(s, t):.2f} "
             f"(+{pt.RR * risk:.1%}) · out by {out.tz_convert(ET):%H:%M} ET\n"
             f"Tested on past alerts: {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} "
@@ -458,5 +512,7 @@ def record_line(db: OpsStore) -> str | None:
         n, m = c.execute("SELECT COUNT(*), AVG(net) FROM long_trades WHERE status='settled'").fetchone()
     if not n:
         return None
+    cap = probe_usd(db)
+    size = "" if cap is None else f"; test size ${cap:,.0f} a long until {PROOF_N} live trades prove it"
     return (f"long book (paper) {n} trades, avg {m:+.2%}/trade, book ${nav(db):,.0f}; "
-            f"tested {min(long_shadow.TESTED.values()):+.1%} to {max(long_shadow.TESTED.values()):+.1%}")
+            f"tested {min(long_shadow.TESTED.values()):+.1%} to {max(long_shadow.TESTED.values()):+.1%}{size}")

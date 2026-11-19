@@ -12,6 +12,7 @@ from sgt.ops import approvals as ap
 from sgt.ops.store import OpsStore
 
 POSTED = pd.Timestamp("2026-11-09 15:00:20", tz="UTC")          # 10:00:20 ET -> start bar 15:01
+TEST_W = lb.PROBE_USD / 100_000                                 # 2026-11-19: an unproven book trades at test size
 T1 = pd.Timestamp("2026-11-09 15:01", tz="UTC")
 
 
@@ -76,7 +77,7 @@ def test_live_book_equals_the_research_simulator(db):
     assert (t["status"], t["est_entry"], t["reason"]) == ("est_closed", ref.entry, ref.reason)
     assert t["est_exit"] == pytest.approx(ref.exit) and t["est_exit_at"] == ref.exit_ts.isoformat()
     # 2026-11-16: the texted estimate is after the estimated round-trip spread (+6.6% move, 0.8% costs)
-    assert len(sent) == 2 and sent[1].startswith("[SGT] 🟢 LONG OUT ABCD · made +5.9% (+$237 est after costs, paper)")
+    assert len(sent) == 2 and sent[1].startswith("[SGT] 🟢 LONG OUT ABCD · made +5.9% (+$24 est after costs, paper)")   # at test size
 
 
 def test_time_exit_waits_for_the_whole_hold(db):
@@ -168,7 +169,7 @@ def test_settle_replays_the_live_order_on_sip_bars(db):
     assert (t["status"], t["entry"], t["exit"], t["exit_reason"]) == ("settled", 10.55, pytest.approx(tgt), "target")
     assert t["fill_ts"] == (T1 + 2 * pt.BAR).isoformat() and t["cost_rt"] == COST
     assert t["net"] == pytest.approx(tgt / 10.55 - 1 - COST) and t["settled_at"] == NIGHT.isoformat()
-    w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))     # A2: sized to the 3.3% stop (0.81x)
+    w = TEST_W * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))   # A2: sized to the 3.3% stop (0.81x), test size
     assert t["weight"] == pytest.approx(w) and t["rules"] == lb.RULES
     assert lb.nav(db) == pytest.approx(100_000 * (1 + w * t["net"]))
     assert "long book (paper) 1 trades, avg +5.64%/trade" in lb.record_line(db)
@@ -369,8 +370,8 @@ def test_long_dollars_use_the_long_book(db):
     sent = []
     for k in range(0, 140):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
-    w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))           # A2 risk size: $4,038 of the long book
-    assert f"${w * 100_000:,.0f} (paper) (sized to the stop)" in sent[0]
+    w = TEST_W * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55))         # A2 risk size inside the $500 test size
+    assert f"${w * 100_000:,.0f} (paper, test size; full size $4,038) (sized to the stop)" in sent[0]
     c = est_costs.cost("long", "ABCD", trades(db)[0]["entry_ts"], 10.55)
     assert c == pytest.approx(0.0077, abs=5e-5)                           # first-hour round-trip spread at $10.55
     assert f"(+${w * 100_000 * (11.25 / 10.55 - 1 - c):,.0f} est after costs, paper)" in sent[1]   # w x 100,000 x net
@@ -462,7 +463,7 @@ def test_long_size_follows_the_drift_scale(db):
     db.set_flag(lm.SCALE_FLAG + lb.BOOK, "0.5")
     alert_row(db)
     lb.tick(db, feed(DAY), [].append, now=at(3))
-    w = 0.05 * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55)) * 0.5
+    w = TEST_W * min(1.0, lb.RISK_D50 / ((10.55 - 10.2) / 10.55)) * 0.5
     assert trades(db)[0]["weight"] == pytest.approx(w)
 
 
@@ -488,7 +489,7 @@ def test_a_seen_long_is_never_a_trade_and_is_scored_for_the_record(db):
     lb.tick(db, feed(DAY), sent.append, now=at(3))
     (t,) = trades(db)
     assert (t["kind"], t["est_entry"], t["stop"], t["status"], t["rules"]) == ("L4b", 10.55, 10.2, "seen", "A2")
-    assert t["weight"] == pytest.approx(0.05 * lb.risk_weight(10.55, 10.2))          # the size it would have had
+    assert t["weight"] == pytest.approx(TEST_W * lb.risk_weight(10.55, 10.2))        # the size it would have had
     assert "no position, not in the totals" in sent[0] and "stop $10.20" in sent[0] and "would be out by" in sent[0]
     lb.tick(db, feed(DAY), sent.append, now=at(50))                                   # nothing to exit, no second text
     assert [x["status"] for x in trades(db)] == ["seen"] and len(sent) == 1
@@ -569,3 +570,49 @@ def test_digest_says_longs_are_off(db):
                         problems=[], broker=None, research=[])
     assert "(your choice): each setup is texted as seen, none is traded or counted" in text
     assert "measure only): the long shadow" not in text                             # the 11-13 wording is gone
+
+
+def settled(db, n, net, start=1000):
+    with db.tx() as c:
+        for i in range(n):
+            c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, weight, net, created_at) VALUES "
+                      "(?,?,?,?,?,?,?,?)", (start + i, f"S{i}", "2026-11-09", "L4b", "settled", 0.005, net(i), "x"))
+
+
+def test_an_unproven_book_trades_at_test_size_and_a_proven_one_at_full_size(db):
+    """2026-11-19: the book wins 15.6% of its trades and needs 32.6%. Until it meets the owner's proof standard
+    (300 settled live trades, interval of the mean above zero) a long puts at most PROBE_USD to work; every long
+    still trades and is texted. The risk weight and the drift scale apply inside the cap as before."""
+    s = pt.Setup("L4b", "long", T1, 10.55, 10.2)
+    t = pt.Trade("L4b", "long", T1, 10.55, T1, 10.55, "time", 0.0)
+    tight = pt.Setup("L4b", "long", T1, 10.0, 9.9)                                       # GP's shape: a 1% stop
+    tt = pt.Trade("L4b", "long", T1, 10.0, T1, 10.0, "time", 0.0)
+    v = lb.nav(db)
+    assert not lb.proven(db) and lb.probe_usd(db) == 500.0
+    assert lb.weight(db, tight, tt, v) * v == pytest.approx(500.0)                       # was $5,000 on the tightest stops
+    assert lb.weight(db, s, t, v) * v == pytest.approx(500.0 * lb.risk_weight(10.55, 10.2))
+    assert lb.full_weight(db, tight, tt, v) * v == pytest.approx(5_000.0)
+    assert "$500 (paper, test size; full size $5,000)\n" in lb.entry_text(db, "ABCD", tight, tt)
+    assert "test size $500 a long until 300 live trades prove it" not in (lb.record_line(db) or "")   # no trades yet: no line
+    for flag, want in (("250", 250.0), ("20000", 5_000.0), ("abc", 500.0), ("-5", 500.0), ("0", 500.0), ("nan", 500.0), ("", 500.0)):
+        db.set_flag(lb.PROBE_FLAG, flag)                                                 # the owner's amount; junk never raises size
+        assert lb.weight(db, tight, tt, v) * v == pytest.approx(want), flag
+    db.set_flag(lb.PROBE_FLAG, "")
+    settled(db, 299, lambda i: 0.02 if i % 3 else -0.01)
+    assert not lb.proven(db)                                                             # winning, but 299 trades
+    assert "test size $500 a long until 300 live trades prove it" in lb.record_line(db)
+    settled(db, 1, lambda i: 0.02, start=5000)
+    assert lb.proven(db) and lb.probe_usd(db) is None                                    # 300 trades, interval above zero
+    v = lb.nav(db)
+    assert lb.weight(db, tight, tt, v) == pytest.approx(lb.full_weight(db, tight, tt, v)) and lb.weight(db, tight, tt, v) * v > 4_000
+    assert "(paper)\n" in lb.entry_text(db, "ABCD", tight, tt) and "test size" not in lb.record_line(db)
+
+
+def test_three_hundred_losing_or_noisy_trades_prove_nothing(db):
+    settled(db, 300, lambda i: -0.02 if i % 6 else 0.08)                                 # the book's real shape: mean below zero
+    assert not lb.proven(db) and lb.probe_usd(db) == 500.0
+    with db.tx() as c:
+        c.execute("DELETE FROM long_trades")
+    settled(db, 300, lambda i: 0.30 if i % 50 == 0 else -0.005)                          # mean just above zero, interval not
+    assert not lb.proven(db)
+
