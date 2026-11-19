@@ -110,8 +110,10 @@ def line(snap: dict | None) -> str | None:
         if col:
             parts.append(f"{n}M {sum(col.values())}/6")
     red = [LABELS[k] for k in NAMES if not snap[1][k]]
-    tail = "1M all green: his rule says stay in" if not red else "1M red: " + ", ".join(red)
-    return "📐 Trader's matrix " + " · ".join(parts) + " · " + tail
+    # 2026-11-19 (owner): the trader's advice is an input to our own logic, not a rule to follow or to name things
+    # after. The line says what the six trend conditions read; it tells nobody what to do.
+    tail = "1M all green" if not red else "1M red: " + ", ".join(red)
+    return "📐 Trend check " + " · ".join(parts) + " · " + tail
 
 
 def going_red(bars: pd.DataFrame, entry_ts: pd.Timestamp, at: datetime) -> dict | None:

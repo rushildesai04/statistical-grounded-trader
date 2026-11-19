@@ -39,14 +39,14 @@ def at(minute, second=0):
 def test_a_steady_rise_is_all_green_on_every_chart_and_the_line_says_stay_in():
     snap = tm.snapshot(UP_DOWN, at(115))
     assert all(snap[1].values()) and all(snap[5].values()) and set(snap) == {1, 2, 3, 5}
-    assert tm.line(snap) == "📐 Trader's matrix 1M 6/6 · 2M 6/6 · 3M 6/6 · 5M 6/6 · 1M all green: his rule says stay in"
+    assert tm.line(snap) == "📐 Trend check 1M 6/6 · 2M 6/6 · 3M 6/6 · 5M 6/6 · 1M all green"
 
 
 def test_after_the_turn_the_line_names_what_is_red_and_macd_is_first():
     snap = tm.snapshot(UP_DOWN, at(128))                          # eight minutes into the fall
     assert snap[1]["macd"] is False and snap[1]["ema"] is True
     ln = tm.line(snap)
-    assert "1M red: MACD" in ln and ln.startswith("📐 Trader's matrix 1M ")
+    assert "1M red: MACD" in ln and ln.startswith("📐 Trend check 1M ") and "rader" not in ln and "his rule" not in ln
 
 
 def test_only_closed_candles_and_only_completed_higher_charts_are_read():
@@ -97,10 +97,10 @@ def test_the_rule_is_recorded_once_and_texted_also_after_the_books_own_exit(db):
     assert tr.track(db, feed, sent.append, at(140)) == 1
     r = rows(db)[0]
     assert r["tr_why"] == "MACD turned red" and r["tr_exit_px"] == pytest.approx(tm.going_red(UP_DOWN, T0 + 100 * MIN, at(140))["px"])
-    assert len(sent) == 1 and sent[0].startswith("[SGT] 📐 TRADER'S RULE ABCD (paper): MACD turned red at ")
+    assert len(sent) == 1 and sent[0].startswith("[SGT] 📐 TREND HOLD ABCD (paper): MACD turned red at ")
     assert "from the $11.67 entry, before costs. Book's own exit: $11.90 (+2.0%)." in sent[0]
     assert tr.track(db, feed, sent.append, at(145)) == 0 and len(sent) == 1
-    assert tr.line(db, "2026-11-09").startswith("trader's rule on today's longs (before costs): ABCD book +2.0% / his rule ")
+    assert tr.line(db, "2026-11-09").startswith("longs held until MACD turned, no stop (a measurement, before costs): ABCD book +2.0% / held ")
 
 
 def test_an_exit_found_hours_later_is_recorded_but_not_texted(db):
@@ -156,7 +156,7 @@ def test_other_days_missed_rows_and_failures_are_left_alone(db):
 
 
 def test_long_texts_carry_the_matrix_line_and_survive_a_broken_matrix(monkeypatch):
-    assert lb.matrix_line(UP_DOWN, at(115)).startswith("\n📐 Trader's matrix 1M 6/6")
+    assert lb.matrix_line(UP_DOWN, at(115)).startswith("\n📐 Trend check 1M 6/6")
     assert lb.matrix_line(UP_DOWN.iloc[:2], at(2)) == ""
 
     def boom(*a):
