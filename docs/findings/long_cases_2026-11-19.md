@@ -100,3 +100,41 @@ The book is "proven" only by 300 settled live trades with the 95% interval of th
   candle closes fills a few seconds into that minute; on a fast stock that can differ from the open.
 - The news kinds come from headline patterns (`scripts/gap_news_study.py`), a rough classifier.
 - Scratch code and tables of this exploration are not in the repo; the detector, its tests and this note are.
+
+## 7. Addendum (2026-11-19 evening): the trader's five answers, checked against the entry
+Asked what he actually does. His answers are input for our rules: each is tested, none is copied.
+
+| Question | His answer | Where our book stands |
+|---|---|---|
+| Which alerts | the alert is a watchlist entry; trade only when a predefined setup, liquidity and risk agree | same: an alert alone buys nothing since the base break; about two alerts in three get no long |
+| Entry | wait for a tight range, buy the break (a controlled pullback is also valid) | this IS the base break shipped the same day, found independently. Pullback entries were tested and lose (first red candle -1.2% to -2.4%, flush and reclaim -1.5% / -2.8%) |
+| Charts | no "all green" rule: a higher timeframe for context, a lower one for entry | tested below |
+| Selling | part out, manage the rest (all out at a tested target also works) | all out at 2R or 30 minutes. A part-out is a blend of two exits and cannot beat the better of them: 1R -0.95% / -0.99%, 2R -0.86% / -1.30%, half and half about -0.91% / -1.15% |
+| Stop | under the swing low or the range; size so the stop is an acceptable dollar loss | same: stop under the whole base, size cut by the stop distance, $500 test size |
+
+**The two things he names that the book did not check** (definitions fixed before any number was read; the live
+entry on the official tape, training / later period; exploration):
+
+| At the break | Training | Later period |
+|---|---|---|
+| all base breaks | n 874 · -0.79% | n 260 · -1.12% |
+| context: last closed 5-minute candle above its EMA 9 | n 663 · -0.73% | n 209 · -1.13% |
+| context: not | n 210 · -0.99% | n 50 · -0.93% |
+| above the session's open | n 841 · -0.79% | n 247 · -1.17% |
+| base traded under $100k | n 70 · -0.14% | n 17 · -0.39% |
+| base traded $100k to $500k | n 172 · -0.46% | n 68 · -0.39% |
+| base traded over $500k | n 632 · -0.95% | n 175 · -1.47% |
+| estimated round-trip cost 0.7% or less | n 139 · -0.35% | n 30 · +0.40% |
+| cost above 0.7% | n 735 · -0.87% | n 230 · -1.31% |
+
+Read: a higher-timeframe context adds nothing here (it flips between the periods; a close above VWAP, which the
+entry already requires, is context: 96% of base breaks are also above the session's open). "Liquidity" as dollars
+traded sorts the WRONG way: the most heavily traded bases are the worst longs. What separates results is what the
+trade costs: where the round trip costs 0.7% or less the entry is about break-even before more is known (169 trades
+in all). That is the lead worth carrying: not a rule from 169 trades, and it matches the price cut of section 3
+($5 and up was the best band on the tape and did not hold on the live feed's candles). The estimated cost is already
+stored on each live long; the live record will say.
+
+His closing line ("repeatable entry, exit and risk rules, not a particular indicator combination") is what the tests
+say too. His answers gave no numbers (which timeframe, how much to sell first, what dollar loss), so nothing more
+specific could be tested from them.
