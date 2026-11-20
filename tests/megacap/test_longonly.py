@@ -49,3 +49,42 @@ def test_a_missing_or_unreadable_set_gives_an_empty_ledger(root, break_it):
     else:
         p.write_text(HEAD + "2026-11-16,CCC,1,abc,False,0.1\n")
     assert lo.ledger(root) == {"sessions": 0}
+
+
+# --- how unusual the live ledger is against its tested record (red-day review 2026-11-20) ---
+
+def test_rarity_is_the_share_of_same_length_stretches_at_or_below_the_live_total():
+    days = [0.01, -0.02, 0.0] * 100                                  # 300 days -> 298 stretches of three days
+    three = (1.01 * 0.98 * 1.0) - 1                                   # every stretch of three compounds to this
+    assert lo.rarity(three, 3, days) == 1.0 and lo.rarity(three - 1e-6, 3, days) == 0.0
+    mixed = [0.0] * 300 + [-0.05] + [0.0] * 300
+    assert lo.rarity(-0.04, 3, mixed) == pytest.approx(3 / 599)      # only the three stretches holding the bad day
+    assert lo.rarity(0.0, 3, mixed) == 1.0
+
+
+def test_rarity_says_nothing_on_too_few_sessions_or_too_short_a_record():
+    days = [0.001] * 600
+    assert lo.rarity(-0.01, lo.RARITY_MIN_SESSIONS - 1, days) is None
+    assert lo.rarity(-0.01, 3, [0.001] * (lo.RARITY_MIN_WINDOWS + 1)) is None       # 249 stretches: one too few
+    assert lo.rarity(-0.01, 3, [0.001] * (lo.RARITY_MIN_WINDOWS + 2)) == 0.0
+    assert lo.rarity(-0.01, 3, None) is None and lo.rarity(float("nan"), 3, days) is None
+
+
+def test_history_reads_plain_numbers_only(tmp_path):
+    p = tmp_path / "h.json"
+    assert lo.history(p) is None                                      # missing
+    p.write_text('{"days": [0.01, -0.02]}')
+    assert lo.history(p) == [0.01, -0.02]
+    for bad in ('{"days": [0.01, "x"]}', '{"days": [0.01, 5.0]}', '{"days": []}', '{"other": 1}', "not json"):
+        p.write_text(bad)
+        assert lo.history(p) is None, bad
+
+
+def test_the_shipped_history_is_the_tested_record():
+    h = lo.history()
+    assert h is not None and len(h) > 2000
+    total = 1.0
+    for x in h:
+        total *= 1 + x
+    assert 0.5 < total - 1 < 1.5                                       # the record's ledger about doubled, 2018 to 2026
+    assert lo.rarity(-0.0128, 3, h) == pytest.approx(0.0144, abs=0.002)   # the first three live sessions (2026-11-19)

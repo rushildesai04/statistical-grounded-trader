@@ -44,3 +44,13 @@ PASS only if ALL: at least 30 day-after repeats; their mean net is above 0; the 
 
 ## Not done
 No other gap bands, no other split of the held-out repeats, no sizing variant, no re-run.
+
+## Result (run once, 2026-11-20; `reports/fade_repeat_day1/result.json`) - FAIL, lead closed
+| held-out no-news repeats | n | average net | wins |
+|---|---|---|---|
+| alerted the day before | 34 | -1.56% | 53% |
+| alerted 2 to 7 days before | 99 | -1.25% | |
+
+Difference -0.32%, p 0.54. The day-after repeats lose on the unseen events like the later ones: the training cell
+was the luck of 14 looks. F8 stays as registered (1 to 7 days); the gate is confirmed on the held-out events for
+both bands. Repeats are not split again on these files.

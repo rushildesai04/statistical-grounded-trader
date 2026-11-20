@@ -278,6 +278,27 @@ def test_long_calls_ledger_line(tmp_path, monkeypatch):
                     "tested +0.23%, 54%); long and short -0.4%, holding +2.0%"]
 
 
+def test_long_calls_ledger_line_says_how_unusual_the_live_record_is(tmp_path, monkeypatch):
+    # red-day review 2026-11-20: from the third session, the live ledger against the tested record, the same way nightly
+    from sgt.megacap import longonly
+
+    monkeypatch.chdir(tmp_path)
+    db = OpsStore(tmp_path / "ops" / "ops.db")
+    head = "date,symbol,position,ret,void,net\n"
+    days = ("2026-11-16", "2026-11-17", "2026-11-18")
+    (tmp_path / "megacap_forward").mkdir()
+    (tmp_path / "megacap_ext").mkdir()
+    (tmp_path / "megacap_forward" / "marks.csv").write_text(head + "".join(f"{d},AAA,1,-0.02,False,-0.0204\n" for d in days))
+    (tmp_path / "megacap_ext" / "marks.csv").write_text(head + "".join(f"{d},CCC,0,0.01,False,0.0\n" for d in days))
+    monkeypatch.setattr(longonly, "history", lambda: [0.0] * 300 + [-0.05] + [0.0] * 300)       # 3 of 599 stretches this weak
+    line = [x for x in digest.hold_lines(db) if " ledger, " in x][0]
+    assert line.endswith("holding -1.5%; 0.5% of 3-session stretches of its tested record were this weak or weaker")
+    monkeypatch.setattr(longonly, "history", lambda: None)                                      # no record file: the line as before
+    assert [x for x in digest.hold_lines(db) if " ledger, " in x][0].endswith("holding -1.5%")
+    monkeypatch.setattr(longonly, "history", lambda: [0.0] * 601)                               # never this weak
+    assert "; under 0.5% of 3-session stretches" in [x for x in digest.hold_lines(db) if " ledger, " in x][0]
+
+
 def test_a_flat_book_says_flat_not_no_close_yet(db):
     """2026-11-13: megacap held nothing on 11-12 and 11-13 (every call flat); book.settle never marks such a book, and
     the digest printed "no close yet (last 11-11)" as if a job had been missed."""

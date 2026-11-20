@@ -133,3 +133,53 @@ def test_a_tested_event_gets_exactly_the_research_result(tmp_path, monkeypatch, 
     _, cost = fl.sip_session_tools()
     wh.run(db, fl.sip_day_frames(), cost, now=NIGHT)
     assert row(db, rid)["wh_net"] == pytest.approx(official.net, abs=1e-12) and row(db, rid)["wh_entry"] == official.entry
+
+
+# --- each gate against its own test (red-day review 2026-11-20) ---
+
+def scored(db, sym, reason, net, session=DAY, status="filtered"):
+    rid = alert(db, sym, status=status, reason=reason, session=session)
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET wh_net=?, wh_entry=1.0 WHERE id=?", (net, rid))
+    return rid
+
+
+def test_gates_count_stock_days_once_and_only_the_choice_gates(db):
+    scored(db, "AAA", fade.NEWS_REASON, -0.20)
+    scored(db, "BBB", fade.NEWS_REASON, +0.10)
+    scored(db, "CCC", fade.REPEAT_REASON, +0.30)
+    scored(db, "CCC", fade.REPEAT_REASON, +0.10)                      # same stock, same day: one event at +20%
+    scored(db, "CCC", fade.REPEAT_REASON, -0.05, session="2026-11-17")
+    scored(db, "DDD", "outside 09:30-15:44", -0.04)
+    scored(db, "EEE", "price 0.4497 outside $1-50", +0.50)            # not a choice: never in the check
+    scored(db, "FFF", "no shares to borrow at IBKR", +0.50)
+    alert(db, "GGG", reason=fade.REPEAT_REASON)                       # not scored yet: not counted
+    scored(db, "HHH", fade.REPEAT_REASON, +0.90, status="closed")     # a taken trade is not a blocked alert
+    g = {x["gate"]: x for x in wh.gates(db)}
+    assert set(g) == {"news", "hours", "repeat"}
+    assert (g["news"]["n"], g["news"]["against"]) == (2, False) and g["news"]["avg"] == pytest.approx(-0.05)
+    assert (g["repeat"]["n"], g["repeat"]["against"]) == (2, True) and g["repeat"]["avg"] == pytest.approx((0.20 - 0.05) / 2)
+    assert g["repeat"]["since"] == "2026-11-17" and g["hours"]["tested"] is None
+
+
+def test_gates_line_marks_a_gate_whose_stopped_shorts_are_winning(db):
+    assert wh.gates_line(db) is None                                   # nothing scored: no line
+    scored(db, "AAA", fade.NEWS_REASON, -0.20)
+    scored(db, "CCC", fade.REPEAT_REASON, +0.30)
+    line = wh.gates_line(db)
+    assert line == ("gates check (shorts not taken, stock-days since 11-18, in no total): news 1 at -20.0%, "
+                    f"repeat 1 at +30.0% (AGAINST the gate: tested -1.1%; reread at {wh.REREAD})")
+
+
+def test_gates_line_calls_the_reread_at_the_count(db, monkeypatch):
+    monkeypatch.setattr(wh, "REREAD", 2)
+    scored(db, "CCC", fade.BETA_REASON, +0.30)
+    scored(db, "DDD", fade.BETA_REASON, +0.10)
+    assert wh.gates_line(db).endswith("beta 2 at +20.0% (AGAINST the gate: tested -2.1%; reread now)")
+
+
+def test_gates_read_only(db):
+    rid = scored(db, "AAA", fade.NEWS_REASON, -0.20)
+    before = row(db, rid)
+    wh.gates_line(db)
+    assert row(db, rid) == before
