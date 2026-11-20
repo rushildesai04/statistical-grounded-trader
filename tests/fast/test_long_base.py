@@ -9,6 +9,7 @@ import pytest
 
 from sgt.fast import long_armed as la, long_book as lb, long_shadow as ls
 from sgt.fast import patterns as pt
+from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore
 
 POSTED = pd.Timestamp("2026-11-09 15:00:20", tz="UTC")          # 10:00:20 ET -> start bar 15:01
@@ -161,13 +162,14 @@ def test_the_live_book_buys_the_base_break_and_says_so(db):
     assert (t["kind"], t["est_entry"], t["stop"], t["trigger"], t["status"], t["rules"]) == ("L8", 10.6, 10.25, None, "open", "B1")
     assert t["target"] == pytest.approx(11.3) and pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR
     assert 0 < t["weight"] <= lb.PROBE_USD / 100_000 + 1e-12     # test size, cut further by the stop distance
-    assert sent[0].startswith("[SGT] 🟢 LONG ABCD @ $10.60") and "Setup: base break · stop $10.25 (-3.3%)" in sent[0]
-    assert "Tested on past alerts: -0.7%/trade over 506 trades" in sent[0]
+    assert sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.60')}")
+    assert "🛑 stop $10.25 (-3.3%)" in sent[0]
+    assert f"🎲 Win chance {bold('34%')} · base break: " + italic("avg -0.7%/trade over 506 past trades") in sent[0]
     for k in range(29, 80):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     (t,) = trades(db)
     assert (t["status"], t["reason"], t["est_exit"]) == ("est_closed", "target", pytest.approx(11.3))
-    assert len(sent) == 2 and sent[1].startswith("[SGT] 🟢 LONG OUT ABCD · made")
+    assert len(sent) == 2 and sent[1].startswith(f"[SGT] 🟢 {bold('LONG OUT')} · {bold('ABCD')} · made")
 
 
 def test_the_one_minute_setups_are_no_longer_bought_live(db):
@@ -312,7 +314,8 @@ def test_the_entry_text_says_what_the_sources_said_at_the_alert(db):
         c.execute("UPDATE fade_trades SET ctx_news_own=0, ctx_news_earn=0, news_kind='NONE', st_n60=12 WHERE id=?", (fid,))
     sent = []
     assert lb.tick(db, feed(DAY), sent.append, now=at(14)) == 1
-    assert sent[0].endswith("\n\U0001F4F0 At the alert: no company news · StockTwits 12/hr")
+    assert sent[0].endswith("\n\U0001F4F0 At the alert: no company news · StockTwits 12/hr\n"      # the link stays last
+                            "🔗 https://www.tradingview.com/chart/?symbol=ABCD")
     other = alert_row(db, "BARE")
     assert lb.tick(db, feed(DAY), sent.append, now=at(14, 15)) == 1 and other
     assert "At the alert" not in sent[-1]                        # nothing read: no line, the text still goes out
