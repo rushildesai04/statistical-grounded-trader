@@ -55,3 +55,21 @@ the entry: it supports the premise, it is not a tradeable rule as measured.
 
 ## Not done
 No other window, no other alert type, no headline reading, no exit simulated, no re-run.
+
+## Result (run once, 2026-11-20; `reports/fade_channel_news/result.json`) - FAIL, closed
+| held-out no-news fades | n | average net |
+|---|---|---|
+| flagged (a channel news alert between the alert and the end of the hold) | 76 | -1.25% (54% wins) |
+| unflagged | 411 | +2.57% |
+| of the flagged: news alert BEFORE the entry bar | 36 | **+3.27%** |
+| of the flagged: news alert during the hold | 40 | -5.32% |
+
+Difference -3.82 points, p 0.019: the premise holds on the unseen events. The consistency condition does not: the
+36 fades whose news alert came before the entry made +3.27%, more than the unflagged ones. All of the gap is in the
+news alerts that arrive during the hold (-3.62% on training, -5.32% held-out), which is information from after the
+entry and may be the channel reacting to a price that is already running. So the registered outcome is FAIL: no
+entry gate. The JMIA short was entered correctly under the tested rule; the training cell that suggested otherwise
+(-0.42%, n 90) did not repeat. The code stays as it is and the channel's news alerts are not split again on these
+files. What remains open is a forward record only (not a test on these events): for live fades, whether a channel
+news alert arrives during the hold and what the short makes from that moment.
+
