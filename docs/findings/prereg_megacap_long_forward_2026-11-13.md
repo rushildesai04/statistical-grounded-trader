@@ -47,3 +47,15 @@ of the session and one within 30 minutes of the market's last bar; a name that s
 with the reason recorded in the decision file, and the other names are decided as before. If no name can be built
 (for example no SPY / QQQ context) no decision is written, as before. Nothing else changes: models, features,
 thresholds, costs, fills, evaluation. The research floor (195) is unchanged for training and the out-of-sample record.
+
+## Amendment A2 (2026-11-20, owner's decision): the paper book gives a long call the ledger's weight
+Nothing in the test changes: the deciding ledger, its stop (-5%), its date (2027-04-30), the models, the costs. Only
+the paper book that is SHOWN beside it: from the first 15:50 run after the change is deployed every long call gets 1/N of the book, N = the
+names decided that day in both sets (21), which is the weight the ledger gives it (`sms_control.long_call_targets`).
+Until then the book was sized by `megacap_targets` (1% at risk over a day's range, at most 25% a stock): a lone call
+got 25%, and on the 2018-2026 record that rule swung 2.4 times the ledger for a worse return per unit of risk (+13.6%
+a year, Sharpe 0.83, worst drawdown -16.7%, against the ledger's +7.6%, 1.08, -5.0%), and stood 15% under its high when
+the ledger first reached its -5% stop (`red_day_fixes_2026-11-20.md` section 5; already-seen data). Put to the owner as
+1/21, 2/21 or keep; the owner chose 1/21. The book's sessions before that stay as traded at the
+old size; they are not restated. The book and the ledger still differ in small ways (the book pays costs when a weight
+changes, the ledger every day a call is on), so they move alike, not identically.

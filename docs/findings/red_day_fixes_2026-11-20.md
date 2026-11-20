@@ -141,6 +141,9 @@ of these):
 - 2/21 a call: the same tested return as today's size with a third less drawdown.
 - keep today's size.
 
+**Decided 2026-11-20 (owner): 1/21 a call.** Built the same day (`sms_control.long_call_targets`, amendment A2 of
+`prereg_megacap_long_forward_2026-11-13`), live from the first 15:50 run after its deploy. Earlier sessions stay as traded.
+
 ## 6. The repeat gate kept the fade out of two winners
 
 **Research.** Stocks that draw repeated retail attention fall afterwards on average

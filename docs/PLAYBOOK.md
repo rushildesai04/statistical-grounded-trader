@@ -558,8 +558,11 @@ most 25% a stock), so a lone call gets the full 25%. On the 2018-2026 record the
 -5.0%, -2.4%, 3 days); 2/21 a call makes +13.7% (1.06, -10.6%, -4.6%, 21 days). Today's rule is worse per unit of risk
 because a third of its money works on the days with one or two calls, which earn nothing; the ledger's size rises
 with the number of calls, and that number is high after falls, where the gain is. The paper book swings 2.4 times
-the ledger and stood 15% under its high when the ledger first reached its -5% stop. The size is the owner's (set
-2026-11-14); the choice 1/21, 2/21 or keep is put to the owner (section 7).
+the ledger and stood 15% under its high when the ledger first reached its -5% stop. **Owner's decision 2026-11-20: 1/21 a call.** From the
+first 15:50 run after the change is deployed the paper book gives every long call the ledger's weight (`sms_control.long_call_targets`; amendment A2
+of the prereg), so the book moves like the ledger that decides it and the -5% stop means about -5% in the book. The
+price, said to the owner before the choice: about half the tested return of the old size. The deciding ledger, its
+stop and its date are not changed.
 Closed the same night, do not re-propose for the long calls: cutting size when volatility is high (+5.6% a year
 against +7.6%, Sharpe 1.11 against 1.08), a cap on the busy days (+4.9%, 0.96), a market hedge (leaves +0.03% a
 call), and picking among the 21 names by short-term reversal against the average name (fallers beat risers by
@@ -763,8 +766,8 @@ night it cannot finish is texted and caught up on the next run.
   blocked since 11-05 would have made +11.8% (7 won), against its tested -1.0% / -1.3%. Not lifted: reread when the
   nightly would-have count of blocked repeats reaches 50.
 - **Answers to that review (2026-11-20, `red_day_fixes_2026-11-20.md`; owner: "find solutions to this attack for all
-  of them").** DECISION WAITING: the size of a long call in the paper book, 1/21 (the ledger's, recommended), 2/21 or
-  keep (section 6b). REPEAT GATE: the one lead from the training events, "repeats alerted the day before are not the
+  of them").** DECIDED by the owner 2026-11-20: a long call in the paper book gets 1/21 (the ledger's weight; was up to 25%),
+  live from the first 15:50 run after its deploy (section 6b). REPEAT GATE: the one lead from the training events, "repeats alerted the day before are not the
   losing ones" (+2.27%, n 93, best of 14 cells), was registered and run once on the held-out events: FAIL, -1.56% (n
   34) against -1.25% for later repeats, p 0.54 (`prereg_fade_repeat_day1_2026-11-20`). F8 stays; repeats are not
   split again on these files. CORRECTION to the review's "+11.8%": the 9 blocked repeats are 7 stock-days, and by
