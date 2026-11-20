@@ -724,6 +724,13 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **Daily model: long calls on down days, a second ledger (2026-11-19, owner: "Second ledger";
+  `prereg_megacap_downday_forward_2026-11-19`).** On the model's past record all of the long calls' edge is in
+  calls made on a day the stock is down 1% or more by the decision (+0.70% on the 8 names first looked at, +0.58%
+  on the other 13; any other day +0.18% / +0.11%, an ordinary day). Read off seen data, so recorded forward from
+  2026-11-20 beside the registered `megacap_long` ledger (which is not changed): same mark files, same
+  arithmetic, only the down-day calls (`sgt.megacap.downday`). One line in the nightly summary. Decided once on
+  2027-04-30: total above 0 and average per call above that of all long calls on the same sessions.
 - **Intraday trend rule on SPY / QQQ: recorded forward, never traded (2026-11-19, owner: "Record forward";
   `prereg_noise_area_forward_2026-11-19`).** The rule failed its test on SPY; QQQ looked good but was only a
   robustness check. From 2026-11-20 the nightly job `noiseforward` (21:16 ET) scores each finished session of both
