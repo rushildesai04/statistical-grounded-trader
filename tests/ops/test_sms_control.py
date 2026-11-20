@@ -465,7 +465,47 @@ def test_megacap_long_book_takes_long_calls_of_both_sets_only_when_both_are_live
         rows = c.execute("SELECT strategy, symbol, target FROM book_orders WHERE status='scheduled'").fetchall()
     t = {r["symbol"]: r["target"] for r in rows}
     assert {r["strategy"] for r in rows} == {sc.LONG_BOOK} and set(t) == {"NVDA", "AMD"}       # longs only
-    assert all(0 < w <= 0.25 for w in t.values()) and len(sms.sent) == 1 and "megacap long calls" in sms.sent[0]
+    assert t == {"NVDA": 0.2, "AMD": 0.2}                   # owner 2026-11-20: a call is 1/N of the 5 names decided
+    assert len(sms.sent) == 1 and "megacap long calls" in sms.sent[0] and "NVDA long 20%" in sms.sent[0]
+
+
+def test_a_long_call_gets_the_ledgers_weight_whatever_the_stock_and_however_many_calls():
+    # owner decision 2026-11-20 (red_day_fixes_2026-11-20 section 5): the paper book gave a lone call up to 25% and
+    # swung about 2.4 times the equal-weight ledger that decides the test; each call now gets the ledger's 1/N.
+    names = [f"S{i:02d}" for i in range(21)]
+    lone = sc.long_call_targets({s: int(s == "S03") for s in names})
+    assert lone["S03"] == 0.0476 and sum(lone.values()) == 0.0476            # one call: 1/21, not 25%
+    mixed = sc.long_call_targets({s: (1 if i < 14 else (-1 if i < 17 else 0)) for i, s in enumerate(names)})
+    assert [mixed[s] for s in names] == [0.0476] * 14 + [0.0] * 7            # short and flat calls hold nothing
+    for n in (1, 3, 6, 7, 21):                                               # every name long: never above the book
+        full = sc.long_call_targets({f"S{i}": 1 for i in range(n)})
+        assert 1 - n * 1e-4 < sum(full.values()) <= 1.0, n
+    assert sc.long_call_targets({}) == {}
+
+
+def test_the_long_book_needs_no_price_history_to_size_and_cuts_an_older_larger_holding(db, monkeypatch):
+    # sizing no longer reads daily bars (one external call fewer at 15:50); a call still held at the earlier size is
+    # cut to 1/N at today's close, and a call already at 1/N is not re-ordered.
+    import json
+
+    monkeypatch.setattr(sc, "daily_bars", lambda syms: (_ for _ in ()).throw(AssertionError("no bars needed")))
+    d = _full_session().isoformat()
+    live_at = datetime.fromisoformat(d).replace(hour=15, minute=51, tzinfo=sc.ET)
+    stamp = live_at.replace(minute=50).isoformat()
+    for folder, positions in ((sc.LONG_SETS[0], {"NVDA": 1, "MSFT": 1}), (sc.LONG_SETS[1], {"AMD": 1, "WMT": 0})):
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        (Path(folder) / f"{d}.json").write_text(json.dumps(
+            {"date": d, "mode": "realtime", "written_at": stamp, "positions": {s: {"position": p} for s, p in positions.items()}}))
+    with db.tx() as c:
+        c.execute("INSERT INTO book_nav(strategy, session, nav, ret, holdings) VALUES (?,?,?,?,?)",
+                  (sc.LONG_BOOK, "2026-11-16", 99_000, -0.01, json.dumps({"NVDA": 0.4, "MSFT": 0.25, "WMT": 0.1})))
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    assert sc.cmd_megacap_long(db, now=live_at) == 0
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, target FROM book_orders WHERE strategy=? AND status='scheduled'",
+                         (sc.LONG_BOOK,)).fetchall()
+    assert {r["symbol"]: r["target"] for r in rows} == {"NVDA": 0.25, "AMD": 0.25, "WMT": 0.0}   # MSFT already at 1/4
 
 
 def test_megacap_long_book_goes_flat_below_its_stop_rule(db, monkeypatch):

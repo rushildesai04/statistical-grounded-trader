@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -444,10 +445,20 @@ LONG_BOOK = "megacap_long"
 LONG_SETS = ("reports/megacap_forward/decisions", "reports/megacap_ext/decisions")
 
 
+def long_call_targets(positions: dict[str, int]) -> dict[str, float]:
+    """Owner decision 2026-11-20 (docs/findings/red_day_fixes_2026-11-20.md section 5; amendment A2 of the prereg):
+    every long call gets the same 1/N of the book, N = all the names decided today in both sets (21): the weight the
+    deciding ledger (sgt.megacap.longonly) gives a call, so the paper book moves like the ledger that decides it and
+    its -5% stop means about -5% in the book. Until then megacap_targets sized it (1% at risk, up to 25% a stock) and
+    the book swung about 2.4 times the ledger. Rounded DOWN to 0.01%: all names long is never more than the book."""
+    n = len(positions)
+    return {s: (math.floor(1e4 / n) / 1e4 if p > 0 else 0.0) for s, p in positions.items()}
+
+
 def cmd_megacap_long(db: OpsStore, now: datetime | None = None) -> int:
     """Long calls only (prereg_megacap_long_forward_2026-11-13): the +1 positions of BOTH forward sets as the paper
-    book 'megacap_long', sized like the other model books, auto-executed. No order unless both sets hold a live 15:50
-    decision for today (fail closed: a half-universe book is not the pre-registered one)."""
+    book 'megacap_long', each call 1/N of the book (long_call_targets), auto-executed. No order unless both sets hold
+    a live 15:50 decision for today (fail closed: a half-universe book is not the pre-registered one)."""
     now_et = now or datetime.now(ET)
     positions: dict[str, int] = {}
     fill = None
@@ -476,7 +487,7 @@ def cmd_megacap_long(db: OpsStore, now: datetime | None = None) -> int:
         targets = {s: 0.0 for s in positions}
         label += f" STOPPED (ledger {lo['total']:+.1%}, below the {longonly.STOP:.0%} stop rule): flat"
     else:
-        targets = megacap_targets(positions)
+        targets = long_call_targets(positions)
     sms = Sms()
     try:
         res = book.propose(db, sms.send, strategy=LONG_BOOK, targets=targets, fill_session=fill,
