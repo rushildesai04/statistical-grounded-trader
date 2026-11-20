@@ -28,7 +28,8 @@ HALT_REASON = "no_entry"          # attach_trades status: no bar within 5 min of
 TESTED = {"L4a": -0.0119, "L4b": -0.0244, "L5": -0.0172, "L6": -0.0185, "L7a": -0.0187, "L7b": -0.0283,
           "S2": -0.0138,                  # training mean net per trade, prereg_long_setups_2026-11-10 (all FAIL)
           "L5v2": -0.0205, "S2v2": -0.0185,   # owner-graded bull flag v2, prereg_flag_v2_2026-11-10 (both FAIL)
-          "L8": -0.0079}                      # base break, training, official tape (long_cases_2026-11-19; held-out -1.12%)
+          "L8": -0.0069}                      # base break: the whole bot replayed on training alerts (free-feed candles,
+#                                               official results; long_bot_replay_2026-11-19; later period -0.83%)
 SHADOW_TESTED = [v for k, v in TESTED.items() if k != "L8"]   # what the shadow itself runs (L8 is the live book's)
 Bars = Callable[[str, str], pd.DataFrame]   # (symbol, session) -> RTH 1-minute bars, ts = bar start UTC
 Cost = Callable[[str, datetime, float], float]

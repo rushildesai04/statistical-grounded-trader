@@ -35,7 +35,7 @@ NAMES = {"L5v2": "bull flag breakout", "L5": "bull flag breakout (v1)", "L4b": "
          "L4a": "red-candle close", "L7b": "halt reopen: red-candle break", "L7a": "halt reopen: red-candle close"}
 TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31,     # prereg_long_setups training
             "L5v2": 199,                                                                   # prereg_flag_v2 training
-            "L8": 874}                                                        # long_cases_2026-11-19, training, official tape
+            "L8": 506}                                    # long_bot_replay_2026-11-19: training trades of the bot replay
 # 2026-11-19 (owner: "explore the problem and find a fix ... add on top of the complexity and cases for the LONG book";
 # docs/findings/long_cases_2026-11-19.md). The setups the LIVE book takes. Until this date it took the first of the
 # one-minute setups to fill (L4a/L4b first red candle, L6 break of structure, L7 halt reopen) with a stop at one
@@ -46,6 +46,10 @@ TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31
 # one-minute setups lost the most (-2.46% / -2.44%): waiting for the base is what skips them. Not yet a winner after
 # costs: it runs at test size until live trades decide. The one-minute setups are not deleted: they stay in the
 # nightly shadow (long_shadow) and can be put back by adding their kinds here.
+# 2026-11-19 night, the whole bot replayed (scripts/long_bot_replay.py, docs/findings/long_bot_replay_2026-11-19.md):
+# with the real tick loop on free-feed candles and official results the base break makes -0.89% / -1.01% a trade
+# (training / later period) and -1.85% on November's alerts, against -1.29% / -1.83% / -2.54% for the one-minute
+# setups: about a third of the dollars lost, never a profit. The base's width cap is 4% since then (patterns).
 LIVE_KINDS = ("L8", "L5v2")
 RULES_BASE = "B1"                    # long_trades.rules of a base-break long: stop under the base, 2R, HOLD; no red-candle
                                      # exit (that exit belongs to the one-minute setups it was tested on)
