@@ -126,6 +126,23 @@ def test_long_day_has_its_colour_and_dollars_in_the_total(db):
                             "break -5.0%")
 
 
+def test_longs_not_bought_for_cost_are_listed_and_counted_in_no_total(db):
+    # owner 2026-11-20 (decision A after SVRE): the day's skipped longs and the running check against the test
+    long_row(db, "WINR", "2026-11-09", "settled", 0.02)
+    long_row(db, "DEAR", "2026-11-09", "costly", -0.03)
+    long_row(db, "OLDR", "2026-11-06", "costly", -0.01)
+    text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    assert "longs not bought, cost above 1% (1; not in the total): DEAR" in text and "OLDR" not in text
+    assert "long cost check (longs not bought, since 11-06, in no total): 2 at -2.0% (tested -1.6%; reread at 50)" in text
+    alone = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    with db.tx() as c:
+        c.execute("DELETE FROM long_trades WHERE status='costly'")
+    without = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
+    assert "cost check" not in without and "not bought" not in without
+    head = lambda t: t.split("\n")[0]  # noqa: E731
+    assert head(alone) == head(without)                                 # the header total is the same without them
+
+
 def test_long_day_with_estimates_only_invents_no_dollars(db):
     long_row(db, "OPEN", "2026-11-09", "est_closed")
     text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])

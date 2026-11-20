@@ -2,12 +2,12 @@
 some minutes in a narrow range after the alert, buy the close above it and above VWAP, stop under the whole base."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
 
-from sgt.fast import long_armed as la, long_book as lb, long_shadow as ls
+from sgt.fast import est_costs, fade, long_armed as la, long_book as lb, long_shadow as ls
 from sgt.fast import patterns as pt
 from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore
@@ -164,12 +164,63 @@ def test_the_live_book_buys_the_base_break_and_says_so(db):
     assert 0 < t["weight"] <= lb.PROBE_USD / 100_000 + 1e-12     # test size, cut further by the stop distance
     assert sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.60')}")
     assert "🛑 stop $10.25 (-3.3%)" in sent[0]
-    assert f"🎲 Win chance {bold('34%')} · base break: " + italic("avg -0.7%/trade over 506 past trades") in sent[0]
+    assert f"🎲 Win chance {bold('34%')} · base break: " + italic("avg -0.5%/trade over 395 past trades") in sent[0]
     for k in range(29, 80):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     (t,) = trades(db)
     assert (t["status"], t["reason"], t["est_exit"]) == ("est_closed", "target", pytest.approx(11.3))
     assert len(sent) == 2 and sent[1].startswith(f"[SGT] 🟢 {bold('LONG OUT')} · {bold('ABCD')} · made")
+
+
+# ---- the cost cap (owner 2026-11-20, decision A after SVRE; prereg_long_cost_cap_2026-11-20) -------------------------
+
+LOW = DAY.assign(**{c: (DAY[c] * 0.3).round(4) for c in ("open", "high", "low", "close")})   # the same day at about $3
+
+
+def test_a_fill_is_dear_when_its_estimated_cost_is_above_one_percent(monkeypatch):
+    early, later = T1 + 13 * pt.BAR, T1 + 43 * pt.BAR            # 10:14 ET (the open hour) and 10:44 ET
+    trade = lambda ts, px: pt.Trade("L8", "long", ts, px, ts, px, "time", 0.0)  # noqa: E731
+    assert lb.costly("ABCD", trade(early, 3.18))                 # under $5 before 10:30: 1.25% round trip
+    assert not lb.costly("ABCD", trade(later, 3.18))             # the same stock after 10:30
+    assert not lb.costly("ABCD", trade(early, 10.6))             # $5 and up in the open hour
+    for c, dear in ((0.01, False), (0.0101, True), (None, False)):          # at the cap is bought; no estimate: not judged
+        monkeypatch.setattr(est_costs, "cost", lambda side, sym, at, px, c=c: c)
+        assert lb.costly("ABCD", trade(early, 3.18)) is dear
+
+
+def test_a_dear_long_is_not_bought_or_texted_and_is_scored_for_the_record(db):
+    alert_row(db)
+    sent, arms = [], []
+    for k in range(0, 2 * 50):
+        lb.tick(db, feed(LOW), sent.append, now=at(0, 30 * k), arm=arms.append)
+    (t,) = trades(db)                                            # one row: the alert gets no other long (as tested)
+    assert (t["kind"], t["status"], t["est_entry"], t["stop"]) == ("L8", "costly", pytest.approx(3.18), pytest.approx(3.075))
+    assert sent == [] and arms == []                             # no armed text for a fill the book will not buy
+    with db.tx() as c:
+        assert c.execute("SELECT note FROM long_armed").fetchone()["note"] == "cost above the cap"
+    assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None and lb.nav(db) == fade.NAV0
+    assert lb.costly_line(db, "2026-11-09") == "longs not bought, cost above 1% (1; not in the total): ABCD base break"
+    assert lb.cost_check_line(db) is None                        # nothing scored yet
+    (line,) = lb.settle(db, sip({"ABCD": LOW}), cost, now=NIGHT)
+    (t,) = trades(db)
+    assert t["status"] == "costly" and t["settled_at"] is not None and t["entry"] == pytest.approx(3.18)
+    assert t["net"] == pytest.approx(2 * (3.18 - 3.075) / 3.18 - COST)      # the 2R target on the official tape, after costs
+    assert line == f"ABCD L8 not bought (cost above 1%): would have made {t['net']:+.2%}"
+    assert lb.costly_line(db, "2026-11-09").endswith(f"ABCD base break {t['net']:+.1%}")
+    assert lb.cost_check_line(db) == (f"long cost check (longs not bought, since 11-09, in no total): 1 at {t['net']:+.1%} "
+                                      "(tested -1.6%; reread at 50)")
+    assert lb.nav(db) == fade.NAV0 and lb.record_line(db) is None and lb.today_line(db, "2026-11-09") is None
+    assert lb.settle(db, sip({"ABCD": LOW}), cost, now=NIGHT + timedelta(hours=1)) == []     # scored once
+
+
+def test_the_same_low_priced_stock_is_bought_after_the_open_hour(db):
+    posted = POSTED + pd.Timedelta(minutes=40)                   # 10:40 ET alert: the fill is at 10:54, cost 0.7%
+    late = LOW.assign(ts=LOW.ts + pd.Timedelta(minutes=40))
+    alert_row(db, posted=posted)
+    sent = []
+    assert lb.tick(db, feed(late), sent.append, now=at(54)) == 1          # the fill candle (10:54 ET) has closed
+    (t,) = trades(db)
+    assert t["status"] == "open" and t["est_entry"] == pytest.approx(3.18) and len(sent) == 1 and bold("BUY ABCD") in sent[0]
 
 
 def test_the_one_minute_setups_are_no_longer_bought_live(db):
@@ -277,7 +328,7 @@ def test_the_record_line_quotes_the_live_setups_tested_range(db):
         lb.tick(db, feed(DAY), [].append, now=at(0, 30 * k))
     lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT)
     line = lb.record_line(db)
-    assert "tested -2.1% to -0.7%" in line and "test size $500" in line
+    assert "tested -2.1% to -0.5%" in line and "test size $500" in line
 
 
 def test_a_crowded_day_reads_a_bounded_number_of_candidates_per_pass_and_starves_none(db, tmp_path, monkeypatch):

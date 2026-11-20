@@ -58,6 +58,15 @@ def can_win(symbol: str, s: pt.Setup, ref: float) -> bool:
     return c is None or pt.RR * (ref - s.stop) / ref > c
 
 
+def cheap(symbol: str, s: pt.Setup, ref: float) -> bool:
+    """False when the estimated cost at ``ref`` is above the long book's cap (``long_book.costly``'s rule): the book
+    will not buy that fill, so no armed text goes out for it."""
+    from sgt.fast import long_book
+
+    c = est_costs.cost("long", symbol, s.ready.to_pydatetime(), ref)
+    return c is None or c <= long_book.COST_CAP
+
+
 def group(f: pd.DataFrame, row: dict, now: datetime, latest: pd.Timestamp) -> tuple[pd.Timestamp, list[Line], str | None] | None:
     """The earliest pending long setups of this alert (same ``ready``), the lines worth texting, and why none is."""
     from sgt.fast import long_book
@@ -74,6 +83,8 @@ def group(f: pd.DataFrame, row: dict, now: datetime, latest: pd.Timestamp) -> tu
         ref = reference(f, s)
         if ref is None or not can_win(row["symbol"], s, ref):
             why = why or "cannot beat costs"
+        elif not cheap(row["symbol"], s, ref):
+            why = why or "cost above the cap"
         elif s.trigger is None and not fresh:
             why = "seen late"
         else:

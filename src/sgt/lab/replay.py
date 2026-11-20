@@ -192,7 +192,11 @@ def _longs(f: pd.DataFrame, symbol: str, session: str, posted: pd.Timestamp, lab
             x["name"] += " (target cannot beat costs: the book skips it)"
     can = [x for x in longs if not x["nowin"] and x["rule"] in long_book.LIVE_KINDS]
     if can:                                                  # the live long book takes the first of ITS setups that can win
-        min(can, key=lambda x: x["entry_time"])["book"] = True
+        first = min(can, key=lambda x: x["entry_time"])
+        if first["cost"] is not None and first["cost"] > long_book.COST_CAP:    # owner 2026-11-20: not bought
+            first["name"] += f" (cost above {long_book.COST_CAP:.0%}: the book does not buy this alert's long)"
+        else:
+            first["book"] = True
     return trades, idle
 
 

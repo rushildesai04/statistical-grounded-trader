@@ -104,6 +104,9 @@ def test_a_watched_long_and_a_no_win_skip_read_plainly():
     assert af.long_words("seen", None) == "long seen, not traded"
     assert af.long_words("seen", -0.025) == "long seen, not traded: would have made -2.5%"
     assert af.long_words("nowin", None) == "long setup skipped: its target could not beat costs"
+    # owner 2026-11-20: a long not bought for its cost stays listed with what it would have made
+    assert af.long_words("costly", None) == "long not bought: trading cost above 1%"
+    assert af.long_words("costly", -0.016) == "long not bought: trading cost above 1%: would have made -1.6%"
 
 
 def test_an_alert_not_shorted_shows_what_it_would_have_made_and_each_gate_is_summed(tmp_path):
