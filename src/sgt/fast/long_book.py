@@ -36,8 +36,9 @@ NAMES = {"L5v2": "bull flag breakout", "L5": "bull flag breakout (v1)", "L4b": "
          "L4a": "red-candle close", "L7b": "halt reopen: red-candle break", "L7a": "halt reopen: red-candle close"}
 TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31,     # prereg_long_setups training
             "L5v2": 199,                                                                   # prereg_flag_v2 training
-            "L8": 395}       # bot replay, training trades at or under the cost cap (prereg_long_cost_cap_2026-11-20)
-TESTED_WIN = {"L8": 0.34}     # share of those 395 trades that made money; no win rate is stored for the other setups
+            "L8": 255}       # bot replay, training trades the book still takes: at or under the cost cap and not while
+#                              our short is open (prereg_long_cost_cap / prereg_long_while_short, 2026-11-20)
+TESTED_WIN = {"L8": 0.37}     # share of those 255 trades that made money; no win rate is stored for the other setups
 # 2026-11-19 (owner: "explore the problem and find a fix ... add on top of the complexity and cases for the LONG book";
 # docs/findings/long_cases_2026-11-19.md). The setups the LIVE book takes. Until this date it took the first of the
 # one-minute setups to fill (L4a/L4b first red candle, L6 break of structure, L7 halt reopen) with a stop at one
@@ -189,6 +190,23 @@ def costly(symbol: str, t: pt.Trade) -> bool:
     return c is not None and c > COST_CAP
 
 
+# Owner 2026-11-20 (JMIA: short from $2.78 and, twenty minutes later, long the same stock; his rule "no long while our
+# short on it is open"; docs/findings/prereg_long_while_short_2026-11-20.md). A real account cannot hold both sides of
+# one stock: the buy would close the short. Bot replay, longs taken while the short is open against the others:
+# training -0.95% (n 179) against -0.54% (n 327), held-out -1.47% (n 64) against -0.35% (n 86), p 0.08 (PASS as
+# registered, not proof). A fill on a stock whose fade is open is NOT bought and not texted: recorded as ``short_open``
+# with its entry, scored each night like a watched long (never in a total), reread at SHORT_REREAD; the alert gets no
+# other long (as tested). With the cost cap about half the longs remain (-0.26% / -0.23% a trade): less loss, no profit.
+SHORT_TESTED, SHORT_REREAD = -0.0147, 50      # held-out mean net of the longs taken while the short was open
+
+
+def short_open(db: OpsStore, symbol: str, session: str) -> bool:
+    """True while the short book holds an open fade on this stock today."""
+    with db.tx() as c:
+        return c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND status='open' LIMIT 1",
+                         (symbol, session)).fetchone() is not None
+
+
 Fill = tuple[pt.Setup, pt.Trade]
 
 
@@ -232,7 +250,8 @@ def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> Fill | None:
 OFF_FLAG = "long_off"
 SEEN, NOWIN = "seen", "nowin"       # long_trades.status: watched while off / filled but could not beat costs
 COSTLY = "costly"                   # filled, not bought: estimated cost above COST_CAP (owner 2026-11-20)
-WATCHED = (SEEN, COSTLY)            # never a trade, never in a total; scored nightly on the official tape
+SHORT_OPEN = "short_open"           # filled, not bought: our own short on the stock was open (owner 2026-11-20)
+WATCHED = (SEEN, COSTLY, SHORT_OPEN)   # never a trade, never in a total; scored nightly on the official tape
 
 
 def is_off(db: OpsStore) -> bool:
@@ -294,7 +313,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
             if hit is None:
                 if _window_over(row, now):                 # nothing the book takes: say whether a no-win fill was why
                     _insert(db, row, *(dead or (None, None)), NOWIN if dead else "none", now)
-                elif arm is not None and len(f):
+                elif arm is not None and len(f) and not short_open(db, row["symbol"], row["session"]):
                     _arm(db, row, f, now, off, arm, matrix_line(raw, now))
                 continue
             s, t = hit
@@ -304,6 +323,9 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if costly(row["symbol"], t):                   # owner 2026-11-20: not bought, not texted, scored nightly
                 _insert(db, row, s, t, COSTLY, now)
+                continue
+            if short_open(db, row["symbol"], row["session"]):   # owner 2026-11-20: one account, one side
+                _insert(db, row, s, t, SHORT_OPEN, now)
                 continue
             if off:
                 if _insert(db, row, s, t, SEEN, now):
@@ -480,7 +502,7 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
             "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules, reason FROM long_trades WHERE "
-            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status IN (?,?) AND settled_at IS NULL) "
+            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status IN (?,?,?) AND settled_at IS NULL) "
             "ORDER BY id", WATCHED)]
     out = []
     stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
@@ -526,6 +548,8 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
         return None
     if r["status"] == COSTLY:
         return f"{r['symbol']} {r['kind']} not bought (cost above {COST_CAP:.0%}): would have made {net:+.2%}"
+    if r["status"] == SHORT_OPEN:
+        return f"{r['symbol']} {r['kind']} not bought (our short was open): would have made {net:+.2%}"
     if seen:
         return f"{r['symbol']} {r['kind']} seen, not traded: would have made {net:+.2%}"
     was = f" (re-scored, was {float(r['net']):+.2%})" if r["status"] == "settled" and r["net"] is not None else ""
@@ -676,6 +700,29 @@ def cost_check_line(db: OpsStore) -> str | None:
         return None
     return (f"long cost check (longs not bought, since {since[5:]}, in no total): {n} at {m:+.1%} "
             f"(tested {COST_TESTED:+.1%}; reread at {COST_REREAD})")
+
+
+def short_open_line(db: OpsStore, session: str) -> str | None:
+    """Digest line for the day's longs NOT bought because our own short on the stock was open (never in a total)."""
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, kind, net FROM long_trades WHERE session=? AND status=? ORDER BY id",
+                         (session, SHORT_OPEN)).fetchall()
+    if not rows:
+        return None
+    bits = [f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])}" + ("" if r["net"] is None else f" {r['net']:+.1%}")
+            for r in rows]
+    return f"longs not bought, our short was open ({len(rows)}; not in the total): " + ", ".join(bits)
+
+
+def short_check_line(db: OpsStore) -> str | None:
+    """The short-open rule against its own test, every night (as cost_check_line). It never changes the rule."""
+    with db.tx() as c:
+        n, m, since = c.execute("SELECT COUNT(*), AVG(net), MIN(session) FROM long_trades WHERE status=? AND net IS NOT "
+                                "NULL", (SHORT_OPEN,)).fetchone()
+    if not n:
+        return None
+    return (f"long short-open check (longs not bought, since {since[5:]}, in no total): {n} at {m:+.1%} "
+            f"(tested {SHORT_TESTED:+.1%}; reread at {SHORT_REREAD})")
 
 
 def record_line(db: OpsStore) -> str | None:

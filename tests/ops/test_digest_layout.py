@@ -131,14 +131,18 @@ def test_longs_not_bought_for_cost_are_listed_and_counted_in_no_total(db):
     long_row(db, "WINR", "2026-11-09", "settled", 0.02)
     long_row(db, "DEAR", "2026-11-09", "costly", -0.03)
     long_row(db, "OLDR", "2026-11-06", "costly", -0.01)
+    long_row(db, "BOTH", "2026-11-09", "short_open", -0.02)
+    long_row(db, "WASB", "2026-11-05", "short_open", 0.01)
     text = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
     assert "longs not bought, cost above 1% (1; not in the total): DEAR" in text and "OLDR" not in text
     assert "long cost check (longs not bought, since 11-06, in no total): 2 at -2.0% (tested -1.6%; reread at 50)" in text
+    assert "longs not bought, our short was open (1; not in the total): BOTH" in text and "WASB" not in text
+    assert "long short-open check (longs not bought, since 11-05, in no total): 2 at -0.5% (tested -1.5%; reread at 50)" in text
     alone = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
     with db.tx() as c:
-        c.execute("DELETE FROM long_trades WHERE status='costly'")
+        c.execute("DELETE FROM long_trades WHERE status IN ('costly', 'short_open')")
     without = digest.build(db, NOW, fills=[], problems=[], broker=None, research=[])
-    assert "cost check" not in without and "not bought" not in without
+    assert "cost check" not in without and "short-open check" not in without and "not bought" not in without
     head = lambda t: t.split("\n")[0]  # noqa: E731
     assert head(alone) == head(without)                                 # the header total is the same without them
 

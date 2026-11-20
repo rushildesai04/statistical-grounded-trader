@@ -297,6 +297,8 @@ def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     off += [f"\U0001F440 {seen}"] if seen else []
     dear = long_book.costly_line(db, day.isoformat())           # owner 2026-11-20: listed, never bought or counted
     off += [f"\U0001F440 {dear}"] if dear else []
+    both = long_book.short_open_line(db, day.isoformat())       # owner 2026-11-20: one account, one side
+    off += [f"\U0001F440 {both}"] if both else []
     from sgt.fast import text_px                                    # 2026-11-18: booked price vs the price at the text
 
     late = text_px.line(db, day.isoformat())
@@ -445,6 +447,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         cl = long_book.cost_check_line(db)       # owner 2026-11-20: the long cost cap against its test
         if cl:
             lines.append(cl)
+        sl = long_book.short_check_line(db)      # owner 2026-11-20: no long while our short is open, against its test
+        if sl:
+            lines.append(sl)
     except Exception:  # noqa: BLE001 - informational line
         lines.append("gates check: unavailable")
     lines += [f"{bold('live vs tested')}: {r}" for r in record]

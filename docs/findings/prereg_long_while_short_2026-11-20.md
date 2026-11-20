@@ -71,3 +71,8 @@ applied, the longs that remain are half of today's (training 255 of 506, held-ou
 short book does not take (company news, or a stock alerted in the prior 7 days); whether one of those two is where
 a long earns is a question for a new registered test or the forward record, not for these files today.
 
+## Decision (2026-11-20): added, by the owner's merge of the rule's pull request
+Put to the owner as "add it" or "record only". The rule was built as its own pull request so that merging it is the
+decision. Live rule: `long_book.short_open` (PLAYBOOK section 2). The skipped longs are scored each night and counted
+in no total; the count is reread with the owner at 50 against the held-out -1.47%.
+

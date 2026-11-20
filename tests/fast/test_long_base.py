@@ -164,7 +164,7 @@ def test_the_live_book_buys_the_base_break_and_says_so(db):
     assert 0 < t["weight"] <= lb.PROBE_USD / 100_000 + 1e-12     # test size, cut further by the stop distance
     assert sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.60')}")
     assert "🛑 stop $10.25 (-3.3%)" in sent[0]
-    assert f"🎲 Win chance {bold('34%')} · base break: " + italic("avg -0.5%/trade over 395 past trades") in sent[0]
+    assert f"🎲 Win chance {bold('37%')} · base break: " + italic("avg -0.3%/trade over 255 past trades") in sent[0]
     for k in range(29, 80):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     (t,) = trades(db)
@@ -221,6 +221,63 @@ def test_the_same_low_priced_stock_is_bought_after_the_open_hour(db):
     assert lb.tick(db, feed(late), sent.append, now=at(54)) == 1          # the fill candle (10:54 ET) has closed
     (t,) = trades(db)
     assert t["status"] == "open" and t["est_entry"] == pytest.approx(3.18) and len(sent) == 1 and bold("BUY ABCD") in sent[0]
+
+
+# ---- no long while our own short on the stock is open (owner 2026-11-20, JMIA; prereg_long_while_short_2026-11-20) --
+
+def short_row(db, sym, status, session="2026-11-09"):
+    with db.tx() as c:
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, weight, "
+                  "created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                  (sym, session, "new_high", POSTED.isoformat(), "-1", 90_000 + hash((sym, status, session)) % 9_000, status,
+                   0.0125, POSTED.isoformat()))
+
+
+@pytest.mark.parametrize("status, session, held", [("open", "2026-11-09", True), ("est_closed", "2026-11-09", False),
+                                                   ("filtered", "2026-11-09", False), ("open", "2026-11-06", False)])
+def test_the_short_counts_as_open_only_while_it_is_open_today(db, status, session, held):
+    short_row(db, "ABCD", status, session)
+    short_row(db, "WXYZ", "open")                                # another stock's short is no reason
+    assert lb.short_open(db, "ABCD", "2026-11-09") is held
+
+
+def test_a_long_is_not_bought_or_texted_while_our_short_on_the_stock_is_open(db):
+    fid = alert_row(db)
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET status='open' WHERE id=?", (fid,))        # the short book took this alert
+    sent, arms = [], []
+    for k in range(0, 2 * 14 + 1):                               # up to the minute the base break fills
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), arm=arms.append)
+    (t,) = trades(db)
+    assert (t["kind"], t["status"], t["est_entry"], t["stop"]) == ("L8", "short_open", 10.6, 10.25)
+    assert sent == [] and arms == []                             # no armed text either: it will not be bought
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET status='est_closed' WHERE id=?", (fid,))   # the short closes: still no long
+    for k in range(29, 60):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), arm=arms.append)
+    assert [x["status"] for x in trades(db)] == ["short_open"] and sent == [] and arms == []
+    assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None and lb.nav(db) == fade.NAV0
+    assert lb.short_open_line(db, "2026-11-09") == "longs not bought, our short was open (1; not in the total): ABCD base break"
+    assert lb.short_check_line(db) is None
+    (line,) = lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT)
+    (t,) = trades(db)
+    assert t["status"] == "short_open" and t["settled_at"] is not None and t["net"] == pytest.approx(11.3 / 10.6 - 1 - COST)
+    assert line == f"ABCD L8 not bought (our short was open): would have made {t['net']:+.2%}"
+    assert lb.short_check_line(db) == (f"long short-open check (longs not bought, since 11-09, in no total): 1 at {t['net']:+.1%} "
+                                       "(tested -1.5%; reread at 50)")
+    assert lb.nav(db) == fade.NAV0 and lb.cost_check_line(db) is None and lb.costly_line(db, "2026-11-09") is None
+    assert lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT + timedelta(hours=1)) == []
+
+
+def test_a_long_is_bought_once_our_short_on_the_stock_has_closed(db):
+    fid = alert_row(db)
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET status='est_closed' WHERE id=?", (fid,))  # short already out (stop or time)
+    sent, arms = [], []
+    for k in range(0, 2 * 14 + 1):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), arm=arms.append)
+    (t,) = trades(db)
+    assert t["status"] == "open" and len(arms) == 1 and len(sent) == 1 and bold("BUY ABCD") in sent[0]
 
 
 def test_the_one_minute_setups_are_no_longer_bought_live(db):
@@ -328,7 +385,7 @@ def test_the_record_line_quotes_the_live_setups_tested_range(db):
         lb.tick(db, feed(DAY), [].append, now=at(0, 30 * k))
     lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT)
     line = lb.record_line(db)
-    assert "tested -2.1% to -0.5%" in line and "test size $500" in line
+    assert "tested -2.1% to -0.3%" in line and "test size $500" in line
 
 
 def test_a_crowded_day_reads_a_bounded_number_of_candidates_per_pass_and_starves_none(db, tmp_path, monkeypatch):
