@@ -724,6 +724,12 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **Intraday trend rule on SPY / QQQ: recorded forward, never traded (2026-11-19, owner: "Record forward";
+  `prereg_noise_area_forward_2026-11-19`).** The rule failed its test on SPY; QQQ looked good but was only a
+  robustness check. From 2026-11-20 the nightly job `noiseforward` (21:16 ET) scores each finished session of both
+  with the frozen rule and appends it to `reports/noise_area_forward/ledger.csv`; the nightly summary shows one
+  line. No order, no text, in no total. Decided once at 250 sessions each (about a year): mean daily net return
+  above zero with its lower bound above zero, alpha 0.05 / 2. Until then the running numbers are not a result.
 - **Long book cases (2026-11-19, `docs/findings/long_cases_2026-11-19.md`): the entry was the flaw the earlier tests
   could not see.** Every earlier long test asked "one rule for every alert" and bought a one-minute structure with
   a one-candle stop; none looked at what the stock did after the alert before buying. Exploration over 3,277 alerts,

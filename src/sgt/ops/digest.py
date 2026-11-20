@@ -411,6 +411,11 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             lines.append(f"{bold('long shadow')} " + ls.removeprefix("long shadow "))
     except Exception:  # noqa: BLE001 - informational line
         lines.append("long shadow: record unavailable")
+    from sgt.ops import forward_record
+
+    nl = forward_record.noise_area_line()        # owner 2026-11-19: recorded, never traded, in no total
+    if nl:
+        lines.append(nl)
     lines += [f"{bold('live vs tested')}: {r}" for r in record]
     try:
         lines += [f"{bold('fade exec')}: " + x.removeprefix("fade exec: ") for x in realism.lines(db)]
