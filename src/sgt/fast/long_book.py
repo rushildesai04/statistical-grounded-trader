@@ -64,6 +64,16 @@ MARGIN = pd.Timedelta(minutes=15)                           # candidates outlive
 # bar started longer ago than this was not seen live (restart, outage): recorded as 'missed', never traded or texted.
 # Normal detection is the fill bar's close + one 30 s pass, well inside it. A missed fill is never scored officially.
 LIVE_LAG = pd.Timedelta(minutes=5)
+# Owner 2026-11-20 ("the main thing was being able to get in at the right time, which is not something we are doing
+# optimally for LONGs"; docs/findings/long_entry_timing_2026-11-20.md): a base break is a market order by rule, fixed
+# the moment its candle closes, yet the book booked and texted it only when the NEXT feed candle had closed: all 23
+# live longs since 2026-11-11 were booked 62 to 88 s after the minute of the price in their text. On the training trades of the live configuration
+# the same buy one minute later made 0.46 points less per trade (403 trades), and the break candle's close was nearer
+# the tape's price at that moment than the feed's next open (0.43% against 0.61% off). So the buy is booked when the
+# break candle closes, at that close, while it is this fresh; the official result is the tape's price in that minute
+# (``_score``: the same market order, replayed from the minute the candle closed). Seen later than this (a restart, a
+# feed outage): the old path, the feed's next candle.
+AT_CLOSE = pd.Timedelta(seconds=90)
 # prereg_long_risk_2026-11-12 addendum A2 (owner chose "both, test the combination first"; it passed): size each long
 # by its risk, w = min(1, RISK_D50 / stop distance), and sell at the next open when the fill candle closes below the
 # entry (patterns.simulate red_exit). Training per dollar -1.88% vs -2.29%, held-out -1.91% vs -2.37%: still losing.
@@ -233,6 +243,32 @@ def fills(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> tuple[Fill | None
     return pick(ok), pick(dead)
 
 
+def at_close(f: pd.DataFrame, row: dict, now: datetime, latest: pd.Timestamp) -> Fill | None:
+    """The base break whose candle has just closed, bought now at that close (see AT_CLOSE). None when the candle
+    closed longer ago than AT_CLOSE, when the feed already shows a later candle (``fills`` decides then), when another
+    long order of this alert is still pending (the first to fill is taken, as tested), or when the buy cannot beat
+    its cost (``no_win``: the feed's own fill is judged later, as before)."""
+    from sgt.fast import long_armed
+
+    live = [s for s in live_setups(f, row) if s.side == "long" and long_armed.pending(f, s, now, latest)]
+    if len(live) != 1 or live[0].kind != "L8" or live[0].trigger is not None:
+        return None
+    s = live[0]
+    if pd.Timestamp(now) - s.ready > AT_CLOSE:
+        return None
+    ref = long_armed.reference(f, s)
+    if ref is None or not ref > s.stop:
+        return None
+    t = pt.Trade(s.kind, "long", s.ready, ref, s.ready, ref, "open", 0.0)
+    return None if no_win(row["symbol"], s, t) else (s, t)
+
+
+def at_close_line(s: pt.Setup, now: datetime) -> str:
+    """The LONG IN card's line for a buy booked when the break candle closed (it starts with a newline)."""
+    ago = max(0, int((pd.Timestamp(now) - s.ready).total_seconds()))
+    return f"\n⏱ Break candle closed {s.ready.tz_convert(ET):%H:%M:%S} ET ({ago}s ago): buy at market now"
+
+
 def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> Fill | None:
     """The first long setup to fill that the book would take (None = none yet)."""
     return fills(f, row, latest)[0]
@@ -291,9 +327,10 @@ def _turn(rows: list[dict], now: datetime) -> list[dict]:
 
 
 def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None) -> int:
-    """One pass: open new longs, then advance open ones. Returns the number of longs opened. ``arm`` (a text sender,
-    owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills (``sgt.fast.long_armed``);
-    None = no armed texts. ``rule`` (a text sender): the trader's rule is texted when it would leave a long
+    """One pass: open new longs, then advance open ones. Returns the number of longs opened. A base break is opened
+    when its candle closes (``at_close``, owner 2026-11-20), any other fill when the feed shows it. ``arm`` (a text
+    sender, owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills
+    (``sgt.fast.long_armed``); None = no armed texts. ``rule`` (a text sender): the trader's rule is texted when it would leave a long
     (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way."""
     now = now or utcnow()
     opened = 0
@@ -309,7 +346,12 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                     continue
             raw = bars(row["symbol"], now)
             f = rth(raw, now)
-            hit, dead = fills(f, row, long_shadow._latest(row["session"])) if len(f) else (None, None)
+            latest = long_shadow._latest(row["session"])
+            hit, dead = fills(f, row, latest) if len(f) else (None, None)
+            now_line = ""
+            if hit is None and len(f):
+                hit = at_close(f, row, now, latest)        # owner 2026-11-20: bought when the break candle closes
+                now_line = at_close_line(hit[0], now) if hit else ""
             if hit is None:
                 if _window_over(row, now):                 # nothing the book takes: say whether a no-win fill was why
                     _insert(db, row, *(dead or (None, None)), NOWIN if dead else "none", now)
@@ -329,11 +371,11 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if off:
                 if _insert(db, row, s, t, SEEN, now):
-                    send(seen_text(db, row["symbol"], s, t) + matrix_line(raw, now))
+                    send(seen_text(db, row["symbol"], s, t) + now_line + matrix_line(raw, now))
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
-                send(entry_text(db, row["symbol"], s, t, matrix_line(raw, now) + context_line(db, row["id"])))
+                send(entry_text(db, row["symbol"], s, t, now_line + matrix_line(raw, now) + context_line(db, row["id"])))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
     _advance(db, bars, send, now)

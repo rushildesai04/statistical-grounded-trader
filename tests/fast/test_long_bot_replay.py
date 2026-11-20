@@ -36,7 +36,7 @@ def cost(sym, ts, px):
 def test_the_new_book_buys_the_base_break_and_the_old_one_the_red_candle_on_the_same_alert(tmp_path):
     new = br.one(("new", EV, DAY, DAY), tmp_path, cost)
     assert (new["status"], new["kind"], new["rules"], new["est_entry"], new["exit_reason"]) == ("settled", "L8", "B1", 10.6, "target")
-    assert new["net"] == pytest.approx(2 * (10.6 - 10.25) / 10.6 - COST) and new["texts"] == 2 and new["armed"] == 1
+    assert new["net"] == pytest.approx(2 * (10.6 - 10.25) / 10.6 - COST) and new["texts"] == 2 and new["armed"] == 0
     assert new["risk"] == pytest.approx((10.6 - 10.25) / 10.6) and 0 < new["weight"] <= lb.PROBE_USD / fade.NAV0
     old = br.one(("old", EV, DAY, DAY), tmp_path, cost)
     assert (old["status"], old["rules"]) == ("settled", "A2") and old["kind"] in ("L4a", "L4b") and old["entry_ts"] < new["entry_ts"]

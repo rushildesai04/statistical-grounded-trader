@@ -156,14 +156,15 @@ def test_empty_bars_give_nothing():
 def test_the_live_book_buys_the_base_break_and_says_so(db):
     alert_row(db)
     sent = []
-    assert lb.tick(db, feed(DAY), sent.append, now=at(13)) == 0 and trades(db) == []    # break closed, fill candle not
-    assert lb.tick(db, feed(DAY), sent.append, now=at(14)) == 1
+    assert lb.tick(db, feed(DAY), sent.append, now=at(12, 55)) == 0 and trades(db) == []   # break candle not closed
+    assert lb.tick(db, feed(DAY), sent.append, now=at(13, 5)) == 1                # closed 5 s ago: bought at its close
     (t,) = trades(db)
     assert (t["kind"], t["est_entry"], t["stop"], t["trigger"], t["status"], t["rules"]) == ("L8", 10.6, 10.25, None, "open", "B1")
     assert t["target"] == pytest.approx(11.3) and pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR
     assert 0 < t["weight"] <= lb.PROBE_USD / 100_000 + 1e-12     # test size, cut further by the stop distance
     assert sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.60')}")
     assert "🛑 stop $10.25 (-3.3%)" in sent[0]
+    assert "\n⏱ Break candle closed 10:14:00 ET (5s ago): buy at market now" in sent[0]
     assert f"🎲 Win chance {bold('37%')} · base break: " + italic("avg -0.3%/trade over 255 past trades") in sent[0]
     for k in range(29, 80):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
@@ -195,9 +196,10 @@ def test_a_dear_long_is_not_bought_or_texted_and_is_scored_for_the_record(db):
         lb.tick(db, feed(LOW), sent.append, now=at(0, 30 * k), arm=arms.append)
     (t,) = trades(db)                                            # one row: the alert gets no other long (as tested)
     assert (t["kind"], t["status"], t["est_entry"], t["stop"]) == ("L8", "costly", pytest.approx(3.18), pytest.approx(3.075))
-    assert sent == [] and arms == []                             # no armed text for a fill the book will not buy
+    assert sent == [] and arms == []                             # no text at all for a buy the book will not make
     with db.tx() as c:
-        assert c.execute("SELECT note FROM long_armed").fetchone()["note"] == "cost above the cap"
+        assert c.execute("SELECT COUNT(*) FROM long_armed").fetchone()[0] == 0   # decided when the break candle closed
+    assert pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR
     assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None and lb.nav(db) == fade.NAV0
     assert lb.costly_line(db, "2026-11-09") == "longs not bought, cost above 1% (1; not in the total): ABCD base break"
     assert lb.cost_check_line(db) is None                        # nothing scored yet
@@ -277,7 +279,7 @@ def test_a_long_is_bought_once_our_short_on_the_stock_has_closed(db):
     for k in range(0, 2 * 14 + 1):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), arm=arms.append)
     (t,) = trades(db)
-    assert t["status"] == "open" and len(arms) == 1 and len(sent) == 1 and bold("BUY ABCD") in sent[0]
+    assert t["status"] == "open" and arms == [] and len(sent) == 1 and bold("BUY ABCD") in sent[0]
 
 
 def test_the_one_minute_setups_are_no_longer_bought_live(db):
@@ -330,10 +332,10 @@ def test_after_a_halt_the_base_is_built_from_the_reopen_and_the_reopen_red_candl
     found, start = ls.setups(day, {"posted_at": POSTED.isoformat(), "status": "live"})
     assert start == reopen and {s.kind for s in found} & {"L7a", "L7b"}
     sent = []
-    for k in range(0, 2 * 13 + 1):
+    for k in range(0, 2 * 13):
         assert lb.tick(db, feed(day), sent.append, now=(reopen + pd.Timedelta(seconds=30 * k)).to_pydatetime()) == 0
-    assert trades(db) == []                                      # 13 minutes after the reopen: nothing bought
-    assert lb.tick(db, feed(day), sent.append, now=(reopen + 14 * pt.BAR).to_pydatetime()) == 1
+    assert trades(db) == []                                      # until the break candle closes: nothing bought
+    assert lb.tick(db, feed(day), sent.append, now=(reopen + 13 * pt.BAR).to_pydatetime()) == 1
     (t,) = trades(db)
     assert (t["kind"], t["rules"], t["est_entry"], t["stop"]) == ("L8", "B1", 10.6, 10.25)
     assert pd.Timestamp(t["entry_ts"]) == reopen + 13 * pt.BAR
@@ -366,17 +368,120 @@ def test_the_official_result_replays_the_live_base_break_order_on_the_tape(db):
     assert line == f"ABCD L8 {target / entry - 1 - COST:+.2%}"   # the live stop, the 2R target from the official fill
 
 
-def test_the_heads_up_text_calls_the_base_break_when_its_candle_closes(db):
+# ---- bought when the break candle closes (owner 2026-11-20: "get in at the right time"; long_entry_timing_2026-11-20) --
+THIN = at_minutes([(0, SPIKE)] + [(m, QUIET) for m in range(1, 12)] + [(12, BREAK), (16, FILL), (17, RUN)]
+                  + [(m, AFTER) for m in range(18, 60)])          # the feed has no candle for three minutes after the break
+
+
+def test_a_base_break_is_bought_when_its_candle_closes_and_needs_no_heads_up_text(db):
     alert_row(db)
-    fills, arms = [], []
-    lb.tick(db, feed(DAY), fills.append, now=at(12, 50), arm=arms.append)       # 15:13 candle not closed
-    assert arms == []
-    lb.tick(db, feed(DAY), fills.append, now=at(13, 10), arm=arms.append)       # closed 10 s ago
-    assert len(arms) == 1 and fills == [] and trades(db) == []
-    assert "base break: buy at market now, last $10.60" in arms[0] and "stop $10.25" in arms[0]
+    sent, arms = [], []
+    lb.tick(db, feed(DAY), sent.append, now=at(12, 50), arm=arms.append)        # 15:13 candle not closed
+    assert sent == [] and arms == [] and trades(db) == []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(13, 10), arm=arms.append) == 1      # closed 10 s ago
+    (t,) = trades(db)
+    assert (t["status"], t["est_entry"], t["stop"]) == ("open", 10.6, 10.25) and pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR
+    assert arms == [] and len(sent) == 1 and "(10s ago): buy at market now" in sent[0]
+    with db.tx() as c:
+        assert c.execute("SELECT COUNT(*) FROM long_armed").fetchone()[0] == 0
     row = {"id": 1, "symbol": "ABCD", "session": "2026-11-09", "posted_at": POSTED.isoformat()}
     _, lines, _ = la.group(DAY.iloc[:13], row, at(13, 10), ls._latest("2026-11-09"))
-    assert [s.kind for s, _ in lines] == ["L8"]
+    assert [s.kind for s, _ in lines] == ["L8"]                  # the order the heads-up text would have named
+
+
+def test_the_buy_does_not_wait_for_a_feed_that_goes_quiet_and_the_official_price_is_that_minutes(db):
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(THIN), sent.append, now=at(13, 5)) == 1               # no feed candle for 3 more minutes
+    (t,) = trades(db)
+    assert pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR and t["est_entry"] == 10.6
+    for k in range(27, 80):
+        lb.tick(db, feed(THIN), sent.append, now=at(0, 30 * k))
+    (t,) = trades(db)
+    assert (t["status"], t["reason"], t["est_exit"]) == ("est_closed", "target", pytest.approx(11.3))
+    tape = DAY.copy()
+    tape.loc[13, "open"] = 10.5                                  # the full tape's first price of the minute the candle closed
+    (line,) = lb.settle(db, sip({"ABCD": tape}), cost, now=NIGHT)
+    (t,) = trades(db)
+    assert t["entry"] == 10.5 and pd.Timestamp(t["fill_ts"]) == T1 + 13 * pt.BAR
+    assert line == f"ABCD L8 {2 * (10.5 - 10.25) / 10.5 - COST:+.2%}"
+
+
+def test_a_break_seen_late_is_bought_the_old_way_on_the_feeds_next_candle(db):
+    alert_row(db)
+    sent, arms = [], []
+    assert lb.tick(db, feed(THIN), sent.append, now=at(13, 91), arm=arms.append) == 0     # first look 91 s after the close
+    assert trades(db) == [] and sent == [] and arms == []
+    with db.tx() as c:
+        assert c.execute("SELECT note FROM long_armed").fetchone()["note"] == "seen late"
+    assert lb.tick(db, feed(THIN), sent.append, now=at(17), arm=arms.append) == 1          # the feed's next candle closed
+    (t,) = trades(db)
+    assert pd.Timestamp(t["entry_ts"]) == T1 + 16 * pt.BAR and t["est_entry"] == 10.6 and "⏱" not in sent[0]
+
+
+def test_exactly_ninety_seconds_after_the_close_is_still_bought_at_the_close(db):
+    alert_row(db)
+    assert lb.AT_CLOSE == pd.Timedelta(seconds=90)
+    assert lb.tick(db, feed(THIN), [].append, now=at(13, 90)) == 1
+    assert pd.Timestamp(trades(db)[0]["entry_ts"]) == T1 + 13 * pt.BAR
+
+
+def test_no_buy_at_the_close_while_another_order_of_the_alert_is_pending(db, monkeypatch):
+    alert_row(db)
+    real = lb.live_setups
+    flag = pt.Setup("L5v2", "long", T1 + 10 * pt.BAR, 11.0, 10.2)                # a buy-stop still alive at 15:14
+    monkeypatch.setattr(lb, "live_setups", lambda f, row: [flag] + real(f, row))
+    monkeypatch.setattr(pt, "TRIGGER_BARS", 10)
+    sent, arms = [], []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(13, 5), arm=arms.append) == 0
+    assert trades(db) == [] and sent == [] and len(arms) == 1    # the heads-up text names the pending orders instead
+    assert lb.tick(db, feed(DAY), sent.append, now=at(14, 5), arm=arms.append) == 1        # first to fill: the base break
+    (t,) = trades(db)
+    assert (t["kind"], t["est_entry"]) == ("L8", 10.6) and pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR and "⏱" not in sent[0]
+
+
+def test_a_pending_buy_stop_is_never_bought_at_a_candle_close(db, monkeypatch):
+    alert_row(db)
+    flag = pt.Setup("L5v2", "long", T1 + 13 * pt.BAR, 11.0, 10.2)                # the alert's only order: a buy-stop
+    monkeypatch.setattr(lb, "live_setups", lambda f, row: [flag])
+    sent, arms = [], []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(13, 5), arm=arms.append) == 0
+    assert trades(db) == [] and sent == [] and len(arms) == 1 and "buy-stop $11.00" in arms[0]
+
+
+def test_a_buy_that_cannot_beat_its_cost_at_the_close_is_left_to_the_feeds_fill(db, monkeypatch):
+    alert_row(db)
+    monkeypatch.setattr(lb, "no_win", lambda sym, s, t: t.exit_ts == t.entry_ts)         # only the at-close buy is judged dead
+    assert lb.tick(db, feed(DAY), [].append, now=at(13, 5)) == 0 and trades(db) == []
+    assert lb.at_close(lb.rth(DAY, at(13, 5)), {"id": 1, "symbol": "ABCD", "session": "2026-11-09",
+                                               "posted_at": POSTED.isoformat()}, at(13, 5), ls._latest("2026-11-09")) is None
+
+
+def test_at_the_close_the_measure_only_book_sends_its_seen_text(db):
+    alert_row(db)
+    db.set_flag(lb.OFF_FLAG, "1")
+    sent = []
+    assert lb.tick(db, feed(DAY), sent.append, now=at(13, 5)) == 0
+    (t,) = trades(db)
+    assert t["status"] == "seen" and len(sent) == 1 and "LONG SEEN" in sent[0] and "(5s ago): buy at market now" in sent[0]
+
+
+def test_a_feed_candle_that_opens_under_the_stop_after_the_buy_closes_it_there(db):
+    gap = bars([SPIKE] + [QUIET] * 11 + [BREAK, (10.2, 10.3, 10.1, 10.2, 300)] + [AFTER] * 30)
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(gap), sent.append, now=at(13, 5)) == 1
+    lb.tick(db, feed(gap), sent.append, now=at(14, 5))
+    (t,) = trades(db)
+    assert (t["status"], t["reason"], t["est_exit"]) == ("est_closed", "stop", 10.2) and len(sent) == 2
+
+
+def test_no_buy_at_the_close_once_the_last_entry_minute_has_passed(db):
+    posted = pd.Timestamp("2026-11-09 20:32:20", tz="UTC")       # 15:32 ET alert: the break candle closes at 15:46 ET
+    late = DAY.assign(ts=DAY.ts + (posted.floor("min") - POSTED.floor("min")))
+    alert_row(db, posted=posted)
+    now = (posted.floor("min") + 14 * pt.BAR + pd.Timedelta(seconds=5)).to_pydatetime()
+    assert lb.tick(db, feed(late), [].append, now=now) == 0 and trades(db) == []
 
 
 def test_the_record_line_quotes_the_live_setups_tested_range(db):
