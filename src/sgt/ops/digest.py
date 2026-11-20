@@ -232,6 +232,11 @@ def hold_lines(db: OpsStore) -> list[str]:
                    f"{lo['total']:+.1%} ({lo['calls']} calls, {lo['wins']} winners, avg {avg}; tested "
                    f"{longonly.TESTED_AVG:+.2%}, {longonly.TESTED_WIN:.0%}); long and short {lo['long_short']:+.1%}, "
                    f"holding {lo['holding']:+.1%}" + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else ""))
+    from sgt.megacap import downday
+
+    dl = downday.line(root)                             # owner 2026-11-19: a second ledger, recorded beside the registered one
+    if dl:
+        out.append(dl)
     return out
 
 

@@ -724,6 +724,13 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **Daily model: long calls on down days, a second ledger (2026-11-19, owner: "Second ledger";
+  `prereg_megacap_downday_forward_2026-11-19`).** On the model's past record all of the long calls' edge is in
+  calls made on a day the stock is down 1% or more by the decision (+0.70% on the 8 names first looked at, +0.58%
+  on the other 13; any other day +0.18% / +0.11%, an ordinary day). Read off seen data, so recorded forward from
+  2026-11-20 beside the registered `megacap_long` ledger (which is not changed): same mark files, same
+  arithmetic, only the down-day calls (`sgt.megacap.downday`). One line in the nightly summary. Decided once on
+  2027-04-30: total above 0 and average per call above that of all long calls on the same sessions.
 - **Long book cases (2026-11-19, `docs/findings/long_cases_2026-11-19.md`): the entry was the flaw the earlier tests
   could not see.** Every earlier long test asked "one rule for every alert" and bought a one-minute structure with
   a one-candle stop; none looked at what the stock did after the alert before buying. Exploration over 3,277 alerts,
