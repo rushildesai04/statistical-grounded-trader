@@ -724,6 +724,13 @@ runner every weeknight at 21:12 ET (`scripts/borrow_scan.py record`, job `borrow
 night it cannot finish is texted and caught up on the next run.
 
 ## 7. Open questions and decision points
+- **The trader's five answers (2026-11-19, `long_cases_2026-11-19.md` section 7).** The alert is his watchlist, not
+  his trade; he waits for a tight range and buys the break; stop under the range, size by the dollar loss at the
+  stop: the base break shipped the same day, found independently. No all-green rule (a higher timeframe for
+  context); part out, manage the rest. Tested on the live entry: a 5-minute context adds nothing (flips between
+  periods), a part-out is a blend of exits already compared, and heavy dollar volume in the base marks the WORSE
+  longs. The one lead: base breaks whose round trip costs 0.7% or less are about break-even (169 trades); recorded
+  on every live long, decided by the live record. His answers carried no numbers; nothing is named after him.
 - **Daily model: long calls on down days, a second ledger (2026-11-19, owner: "Second ledger";
   `prereg_megacap_downday_forward_2026-11-19`).** On the model's past record all of the long calls' edge is in
   calls made on a day the stock is down 1% or more by the decision (+0.70% on the 8 names first looked at, +0.58%
