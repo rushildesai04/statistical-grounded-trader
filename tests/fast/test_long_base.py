@@ -98,11 +98,11 @@ def test_a_wick_above_the_base_is_not_a_break():
 
 
 def test_the_base_must_be_narrow():
-    wide = (10.35, 10.45, 9.60, 10.35, 100)                      # 9.60 to 10.45 = 8.9%
-    ok = (10.35, 10.45, 9.70, 10.35, 100)                        # 9.70 to 10.45 = 7.7%
+    wide = (10.35, 10.45, 10.00, 10.35, 100)                     # 10.00 to 10.45 = 4.5%
+    ok = (10.35, 10.45, 10.10, 10.35, 100)                       # 10.10 to 10.45 = 3.5%
     assert pt.base_break(bars([SPIKE] + [wide] * 11 + [BREAK, FILL]), T1) == []
     (s,) = pt.base_break(bars([SPIKE] + [ok] * 11 + [BREAK, FILL]), T1)
-    assert s.stop == 9.70
+    assert s.stop == 10.10 and pt.BASE_MAX_RANGE == 0.04
 
 
 def test_the_break_must_also_be_above_session_vwap():
@@ -162,7 +162,7 @@ def test_the_live_book_buys_the_base_break_and_says_so(db):
     assert t["target"] == pytest.approx(11.3) and pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR
     assert 0 < t["weight"] <= lb.PROBE_USD / 100_000 + 1e-12     # test size, cut further by the stop distance
     assert sent[0].startswith("[SGT] 🟢 LONG ABCD @ $10.60") and "Setup: base break · stop $10.25 (-3.3%)" in sent[0]
-    assert "Tested on past alerts: -0.8%/trade over 874 trades" in sent[0]
+    assert "Tested on past alerts: -0.7%/trade over 506 trades" in sent[0]
     for k in range(29, 80):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     (t,) = trades(db)
@@ -275,7 +275,7 @@ def test_the_record_line_quotes_the_live_setups_tested_range(db):
         lb.tick(db, feed(DAY), [].append, now=at(0, 30 * k))
     lb.settle(db, sip({"ABCD": DAY}), cost, now=NIGHT)
     line = lb.record_line(db)
-    assert "tested -2.1% to -0.8%" in line and "test size $500" in line
+    assert "tested -2.1% to -0.7%" in line and "test size $500" in line
 
 
 def test_a_crowded_day_reads_a_bounded_number_of_candidates_per_pass_and_starves_none(db, tmp_path, monkeypatch):

@@ -213,7 +213,13 @@ def bos_long(bars: pd.DataFrame, start: pd.Timestamp) -> list[Setup]:
 # costs (about break-even before them): it is the better-built rule, run at test size until live trades decide.
 BASE_MIN = pd.Timedelta(minutes=10)         # the base: this long before the break, all of it after the alert's start bar
 BASE_MIN_BARS = 5                           # bars that must exist in it (a thin feed has no bar for a quiet minute)
-BASE_MAX_RANGE = 0.08                       # (highest high - lowest low) / lowest low of the base
+# 2026-11-19 night (docs/findings/long_bot_replay_2026-11-19.md): 0.08 until then. The live book sees the base on the
+# free feed, which carries about 1% of the real volume and so shows every base NARROWER than it is on the full tape
+# (November: 12 of 31 live-style bases were wider than 8% on the tape and lost -2.8%; the 19 real ones -1.2%). The
+# whole bot replayed on 3,146 past alerts and on November: a cap of 4% as the feed shows it loses less than 8% in all
+# three samples (-0.69% / -0.83% / -0.19% a trade against -0.89% / -1.01% / -1.85%), and the trades it drops are the
+# worse ones. A stop-gap for a thin feed, not an edge: no width makes the entry profitable, on the feed or the tape.
+BASE_MAX_RANGE = 0.04                       # (highest high - lowest low) / lowest low of the base, as the feed shows it
 BASE_WATCH = pd.Timedelta(minutes=60)       # the break must come within this long after the start bar
 
 
