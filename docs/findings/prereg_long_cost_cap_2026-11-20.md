@@ -86,3 +86,9 @@ break was at 10:00 ET (to $1.31); the feed had no trade from 09:59 to 10:01, the
 trade. This is the phantom base of `long_bot_replay_2026-11-19.md` (November: 12 of 31 bot trades, -2.8% a trade);
 the 4% width cap is measured on the feed and passed it. None of the feed-only signs tried above (few candles, few
 shares, quiet minutes) separates such trades. The fix is a real-time full-tape source (broker market data).
+
+## Decision (owner, 2026-11-20): add it
+Put to the owner as "add it" or "record only", with the limits above; the owner chose to add it. Live rule:
+`long_book.costly` (PLAYBOOK section 2). The skipped longs are scored each night on the official tape and counted in
+no total; the count is reread with the owner at 50 against the held-out -1.58%.
+

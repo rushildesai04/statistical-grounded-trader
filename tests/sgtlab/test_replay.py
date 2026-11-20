@@ -245,3 +245,8 @@ def test_the_lab_shows_the_base_break_as_the_long_books_trade():
     assert book["rule"] == "L8" and book["name"].startswith("Long: base break") and book["stop"] == 10.25
     assert book["entry"] == 10.6 and book["reason"] == "target"          # its fill candle closed red: no red-candle exit
     assert any(t["rule"] in ("L4a", "L4b") and t["entry_time"] < book["entry_time"] for t in longs)   # earlier, not the book's
+    # owner 2026-11-20: the same chart at about $3 in the open hour costs over 1% to trade: the book buys no long
+    cheap = bars([x * 0.3 for x in c], opens=[x * 0.3 for x in o], highs=[x * 0.3 for x in h], lows=[x * 0.3 for x in lo])
+    low = [t for t in replay.replay(cheap, "TEST", DAY, [{"at": at(30, 20), "type": "volume_spike"}])["trades"] if t["side"] == "long"]
+    assert not any(t["book"] for t in low)
+    assert sum("cost above 1%: the book does not buy this alert's long" in t["name"] for t in low) == 1

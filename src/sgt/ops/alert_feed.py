@@ -37,6 +37,7 @@ _PRICE = re.compile(r"^price \S+ outside \$1-50$")
 LONG = {"none": "no long setup filled", "missed": "long setup filled before the book was on", "open": "long open",
         "void": "long void (no trade was possible on the full tape)",
         "nowin": "long setup skipped: its target could not beat costs"}
+COSTLY = "long not bought: trading cost above 1%"   # owner 2026-11-20: listed with what it would have made
 # owner 2026-11-19 ("yes"): a channel alert that never became a row is listed too, so nothing is unknown. These come
 # from the channel's own history (the caller reads it); they are never written to ``fade_trades``, so no rule, count
 # or repeat check can see them.
@@ -80,6 +81,8 @@ def long_words(status: str | None, net) -> str:
         return "long taken" + (_pct(net) if status == "settled" else " (closed, official tonight)")
     if status == "seen":
         return SEEN + (f": would have made{_pct(net)}" if net is not None else "")
+    if status == "costly":
+        return COSTLY + (f": would have made{_pct(net)}" if net is not None else "")
     return LONG.get(status, str(status)[:MAX_TEXT])
 
 

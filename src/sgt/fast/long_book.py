@@ -36,8 +36,8 @@ NAMES = {"L5v2": "bull flag breakout", "L5": "bull flag breakout (v1)", "L4b": "
          "L4a": "red-candle close", "L7b": "halt reopen: red-candle break", "L7a": "halt reopen: red-candle close"}
 TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31,     # prereg_long_setups training
             "L5v2": 199,                                                                   # prereg_flag_v2 training
-            "L8": 506}                                    # long_bot_replay_2026-11-19: training trades of the bot replay
-TESTED_WIN = {"L8": 0.34}     # share of those 506 trades that made money; no win rate is stored for the other setups
+            "L8": 395}       # bot replay, training trades at or under the cost cap (prereg_long_cost_cap_2026-11-20)
+TESTED_WIN = {"L8": 0.34}     # share of those 395 trades that made money; no win rate is stored for the other setups
 # 2026-11-19 (owner: "explore the problem and find a fix ... add on top of the complexity and cases for the LONG book";
 # docs/findings/long_cases_2026-11-19.md). The setups the LIVE book takes. Until this date it took the first of the
 # one-minute setups to fill (L4a/L4b first red candle, L6 break of structure, L7 halt reopen) with a stop at one
@@ -171,6 +171,24 @@ def no_win(symbol: str, s: pt.Setup, t: pt.Trade) -> bool:
     return c is not None and t.entry > 0 and pt.RR * (t.entry - s.stop) / t.entry <= c
 
 
+# Owner 2026-11-20 (decision A after the SVRE loss; docs/findings/prereg_long_cost_cap_2026-11-20.md): the long rules
+# are break-even before costs in every cost band, so where the estimated round-trip cost is highest the loss is
+# largest. Bot replay, trades above 1% against the rest: training -1.24% (n 111) against -0.53% (n 395), held-out
+# -1.58% (n 33) against -0.61% (n 117), p 0.17; November's 21 trades the other way. With the gapper spread model
+# "above 1%" is a stock under $5 bought before 10:30 ET. Such a fill is NOT bought and not texted: the alert's long is
+# recorded as ``costly`` with its entry, scored each night on the official tape like a watched long (never in a total),
+# and the count is reread at COST_REREAD. As in the test, the alert gets no other long. It makes the book lose less;
+# it does not make it a winner (the kept trades lost -0.53% / -0.61%).
+COST_CAP, COST_REREAD = 0.01, 50
+COST_TESTED = -0.0158                  # held-out mean net of the trades above the cap (what the skipped ones lost)
+
+
+def costly(symbol: str, t: pt.Trade) -> bool:
+    """True when the estimated round-trip cost of this fill is above COST_CAP. No cost estimate -> False (not judged)."""
+    c = est_costs.cost("long", symbol, t.entry_ts.to_pydatetime(), t.entry)
+    return c is not None and c > COST_CAP
+
+
 Fill = tuple[pt.Setup, pt.Trade]
 
 
@@ -213,6 +231,8 @@ def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> Fill | None:
 # would have made on official bars (the row stays ``seen``), so the measurement is of the book's own rule.
 OFF_FLAG = "long_off"
 SEEN, NOWIN = "seen", "nowin"       # long_trades.status: watched while off / filled but could not beat costs
+COSTLY = "costly"                   # filled, not bought: estimated cost above COST_CAP (owner 2026-11-20)
+WATCHED = (SEEN, COSTLY)            # never a trade, never in a total; scored nightly on the official tape
 
 
 def is_off(db: OpsStore) -> bool:
@@ -281,6 +301,9 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
             if pd.Timestamp(now) - t.entry_ts > LIVE_LAG:
                 _insert(db, row, s, t, "missed", now)
                 log.info("long %s %s filled %s, before the book saw it: missed", row["symbol"], s.kind, t.entry_ts)
+                continue
+            if costly(row["symbol"], t):                   # owner 2026-11-20: not bought, not texted, scored nightly
+                _insert(db, row, s, t, COSTLY, now)
                 continue
             if off:
                 if _insert(db, row, s, t, SEEN, now):
@@ -457,8 +480,8 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
             "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules, reason FROM long_trades WHERE "
-            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status=? AND settled_at IS NULL) "
-            "ORDER BY id", (SEEN,))]
+            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status IN (?,?) AND settled_at IS NULL) "
+            "ORDER BY id", WATCHED)]
     out = []
     stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
     for r in rows:
@@ -477,7 +500,7 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
 def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, stale: str) -> str | None:
     """One long's official result (see settle). None = nothing changed (bars not there yet)."""
     f = bars(r["symbol"], r["session"])
-    seen = r["status"] == SEEN                         # a watched long: scored for the record, never becomes a trade
+    seen = r["status"] in WATCHED                      # a watched long: scored for the record, never becomes a trade
     if f is None or not len(f):
         if r["session"] <= stale and _set(db, r["id"], r["status"], reason="no official SIP bars",
                                           **({"settled_at": iso(now)} if seen else {"status": "void"})):
@@ -497,10 +520,12 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
                 if _set(db, r["id"], r["status"], status="est_closed", reason=waits) else None)
     rt = float(cost_fn(r["symbol"], t.entry_ts.to_pydatetime(), t.entry))
     net = t.gross - rt
-    if not _set(db, r["id"], r["status"], status=SEEN if seen else "settled", entry=t.entry,
+    if not _set(db, r["id"], r["status"], status=r["status"] if seen else "settled", entry=t.entry,
                 fill_ts=iso(t.entry_ts.to_pydatetime()), exit=t.exit, exit_ts=iso(t.exit_ts.to_pydatetime()),
                 exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now)):
         return None
+    if r["status"] == COSTLY:
+        return f"{r['symbol']} {r['kind']} not bought (cost above {COST_CAP:.0%}): would have made {net:+.2%}"
     if seen:
         return f"{r['symbol']} {r['kind']} seen, not traded: would have made {net:+.2%}"
     was = f" (re-scored, was {float(r['net']):+.2%})" if r["status"] == "settled" and r["net"] is not None else ""
@@ -626,6 +651,31 @@ def seen_line(db: OpsStore, session: str) -> str | None:
     bits = [f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])}" + ("" if r["net"] is None else f" {r['net']:+.1%}")
             for r in rows]
     return f"longs seen, not traded ({len(rows)}; not in the total): " + ", ".join(bits)
+
+
+def costly_line(db: OpsStore, session: str) -> str | None:
+    """Digest line for the day's longs NOT bought because their cost was above the cap (never part of a total)."""
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, kind, net FROM long_trades WHERE session=? AND status=? ORDER BY id",
+                         (session, COSTLY)).fetchall()
+    if not rows:
+        return None
+    bits = [f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])}" + ("" if r["net"] is None else f" {r['net']:+.1%}")
+            for r in rows]
+    return f"longs not bought, cost above {COST_CAP:.0%} ({len(rows)}; not in the total): " + ", ".join(bits)
+
+
+def cost_check_line(db: OpsStore) -> str | None:
+    """The cost cap against its own test, every night: how many longs it has kept the book out of, what they would
+    have made on the official tape, the tested figure, and the fixed count at which the owner rereads it. It never
+    changes the rule."""
+    with db.tx() as c:
+        n, m, since = c.execute("SELECT COUNT(*), AVG(net), MIN(session) FROM long_trades WHERE status=? AND net IS NOT "
+                                "NULL", (COSTLY,)).fetchone()
+    if not n:
+        return None
+    return (f"long cost check (longs not bought, since {since[5:]}, in no total): {n} at {m:+.1%} "
+            f"(tested {COST_TESTED:+.1%}; reread at {COST_REREAD})")
 
 
 def record_line(db: OpsStore) -> str | None:
