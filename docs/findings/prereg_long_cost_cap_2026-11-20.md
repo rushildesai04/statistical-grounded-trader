@@ -64,3 +64,25 @@ would fail whether the claim is true or not. A PASS therefore says "the unseen t
 
 ## Not done
 No other threshold, no combination with time, news or price, no change of the entry or the exit, no re-run.
+
+## Result (run once, 2026-11-20; `reports/long_cost_cap/result.json`) - PASS as registered, weak
+| bot replay, live configuration | trades | cost above 1% (would be skipped) | cost at or under 1% (kept) | difference | p |
+|---|---|---|---|---|---|
+| held-out (decides) | 150 | n 33 · -1.58% | n 117 · -0.61% | +0.96 points | 0.17 |
+| training (disclosed) | 506 | n 111 · -1.24% | n 395 · -0.53% | +0.71 | 0.16 |
+| November (reported only) | 21 | n 6 · +0.10% | n 15 · -0.30% | -0.40 | 0.59 |
+
+Before costs on the held-out trades: -0.33% above the cap, +0.04% under it: the dear trades were no better before
+costs either. All three conditions hold, so the candidate rule is put to the owner. Read it for what it is: the
+unseen trades do not contradict the arithmetic, the difference is not statistically established (p 0.17), and
+November's 21 trades point the other way. The kept trades still lose (-0.61%): the rule would make the long book lose
+less, not win. Nothing is live from this test; the cost split is not looked at again on these alerts.
+
+## What the official tape showed about SVRE itself (read after the plan was frozen; not part of the test)
+The base the bot bought did not exist. In the ten minutes before the buy the free feed showed 6 candles in a range of
+3.4% on 1,396 shares; the official tape showed a range of 10.3% ($1.1875 to $1.31) on about 164,000 shares. The real
+break was at 10:00 ET (to $1.31); the feed had no trade from 09:59 to 10:01, the bot saw a "break" at 10:02, bought at
+10:03, and the tape fell from $1.265 to $1.18 at 10:04 on 101,681 shares. On the full tape there is no base and no
+trade. This is the phantom base of `long_bot_replay_2026-11-19.md` (November: 12 of 31 bot trades, -2.8% a trade);
+the 4% width cap is measured on the feed and passed it. None of the feed-only signs tried above (few candles, few
+shares, quiet minutes) separates such trades. The fix is a real-time full-tape source (broker market data).
