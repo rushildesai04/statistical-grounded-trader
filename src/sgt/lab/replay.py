@@ -257,6 +257,10 @@ def replay(bars: pd.DataFrame, symbol: str, session: str, alerts: list[dict] | N
         else:
             out["notes"].append(f"short: {why}")
         trades, idle = _longs(f, sym, out["session"], at, label)
+        for x in trades if short else []:                   # owner 2026-11-20: one account, one side
+            if x["book"] and short["entry_time"] <= x["entry_time"] < short["exit_time"]:
+                x["book"] = False
+                x["name"] += " (our short on this stock is open: the book does not buy)"
         out["trades"] += trades
         out["idle"] += idle
         if not trades and not idle:

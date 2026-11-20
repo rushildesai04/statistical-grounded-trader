@@ -147,8 +147,9 @@ def test_the_lab_never_shows_a_detection_before_it_could_be_made():
                        for u in full["trades"]), (k, t["rule"])
 
 
-def test_long_setups_come_from_the_books_own_code_and_one_is_marked_as_the_books_trade():
+def test_long_setups_come_from_the_books_own_code_and_one_is_marked_as_the_books_trade(monkeypatch):
     f = walk()
+    monkeypatch.setattr(replay, "_fade", lambda *a, **k: (None, "no short in this test"))   # the short-open case is below
     r = replay.replay(f, "TEST", DAY, [{"at": at(46, 20), "type": "volume_spike"}])
     longs = [t for t in r["trades"] if t["side"] == "long"]
     assert longs and sum(t["book"] for t in longs) == 1
@@ -232,14 +233,23 @@ def test_cli_random_is_repeatable_and_build_skips_what_has_no_bars(tmp_path, cap
     assert [r["symbol"] for r in got] == ["AAA"] and "BBB 2026-11-17: no bars" in capsys.readouterr().out
 
 
-def test_the_lab_shows_the_base_break_as_the_long_books_trade():
+def test_the_lab_shows_the_base_break_as_the_long_books_trade(monkeypatch):
     """2026-11-19: the live long book buys the base break; the one-minute setups are shown but are not its trade."""
     quiet, n = (10.35, 10.45, 10.25, 10.35), 60
     rows = [(10.0, 10.02, 9.98, 10.0)] * 31 + [(10.0, 10.5, 10.0, 10.4), (10.5, 10.55, 10.2, 10.3)] + [quiet] * 10 + [
         (10.4, 10.65, 10.4, 10.6), (10.6, 10.62, 10.5, 10.5), (10.5, 11.5, 10.5, 11.4)] + [(11.4, 11.45, 11.3, 11.4)] * n
     o, h, lo, c = (list(x) for x in zip(*rows))
     f = bars(c, opens=o, highs=h, lows=lo)
-    r = replay.replay(f, "TEST", DAY, [{"at": at(30, 20), "type": "volume_spike"}])
+    alerts = [{"at": at(30, 20), "type": "volume_spike"}]
+    # owner 2026-11-20 (JMIA): while our short on the stock is open the long book does not buy (one account, one side)
+    both = replay.replay(f, "TEST", DAY, alerts)["trades"]
+    (short,) = [t for t in both if t["side"] == "short"]
+    (l8,) = [t for t in both if t["rule"] == "L8"]
+    assert short["book"] and short["entry_time"] <= l8["entry_time"] < short["exit_time"]
+    assert not any(t["book"] for t in both if t["side"] == "long")
+    assert l8["name"].endswith("(our short on this stock is open: the book does not buy)")
+    monkeypatch.setattr(replay, "_fade", lambda *a, **k: (None, "no short here"))    # no short: the long is the book's
+    r = replay.replay(f, "TEST", DAY, alerts)
     longs = [t for t in r["trades"] if t["side"] == "long"]
     (book,) = [t for t in longs if t["book"]]
     assert book["rule"] == "L8" and book["name"].startswith("Long: base break") and book["stop"] == 10.25
@@ -247,6 +257,6 @@ def test_the_lab_shows_the_base_break_as_the_long_books_trade():
     assert any(t["rule"] in ("L4a", "L4b") and t["entry_time"] < book["entry_time"] for t in longs)   # earlier, not the book's
     # owner 2026-11-20: the same chart at about $3 in the open hour costs over 1% to trade: the book buys no long
     cheap = bars([x * 0.3 for x in c], opens=[x * 0.3 for x in o], highs=[x * 0.3 for x in h], lows=[x * 0.3 for x in lo])
-    low = [t for t in replay.replay(cheap, "TEST", DAY, [{"at": at(30, 20), "type": "volume_spike"}])["trades"] if t["side"] == "long"]
+    low = [t for t in replay.replay(cheap, "TEST", DAY, alerts)["trades"] if t["side"] == "long"]
     assert not any(t["book"] for t in low)
     assert sum("cost above 1%: the book does not buy this alert's long" in t["name"] for t in low) == 1
