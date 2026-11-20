@@ -6,6 +6,7 @@ import pytest
 
 from sgt.fast import est_costs, long_armed as la, long_book as lb, long_shadow as ls
 from sgt.fast import patterns as pt
+from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore
 
 POSTED = pd.Timestamp("2026-11-09 15:00:20", tz="UTC")          # 10:00:20 ET -> start bar 15:01
@@ -78,16 +79,19 @@ def test_armed_text_goes_out_before_the_fill_once_with_both_orders(db):
     lb.tick(db, feed(DAY), fills.append, now=at(2, 10), arm=arms.append)      # red candle closed 10 s ago
     assert len(arms) == 1 and fills == [] and trades(db) == []
     t = arms[0]
-    assert t.startswith("[SGT] 🟡 LONG SETUP ARMED ABCD · candle closed 10:03:00 ET (10s ago)")
-    assert "red-candle break: buy-stop $10.55 · stop $10.20 (-3.3%) · target $11.25 (+6.6%) · order good until 10:08 ET" in t
-    assert "red-candle close: buy at market now, last $10.30 · stop $10.20 (-1.0%) · target $10.50 (+1.9%)" in t
-    assert "Paper: a LONG text follows if it fills." in t and "red-candle break -2.4%/trade" in t
+    assert t.split("\n")[:5] == [                          # owner 2026-11-20: laid out like the fade's cards
+        f"[SGT] 🟡 {bold('LONG SETUP ARMED')} · {bold('ABCD')} · candle closed 10:03:00 ET (10s ago)",
+        "💬 red-candle break: buy-stop $10.55 · order good until 10:08 ET",
+        "🛑 stop $10.20 (-3.3%) · 🎯 target $11.25 (+6.6%)",
+        "💬 red-candle close: buy at market now, last $10.30",
+        "🛑 stop $10.20 (-1.0%) · 🎯 target $10.50 (+1.9%) from that price"]
+    assert "Paper: a LONG text follows if it fills." in t and italic("red-candle break -2.4%/trade") in t
     (a,) = armed(db)
     assert (a["kinds"], a["trigger"], a["stop"], a["ref"]) == ("L4b,L4a", 10.55, 10.2, 10.55) and a["texted_at"] and a["note"] is None
     lb.tick(db, feed(DAY), fills.append, now=at(2, 40), arm=arms.append)      # still pending: no second text
     assert len(arms) == 1
     assert lb.tick(db, feed(DAY), fills.append, now=at(3), arm=arms.append) == 1          # the fill bar closed
-    assert len(arms) == 1 and fills[0].startswith("[SGT] 🟢 LONG ABCD @ $10.55")
+    assert len(arms) == 1 and fills[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.55')}")
     assert len(armed(db)) == 1
 
 

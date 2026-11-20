@@ -22,10 +22,11 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import est_costs, fade, long_shadow
+from sgt.fast import est_costs, fade, long_shadow, news
 from sgt.fast import patterns as pt
 from sgt.fast.fade import ET
-from sgt.ops import approvals
+from sgt.ops import approvals, chartserver
+from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore, iso, utcnow
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ NAMES = {"L5v2": "bull flag breakout", "L5": "bull flag breakout (v1)", "L4b": "
 TESTED_N = {"L4a": 2072, "L4b": 754, "L5": 247, "L6": 1149, "L7a": 77, "L7b": 31,     # prereg_long_setups training
             "L5v2": 199,                                                                   # prereg_flag_v2 training
             "L8": 506}                                    # long_bot_replay_2026-11-19: training trades of the bot replay
+TESTED_WIN = {"L8": 0.34}     # share of those 506 trades that made money; no win rate is stored for the other setups
 # 2026-11-19 (owner: "explore the problem and find a fix ... add on top of the complexity and cases for the LONG book";
 # docs/findings/long_cases_2026-11-19.md). The setups the LIVE book takes. Until this date it took the first of the
 # one-minute setups to fill (L4a/L4b first red candle, L6 break of structure, L7 halt reopen) with a stop at one
@@ -286,7 +288,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
-                send(entry_text(db, row["symbol"], s, t) + matrix_line(raw, now) + context_line(db, row["id"]))
+                send(entry_text(db, row["symbol"], s, t, matrix_line(raw, now) + context_line(db, row["id"])))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
     _advance(db, bars, send, now)
@@ -505,7 +507,14 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
     return f"{r['symbol']} {r['kind']} {net:+.2%}{was}"
 
 
-def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
+def _usd(x: float) -> str:
+    return f"{'+' if x >= 0 else '-'}${abs(x):,.0f}"
+
+
+def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade, extra: str = "") -> str:
+    """The LONG IN card, laid out like the fade's entry card (owner 2026-11-20: "why are the texts different"): the
+    trade in plain words, its tested record, the setup, the money and the levels, the live record, then ``extra``
+    (the caller's trend-check and at-the-alert lines, each starting with a newline) and the chart link last."""
     v = nav(db)
     usd = weight(db, s, t, v) * v                                      # the size actually booked (_insert)
     sized = " (sized to the stop)" if risk_weight(t.entry, s.stop) < 1 else ""
@@ -513,11 +522,22 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
     paper = f"(paper, test size; full size ${full:,.0f})" if full - usd > 0.5 else "(paper)"
     risk = (t.entry - s.stop) / t.entry
     out = min(t.entry_ts + pt.HOLD, pd.Timestamp(default_close(t.entry_ts.tz_convert(ET).date().isoformat())))
-    return (f"[SGT] 🟢 LONG {symbol} @ ${t.entry:.2f} · ${usd:,.0f} {paper}{sized}\n"
-            f"Setup: {NAMES.get(s.kind, s.kind)} · stop ${s.stop:.2f} ({-risk:.1%}) · target ${target(s, t):.2f} "
-            f"(+{pt.RR * risk:.1%}) · out by {out.tz_convert(ET):%H:%M} ET\n"
-            f"Tested on past alerts: {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} "
-            f"trades (live paper test)\nhttps://www.tradingview.com/chart/?symbol={symbol}")
+    name, win = NAMES.get(s.kind, s.kind), TESTED_WIN.get(s.kind)
+    cost = est_costs.cost("long", symbol, t.entry_ts.to_pydatetime(), t.entry) or 0.0
+    lines = [f"[SGT] ✅ {bold('LONG IN')} · {bold(f'BUY {symbol}')} @ {bold(f'${t.entry:.2f}')}",
+             f"💬 Bought ${usd:,.0f} of {symbol}: we make money if it rises",
+             "🎲 " + (f"Win chance {bold(f'{win:.0%}')} · " if win is not None else "") + f"{name}: "
+             + italic(f"avg {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} past trades")
+             + " (live paper test)",
+             f"💵 ${usd:,.0f} {paper}{sized}",
+             f"🛑 stop ${s.stop:.2f} ({-risk:.1%}) ≈ {_usd(-usd * (risk + cost))} · 🎯 target ${target(s, t):.2f} "
+             f"(+{pt.RR * risk:.1%}) · ⏰ out {out.tz_convert(ET):%H:%M} ET"]
+    with db.tx() as c:
+        n, m = c.execute("SELECT COUNT(*), AVG(net) FROM long_trades WHERE status='settled'").fetchone()
+    if n and m is not None:
+        lines.append(f"📈 Live: {n} trades, avg {m:+.1%}" + (" " + italic("(too few to judge)") if n < PROOF_N else ""))
+    chart = news.chart_url(symbol)
+    return "\n".join(lines) + extra + (f"\n🔗 {chart}" if chart else "")
 
 
 def seen_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
@@ -532,15 +552,50 @@ def seen_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
             f"{TESTED_N.get(s.kind, 0):,} trades")
 
 
+EXIT_WHY = {"stop": "🛑 stop hit, loss capped", "target": "🎯 target hit", "time": "⏰ time exit",
+            "red": "🔻 fill candle closed red, out at the next open"}
+
+
+def _day(db: OpsStore, session: str) -> tuple[int, float]:
+    """(longs closed today, their estimated dollars after estimated costs): the LONG OUT card's day line."""
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, entry_ts, est_entry, est_exit, net, weight FROM long_trades WHERE session=? "
+                         "AND status IN ('est_closed','settled')", (session,)).fetchall()
+    v, n, usd = nav(db), 0, 0.0
+    for r in rows:
+        g = r["net"] if r["net"] is not None else est_costs.net("long", r["symbol"], r["entry_ts"], r["est_entry"],
+                                                                r["est_exit"])
+        if g is not None:
+            n, usd = n + 1, usd + (r["weight"] or fade.WEIGHT) * v * g
+    return n, usd
+
+
 def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
-    # 2026-11-16: quoted after the estimated round-trip spread (est_costs), like the official result will be
-    net = t.gross - (est_costs.cost("long", r["symbol"], dict(r).get("entry_ts"), t.entry) or 0.0)
+    """The LONG OUT card, laid out like FADE OUT (owner 2026-11-20): result first, the two prices and why it closed,
+    what the price did, the day so far, the links. Quoted after the estimated round-trip spread (2026-11-16)."""
+    cost = est_costs.cost("long", r["symbol"], dict(r).get("entry_ts"), t.entry) or 0.0
+    net = t.gross - cost
     usd = (r["weight"] or fade.WEIGHT) * nav(db) * net               # final pass F-2: the long book's own value
-    word = {"stop": "stopped", "target": "target hit", "time": "time exit",
-            "red": "fill candle closed red, out at the next open"}.get(t.reason, t.reason)
-    return (f"[SGT] {'🟢' if net > 0 else '🔴'} LONG OUT {r['symbol']} · {'made' if net > 0 else 'lost'} {net:+.1%} "
-            f"({'+' if usd >= 0 else '-'}${abs(usd):,.0f} est after costs, paper) · {word} · "
-            f"${t.entry:.2f} -> ${t.exit:.2f}")
+    mark = "🛑" if t.reason == "stop" else ("🟢" if net > 0 else "🔴")
+    sym, both = r["symbol"], f"{_usd(usd)} ({net:+.1%})"
+    lines = [f"[SGT] {mark} {bold('LONG OUT')} · {bold(sym)} · {'made' if net > 0 else 'lost'} {bold(both)}",
+             f"Bought ${t.entry:.2f} → sold ${t.exit:.2f} · {EXIT_WHY.get(t.reason, t.reason)}"]
+    move = t.exit / t.entry - 1
+    lines.append("💡 Why: " + (f"price rose {move:.1%} while we were long" if move > 0 else
+                              f"price fell {abs(move):.1%} while we were long" if move < 0 else "price did not move"))
+    session = dict(r).get("session")
+    n_day, day_usd = _day(db, session) if session else (0, 0.0)
+    if n_day:
+        lines.append(f"📅 Today: {n_day} long{'s' if n_day != 1 else ''}, {bold(_usd(day_usd))}")
+    chart = news.chart_url(sym)
+    if chart:
+        lines.append(f"📈 {chart}")
+    page = chartserver.link()
+    if page:
+        lines.append(f"🖼 All trades: {page}")
+    lines.append(italic(f"Paper, estimate after about {cost:.1%} costs (spread); official numbers in the midnight summary."
+                        if cost > 0 else "Paper, estimate before costs; official numbers in the midnight summary."))
+    return "\n".join(lines)
 
 
 def today_line(db: OpsStore, session: str) -> str | None:

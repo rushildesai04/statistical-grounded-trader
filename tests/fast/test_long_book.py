@@ -9,6 +9,7 @@ import pytest
 from sgt.fast import est_costs, fade, long_book as lb, long_shadow as ls
 from sgt.fast import patterns as pt
 from sgt.ops import approvals as ap
+from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore
 
 POSTED = pd.Timestamp("2026-11-09 15:00:20", tz="UTC")          # 10:00:20 ET -> start bar 15:01
@@ -73,8 +74,14 @@ def test_first_long_to_fill_with_tie_order_and_honest_text(db):
     (t,) = trades(db)
     assert (t["kind"], t["est_entry"], t["stop"], t["status"]) == ("L4b", 10.55, 10.2, "open")   # L4b beats L4a (tie)
     assert t["target"] == pytest.approx(10.55 + 2 * 0.35)
-    assert sent[0].startswith("[SGT] 🟢 LONG ABCD @ $10.55") and "red-candle break" in sent[0]
-    assert "Tested on past alerts: -2.4%/trade over 754 trades" in sent[0]
+    # owner 2026-11-20 ("why are the texts different"): the long card is laid out like the fade's entry card
+    assert sent[0].split("\n") == [
+        f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.55')}",
+        "💬 Bought $404 of ABCD: we make money if it rises",
+        "🎲 red-candle break: " + italic("avg -2.4%/trade over 754 past trades") + " (live paper test)",
+        "💵 $404 (paper, test size; full size $4,038) (sized to the stop)",
+        "🛑 stop $10.20 (-3.3%) ≈ -$17 · 🎯 target $11.25 (+6.6%) · ⏰ out 10:33 ET",
+        "🔗 https://www.tradingview.com/chart/?symbol=ABCD"]
     assert lb.tick(db, feed(DAY), sent.append, now=at(3, 30)) == 0 and len(trades(db)) == 1      # one long per alert
 
 
@@ -90,7 +97,11 @@ def test_live_book_equals_the_research_simulator(db):
     assert (t["status"], t["est_entry"], t["reason"]) == ("est_closed", ref.entry, ref.reason)
     assert t["est_exit"] == pytest.approx(ref.exit) and t["est_exit_at"] == ref.exit_ts.isoformat()
     # 2026-11-16: the texted estimate is after the estimated round-trip spread (+6.6% move, 0.8% costs)
-    assert len(sent) == 2 and sent[1].startswith("[SGT] 🟢 LONG OUT ABCD · made +5.9% (+$24 est after costs, paper)")   # at test size
+    assert len(sent) == 2 and sent[1].split("\n") == [                                  # at test size
+        f"[SGT] 🟢 {bold('LONG OUT')} · {bold('ABCD')} · made {bold('+$24 (+5.9%)')}",
+        "Bought $10.55 → sold $11.25 · 🎯 target hit", "💡 Why: price rose 6.6% while we were long",
+        f"📅 Today: 1 long, {bold('+$24')}", "📈 https://www.tradingview.com/chart/?symbol=ABCD",
+        italic("Paper, estimate after about 0.8% costs (spread); official numbers in the midnight summary.")]
 
 
 def test_time_exit_waits_for_the_whole_hold(db):
@@ -387,7 +398,7 @@ def test_long_dollars_use_the_long_book(db):
     assert f"${w * 100_000:,.0f} (paper, test size; full size $4,038) (sized to the stop)" in sent[0]
     c = est_costs.cost("long", "ABCD", trades(db)[0]["entry_ts"], 10.55)
     assert c == pytest.approx(0.0077, abs=5e-5)                           # first-hour round-trip spread at $10.55
-    assert f"(+${w * 100_000 * (11.25 / 10.55 - 1 - c):,.0f} est after costs, paper)" in sent[1]   # w x 100,000 x net
+    assert "made " + bold(f"+${w * 100_000 * (11.25 / 10.55 - 1 - c):,.0f} (") in sent[1]          # w x 100,000 x net
 
 
 def test_a_fill_found_after_a_restart_is_missed_not_traded(db):
@@ -404,7 +415,7 @@ def test_a_fill_found_after_a_restart_is_missed_not_traded(db):
     assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None
     alert_row(db, sym="EFGH")
     on_time = (fill_bar + lb.LIVE_LAG).to_pydatetime()            # the edge still counts as live
-    assert lb.tick(db, feed(DAY), sent.append, now=on_time) == 1 and sent[0].startswith("[SGT] 🟢 LONG EFGH @ $10.55")
+    assert lb.tick(db, feed(DAY), sent.append, now=on_time) == 1 and sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY EFGH')} @ {bold('$10.55')}")
 
 
 def test_live_exit_sells_at_the_target_on_the_fill_bar():
@@ -441,7 +452,7 @@ def test_a2_long_sells_at_the_next_open_after_a_red_fill_candle(db):
     lb.tick(db, feed(RED_DAY), sent.append, now=at(4))
     (t,) = trades(db)
     assert (t["status"], t["reason"], t["est_exit"]) == ("est_closed", "red", 10.40)
-    assert "fill candle closed red, out at the next open" in sent[-1] and "$10.55 -> $10.40" in sent[-1]
+    assert "fill candle closed red, out at the next open" in sent[-1] and "Bought $10.55 → sold $10.40" in sent[-1]
 
 
 def test_a_long_opened_before_a2_keeps_its_old_exit_live_and_official(db):
@@ -451,6 +462,37 @@ def test_a_long_opened_before_a2_keeps_its_old_exit_live_and_official(db):
     assert t.reason == "target"                                               # the old rule: target on 15:05
     t2 = lb._exit(lb.rth(RED_DAY, at(60)), {**r, "rules": lb.RULES}, T1 + 2 * pt.BAR)
     assert (t2.reason, t2.exit) == ("red", 10.40)
+
+
+def test_a_stopped_long_card_reads_like_fade_out_and_adds_up_the_day(db, monkeypatch):
+    # owner 2026-11-20 (SVRE): result first, the two prices and why, what the price did, the day so far, the links.
+    monkeypatch.setattr(lb.chartserver, "link", lambda: "https://example.invalid/page/")
+    at3 = (T1 + 2 * pt.BAR).isoformat()
+    for sym, status, entry, exit_px in (("WINR", "est_closed", 10.0, 10.5), ("LOSR", "est_closed", 1.28, 1.19),
+                                        ("OPEN", "open", 5.0, None), ("OTHR", "est_closed", 10.0, 20.0)):
+        fid = alert_row(db, sym)
+        with db.tx() as c:
+            c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, weight, entry_ts, est_entry, "
+                      "est_exit, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (fid, sym, "2026-11-10" if sym == "OTHR" else "2026-11-09", "L8", status, 1.19, 0.002, at3, entry,
+                       exit_px, POSTED.isoformat()))
+    r = {"symbol": "LOSR", "weight": 0.002, "session": "2026-11-09", "entry_ts": at3}
+    t = pt.Trade("L8", "long", T1 + 2 * pt.BAR, 1.28, T1 + 4 * pt.BAR, 1.19, "stop", 1.19 / 1.28 - 1)
+    c_lo, c_hi = (est_costs.cost("long", sym, at3, px) for sym, px in (("LOSR", 1.28), ("WINR", 10.0)))
+    net = 1.19 / 1.28 - 1 - c_lo
+    usd = 0.002 * lb.nav(db) * net
+    day = usd + 0.002 * lb.nav(db) * (0.05 - c_hi)                          # the open long and another day's are not in it
+    assert lb.exit_text(db, r, t).split("\n") == [
+        f"[SGT] 🛑 {bold('LONG OUT')} · {bold('LOSR')} · lost {bold(f'-${abs(usd):,.0f} ({net:+.1%})')}",
+        "Bought $1.28 → sold $1.19 · 🛑 stop hit, loss capped", "💡 Why: price fell 7.0% while we were long",
+        f"📅 Today: 2 longs, {bold(lb._usd(day))}", "📈 https://www.tradingview.com/chart/?symbol=LOSR",
+        "🖼 All trades: https://example.invalid/page/",
+        italic(f"Paper, estimate after about {c_lo:.1%} costs (spread); official numbers in the midnight summary.")]
+    monkeypatch.setattr(lb.chartserver, "link", lambda: "")
+    flat = pt.Trade("L8", "long", T1 + 2 * pt.BAR, 1.28, T1 + 4 * pt.BAR, 1.28, "time", 0.0)
+    out = lb.exit_text(db, {"symbol": "LOSR", "weight": 0.002, "entry_ts": at3}, flat)       # no session: no day line
+    assert "All trades" not in out and "Today" not in out and "price did not move" in out and "⏰ time exit" in out
+    assert out.startswith(f"[SGT] 🔴 {bold('LONG OUT')}") and lb._usd(0) == "+$0" and lb._usd(-1234.4) == "-$1,234"
 
 
 def test_settle_applies_the_red_exit_only_to_a2_trades(db):
@@ -492,7 +534,7 @@ def test_long_off_opens_nothing_and_texts_the_setup_as_seen(db, flag, n):
     (t,) = trades(db)
     assert t["status"] == ("open" if n else "seen") and len(sent) == 1
     assert ("LONG SEEN, not traded: ABCD @ $10.55" in sent[0]) == (n == 0)
-    assert ("🟢 LONG ABCD" in sent[0]) == (n == 1)
+    assert (bold("BUY ABCD") in sent[0]) == (n == 1)
 
 
 def test_a_seen_long_is_never_a_trade_and_is_scored_for_the_record(db):

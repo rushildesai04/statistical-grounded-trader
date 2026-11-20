@@ -20,6 +20,7 @@ import pandas as pd
 from sgt.fast import est_costs, long_shadow
 from sgt.fast import patterns as pt
 from sgt.fast.fade import ET
+from sgt.ops.sms_style import bold, italic
 from sgt.ops.store import OpsStore, iso
 
 FRESH = pd.Timedelta(seconds=90)        # "buy at market now" is only said this soon after the candle closed
@@ -107,20 +108,22 @@ def note(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool) -> 
 
 
 def text(symbol: str, lines: list[Line], now: datetime, off: bool, names: dict[str, str]) -> str:
+    """The ARMED card, laid out like the fade's cards (owner 2026-11-20): what to do, the levels, the tested record."""
     ready = lines[0][0].ready
     ago = int((pd.Timestamp(now) - ready).total_seconds())
-    out = [f"[SGT] 🟡 LONG SETUP ARMED {symbol} · candle closed {ready.tz_convert(ET):%H:%M:%S} ET ({ago}s ago)"]
+    out = [f"[SGT] 🟡 {bold('LONG SETUP ARMED')} · {bold(symbol)} · candle closed {ready.tz_convert(ET):%H:%M:%S} ET "
+           f"({ago}s ago)"]
     for s, ref in lines:
         risk = (ref - s.stop) / ref
         tgt = ref + pt.RR * (ref - s.stop)
-        levels = f"stop ${s.stop:.2f} ({-risk:.1%}) · target ${tgt:.2f} (+{pt.RR * risk:.1%})"
+        levels = f"🛑 stop ${s.stop:.2f} ({-risk:.1%}) · 🎯 target ${tgt:.2f} (+{pt.RR * risk:.1%})"
         if s.trigger is None:
-            out.append(f"{names.get(s.kind, s.kind)}: buy at market now, last ${ref:.2f} · {levels} from that price")
+            out += [f"💬 {names.get(s.kind, s.kind)}: buy at market now, last ${ref:.2f}", f"{levels} from that price"]
         else:
-            out.append(f"{names.get(s.kind, s.kind)}: buy-stop ${s.trigger:.2f} · {levels} · order good until "
-                       f"{s.expires.tz_convert(ET):%H:%M} ET")
+            out += [f"💬 {names.get(s.kind, s.kind)}: buy-stop ${s.trigger:.2f} · order good until "
+                    f"{s.expires.tz_convert(ET):%H:%M} ET", levels]
+    out.append("🎲 Tested on past alerts: " + italic(", ".join(
+        f"{names.get(s.kind, s.kind)} {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade" for s, _ in lines)))
     out.append("Measure-only (your choice): nothing is traded; a 'seen' text follows if it fills." if off
                else "Paper: a LONG text follows if it fills.")
-    out.append("Tested on past alerts: " + ", ".join(
-        f"{names.get(s.kind, s.kind)} {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade" for s, _ in lines))
     return "\n".join(out)
