@@ -15,6 +15,7 @@ have been placed by a real account: its number says what the gate cost or saved 
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -42,6 +43,7 @@ LOOKBACK_DAYS, STALE_DAYS, MAX_ROWS = 14, 3, 600
 GATES = (("news", -0.0020, fade.NEWS_REASON[:4]), ("hours", None, "outside "), ("repeat", -0.0110, fade.REPEAT_REASON[:20]),
          ("beta", -0.0214, fade.BETA_REASON[:9]))
 REREAD = 50                                  # stock-days at which a gate whose blocked shorts are winning is put to the owner
+FLAG_MIN, FLAG_Z = 5, 1.645                  # a gate is marked only on 5+ stock-days whose 95% lower bound is above zero
 AUDIT_MAX_ROWS = 20_000
 
 
@@ -120,27 +122,32 @@ def _one(db: OpsStore, r: dict, bars: DayBars, cost_fn: Cost, stale: bool) -> st
 
 
 def gates(db: OpsStore) -> list[dict]:
-    """Per choice gate: the stock-days it stopped that have a would-have result, and their average (each stock-day
-    once: several alerts of one stock on one day are one event). Read-only."""
+    """Per choice gate: the stock-days it stopped that have a would-have result, and their average. Each stock-day
+    counts once, by its FIRST scored alert: the book takes one fade a stock a day, the first. ``against`` = the
+    stopped shorts are winning by more than chance (5+ stock-days and the one-sided 95% lower bound of their average
+    above zero; stock-days of one session are treated as independent, which flatters the bound a little). Read-only."""
     with db.tx() as c:
         rows = c.execute("SELECT symbol, session, reason, wh_net FROM fade_trades WHERE wh_net IS NOT NULL AND status IN "  # noqa: S608
                          f"({','.join('?' * len(NOT_TAKEN))}) ORDER BY id LIMIT ?", (*NOT_TAKEN, AUDIT_MAX_ROWS)).fetchall()
     out = []
     for label, tested, prefix in GATES:
-        days: dict[tuple[str, str], list[float]] = {}
-        for r in rows:
+        days: dict[tuple[str, str], float] = {}
+        for r in rows:                                                   # rows come in id order: the first alert wins
             if (r["reason"] or "").startswith(prefix):
-                days.setdefault((r["symbol"], r["session"]), []).append(float(r["wh_net"]))
-        ev = [sum(v) / len(v) for v in days.values()]
+                days.setdefault((r["symbol"], r["session"]), float(r["wh_net"]))
+        ev = list(days.values())
         if ev:
-            out.append({"gate": label, "n": len(ev), "avg": sum(ev) / len(ev), "tested": tested,
-                        "since": min(k[1] for k in days), "against": sum(ev) / len(ev) > 0})
+            n, avg = len(ev), sum(ev) / len(ev)
+            sd = math.sqrt(sum((x - avg) ** 2 for x in ev) / (n - 1)) if n > 1 else math.inf
+            out.append({"gate": label, "n": n, "avg": avg, "tested": tested, "since": min(k[1] for k in days),
+                        "against": n >= FLAG_MIN and avg - FLAG_Z * sd / math.sqrt(n) > 0})
     return out
 
 
 def gates_line(db: OpsStore) -> str | None:
     """One line for the nightly summary: what the shorts each gate stopped would have made, against the gate's test.
-    A gate whose stopped shorts are winning is marked and counted towards its reread; it is never lifted here."""
+    A gate whose stopped shorts are winning by more than chance is marked, and at REREAD stock-days it is put to the
+    owner; it is never lifted here."""
     g = gates(db)
     if not g:
         return None

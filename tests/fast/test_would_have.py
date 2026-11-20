@@ -144,11 +144,11 @@ def scored(db, sym, reason, net, session=DAY, status="filtered"):
     return rid
 
 
-def test_gates_count_stock_days_once_and_only_the_choice_gates(db):
+def test_gates_count_a_stock_day_once_by_its_first_alert_and_only_the_choice_gates(db):
     scored(db, "AAA", fade.NEWS_REASON, -0.20)
     scored(db, "BBB", fade.NEWS_REASON, +0.10)
     scored(db, "CCC", fade.REPEAT_REASON, +0.30)
-    scored(db, "CCC", fade.REPEAT_REASON, +0.10)                      # same stock, same day: one event at +20%
+    scored(db, "CCC", fade.REPEAT_REASON, -0.90)                      # same stock, same day: the book fades the first only
     scored(db, "CCC", fade.REPEAT_REASON, -0.05, session="2026-11-17")
     scored(db, "DDD", "outside 09:30-15:44", -0.04)
     scored(db, "EEE", "price 0.4497 outside $1-50", +0.50)            # not a choice: never in the check
@@ -157,25 +157,47 @@ def test_gates_count_stock_days_once_and_only_the_choice_gates(db):
     scored(db, "HHH", fade.REPEAT_REASON, +0.90, status="closed")     # a taken trade is not a blocked alert
     g = {x["gate"]: x for x in wh.gates(db)}
     assert set(g) == {"news", "hours", "repeat"}
-    assert (g["news"]["n"], g["news"]["against"]) == (2, False) and g["news"]["avg"] == pytest.approx(-0.05)
-    assert (g["repeat"]["n"], g["repeat"]["against"]) == (2, True) and g["repeat"]["avg"] == pytest.approx((0.20 - 0.05) / 2)
+    assert g["news"]["n"] == 2 and g["news"]["avg"] == pytest.approx(-0.05)
+    assert g["repeat"]["n"] == 2 and g["repeat"]["avg"] == pytest.approx((0.30 - 0.05) / 2)
     assert g["repeat"]["since"] == "2026-11-17" and g["hours"]["tested"] is None
+    assert not any(x["against"] for x in g.values())                  # two stock-days are never enough to mark a gate
 
 
-def test_gates_line_marks_a_gate_whose_stopped_shorts_are_winning(db):
-    assert wh.gates_line(db) is None                                   # nothing scored: no line
-    scored(db, "AAA", fade.NEWS_REASON, -0.20)
-    scored(db, "CCC", fade.REPEAT_REASON, +0.30)
+def many(db, reason, nets):
+    for i, x in enumerate(nets):
+        scored(db, f"S{i:03d}", reason, x)
+
+
+def test_a_gate_is_marked_only_when_its_stopped_shorts_win_by_more_than_chance(db):
+    many(db, fade.REPEAT_REASON, [0.10, 0.12, 0.08, 0.11, 0.09])      # five stock-days, tight: lower bound above zero
+    many(db, fade.NEWS_REASON, [0.40, -0.35, 0.30, -0.25, 0.05])      # average +3% but all noise: not marked
+    g = {x["gate"]: x for x in wh.gates(db)}
+    assert g["repeat"]["against"] and not g["news"]["against"] and g["news"]["avg"] == pytest.approx(0.03)
     line = wh.gates_line(db)
-    assert line == ("gates check (shorts not taken, stock-days since 11-18, in no total): news 1 at -20.0%, "
-                    f"repeat 1 at +30.0% (AGAINST the gate: tested -1.1%; reread at {wh.REREAD})")
+    assert line == ("gates check (shorts not taken, stock-days since 11-18, in no total): news 5 at +3.0%, "
+                    f"repeat 5 at +10.0% (AGAINST the gate: tested -1.1%; reread at {wh.REREAD})")
+
+
+def test_the_bound_uses_the_sample_spread(db):
+    # mean +10%, sample sd 14.43%: lower bound 0.10 - 1.645 * 0.1443 / sqrt(5) = -0.6% -> not marked (the population
+    # sd, 12.9%, would give +0.5% and mark it)
+    many(db, fade.REPEAT_REASON, [-0.0443, 0.2443, -0.0443, 0.2443, 0.10])
+    g = wh.gates(db)[0]
+    assert g["avg"] == pytest.approx(0.10) and not g["against"]
+
+
+def test_four_winning_stock_days_are_too_few_to_mark(db):
+    many(db, fade.REPEAT_REASON, [0.10, 0.12, 0.08, 0.11])
+    assert wh.gates_line(db).endswith("repeat 4 at +10.2%")
+    assert wh.gates_line(OpsStore(db.path.parent / "empty.db")) is None        # nothing scored: no line
 
 
 def test_gates_line_calls_the_reread_at_the_count(db, monkeypatch):
-    monkeypatch.setattr(wh, "REREAD", 2)
-    scored(db, "CCC", fade.BETA_REASON, +0.30)
-    scored(db, "DDD", fade.BETA_REASON, +0.10)
-    assert wh.gates_line(db).endswith("beta 2 at +20.0% (AGAINST the gate: tested -2.1%; reread now)")
+    monkeypatch.setattr(wh, "REREAD", 5)
+    many(db, fade.BETA_REASON, [0.30, 0.10, 0.20, 0.25, 0.15])
+    assert wh.gates_line(db).endswith("beta 5 at +20.0% (AGAINST the gate: tested -2.1%; reread now)")
+    monkeypatch.setattr(wh, "REREAD", 6)
+    assert wh.gates_line(db).endswith("reread at 6)")
 
 
 def test_gates_read_only(db):

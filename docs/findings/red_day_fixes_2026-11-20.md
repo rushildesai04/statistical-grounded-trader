@@ -17,7 +17,7 @@ what was done. Reads of stored records are description of data already seen. One
 | 4. A hedge removes the gain | No. Nothing tested here earns on a falling market | closed; the stop and the size are the protection |
 | 5. The paper book swings more than the scorecard that decides it | Yes | 2.4 times, and for a worse return per unit of risk; owner's decision |
 | 6. The repeat gate kept the fade out of two winners | No change is right. The one lead was tested on unseen data and failed | registered test, FAIL, gate confirmed |
-| 7. A gate disagrees with its test | Yes, as measurement | every gate is checked against its own test nightly, with a fixed reread count |
+| 7. A gate disagrees with its test | It does not, counted correctly. And yes, as measurement | the review's +11.8% counted repeated alerts of one stock; by the book's own unit no gate is against its test beyond chance. Every gate is now checked nightly, with a fixed reread count |
 
 ## 1. Not a stock picker
 
@@ -160,9 +160,13 @@ proves nothing, so it was written down as a registered test and run once on the 
 | alerted 2 to 7 days before | 99 | -1.25% |
 
 **FAIL** (difference -0.32%, p 0.54). Day-after repeats lose on unseen data like the others. The lead is closed and
-the gate is confirmed a second time on the held-out events. The 9 blocked alerts of November are 7 stock-days;
-a sample that small averaging +11.8% has about a 1 in 100 chance under the tested record, and the gate is one of
-six looked at every night.
+the gate is confirmed a second time on the held-out events.
+
+**A correction to the red-day review.** It said the gate's 9 blocked alerts "would have made +11.8%". The book
+fades a stock once a day, at its first alert; the 9 alerts are 7 stock-days (GP and OMH were each alerted twice
+within minutes). Counted the way the book trades, the 7 average +8.4% with 5 winners, and the 95% lower bound of
+that average is -2.4%: about a 1 in 20 draw under the tested record, on one of four gates watched every night. Not
+evidence against the gate.
 
 **Verdict.** The gate stays. Repeats are not split again on these files.
 
@@ -170,13 +174,18 @@ six looked at every night.
 
 **Built.** The nightly summary gets one line, "gates check": for each gate that is a choice (news, hours, repeat,
 beta; not price under $1, borrow or halts, which a real account could not trade), the stock-days it stopped and what
-those shorts would have made (`sgt.fast.would_have.gates_line`). A gate whose stopped shorts are winning is marked
-"AGAINST the gate" with its tested figure, and at 50 stock-days it reads "reread now". The line lifts nothing: a
-reread is put to the owner under playbook section 0 (borrow in the record, the loss cap, the owner's OK).
+those shorts would have made, each stock-day counted once by its first alert (`sgt.fast.would_have.gates_line`). A
+gate is marked "AGAINST the gate", with its tested figure, only when its stopped shorts are winning by more than
+chance: at least 5 stock-days and the 95% lower bound of their average above zero. A marked gate reads "reread now"
+at 50 stock-days. The line lifts nothing: a reread is put to the owner under playbook section 0 (borrow in the
+record, the loss cap, the owner's OK).
+
+On the record to 2026-11-19 the line reads: news 42 at -1.4%, hours 10 at -4.9%, repeat 7 at +8.4%, beta 3 at
++12.8%; none marked. The first version of this check marked a gate on the sign of the average alone and would have
+cried against three of the four on noise; it was tightened before it shipped.
 
 Why 50: a repeat fade swings about 15% a trade, so the average of 50 is known to about 2 points, enough to tell the
-tested -1.1% from the +2.5% of the fades the book takes. Counted in stock-days because several alerts of one stock
-on one day are one event (the 9 blocked repeats are 7).
+tested -1.1% from the +2.5% of the fades the book takes.
 
 ## What was not found
 
