@@ -231,13 +231,24 @@ def hold_lines(db: OpsStore) -> list[str]:
         out.append(f"{bold('megacap long calls')} ledger, {lo['sessions']} sessions since {lo['since'][5:]}: "
                    f"{lo['total']:+.1%} ({lo['calls']} calls, {lo['wins']} winners, avg {avg}; tested "
                    f"{longonly.TESTED_AVG:+.2%}, {longonly.TESTED_WIN:.0%}); long and short {lo['long_short']:+.1%}, "
-                   f"holding {lo['holding']:+.1%}" + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else ""))
+                   f"holding {lo['holding']:+.1%}" + _rarity(lo) + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else ""))
     from sgt.megacap import downday
 
     dl = downday.line(root)                             # owner 2026-11-19: a second ledger, recorded beside the registered one
     if dl:
         out.append(dl)
     return out
+
+
+def _rarity(lo: dict) -> str:
+    """How unusual the live long-calls ledger is against its tested record; empty when it cannot be said."""
+    from sgt.megacap import longonly
+
+    r = longonly.rarity(lo["total"], lo["sessions"], longonly.history())
+    if r is None:
+        return ""
+    share = "under 0.5%" if r < 0.005 else f"{r:.0%}" if r >= 0.10 else f"{r:.1%}"
+    return f"; {share} of {lo['sessions']}-session stretches of its tested record were this weak or weaker"
 
 
 def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
@@ -421,6 +432,14 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     nl = forward_record.noise_area_line()        # owner 2026-11-19: recorded, never traded, in no total
     if nl:
         lines.append(nl)
+    try:                                         # red-day review 2026-11-20: each gate against its own test, nightly
+        from sgt.fast import would_have
+
+        gl = would_have.gates_line(db)
+        if gl:
+            lines.append(gl)
+    except Exception:  # noqa: BLE001 - informational line
+        lines.append("gates check: unavailable")
     lines += [f"{bold('live vs tested')}: {r}" for r in record]
     try:
         lines += [f"{bold('fade exec')}: " + x.removeprefix("fade exec: ") for x in realism.lines(db)]
