@@ -53,3 +53,21 @@ point). A PASS says "the unseen trades do not contradict the rule", no more.
 
 ## Not done
 No "fading" rule, no price-versus-alert band, no cover-the-short rule, no other window, no re-run.
+
+## Result (run once, 2026-11-20; `reports/long_while_short/result.json`) - PASS as registered, not proof
+| bot replay, live configuration | longs while our short is open | the other longs | difference | p |
+|---|---|---|---|---|
+| held-out (decides) | n 64 · -1.47% | n 86 · -0.35% | +1.12 points | 0.08 |
+| training (disclosed) | n 179 · -0.95% | n 327 · -0.54% | +0.40 | 0.21 |
+
+All three conditions hold: the unseen trades do not contradict the rule and point the same way as training, more
+strongly. It is not established at the usual 5% level. The rule is put to the owner on its own reason (one account
+cannot hold both sides) with this as support.
+
+Read afterwards, descriptive only (both samples already seen; not a test): with the cost cap of the same day also
+applied, the longs that remain are half of today's (training 255 of 506, held-out 63 of 150) and lost -0.26% and
+-0.23% a trade, about +0.4% before costs in both samples; the longs taken while the short is open and not dear lost
+-1.03% and -1.06% (-0.38% before costs in both). Still no profit after costs. The remaining longs are on alerts the
+short book does not take (company news, or a stock alerted in the prior 7 days); whether one of those two is where
+a long earns is a question for a new registered test or the forward record, not for these files today.
+
