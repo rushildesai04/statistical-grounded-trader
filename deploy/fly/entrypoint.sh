@@ -38,7 +38,12 @@ if [ "${1:-}" = "job" ]; then
     megacaplive) run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py decide || true
                run reports/ops/run.log python /app/scripts/sms_control.py megacap || true
                if [ -f "reports/megacap_ext/models/$(date +%Y-%m)/meta.json" ]; then
-                 run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext
+                 # Audit 2026-11-21 (D-3): under set -e a failed ext decision ended the job here, so the two book steps
+                 # below never ran, and they are the steps that CLOSE what the book holds when today has no live
+                 # decision (owner 2026-11-16, after exactly this on 11-13). run() has already logged and texted
+                 # the failure; the book steps must still run. Without a live ext decision megacaplong writes no
+                 # order and closes its book (it trades only when both sets decided live).
+                 run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext || true
                  run reports/ops/run.log python /app/scripts/sms_control.py megacapext || true
                  # prereg_megacap_long_forward_2026-11-13: long calls of both sets, only when both decided live
                  run reports/ops/run.log python /app/scripts/sms_control.py megacaplong
