@@ -296,7 +296,10 @@ def main() -> int:
             out[name] = done
         if args.forward:
             try:
-                out["forward"], out["forward_counts"] = forward_rows(api, c, args.limit)
+                import contextlib
+
+                with contextlib.redirect_stdout(sys.stderr):      # the research loaders print their own counts
+                    out["forward"], out["forward_counts"] = forward_rows(api, c, args.limit)
             except Exception as exc:  # noqa: BLE001 - the trades above are still printed; the failure is named
                 import traceback
 
