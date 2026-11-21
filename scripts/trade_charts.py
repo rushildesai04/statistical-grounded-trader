@@ -85,7 +85,7 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         rows = [dict(r) for r in c.execute(
             "SELECT t.id, t.symbol, t.session, t.kind, t.status, t.reason, t.stop, t.target, t.weight, t.net, "
             "t.est_entry, t.est_exit, t.est_exit_at, t.entry_ts AS est_entry_at, f.posted_at, f.alert_type, "
-            "t.entry, t.exit AS cover, t.fill_ts AS entry_ts, t.exit_ts FROM long_trades t JOIN fade_trades f "
+            "t.entry, t.exit AS cover, t.fill_ts AS entry_ts, t.exit_ts, t.exit_reason FROM long_trades t JOIN fade_trades f "
             "ON f.id=t.fade_id WHERE t.status IN ('open','est_closed','settled') ORDER BY t.id DESC LIMIT ?",
             (MAX_TRADES,))]
     keep = sorted({r["session"] for r in rows}, reverse=True)[:MAX_SESSIONS]
@@ -94,7 +94,7 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         if r["session"] not in keep:
             continue
         if r["status"] != "settled":                      # the official entry/exit only once settled
-            r.update(net=None, entry=None, cover=None, entry_ts=None)
+            r.update(net=None, entry=None, cover=None, entry_ts=None, exit_reason=None)
         elif r.get("exit_ts"):
             r["est_exit_at"] = r["exit_ts"]                # the official exit time for the sell marker
         ret = r["net"] if r["net"] is not None else est_costs.net(     # live estimate: after estimated costs (2026-11-16)

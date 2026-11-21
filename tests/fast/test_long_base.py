@@ -165,7 +165,7 @@ def test_the_live_book_buys_the_base_break_and_says_so(db):
     assert sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.60')}")
     assert "🛑 stop $10.25 (-3.3%)" in sent[0]
     assert "\n⏱ Break candle closed 10:14:00 ET (5s ago): buy at market now" in sent[0]
-    assert f"🎲 Win chance {bold('37%')} · base break: " + italic("avg -0.3%/trade over 255 past trades") in sent[0]
+    assert f"🎲 Past win rate {bold('37%')} · base break: " + italic("avg -0.3%/trade over 255 past trades") in sent[0]
     for k in range(29, 80):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k))
     (t,) = trades(db)

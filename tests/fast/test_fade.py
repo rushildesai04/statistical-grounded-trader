@@ -400,7 +400,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
     assert body.split("\n") == [
         f"🔻 {bold('SHORT XYZ')} @ {bold('$4.20')}",
         "💬 Short $5,000 of XYZ: we make money if it falls",
-        f"🎲 Win chance {bold('52%')} · earnings news today: {italic('avg +0.1%/trade over 266 past trades')}",
+        f"🎲 Past win rate {bold('52%')} · earnings news today: {italic('avg +0.1%/trade over 266 past trades')}",
         "📰 “XYZ raises guidance”",
         "📣 halt resumed · up 85% today · +12% from open",
         f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
@@ -412,7 +412,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
         "🔗 https://www.tradingview.com/chart/?symbol=XYZ"]
     quiet = {"news_any": False, "news_own": False, "news_earn": False, "news_n": 0, "headline": None}
     clean = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {"news": quiet}, "")
-    assert f"🎲 Win chance {bold('58%')} · no company news" in clean and "📰" not in clean
+    assert f"🎲 Past win rate {bold('58%')} · no company news" in clean and "📰" not in clean
     assert "sure" not in clean and "sure" not in body          # owner 2026-11-10: no "X% sure" in trade texts
     bare = fade.ask_text("XYZ", "news", None, 5000.0, {}, "")
     assert "📣 news\n" in bare and "🏦 borrow unknown" in bare and "stop +20%" in bare
@@ -553,12 +553,12 @@ def test_live_bars_feed_the_chart_read_and_tolerate_junk():
 def test_time_of_day_history_line_by_entry_window():
     ctx = {"news": {"news_any": 0, "news_own": 0, "news_earn": 0}}
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc))
-    assert f"🎲 Win chance {bold('57%')} · no company news, before 11:00 ET" in t  # v2 (A2)
+    assert f"🎲 Past win rate {bold('57%')} · no company news, before 11:00 ET" in t  # v2 (A2)
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=datetime(2026, 11, 5, 19, 30, tzinfo=timezone.utc))
-    assert f"🎲 Win chance {bold('65%')} · no company news, after 14:00 ET" in t
+    assert f"🎲 Past win rate {bold('65%')} · no company news, after 14:00 ET" in t
     raya = {"news": {"news_any": 1, "news_own": 1, "news_earn": 0}}                  # RAYA / STAK / SERV 2026-11-06
     t = fade.ask_text("RAYA", "news", 1.52, 5000, raya, "", at=datetime(2026, 11, 6, 14, 39, tzinfo=timezone.utc))
-    assert f"🎲 Win chance {bold('53%')} · company news today, before 11:00 ET" in t
+    assert f"🎲 Past win rate {bold('53%')} · company news today, before 11:00 ET" in t
     assert fade.confidence("news", {}, datetime(2026, 11, 6, 19, 0, tzinfo=timezone.utc))[0] == 66    # news alert, 14:00
     assert fade.confidence("volume_spike", {}, datetime(2026, 11, 6, 15, 0, tzinfo=timezone.utc))[0] == 93   # unknown
 
@@ -722,3 +722,50 @@ def test_runaway_guard_blocks_entries_at_max_open(db, monkeypatch):
     assert fade.on_alert(db, alert("G3", mid=3), now=T10) == "skipped: runaway guard: 2 open"
     monkeypatch.setattr(fade, "MAX_OPEN", 3)
     assert fade.caps(db, rows(db)[0]["session"]) is None
+
+
+# ---- audit 2026-11-21: the trade text says when the tested win rate is not holding live ----
+def _forward_file(db, nets):
+    from sgt.learning import live_monitor
+
+    p = live_monitor.forward_path(db)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("net_champion\n" + "\n".join(str(x) for x in nets) + "\n")
+
+
+@pytest.fixture()
+def own_db(tmp_path):
+    """A book in its own reports folder: the forward record lives two folders above ops.db, so a file written for it
+    must never land in a folder other tests share."""
+    from sgt.ops.store import OpsStore
+
+    (tmp_path / "reports" / "ops").mkdir(parents=True)
+    return OpsStore(tmp_path / "reports" / "ops" / "ops.db")
+
+
+def test_text_warns_when_the_forward_record_is_in_alarm(own_db):
+    db = own_db
+    ctx = {"news": {"news_any": 0, "news_own": 0, "news_earn": 0}}
+    at = datetime(2026, 11, 5, 15, 30, tzinfo=timezone.utc)
+    quiet = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=at)
+    assert "Forward record" not in quiet and "Win chance" not in quiet        # no alarm: no line; never "win chance"
+    assert fade.forward_alarm(db) is None                                      # no forward file yet
+    _forward_file(db, [0.03, -0.02] * 10)                                      # 20 alerts, half won, about level: no alarm
+    assert fade.forward_alarm(db) is None
+    _forward_file(db, [-0.05] * 40 + [0.02] * 10)                              # 50 alerts, 20% won: the guard alarms
+    f = fade.forward_alarm(db)
+    assert f == {"n": 50, "win": pytest.approx(0.2), "mean": pytest.approx(-0.036)}
+    t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=at, forward=f)
+    assert "⚠️ Forward record, 50 alerts: 20% won, avg -3.6%." in t
+    assert italic("Below the test: the past figures above are not holding live.") in t
+    assert t.index("🎲 Past win rate") < t.index("⚠️ Forward record")
+
+
+def test_an_unreadable_forward_record_never_stops_a_text(own_db):
+    db = own_db
+    from sgt.learning import live_monitor
+
+    p = live_monitor.forward_path(db)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("some,other,columns\n1,2,3\n")
+    assert fade.forward_alarm(db) is None

@@ -102,6 +102,9 @@ COLUMNS = {
         # has not judged an alert yet, so this read must never fill news_own / news_earn.
         "news_kind": "TEXT", "ctx_news_own": "INTEGER", "ctx_news_earn": "INTEGER", "ctx_head": "TEXT",
         "ctx_at": "TEXT", "ctx_note": "TEXT",
+        # audit 2026-11-21 (sgt.fast.exec_check): the same short from the first official minute after the bot's own
+        # decision (the official entry assumes alert + 10 s; the alert often reaches us later). A measurement.
+        "dec_entry": "REAL", "dec_net": "REAL", "dec_note": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
@@ -111,7 +114,10 @@ COLUMNS = {
         # 2026-11-18 (sgt.fast.text_px): the official price when the fill text went out, and buying there
         "text_px": "REAL", "text_px_at": "TEXT", "text_how": "TEXT", "text_gross": "REAL",
         # 2026-11-18 (sgt.fast.trend_matrix): where the trader's rule would have left this long (MACD going red)
-        "tr_exit_px": "REAL", "tr_exit_at": "TEXT", "tr_why": "TEXT"},
+        "tr_exit_px": "REAL", "tr_exit_at": "TEXT", "tr_why": "TEXT",
+        # audit 2026-11-21 (sgt.fast.exec_check): the low of the official minute of a stop exit (the official result
+        # books the stop price; a real stop order in a falling thin stock fills between the two). A measurement.
+        "stop_low": "REAL"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

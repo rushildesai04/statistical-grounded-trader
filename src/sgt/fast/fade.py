@@ -345,7 +345,8 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
             _set(db, r["id"], "ask", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
             return
         ctx = _context(db, r, context)
-        summary = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), at=now)
+        summary = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), at=now,
+                           forward=forward_alarm(db))
         aid = approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fade", period=r["session"],
                                 summary=summary, payload={"fade_id": r["id"]}, expires_at=deadline, now=now)
         if aid is None:
@@ -433,7 +434,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
             ctx = {**ctx, "beta": c.execute("SELECT beta FROM fade_trades WHERE id=?", (r["id"],)).fetchone()[0]}
         how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
         send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db),
-                                 out_at=out, at=now) + how)
+                                 out_at=out, at=now, forward=forward_alarm(db)) + how)
 
 
 def _context(db: OpsStore, r, context) -> dict:
@@ -477,7 +478,7 @@ def _veto_text(db: OpsStore, send, r, px: float, now: datetime, out: datetime, c
     """F5 entry text: the full trade card + "NO <code> = exit now" (approval kind 'fadeexit', open until the exit)."""
     ctx = _context(db, r, context)
     body = ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db), out_at=out,
-                    at=now)
+                    at=now, forward=forward_alarm(db))
     approvals.request(db, send, strategy=f"fade:{r['id']}", kind="fadeexit", period=r["session"], summary=body,
                       payload={"fade_id": r["id"], "symbol": r["symbol"]}, expires_at=out, now=now)
 
@@ -633,6 +634,21 @@ def drift_scale(db: OpsStore) -> float:
     """The live monitor's size multiplier for new fades (1.0 unless a drift alarm halved it; 2026-11-12)."""
     from sgt.learning import live_monitor
     return live_monitor.scale(db, BOOK)
+
+
+def forward_alarm(db: OpsStore) -> dict | None:
+    """The forward record (every channel alert scored by the frozen rule) while its drift guard is in alarm, else None
+    (audit 2026-11-21): the trade text then says that the tested win rate it quotes is not holding live. The site's
+    money score already switches to this record (``sgt.ops.score``); the text did not. Never raises: a text must go out."""
+    try:
+        from sgt.learning import live_monitor
+
+        r = live_monitor.check_forward(db)
+        if r.get("alarms") and r.get("n") and r.get("mean") is not None:
+            return {"n": int(r["n"]), "win": float(r["win"]), "mean": float(r["mean"])}
+    except Exception:  # noqa: BLE001 - informational line; the text still goes out without it
+        log.warning("forward record unreadable for the trade text")
+    return None
 
 
 def entry_notional(db: OpsStore) -> float:

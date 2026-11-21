@@ -234,3 +234,93 @@ def test_the_page_build_leaves_off_the_oldest_sessions_to_stay_under_its_budget(
     assert tc.PAGE_BUDGET < 8 * 1024 * 1024                                               # under the server's limit
     from sgt.ops import chartserver
     assert tc.PAGE_BUDGET < chartserver.MAX_PAGE
+
+
+# ---- audit 2026-11-21: a settled card shows the OFFICIAL exit (time and reason), not the live feed's ----
+SETTLED = {**TRADE, "status": "settled", "net": -0.045, "entry": 4.0, "cover": 4.1, "entry_ts": "2026-11-05 15:13:00+00:00"}
+
+
+def path(marks: dict):
+    """Flat $4 bars with chosen highs: minute offset from 14:30 UTC -> high."""
+    b = bars()
+    for m, h in marks.items():
+        b.loc[m, "high"] = h
+    return b
+
+
+def test_settled_short_that_officially_held_shows_the_60_minute_exit_not_the_live_stop():
+    # FISN 2026-11-09: the free feed texted a stop; the official tape never reached entry x 1.2
+    t = {**SETTLED, "reason": "stop", "est_exit_at": "2026-11-05T15:30:00+00:00"}
+    v = charts.trade_view(t, bars())
+    assert v["reason"] == "60 min" and v["live_reason"] == "stop"
+    assert v["exit_at"] == charts.et_epoch("2026-11-05T16:12:00Z")       # the last of the 60 official minutes from 15:13
+    assert v["markers"][2]["time"] == charts.et_epoch("2026-11-05T16:12:00Z")
+
+
+def test_settled_short_that_officially_stopped_shows_the_stop_minute_not_the_live_timer():
+    # MPU 2026-11-17: the free feed held to its timer; the official tape crossed the stop at 15:40
+    t = {**SETTLED, "cover": 4.8, "net": -0.2175, "reason": "60 min"}
+    v = charts.trade_view(t, path({70: 4.85}))                             # 14:30 + 70 min = 15:40
+    assert v["reason"] == "stop" and v["live_reason"] == "60 min"
+    assert v["exit_at"] == charts.et_epoch("2026-11-05T15:40:00Z") and v["exit"] == 4.8
+
+
+def test_a_late_seen_stop_and_a_plain_stop_are_the_same_exit():
+    t = {**SETTLED, "cover": 4.8, "reason": "stop (official tape, seen late)"}
+    v = charts.trade_view(t, path({70: 4.85}))
+    assert v["reason"] == "stop" and v["live_reason"] is None
+
+
+def test_agreeing_labels_show_once_and_an_estimate_keeps_its_live_exit():
+    v = charts.trade_view(SETTLED, bars())
+    assert v["reason"] == "60 min" and v["live_reason"] is None
+    live = charts.trade_view({**TRADE, "reason": "stop"}, bars())          # not settled: nothing official to show
+    assert live["reason"] == "stop" and live["live_reason"] is None
+    assert live["exit_at"] == charts.et_epoch(TRADE["est_exit_at"])
+
+
+def test_the_owners_own_exit_keeps_its_time_and_label():
+    t = {**SETTLED, "reason": "your NO", "est_exit_at": "2026-11-05T15:25:10+00:00"}
+    v = charts.trade_view(t, bars())
+    assert v["reason"] == "your NO" and v["exit_at"] == charts.et_epoch("2026-11-05T15:25:10Z")
+
+
+def test_a_short_entered_late_in_the_day_is_labelled_close():
+    b = bars(start="2026-11-05T20:00:00Z", n=60)                           # the session's last hour
+    t = {**SETTLED, "posted_at": "2026-11-05T20:39:00+00:00", "entry_ts": "2026-11-05 20:40:00+00:00",
+         "est_entry_at": "2026-11-05T20:40:10+00:00", "est_exit_at": "2026-11-05T21:00:00+00:00", "reason": "close"}
+    v = charts.trade_view(t, b)
+    assert v["reason"] == "close" and v["exit_at"] == charts.et_epoch("2026-11-05T20:59:00Z")
+
+
+def test_official_exit_cannot_be_read_without_bars_or_prices():
+    b = bars()
+    assert charts.official_short_exit(b.iloc[:0], "2026-11-05 15:13:00+00:00", 4.0, 4.1) is None
+    assert charts.official_short_exit(b, "2026-11-05 15:13:00+00:00", None, 4.1) is None
+    assert charts.official_short_exit(b, "2026-11-05 23:00:00+00:00", 4.0, 4.1) is None      # no bar in the window
+    assert charts.official_short_exit(b, "2026-11-05 15:13:00+00:00", 4.0, 4.8) is None      # a stop the bars do not show
+
+
+def test_settled_long_shows_its_official_exit_reason_and_the_texted_one():
+    t = {**LONG, "status": "settled", "net": -0.038, "entry": 4.0, "cover": 3.9, "entry_ts": "2026-11-05 15:14:00+00:00",
+         "reason": "target", "exit_reason": "stop"}                        # ADXN 2026-11-12: texted target, official stop
+    v = charts.trade_view(t, bars(), side="long")
+    assert v["reason"] == "stop" and v["live_reason"] == "target"
+    same = charts.trade_view({**t, "reason": "stop"}, bars(), side="long")
+    assert same["reason"] == "stop" and same["live_reason"] is None
+    est = charts.trade_view({**LONG, "reason": "target", "exit_reason": None}, bars(), side="long")
+    assert est["reason"] == "target" and est["live_reason"] is None
+
+
+def test_a_result_note_is_not_shown_as_a_live_label():
+    note = "official at the live entry (not a tested event: no_entry)"
+    v = charts.trade_view({**SETTLED, "cover": 4.8, "reason": note}, path({70: 4.85}))
+    assert v["reason"] == "stop" and v["live_reason"] is None and v["result_note"] == note
+    assert charts.trade_view(SETTLED, bars())["result_note"] is None
+
+
+def test_the_page_says_the_money_verdict_is_advice_and_shows_the_live_label():
+    """Audit 2026-11-21: NO-GO beside a taken trade, and a live exit label on an official result, were unexplained."""
+    page = charts.TEMPLATE.read_text()
+    assert "Verdict as of this page, not as of the entry" in page
+    assert 'fact("texted live", t.live_reason)' in page and 'fact("scored", t.result_note)' in page

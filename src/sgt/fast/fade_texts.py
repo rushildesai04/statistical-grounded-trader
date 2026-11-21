@@ -191,7 +191,7 @@ def reddit_line(rd: dict) -> str:
 
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None,
-             at: datetime | None = None) -> str:
+             at: datetime | None = None, forward: dict | None = None) -> str:
     """Trade text body (owner requests 2026-11-04/05): trade in plain words, confidence by news group, headline,
     why, tape, risk, tested payoff, live record, borrow, chart. ``out_at`` set = the F5 entry text (already short).
     Unicode bold + emoji = UCS-2 SMS; see sms_style."""
@@ -203,7 +203,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
              # confidence "makes no sense". The stored ``conf`` (how sure the AVERAGE is positive) is no per-trade
              # number, so the text shows only the win rate and average of the past trades it comes from, and how
              # many there are. A per-trade model added no skill (prereg_fade_confidence: Brier = base rate).
-             f"🎲 Win chance {bold(f'{win:.0%}')} · {label}: "
+             # Audit 2026-11-21: "Win chance" read as this trade's odds. It is the share of PAST trades of this kind
+             # that won in the backtest, so the text says that; ``forward`` (below) says when live is not matching it.
+             f"🎲 Past win rate {bold(f'{win:.0%}')} · {label}: "
              + italic(f"avg {avg:+.1%}/trade over {n_past:,} past trades")]
     bl = beta_line(ctx.get("beta"))
     if bl:
@@ -253,6 +255,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     n, mean = live
     if n and mean is not None:
         lines.append(f"📈 Live: {n} trades, avg {mean:+.1%}" + (" " + italic("(too few to judge)") if n < JUDGE_N else ""))
+    if forward and forward.get("n"):             # the drift guard is in alarm: the tested figures are not being met
+        lines.append(f"⚠️ Forward record, {forward['n']} alerts: {forward['win']:.0%} won, avg {forward['mean']:+.1%}. "
+                     + italic("Below the test: the past figures above are not holding live."))
     none = borrow.startswith("none")
     lines.append(f"🏦 {'⚠️ ' if none else ''}{borrow or 'borrow unknown'}")
     chart = news.chart_url(symbol)

@@ -42,7 +42,12 @@ NOTE_START = "ai_note_review_start"        # notes saved before this instant nev
 
 VERDICTS = ("rule win", "rule loss", "execution issue", "unclear")
 CONFIDENCE = ("low", "medium", "high")
-ISSUE_KINDS = ("execution", "data", "setup")
+# Audit 2026-11-21: three kinds folded everything into "execution". The finer kinds keep apart a data or timing
+# defect, a wrong alert, an eligibility miss (borrow, price, hours), a setup that did not qualify, the bot doing
+# something other than its rule, a risk-control gap, a fill the record assumes but could not get, a report that
+# disagrees with the result, a rule that simply loses, and not enough evidence to say. The first three are the old ones.
+ISSUE_KINDS = ("execution", "data", "setup", "alert", "eligibility", "implementation", "risk", "reporting", "strategy",
+               "evidence")
 IDEA_STATUS = ("tested: lost", "tested: kept", "untested", "live/forward")
 
 RULES = """Books (paper):
@@ -55,9 +60,16 @@ RULES = """Books (paper):
   base, target 2x the risk, else exit after 30 minutes. The bull flag breakout (L5v2) is also taken; the first to
   fill per alert. Before that date the book bought one-minute setups (first red candle L4a/L4b, break of structure
   L6, halt reopen L7a/L7b) with a stop at one candle's low: 45% were stopped in the entry minute, 15% won, -2.1% a
-  trade. The base break with the whole bot replayed on past alerts: 34% wins, -0.7% a trade (later -0.8%): still a loss,
-  so a losing trade is the expected outcome, not news. Alerts where no base forms are not traded.
-Tested facts: no-news fades earn about +1.7% per trade after real stop fills, 55-58% win; about 25% of trades hit the
+  trade. The base break with the whole bot replayed on past alerts: 34% wins, -0.7% a trade (later -0.8%): the long
+  book has a NEGATIVE tested average, so a losing long is a strategy problem (issue kind "strategy"), not bad luck.
+  Alerts where no base forms are not traded.
+Backtest facts: no-news fades earned about +1.7% per trade after real stop fills, 55-58% win, in the backtest. LIVE
+this is NOT confirmed (audit 2026-11-21): the forward record of every alert is below the backtest, its drift guard
+has been in alarm since 2026-11-13 (new shorts at quarter size), and the paper book's own shorts are about level to
+negative. So never call a losing short 'variance of a proven rule': the rule is unproven live. The official record
+also assumes things a real account may not get: the short is priced at the minute after alert + 10 s although the
+alert often reaches the bot later; borrow is a list of lendable shares, not a locate; a long stop is booked at the
+stop price although thin stocks fall through it. Say so where it applies. In the backtest about 25% of trades hit the
 stop; stocks often squeeze before fading (finding 4); halts right after the alert lose; chart-pattern exits and
 'wait for a breakdown' lose over thousands of trades; hindsight always finds a better exit (84% of fades show +3%
 at some point). Calm stocks (low pre-alert 1-minute volatility) fade worse than jumpy ones. Shorts on stocks with a
@@ -85,15 +97,23 @@ SYSTEM = ("You are a skeptical trading analyst writing the review of ONE closed 
           "Fields: what_happened (1-2 sentences, the path from entry to exit); went_right and went_wrong ('' when "
           "nothing); best_exit (the best visible exit: time ET, price, % from entry; it is hindsight, say so); warning "
           "(the first sign VISIBLE AT THE TIME that the trade was failing or working, '' if none); better_entry (an "
-          "entry worth testing, '' if none); improve (how the trade could have gone better); issues (execution, data "
-          "or setup problems only: a stop filled past its level, an entry price off the tested bar or stale, not "
-          "shortable (IBKR 0 shares and Alpaca no), a catalyst visible in posts while company news says none, chart "
-          "or price data that disagree); idea_checks (EVERY improvement idea in your review AND in owner_note, each "
+          "entry worth testing, '' if none); improve (how the trade could have gone better); issues (each with its "
+          "kind. data: a price, time or feed that is wrong, late or stale, chart or price data that disagree, a "
+          "catalyst visible in posts while company news says none. alert: the alert itself was late, a repeat or not "
+          "what it claims. eligibility: a trade a real account could not take (IBKR 0 shares and Alpaca no, price, "
+          "hours). setup: the setup did not really qualify (a base that is not a base on the full tape). "
+          "implementation: the bot did something its own rule does not say. risk: a stop or a size that did not "
+          "protect. execution: a fill the record assumes but a real order would not get (a stop filled past its "
+          "level, an entry priced before the bot knew of the alert or off the tested bar). reporting: the text, the "
+          "card and the official result disagree. strategy: the rule was followed and simply loses. evidence: not "
+          "enough data to say); idea_checks (EVERY improvement idea in your review AND in owner_note, each "
           "checked against tested_findings: 'tested: lost' citing the row and its numbers, 'tested: kept', "
           "'untested' with how it could be tested, or 'live/forward' when it is being measured live); "
           "knowable_at_entry; lesson (the bottom line in one sentence). Classify the outcome as a rule win, a rule "
-          "loss (the tested rule working as designed, i.e. variance), an execution issue (the live book did something "
-          "the tested rule would not), or unclear. One trade is an anecdote: never recommend changing a rule from it; "
+          "loss (the rule was followed as written and lost: that says nothing about whether the rule has an edge and "
+          "is never by itself 'normal variance'), an execution issue (the live book did something the tested rule "
+          "would not, or the record assumes a fill a real order would not get), or unclear (the evidence does not "
+          "decide: keep the uncertainty). One trade is an anecdote: never recommend changing a rule from it; "
           "an idea becomes a pre-registered test first. Be concise and specific to this trade.\n"
           "The owner's style (another trade):\n" + EXAMPLE + "\n" + RULES)
 

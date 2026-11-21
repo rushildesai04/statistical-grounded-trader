@@ -799,6 +799,16 @@ night it cannot finish is texted and caught up on the next run.
   longs. FOUND AND FIXED: the borrow scan and the trend-rule record asked the vendor for ranges ending in the
   future (HTTP 403): the scan ran a session behind and failed nightly, the trend record missed its first night
   (no session lost; both catch up on the next run).
+- **System audit 2026-11-21 (`docs/findings/system_audit_2026-11-21.md`): the software follows its rules; the RECORD
+  assumes things a real account may not get.** Shorts: on 9 of 29 the alert reached the bot after the minute whose
+  opening price the official result uses (alerts arrive 12 to 40 s after posting; the backtest assumes 10 s); the same
+  29 from the bot's own decision average -0.8% against -1.7% official, a difference inside the noise (standard error
+  1.7), so the direction is unknown. Longs: all 16 official stop exits are booked at exactly the stop price; that
+  minute's low was 3.1% lower on average (book -2.5% official, about -4.4% at the lows). No book has credible
+  evidence of an edge: shorts unconfirmed live, longs negative in backtest and live. Forward record, no new trades:
+  the nightly "execution check" line (`sgt.fast.exec_check`), reread at 50 shorts with both figures and at 30 long
+  stop exits. Open for the owner: a registered re-score of the fade's forward record at real receipt times; unknown
+  news or beta as "no trade" (today a failed lookup does not block a short; unknown borrow does).
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

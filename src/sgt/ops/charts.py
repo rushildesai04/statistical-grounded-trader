@@ -23,8 +23,31 @@ TEMPLATE = Path(__file__).with_name("templates") / "trade_charts.html"
 DOC_HEAD = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n')
 STOP = 0.20
+HOLD = pd.Timedelta(minutes=60)                      # the fade's hold (sgt.fast.fade_rule.HOLD)
+OWNER_EXIT = "your NO"                               # sgt.fast.fade_rule.VETO_EXIT: the owner's own exit keeps its time
 PAD_BEFORE, PAD_AFTER = pd.Timedelta(minutes=45), pd.Timedelta(minutes=30)
 MAX_BARS = 400                                       # one RTH session is 390 bars
+
+
+def official_short_exit(bars: pd.DataFrame, entry_ts, entry: float | None, cover: float | None,
+                        live_reason: str = "") -> tuple[pd.Timestamp, str] | None:
+    """When and why a SETTLED short's official result ended (audit 2026-11-21). The card showed the official cover
+    PRICE on the candle and with the label of the live feed's exit, which can be another minute and another reason
+    (FISN 2026-11-09: texted "stop" on the free feed, officially held 60 minutes; MPU 2026-11-17 the reverse). The
+    official result is the research rule on these bars: the first minute from the entry whose high reaches entry x
+    1.2 is the stop; otherwise the last minute of the 60 (or of the session). None = cannot be read from the bars, or
+    the owner's own NO exit (its time is the live one): the caller keeps what it had."""
+    if entry is None or cover is None or not entry > 0 or live_reason == OWNER_EXIT or bars is None or not len(bars):
+        return None
+    start = pd.Timestamp(entry_ts)
+    w = bars[(bars.ts >= start) & (bars.ts < start + HOLD)]
+    if w.empty:
+        return None
+    level = entry * (1 + STOP)
+    if cover >= level - 1e-9:
+        hit = w[w.high >= level - 1e-9]
+        return (hit.ts.iloc[0], "stop") if len(hit) else None
+    return w.ts.iloc[-1], ("60 min" if bars.ts.iloc[-1] >= start + HOLD - pd.Timedelta(minutes=1) else "close")
 
 
 def et_epoch(ts) -> int:
@@ -54,6 +77,12 @@ def _bar_at(times: list[int], when) -> int | None:
     return best if best is not None else times[0]
 
 
+def _kind(reason: str) -> str:
+    """The kind of an exit label, so "stop (official tape, seen late)" and "stop" count as the same exit."""
+    r = (reason or "").strip().lower()
+    return "stop" if r.startswith("stop") else r
+
+
 def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str = "short",
                pad_before: pd.Timedelta = PAD_BEFORE, pad_after: pd.Timedelta = PAD_AFTER) -> dict:
     """One trade's chart data. ``bars``: the session's RTH 1-minute bars (ts UTC, open, high, low, close, volume).
@@ -73,6 +102,14 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
     alert = pd.Timestamp(t["posted_at"])
     entered = pd.Timestamp(t["entry_ts"] if settled else (t.get("est_entry_at") or t["posted_at"]))
     exited = pd.Timestamp(t["est_exit_at"]) if t.get("est_exit_at") else None
+    # audit 2026-11-21: a settled trade shows the OFFICIAL exit (time and reason); what the live feed texted is kept
+    # beside it when it was something else. Longs carry theirs (long_rows); a short's is read from these bars.
+    live_reason = str(t.get("reason") or "")
+    reason = str(t.get("exit_reason") or live_reason) if settled and long else live_reason
+    if settled and not long:
+        off = official_short_exit(b, entered, _num(t.get("entry")), _num(t.get("cover")), live_reason)
+        if off is not None:
+            exited, reason = off
     lo, hi = alert - pad_before, (exited or entered) + pad_after
     mask = (b.ts >= lo) & (b.ts <= hi)
     w = b[mask]
@@ -107,7 +144,12 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
     return {
         "id": t.get("id"), "symbol": str(t["symbol"]), "session": str(t["session"]),
         "alert_type": str(t.get("alert_type") or ""), "status": str(t.get("status") or ""),
-        "reason": str(t.get("reason") or ""), "alert_at": et_epoch(alert),
+        # a stored reason that begins "official" is how the result was made (e.g. scored at the live entry), not a
+        # label the live feed texted: it is shown as a note
+        "reason": reason, "result_note": live_reason if _kind(live_reason).startswith("official") else None,
+        "live_reason": (None if _kind(live_reason).startswith("official") or _kind(live_reason) == _kind(reason)
+                        else live_reason),
+        "alert_at": et_epoch(alert),
         "entry": entry, "exit": exit_px, "side": side, "setup": t.get("setup"),
         "stop": _num(t.get("stop")) if long else (entry * (1 + STOP) if entry else None),
         "target": _num(t.get("target")) if long else None,

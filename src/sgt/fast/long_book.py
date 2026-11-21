@@ -617,7 +617,7 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade, extra: str =
     cost = est_costs.cost("long", symbol, t.entry_ts.to_pydatetime(), t.entry) or 0.0
     lines = [f"[SGT] ✅ {bold('LONG IN')} · {bold(f'BUY {symbol}')} @ {bold(f'${t.entry:.2f}')}",
              f"💬 Bought ${usd:,.0f} of {symbol}: we make money if it rises",
-             "🎲 " + (f"Win chance {bold(f'{win:.0%}')} · " if win is not None else "") + f"{name}: "
+             "🎲 " + (f"Past win rate {bold(f'{win:.0%}')} · " if win is not None else "") + f"{name}: "
              + italic(f"avg {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} past trades")
              + " (live paper test)",
              f"💵 ${usd:,.0f} {paper}{sized}",
