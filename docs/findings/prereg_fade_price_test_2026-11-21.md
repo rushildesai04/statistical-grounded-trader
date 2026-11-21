@@ -53,3 +53,22 @@ In every case: no rule changes, the alert books stay paper-only, and the forward
 ## Not done
 No split by borrow (no history of the lendable list before 2026-11-04), by alert type, price, time of day or year. No
 held-out run. No re-run. No limit-order model for shorts under the price test (it needs its own plan).
+
+## Result (run once, 2026-11-21; `reports/fade_price_test/result.json`): NOT SHOWN
+1,335 no-news training fades on 334 sessions; 4 without a prior daily bar left out.
+
+| | events | average net | 95% interval | won |
+|---|---|---|---|---|
+| under the price test at the entry | 467 | +1.37% | -0.26% to +2.98% | 58% |
+| not under it | 864 | +1.76% | +0.62% to +2.93% | 57% |
+| difference (flagged minus unflagged) | | -0.38 points | -2.50 to +1.70 | |
+
+The interval of the difference includes zero, and its centre is on the other side from the live split. In the
+backtest the fade's average does NOT sit in stocks under the price test: the unflagged fades are positive on their own
+interval. The share of flagged events is about the same as live (35% here, 32% of the forward events).
+
+What it means, as registered: the forward split (flagged +10.7% on 23 alerts, unflagged -5.2% on 37) is not a feature
+of the backtest. It stays an observation on 77 alerts in three weeks, and may be chance or something specific to
+those weeks. Nothing is adopted. The tested +1.70% keeps its standing as a BACKTEST figure that models neither borrow
+(untestable in history) nor the price test's effect on the order; the forward criteria of the execution baseline
+decide the book. Not done, as registered: no other split, no held-out run, no re-run.

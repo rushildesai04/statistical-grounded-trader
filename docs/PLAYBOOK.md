@@ -809,6 +809,12 @@ night it cannot finish is texted and caught up on the next run.
   the nightly "execution check" line (`sgt.fast.exec_check`), reread at 50 shorts with both figures and at 30 long
   stop exits. Open for the owner: a registered re-score of the fade's forward record at real receipt times; unknown
   news or beta as "no trade" (today a failed lookup does not block a short; unknown borrow does).
+- **Price-test check on the training file (`prereg_fade_price_test_2026-11-21.md`, registered, run once 2026-11-21):
+  NOT SHOWN.** After the execution baseline's live split (alerts under the short-sale price test won, the others
+  lost), the same flag on the 1,335 no-news training fades: 467 flagged +1.37%, 864 unflagged +1.76%, difference
+  -0.4 points (95% interval -2.5 to +1.7). The backtest's average does not sit in price-test stocks; the live split
+  is an observation on 77 alerts, not a property of the rule. Nothing adopted. Do not re-test: no other split of
+  this file by this flag, no held-out run. Borrow cannot be tested in history (no list before 2026-11-04).
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has
