@@ -329,7 +329,7 @@ def main() -> int:
         with path.open("a") as fh:
             for r in new:
                 fh.write(json.dumps({**r, "written_at": out["meta"]["generated_at"]}, default=_plain) + "\n")
-        print(f"exec ledger: {len(new)} trades priced ({api.n} requests); " + (exec_book.line(path) or "nothing in the ledger"))
+        print(f"exec ledger: {len(new)} trades priced ({api.n} requests); " + (exec_book.line(path, datetime.now(ET).date().isoformat()) or "no trade of the forward sample yet"))
         return 0
     print(json.dumps(out, default=_plain))
     return 0

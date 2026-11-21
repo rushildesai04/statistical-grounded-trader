@@ -811,15 +811,23 @@ night it cannot finish is texted and caught up on the next run.
   news or beta as "no trade" (today a failed lookup does not block a short; unknown borrow does).
 - **Executable baseline 2026-11-21 (`docs/findings/exec_baseline_2026-11-21.md`; model frozen first in
   `exec_model_2026-11-21.md`): every alert trade re-priced from the official quotes and trades of the bot's own
-  decision.** Fills are not the problem (29 shorts: -1.7% original, -1.7% re-priced); availability is. The 15 shorts
-  a real account could plausibly place (shares listed, no short-sale price test) average -8.9%; the 14 flagged
-  no-borrow or price-test average +5.9%. Forward record, 77 alerts: placeable 37 at -5.2%, flagged 36 at +6.2%. The
-  backtest shorts every alert and models neither borrow nor the price test. Longs: 18 priced at -3.6% (original
-  -2.3% on the same trades); 6 would not have been bought (already at the stop when the bot booked). Live feed during
-  holds: under 1% of the volume; of 23 stop crossings on the tape it showed 15 within a minute, 3 late, 5 never.
-  From 2026-11-23 a nightly ledger (`sgt.fast.exec_book`) prices every trade this way, and each book is judged on
-  its MODELED figure: longs at 30 new trades (retire at an average at or under 0), shorts at 50 new placeable trades
-  (retire at or under -2%). No strategy change is assessed before then; each needs its own registered plan.
+  decision.** Fills are not the problem (29 shorts: -1.7% original, -1.7% re-priced). The result differs by two
+  flags fixed before the results: the 15 taken shorts with NO exclusion flag (shares on IBKR's list, no short-sale
+  price test) average -8.9%; the 14 flagged ones +5.9%. "No flag" is not "placeable": no broker approved anything,
+  and 11 of those 15 were "not shortable" at a second broker. Forward record: 73 priced events, 37 unflagged at
+  -5.2%, 36 flagged at +6.2%; 25 of them ARE the taken shorts, so there are 77 distinct alerts, not two samples (the
+  independent part: 48 not-taken alerts, 23 unflagged at -5.0%, 25 flagged at +6.4%). The gap sits with the price
+  test (23 forward alerts at +10.7%) more than with missing shares (about flat). Longs: 18 priced at -3.6%; 6 would
+  not have been bought. The nightly ledger (`sgt.fast.exec_book`) is a research ledger, NOT stop protection: the live
+  feed showed 15 of 23 stop crossings within a minute, 3 late, 5 never; real-time full-tape data and broker-resting
+  stops remain an unmet deployment requirement. Registered review from 2026-11-23 on the unflagged, re-priced
+  trades: longs first 30 (retire at an average at or under 0), shorts first 50 (retire at or under -2%); keep needs an
+  average above 0 with a session-resampled lower bound above -1% / -2%; anything else is INCONCLUSIVE, extended once
+  (60 / 100 trades or 2027-02-26), then final. Daily books: the booked close differs from the 15:51 price by a median
+  22 bp an order (signed -5.7 bp, not against the books; at worst 16 to 21 bp of book value a session); the
+  long-calls ledger and its paper book are 1.0 to 1.9 points apart, not reconciled. No strategy search (owner). Registered check of the split on the training file
+  (`prereg_fade_price_test_2026-11-21.md`, run once): NOT SHOWN. 467 price-test fades +1.37%, 864 others +1.76%:
+  the live split is not in the backtest and stays an observation on 77 alerts.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

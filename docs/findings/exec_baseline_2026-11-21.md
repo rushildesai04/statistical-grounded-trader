@@ -11,15 +11,34 @@ ledger in the ops database is unchanged. Nothing here is a broker fill.
 
 ## 0. What the evidence says
 
-| Book | Original record | Re-priced at real quotes (MODELED) | Reading |
+| Book | Original record | Re-priced at real quotes | Reading |
 |---|---|---|---|
-| Alert shorts, the 29 taken | -1.7% a trade | all 29 priced: -1.7%. The 15 a real account could plausibly place: **-8.9%** (33% won). The 14 flagged no-borrow or price-test: +5.9% | fills were not the problem; **availability is**. The winners sit in the shorts flagged as not placeable |
-| Alert shorts, forward record (77 alerts with a receipt time) | +1.3% | all priced: +0.9%. Placeable 37: **-5.2%**. Flagged 36: +6.2% | the same split on a wider sample (25 of the 77 are the taken shorts) |
+| Alert shorts, the 29 taken | -1.7% a trade | all 29 priced: -1.7%. No exclusion flag (15): **-8.9%** (33% won). Flagged (14): +5.9% | fills were not the problem. The result differs sharply between unflagged and flagged shorts |
+| Alert shorts, forward record (77 alerts with a receipt time; 25 of them are the taken shorts above) | +1.3% | all priced: +0.9%. No exclusion flag (37): **-5.2%**. Flagged (36): +6.2% | the same pattern; NOT an independent confirmation (section 2.4 gives the non-overlapping part) |
 | Alert longs, the 24 taken | -2.5% | 18 priced: **-3.6%**; 6 would not have been bought at all (the price was already at or under the stop when the bot booked) | loses under every pricing |
 
-Not to trade is what this says for both alert books as they stand. The short's evidence is 15 and 37 trades with a
-standard error of 2.5 to 3 points: strong enough to stop calling the short "unproven but positive in backtest", not
-strong enough to call the placeable short a proven loser. Section 6 fixes what decides it.
+**"No exclusion flag" is not "placeable".** It means only: IBKR's list showed enough shares when the alert was
+stamped, and the computed short-sale price test was not in force. No broker approved any of these orders, 11 of the 15
+unflagged taken shorts had a second broker saying "not shortable", and a flagged short is not proven impossible either
+(under the price test a short can still be offered above the bid). Section 2.4 keeps the four things apart: listed
+shares, broker approval, price-test status, and whether the ASSUMED order (a market sale at the bid) could be sent.
+
+**What this ledger is, and is not.** The nightly re-pricing from the full tape is a better RESEARCH ledger: it says
+what a trade was worth at real quotes. It is NOT stop protection. During a trade the bot still sees under 1% of the
+volume and can miss a stop for minutes or entirely (section 3). Real-time, full-tape data and stops resting at a
+broker are an unmet requirement for any deployment whose exits depend on the bot seeing prices. Nothing here meets it.
+
+**The registered check of the same evening qualifies the split** (`prereg_fade_price_test_2026-11-21.md`, training
+file, run once; outcome NOT SHOWN). On the 1,335 no-news training fades the price-test flag makes no difference: 467
+flagged events average +1.37%, 864 unflagged +1.76% (difference -0.4 points, 95% interval -2.5 to +1.7), and the
+unflagged average is above zero on its own interval. So the live split is not a feature of the backtest. It stays an
+observation on 77 alerts in three weeks, and "the edge was never in shortable stocks" is NOT what the history says.
+What the history cannot speak to is borrow (no record of the list before 2026-11-04).
+
+Both alert books stay paper-only. The evidence is small (15 and 37 unflagged shorts, 18 longs; standard errors of 1.6
+to 3.1 points): enough to stop calling the short "positive in backtest, unproven live", not enough to call the
+unflagged short a proven loser. It shows WHERE the result differs, not WHY: borrow restrictions, the price test,
+volatility and the kind of stock overlap, and nothing here separates them. Section 6 fixes what decides each book.
 
 ## 1. The short backtest, re-read (item 1)
 `scripts/telegram_alert_test.py:70 attach_trades`, `:113 primary_events`; `scripts/alert_fade_test.py:37 cover`, `:59 score`.
@@ -37,13 +56,14 @@ Replayed with only the information and prices that existed after each decision (
 assumptions cost little on average (0.0 points on the 29 taken shorts; 0.3 points on the 77 forward alerts, standard
 error 0.3). The alert delay, which the audit raised, is real (18 of 77 arrive after their official minute opened) but
 those alerts average -3.8% in the original and -3.6% re-priced. **The backtest's weak point is not its clock or its
-fills. It is that it shorts every alert, while a real account can only short what it can borrow and what is not under
-the price test.**
+fills. It is that it sells every alert short at a trade price and models neither borrow nor the price test, and the
+live result differs sharply across exactly those flags (section 2.4).**
 
 ## 2. The reconciled ledger (items 3 and 5)
-Labels (spec, section 5): MODELED = priced by the model at 1 s latency, placeable as far as the flags know. UNRESOLVED =
-priced, but flagged `no_borrow` (IBKR's list showed none or too few) or `ssr` (short-sale price test in force: a market
-short cannot execute at the bid), kept OUT of the baseline average. "Stops at worst" = STRESS: the stop filled at the
+Labels (spec, section 5): MODELED = priced by the model at 1 s latency and carrying no exclusion flag (NOT a statement
+that the order was placeable; section 2.4). UNRESOLVED = priced, but flagged `no_borrow` (IBKR's list showed none or
+too few) or `ssr` (short-sale price test in force: the assumed market sale at the bid is not allowed), kept OUT of the
+baseline average. "Stops at worst" = STRESS: the stop filled at the
 worst price of its minute. Flags never change a price. `late` = the alert arrived after the official entry minute had
 opened; `borrow_conflict` = IBKR listed shares, Alpaca said not shortable; `halt` = a fill waited for a trade.
 
@@ -84,13 +104,14 @@ opened; `borrow_conflict` = IBKR listed shares, Alpaca said not shortable; `halt
 |---|---|---|---|---|
 | Original record, all | 29 | -1.71% | 3.08 | 45% |
 | Model, all priced | 29 | -1.72% | 3.08 | 48% |
-| **MODELED (the baseline)** | 15 | **-8.87%** | 3.13 | 33% |
+| **MODELED (no exclusion flag; the baseline)** | 15 | **-8.87%** | 3.13 | 33% |
 | the same 15 in the original record | 15 | -9.18% | 3.14 | 27% |
 | STRESS, 5 s latency | 15 | -8.73% | | |
 | STRESS, stops at the worst price of their minute | 15 | -10.51% | | |
 | UNRESOLVED (no borrow 10, price test 7, both 3) | 14 | +5.93% | 4.71 | 64% |
 
-Of the 15 MODELED shorts, 11 carry `borrow_conflict`: even the baseline rests on one broker's list.
+Of the 15 MODELED shorts, 11 carry `borrow_conflict` (the second broker said not shortable): the baseline rests on one
+broker's list. Only 4 of the 29 taken shorts were listed at IBKR, shortable at Alpaca and free of the price test.
 Entry spread: median 0.73%, a tenth above 1.5%. 27 of 29 entries filled at a standing quote; 2 waited for a trade.
 
 ### 2.2 Shorts, forward record (every alert with a stored receipt time: 77 of 105; 28 predate the receipt record)
@@ -104,8 +125,9 @@ Entry spread: median 0.73%, a tenth above 1.5%. 27 of 29 entries filled at a sta
 | not an event at the fill (price or time out of the rule's band) | 4 | | | |
 | alerts received after their official minute opened | 18 | -3.78% original, -3.63% model | | |
 
-The borrow flag exists only where the bot stamped IBKR's list (alerts it carried to the entry); an alert filtered
-earlier has no stamp and counts as placeable. So the MODELED set still contains shorts with unknown borrow.
+The borrow flag exists only where the bot stamped IBKR's list. Of the 48 forward alerts the bot did not take, 36 were
+stamped and 12 never were (7 blocked by the repeat rule, 5 by the news rule): those 12 can carry a price-test flag but
+never a borrow flag, so the unflagged set contains shorts whose borrow is simply unknown.
 
 ### 2.3 Longs (24)
 | # | Stock | Day | Setup | Original: in → out (why) | Original | Model: in → out (why) | Model | Stops at worst | Label |
@@ -149,7 +171,46 @@ change of 2026-11-20, so the bot booked each about 72 s after the price it recor
 in these stocks. Both ledgers say the book loses. From 2026-11-23 the booking is seconds after the candle and the two
 should come closer; the nightly ledger will show whether they do.
 
-### 2.4 What is verified, modeled, stress, unresolved
+### 2.4 Exclusion reasons, kept apart, and how the samples overlap
+Four different things. Only the first and the third are observed at all:
+
+| | What we have | What we do not have |
+|---|---|---|
+| Listed shares (borrow availability) | IBKR's public list, read 6 to 31 minutes before the entry; Alpaca's shortable flag | a locate for the order's size at the order's time |
+| Broker approval | nothing | whether any broker would have accepted any of these shorts |
+| Short-sale price test | computed from the tape (10% under the prior close that day, or on the prior session) | the exchanges' own list of restricted stocks |
+| Feasibility of the ASSUMED order | under the price test a market sale at the bid is not allowed: the assumed order is infeasible | whether a different order (a limit above the bid) would have filled |
+
+By reason (average under the model; standard error in brackets; tiny cells are shown for completeness, not as results):
+
+| | Taken shorts (29) | Forward events priced as events (73; 4 of the 77 fell outside the rule's price or time band at the fill) |
+|---|---|---|
+| no flag | 15: -8.9% (3.1) | 37: -5.2% (2.4) |
+| no listed shares only | 7: +5.2% (6.4) | 13: -1.8% (5.1) |
+| price test only | 4: +16.5% (8.9) | 17: +11.7% (4.7) |
+| both | 3: -6.5% (8.6) | 6: +7.9% (8.2) |
+| any price test | 7: +6.7% (7.4) | 23: +10.7% (4.0) |
+| any no-listed-shares | 10: +1.7% (5.2) | 19: +1.2% (4.3) |
+
+On these counts the gap sits with the PRICE TEST more than with missing shares: shorts with no listed shares and no
+price test are about flat. That is a description of 7 and 13 trades, not a finding.
+
+Overlap and denominators. The two columns above share trades and must not be read as two confirmations:
+
+| | alerts | no flag | flagged |
+|---|---|---|---|
+| Taken shorts (priced from the bot's own decision) | 29 | 15: -8.9% | 14: +5.9% |
+| ... of which also in the forward set | 25 | 14 | 11 |
+| ... of which not in it (AMIX, GMM, NTCL, OMH: no forward event or outside its rule) | 4 | | |
+| Forward events (priced from the receipt time) | 73 | 37: -5.2% | 36: +6.2% |
+| ... of which are the taken shorts | 25 | 14: -5.5% | 11: +5.8% |
+| ... of which the bot did NOT take (the only part independent of the first row) | 48 | 23: -5.0% (3.4) | 25: +6.4% (4.2) |
+| Distinct alerts in all | 77 | 38 | 39 |
+
+So there are 77 distinct alerts on 13 sessions, not 29 + 77. The independent evidence is the first row and the
+not-taken row: the same direction in both, each inside about two standard errors of zero on its own.
+
+### 2.5 What is verified, modeled, stress, unresolved
 - VERIFIED (observed): posting, receipt and decision times; every quote and trade used; the borrow list as stamped.
 - MODELED: every fill above (1 s latency, top-of-book price, last-sale stop trigger).
 - STRESS: the two labelled columns. Bounds, not estimates.
@@ -180,17 +241,22 @@ What reliable monitoring needs:
    stock, and a nightly re-pricing of every trade from the tape.
 
 What is done here: the last part of control 3. The nightly ledger (section 5) re-prices every trade from the complete
-tape, so the paper RECORD no longer depends on what the live feed saw. Not done, because free data cannot do it:
-seeing a stop as it happens. That needs the owner's pending broker market data (real-time, full tape) or a paid tape.
-No strategy definition was changed.
+tape, so the paper RECORD no longer depends on what the live feed saw. No strategy definition was changed.
+
+**Unresolved deployment requirement.** Seeing a stop as it happens is not solved and cannot be on free data. Until
+real-time full-tape prices and broker-resting stops exist, (a) every live text is an estimate, (b) a stop can be
+crossed without the bot acting, and (c) no book whose exit depends on the bot's own monitoring may be considered for
+real money, whatever its paper result. Owner's choice of 2026-11-21 for the meantime: correction texts for longs when
+the delayed official tape shows a stop the live feed missed (as shorts already have). That shortens the time a wrong
+text stands; it protects nothing.
 
 ## 4. The other books: what was inspected, and only that (item 4)
 Read-only trace of the daily books by an independent reader; the items marked "confirmed" I re-read myself.
 
 | Book | Decision | Booked fill | What the record assumes |
 |---|---|---|---|
-| megacap, megacap 15 (15:50 ET) | 15:50:15 from single-exchange 1-minute bars before 15:50, official daily bars to the day before, today's open | the official close, read at 20:50; 5 bp x turnover | an order in the closing auction. NYSE accepts market-on-close orders until 15:50:00, Nasdaq until 15:55: **for NYSE names the close is not an order this decision could send** (confirmed; size of the error unmeasured, small for large caps) |
-| long calls (`megacap_long`) | the +1 calls of both sets, only when both decided live | as above | its deciding ledger and its paper book are computed differently (4 bp a position-day against 5 bp x turnover; batch days counted in the ledger, never traded in the book): they can disagree (reported by the reader, not re-read by me) |
+| megacap, megacap 15 (15:50 ET) | 15:50:15 from single-exchange 1-minute bars before 15:50, official daily bars to the day before, today's open | the official close, read at 20:50; 5 bp x turnover | an order in the closing auction. NYSE accepts market-on-close orders until 15:50:00, Nasdaq until 15:55: **for NYSE names the close is not an order this decision could send** (confirmed). Measured on all 149 booked orders (100 stock-days, 14 sessions): the close differed from the 15:51 open by a median 22 bp (90th percentile 72, most 148) and from the 15:51-to-16:00 average price by a median 3 bp (90th percentile 15). Signed, trading at 15:51 instead of the close would have cost -5.7 bp an order (standard error 3.7: not against the books). If EVERY gap had gone against a book, its value would be lower by 16 to 21 bp a session (megacap 266 bp over 13 sessions against a signed -49; megacap 15: 124 against +2; long calls: 81 against -12) |
+| long calls (`megacap_long`) | the +1 calls of both sets, only when both decided live | as above | its deciding ledger and its paper book are computed differently (4 bp a position-day against 5 bp x turnover; batch days counted in the ledger, never traded in the book): they disagree, measured: the ledger says -4.40% for its 4 sessions (11-16 to 11-19); the paper book says -2.54% over those same dates and -5.42% over the dates shifted by one (a ledger day is a call marked to the NEXT close). The two are 1.0 to 1.9 points apart depending on that alignment, and the registered stop (-5%) is read from the ledger while the book is already past it. NOT reconciled line by line: open item |
 | overlay, ETF yardsticks, turn-of-month | calendar or month-end rules | a close | ETF record weights are written after the close they are filled at (reported, not re-read) |
 | rebalance | hourly, first 5 sessions | Alpaca PAPER limit orders | the only book with (paper) broker fills |
 | Schwab pilot | off unless `SGT_PILOT_SCHWAB=1` | real | cron passes no live switch (confirmed in the entrypoint; Fly secrets not read) |
@@ -216,41 +282,71 @@ scanner (paused). No statement in this document covers them.
 
 Not changed: any entry rule, exit rule, size, gate or flag of any book.
 
-## 6. Criteria, fixed now, for each experimental book (item 6)
-Judged on the MODELED figure of the nightly ledger, on trades from 2026-11-23 on (data nothing in this audit has seen).
-No rule of a book is changed inside its window except a bug fix; a proposed rule change is registered first and judged
-only on trades after its registration. Each line ends in a decision put to the owner; nothing switches itself.
+## 6. The registered review of each experimental book (item 6)
+Fixed on 2026-11-21, before any trade of the sample existed, and coded in `sgt.fast.exec_book.review` so the nightly
+line reports it mechanically. The thresholds are the ones first written this day; what follows completes them.
 
-| Book | Continue (paper) | Pause for a decision | Retire |
-|---|---|---|---|
-| Alert long | to 30 new MODELED trades | early, at 15, if their average is under -3% | at 30 if the average is at or under 0. To keep it needs an average above 0 with its 90% lower bound above -1% |
-| Alert short | to 50 new MODELED trades (placeable only; UNRESOLVED never counts for it) | at 25 if the average is under -5% | at 50 if the average is at or under -2%; keep only if above 0 with the lower bound above -2%; in between, the owner decides |
-| Alert short, registered forward test (300 alerts, amendment F1) | unchanged, but reported with the MODELED / UNRESOLVED split | | its own rule |
-| Long calls (`megacap_long`) | its registered rule: stop at -5% on the ledger (now -4.4%), or 2027-04-30 | | its own rule |
-| megacap, megacap 15 | measurement books, no criteria beyond their registered ones | | |
-| Overlay | its -5% stop tripped on 2026-11-19 (-11.0% now); the stop only alarms | the owner decides now | |
-| Scanner | | | retired (failed its test; paused) |
+**Sample.** Trades of sessions from 2026-11-23 on (nothing in this audit has seen them), labelled MODELED by the nightly
+ledger (priced at 1 s latency, no exclusion flag), in the order they were made. The review reads the FIRST N of them,
+never a later window. Flagged, NO TRADE and unpriceable trades are reported beside it and never counted.
 
-Strategy changes are NOT assessed in this phase. Three questions the evidence raises, each of which needs its own
-registered plan before any data is looked at for it:
-1. Is the placeable short (shares listed, no price test) profitable? Only new forward trades can answer it.
-2. Does the backtest's edge sit in stocks under the price test? The test can be computed for the past from daily bars;
-   borrow cannot (no history of the list before 2026-11-04). Training file only; the held-out file stays closed.
-3. A short under the price test can still be sold above the bid with a limit order. Whether such an order fills is not
-   knowable from quotes at one second; it needs prints after the order and its own model.
+**Average and lower bound.** The average is the plain mean of the modeled results. Its lower bound is the 10th
+percentile of the means of 10,000 resamples of whole SESSIONS (seed 20261123): trades of one day move together, so
+days are resampled, not trades. With fewer than two sessions there is no bound and a book cannot be kept.
+
+**Correlated trades.** Two trades on one day are one day's evidence (the bound above). A short and a long on the same
+stock belong to different books and are reviewed apart. The forward test of every alert (300 alerts, amendment F1)
+overlaps the short book's sample: it is reported with its own split and never added to it as a second confirmation.
+
+**One early look per book**, at a fixed count, reading one fixed number: the average of the first 15 longs (pause if
+under -3%) or the first 25 shorts (pause if under -5%). A pause is a question to the owner. The early look can never
+keep a book, and no other number is acted on before the review point.
+
+| Book | Review at | RETIRE | KEEP (paper) | Anything else |
+|---|---|---|---|---|
+| Alert long | the first 30 | average at or under 0 | average above 0 AND lower bound above -1% | INCONCLUSIVE |
+| Alert short | the first 50 | average at or under -2% | average above 0 AND lower bound above -2% | INCONCLUSIVE (for example an average of -1%) |
+
+**Inconclusive.** The book remains paper-only and the sample is extended ONCE: longs to the first 60, shorts to the
+first 100, or to 2027-02-26, whichever comes first. The same three tests are then applied a last time. A book that is
+still neither retired nor kept is NOT ESTABLISHED: the review is over, it is not a candidate for real money, and
+whether its paper trading goes on is the owner's choice. A book with fewer than 10 trades by that date cannot be
+judged and is NOT ESTABLISHED. There is no second extension.
+
+**What KEEP means.** That the paper book goes on. It is never, by itself, a reason for real money: section 3's
+requirement and a broker's own fills come first.
+
+| Other book | Rule |
+|---|---|
+| Alert short, registered forward test (300 alerts, amendment F1) | its own rule, unchanged; reported with the flagged / unflagged split |
+| Long calls (`megacap_long`) | its registered rule: stop at -5% on the ledger (now -4.4%), or 2027-04-30. Its ledger and book must be reconciled first (section 4) |
+| megacap, megacap 15 | measurement books; no criteria beyond their registered ones |
+| Overlay | owner 2026-11-21: kept as a yardstick. It is a basket for comparison, not a call; its -5% line (tripped 2026-11-19, now -11.0%) is not a stop |
+| Scanner | retired (failed its test; paused) |
+
+**No strategy search.** Owner, 2026-11-21: no new search and no change to the frozen rules on these results. One
+registered diagnosis was approved the same day and adopted nothing: whether the training backtest's average sits in
+stocks under the price test (`prereg_fade_price_test_2026-11-21.md`; outcome NOT SHOWN, section 0). Not started, each needing its
+own plan: whether unflagged shorts are profitable (only new trades can say), and whether a short under the price test
+could be sold above the bid (needs prints after the order).
 
 ## 7. Remaining uncertainties
 - Order latency (1 s assumed), queue position, depth beyond the top of the book, and whether a broker would have
   approved each short: none can be known without a broker.
 - The price-test flag is computed, not read from an exchange list; a split on the prior day would mis-set it.
-- 15 and 37 placeable shorts, 18 longs: small samples. The split between placeable and flagged shorts was defined
-  before the results, but its size (about 11 to 15 points) is an observation on overlapping samples, not a test.
-- The daily books' close fills and the long-calls ledger were read, not re-priced.
+- 15 and 37 unflagged shorts, 18 longs: small samples. The split between unflagged and flagged shorts was defined
+  before the results, but its size (about 11 to 15 points) is an observation on overlapping samples (77 distinct
+  alerts), not a test, and it does not say why: borrow, the price test, volatility and the kind of stock overlap.
+- "Unflagged" is the absence of two flags, not a verified ability to short. Broker approval is unknown for every trade.
+- Real-time stop protection does not exist (section 3).
+- The daily books' close fills are bounded (16 to 21 bp of book value a session at the very worst), not re-priced
+  order by order; the long-calls ledger and its paper book are 1.0 to 1.9 points apart and not reconciled.
 
 ## 8. Validation of the work itself
 - Model frozen before results; one run; two dated amendments (flags, labels and one code strictness), neither changed
   a reported number. The first results are kept as produced next to the amended copy.
-- Tests: 2,116 before the audit, 2,176 now; lint clean. The model has 20 tests, the ledger script 11, its reader 4.
+- Tests: 2,116 before the audit, 2,189 now; lint clean. The model has 20 tests, the ledger script 11, its reader and
+  the registered review 11.
 - One independent code review, told to hunt for look-ahead and for anything that would change a reported average:
   graded sound. Its one material point (the price-test flag read the order's own minute) was re-checked on the tape
   for all 106 rows: no flag changed; the code now reads completed minutes only.

@@ -460,7 +460,8 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         from sgt.fast import exec_book
 
         # phase 2: the trade-by-trade re-pricing at real quotes, once its ledger exists; until then the bar-based check
-        el = exec_book.line(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl") or exec_check.line(db)
+        el = exec_book.line(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl",
+                            now_et.date().isoformat()) or exec_check.line(db)
         if el:
             lines.append(el)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'

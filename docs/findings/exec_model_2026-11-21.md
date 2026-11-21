@@ -116,3 +116,11 @@ Amendments (dated, after the freeze):
 - A stop or target trigger is a trade strictly AFTER the entry fill, as section 3 words it; the code had allowed a
   trade at the same instant.
 
+**Amendment 3, 2026-11-21, wording and review rules only (owner's corrections of the same day). No price, flag or label changed.**
+- MODELED means "priced, and carrying neither exclusion flag". It does not mean placeable: listed shares are not a
+  locate, no broker approved any order, and a short under the price test is not proven impossible, only the assumed
+  market sale at the bid is. The results document says "no exclusion flag", never "placeable".
+- Section 6's "judged for continuing, pausing or retiring" is completed in `exec_baseline_2026-11-21.md`, section 6
+  (sample, session-resampled lower bound, one early look, an explicit inconclusive outcome with one extension and a
+  final date), and coded in `sgt.fast.exec_book.review`. Written before any trade of the review sample existed.
+
