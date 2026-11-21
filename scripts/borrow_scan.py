@@ -80,14 +80,17 @@ def parse_daily(payload, day: str) -> dict[str, tuple[float, float]]:
 
 def day_bars(client, url: str, headers: dict, symbols: list[str], day: str) -> dict[str, tuple[float, float]] | None:
     """Close and volume of ``day`` for the symbols (raw bars). None when a request failed (said in the log): the day
-    is tried again. A symbol that is not a plain ticker is never sent: it has no bar, so it is no event."""
+    is tried again. A symbol that is not a plain ticker is never sent: it has no bar, so it is no event. The range is
+    that UTC day, spelled out (2026-11-20: a bare date as the end is read as the END of that day in New York, which on
+    the evening after the session is still in the future; the plan refuses that with HTTP 403, so the scan ran one
+    session behind and its job failed every night)."""
     out: dict[str, tuple[float, float]] = {}
     symbols = [s for s in symbols if isinstance(s, str) and SYM.fullmatch(s)]
-    nxt = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
     for i in range(0, len(symbols), CHUNK):
         try:
             r = client.get(url, headers=headers, params={"symbols": ",".join(symbols[i:i + CHUNK]), "timeframe": "1Day",
-                                                         "start": day, "end": nxt, "adjustment": "raw", "feed": "sip", "limit": 10000})
+                                                         "start": f"{day}T00:00:00Z", "end": f"{day}T23:59:59Z",
+                                                         "adjustment": "raw", "feed": "sip", "limit": 10000})
             why = None if r.status_code == 200 else f"HTTP {r.status_code}"
             j = r.json() if why is None else None
         except Exception as e:  # noqa: BLE001 - network or JSON: logged, and the day is tried again another night

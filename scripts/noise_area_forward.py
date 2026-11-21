@@ -94,7 +94,9 @@ def record(now: datetime, fetch, out: Path = OUT) -> dict:
         if until in known:
             continue                    # nothing new for this instrument: no request
         start = date.fromisoformat(max(known) if known else FIRST) - WARMUP
-        end = datetime.combine(date.fromisoformat(until) + timedelta(days=1), time(0), ET)
+        # 2026-11-20 (first forward night: HTTP 403, nothing recorded): the plan refuses official-tape bars for a
+        # range that ends less than about 15 minutes ago, so the range never ends later than SETTLED before ``now``.
+        end = min(datetime.combine(date.fromisoformat(until) + timedelta(days=1), time(0), ET), now.astimezone(ET) - SETTLED)
         f = frame(fetch(sym, datetime.combine(start, time(0), ET).astimezone(timezone.utc), end.astimezone(timezone.utc)))
         added += new_rows(sym, f, known, until, now)
     if added:

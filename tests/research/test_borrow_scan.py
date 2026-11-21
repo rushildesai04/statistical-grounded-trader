@@ -140,7 +140,8 @@ def test_only_plain_tickers_are_asked_and_any_bad_answer_fails_the_day(monkeypat
     bar = {"t": "2026-11-17T05:00:00Z", "c": 5.0, "v": 1_000_000}
     c = _Client([_Resp(200, {"bars": {"AAA": [bar]}})])
     got = st.day_bars(c, "u", {}, ["AAA", "BRK B", "x&y=1", "BRK.B", "TOOLONGG", None, "aaa"], "2026-11-17")
-    assert got == {"AAA": (5.0, 1_000_000.0)} and c.calls[0]["symbols"] == "AAA,BRK.B" and c.calls[0]["end"] == "2026-11-18"
+    assert got == {"AAA": (5.0, 1_000_000.0)} and c.calls[0]["symbols"] == "AAA,BRK.B"
+    assert (c.calls[0]["start"], c.calls[0]["end"]) == ("2026-11-17T00:00:00Z", "2026-11-17T23:59:59Z")    # never a future end
     for bad in (_Resp(429, {}), _Resp(200, ["x"]), _Resp(200, ValueError("no json")), TimeoutError("slow"),
                 _Resp(200, {"bars": {}, "next_page_token": "more"})):
         assert st.day_bars(_Client([bad]), "u", {}, ["AAA"], "2026-11-17") is None
