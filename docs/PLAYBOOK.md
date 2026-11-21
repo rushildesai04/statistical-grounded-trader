@@ -809,6 +809,17 @@ night it cannot finish is texted and caught up on the next run.
   the nightly "execution check" line (`sgt.fast.exec_check`), reread at 50 shorts with both figures and at 30 long
   stop exits. Open for the owner: a registered re-score of the fade's forward record at real receipt times; unknown
   news or beta as "no trade" (today a failed lookup does not block a short; unknown borrow does).
+- **Executable baseline 2026-11-21 (`docs/findings/exec_baseline_2026-11-21.md`; model frozen first in
+  `exec_model_2026-11-21.md`): every alert trade re-priced from the official quotes and trades of the bot's own
+  decision.** Fills are not the problem (29 shorts: -1.7% original, -1.7% re-priced); availability is. The 15 shorts
+  a real account could plausibly place (shares listed, no short-sale price test) average -8.9%; the 14 flagged
+  no-borrow or price-test average +5.9%. Forward record, 77 alerts: placeable 37 at -5.2%, flagged 36 at +6.2%. The
+  backtest shorts every alert and models neither borrow nor the price test. Longs: 18 priced at -3.6% (original
+  -2.3% on the same trades); 6 would not have been bought (already at the stop when the bot booked). Live feed during
+  holds: under 1% of the volume; of 23 stop crossings on the tape it showed 15 within a minute, 3 late, 5 never.
+  From 2026-11-23 a nightly ledger (`sgt.fast.exec_book`) prices every trade this way, and each book is judged on
+  its MODELED figure: longs at 30 new trades (retire at an average at or under 0), shorts at 50 new placeable trades
+  (retire at or under -2%). No strategy change is assessed before then; each needs its own registered plan.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

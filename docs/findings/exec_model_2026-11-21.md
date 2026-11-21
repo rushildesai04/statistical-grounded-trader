@@ -95,4 +95,16 @@ on that broker's rule (last sale or quote), here last sale. Halts are inferred f
 official halt feed. Borrow is a list. None of this is a fill from a broker.
 
 ---
-Amendments (dated, after the freeze): none.
+Amendments (dated, after the freeze):
+
+**Amendment 1, 2026-11-21, after the first results were read. Flags and labels only; no fill and no price changed.**
+- `ssr`: the first run read today's 10% trigger from the bars of every segment, pre-market included. The listing
+  market reads it from regular-hours trades. Recomputed with regular-hours lows: 7 of the 29 shorts carry the flag
+  instead of 8 (RETO 2026-11-12 loses it), 25 of the 77 forward alerts instead of 28. Most flags come from the
+  carry-over day (the stock fell 10% or more on the prior session), not from the day of the trade.
+- A long whose ask at the booking was already at or under its stop is labelled NO TRADE (section 3 says so); the
+  first output had filed it under UNRESOLVED.
+- Plumbing, no effect on a result: the first full run stopped on a column-name clash before printing anything (no
+  result was seen); the run that produced the ledger is the second.
+- The first results under the freeze are kept as produced (`reports/exec_model/result_2026-11-21.json`); the amended
+  flags are applied to a copy.

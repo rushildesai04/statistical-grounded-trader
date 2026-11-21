@@ -143,6 +143,8 @@ def _plain(o):
 
 
 def _label(model: dict, flags: list[str]) -> str:
+    if model.get("status") == "no_trade":      # amendment 1: its own label, as the spec's section 3 words it
+        return "NO TRADE"
     bad = {"ssr", "no_borrow", "no_data", "unresolved"} & set(flags)
     return "UNRESOLVED" if model.get("status") != "ok" or bad else "MODELED"
 
@@ -153,6 +155,7 @@ def _ssr(api: Api, symbol: str, session: str, at: pd.Timestamp, out: dict | None
         day, (pc, pl, ppc) = api.day(symbol, session), api.prior(symbol, session)
     except em.NoData:
         return None
+    day = day[day.rth]              # amendment 1 (2026-11-21): the trigger is read from regular-hours trades only
     if out is not None:
         before = day[day.ts < at]
         out["ssr_basis"] = {"prior_close": pc, "low_before_entry": float(before.low.min()) if len(before) else None,

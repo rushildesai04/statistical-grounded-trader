@@ -176,7 +176,8 @@ def ssr(day: pd.DataFrame, at: pd.Timestamp, prior_close: float | None, prior_lo
         prior_prior_close: float | None) -> bool | None:
     """Was the short-sale price test in force at ``at``? True when the stock traded 10% or more below the prior close
     earlier that day, or did so on the prior session (the restriction carries over one day). ``day``: that day's
-    official bars of every segment. None = the prior closes are unknown."""
+    official REGULAR-HOURS bars (the listing market reads the trigger from regular-hours trades; amendment 1 of the
+    spec). None = the prior closes are unknown."""
     if not prior_close or prior_close <= 0:
         return None
     before = day[day.ts < at]
