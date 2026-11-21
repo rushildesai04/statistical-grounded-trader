@@ -257,7 +257,7 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         lines.append(f"📈 Live: {n} trades, avg {mean:+.1%}" + (" " + italic("(too few to judge)") if n < JUDGE_N else ""))
     if forward and forward.get("n"):             # the drift guard is in alarm: the tested figures are not being met
         lines.append(f"⚠️ Forward record, {forward['n']} alerts: {forward['win']:.0%} won, avg {forward['mean']:+.1%}. "
-                     + italic("Below the test: the past win rate above is not holding live."))
+                     + italic("Below the test: the past figures above are not holding live."))
     none = borrow.startswith("none")
     lines.append(f"🏦 {'⚠️ ' if none else ''}{borrow or 'borrow unknown'}")
     chart = news.chart_url(symbol)

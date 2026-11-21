@@ -757,7 +757,7 @@ def test_text_warns_when_the_forward_record_is_in_alarm(own_db):
     assert f == {"n": 50, "win": pytest.approx(0.2), "mean": pytest.approx(-0.036)}
     t = fade.ask_text("ABCD", "volume_spike", 4.0, 5000, ctx, "", at=at, forward=f)
     assert "⚠️ Forward record, 50 alerts: 20% won, avg -3.6%." in t
-    assert italic("Below the test: the past win rate above is not holding live.") in t
+    assert italic("Below the test: the past figures above are not holding live.") in t
     assert t.index("🎲 Past win rate") < t.index("⚠️ Forward record")
 
 

@@ -198,11 +198,14 @@ are nullable and ignored by older code.
 
 ## 6. Validation (E)
 
-- Tests: 2,116 before, 2,140 after (24 new), all passing; lint clean. Mutation check of the new logic: 10 of 11 code
+- Tests: 2,116 before, 2,141 after (25 new), all passing; lint clean. Mutation check of the new logic: 10 of 11 code
   changes caught by the tests; the one left is equivalent (an unsettled short has no official price, so the guard it
   removes cannot change a result).
 - The execution check's first live run is the settle after this is deployed: it fills the 29 shorts and 16 long stops
   inside its 14-day window (older rows stay empty) and should reproduce 3.1 and 3.2.
+- One independent code review of the change (a separate reviewer told to falsify it): graded sound, no blocking
+  defect; two of its three minor notes were applied (the warning line no longer names only the win rate; the summary
+  line has its own failure label). The third stands: the first nightly run fetches bars for up to 14 days of trades.
 - NOT validated: nothing in this audit tests whether any rule has an edge. Real fills (locates, rejects, partial fills,
   queue position, spread on a halt reopening) cannot be tested without a broker. The short backtest's code was not
   re-read line by line here (two independent checks on 11-09 and 11-12 found no bias in it); its 10-second reaction

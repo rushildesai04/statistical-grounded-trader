@@ -450,13 +450,16 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         sl = long_book.short_check_line(db)      # owner 2026-11-20: no long while our short is open, against its test
         if sl:
             lines.append(sl)
-        from sgt.fast import exec_check
-
-        el = exec_check.line(db)                 # audit 2026-11-21: the official record against the bot's own timing
-        if el:
-            lines.append(el)
     except Exception:  # noqa: BLE001 - informational line
         lines.append("gates check: unavailable")
+    try:                                         # audit 2026-11-21: the official record against the bot's own timing
+        from sgt.fast import exec_check
+
+        el = exec_check.line(db)
+        if el:
+            lines.append(el)
+    except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'
+        lines.append("execution check: unavailable")
     lines += [f"{bold('live vs tested')}: {r}" for r in record]
     try:
         lines += [f"{bold('fade exec')}: " + x.removeprefix("fade exec: ") for x in realism.lines(db)]
