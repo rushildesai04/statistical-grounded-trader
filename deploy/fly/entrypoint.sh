@@ -38,11 +38,22 @@ if [ "${1:-}" = "job" ]; then
     megacaplive) run reports/megacap_forward/run.log python /app/scripts/megacap_forward.py decide || true
                run reports/ops/run.log python /app/scripts/sms_control.py megacap || true
                if [ -f "reports/megacap_ext/models/$(date +%Y-%m)/meta.json" ]; then
-                 run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext
+                 # Audit 2026-11-21 (D-3): under set -e a failed ext decision ended the job here, so the two book steps
+                 # below never ran, and they are the steps that CLOSE what the book holds when today has no live
+                 # decision (owner 2026-11-16, after exactly this on 11-13). run() has already logged and texted
+                 # the failure; the book steps must still run. Without a live ext decision megacaplong writes no
+                 # order and closes its book (it trades only when both sets decided live).
+                 run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py decide --set ext || true
                  run reports/ops/run.log python /app/scripts/sms_control.py megacapext || true
                  # prereg_megacap_long_forward_2026-11-13: long calls of both sets, only when both decided live
                  run reports/ops/run.log python /app/scripts/sms_control.py megacaplong
                fi ;;
+    # Audit 2026-11-21 (D-2), 12:50 ET: only the book steps, no decision. On a half day there is no live decision,
+    # so each step closes what its book holds at that day's 13:00 close (owner 2026-11-16: a one-day call that is not
+    # renewed is not a position). On a full day 12:50 is outside the live slot and each step only prints a line.
+    megacaphalf) run reports/ops/run.log python /app/scripts/sms_control.py megacap || true
+               run reports/ops/run.log python /app/scripts/sms_control.py megacapext || true
+               run reports/ops/run.log python /app/scripts/sms_control.py megacaplong ;;
     megacapext) run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py auto --set ext
                run reports/ops/run.log python /app/scripts/sms_control.py megacapext ;;
     etf)       run reports/forward/run.log python /app/scripts/forward_paper.py refresh || true

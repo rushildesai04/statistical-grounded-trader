@@ -22,6 +22,7 @@ ENTERED = ("open", "est_closed", "settled")
 WHY = {
     fade.NEWS_REASON: "company news today: fades on news names only break even",
     fade.BETA_REASON: "very jumpy stock (beta 3 or more): no shorts",
+    fade.BETA_UNKNOWN: "beta unknown at entry (lookup failed or a new listing): no short",
     fade.REPEAT_REASON: "alerted in the last 7 days: multi-day runners keep running",
     fade.OFF_REASON: "the fade was switched off at that time",
     fade.BORROW_NONE: "no shares to borrow at IBKR: a real account could not short it",

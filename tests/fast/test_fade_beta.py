@@ -1,4 +1,5 @@
-"""Amendment F7 (owner 2026-11-10, option A "longs first"): no short on a beta >= 3 name; unknown never blocks."""
+"""Amendment F7 (owner 2026-11-10, option A "longs first"): no short on a beta >= 3 name. Unknown beta: no short
+(owner 2026-11-21; it never blocked before)."""
 from __future__ import annotations
 
 import sys
@@ -61,10 +62,47 @@ def test_lower_beta_trades_and_is_stamped(db, b):
     assert (r["status"], r["beta"]) == ("open", b) and len(sent) == 1
 
 
-def test_unknown_beta_never_blocks(db):
-    sent, _ = run(db, None)
+def test_unknown_beta_is_no_short_and_is_read_again_until_the_entry_window_ends(db):
+    """Owner 2026-11-21 (audit finding 12): no beta, no short, like unknown borrow. Until then it never blocked."""
+    sent, calls = run(db, None)                                   # 20 s after the alert: still inside the window
     r = row(db)
-    assert r["status"] == "open" and r["beta"] is None and len(sent) == 1
+    assert r["status"] == "pending" and r["beta"] is None and sent == [] and calls == ["ABCD"]
+    seen = []
+    fade.monitor(db, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(seconds=40),
+                 beta=lambda sym, at: seen.append(sym))          # still unknown: read again, still no short
+    assert seen == ["ABCD"] and row(db)["status"] == "pending"
+    fade.monitor(db, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(minutes=5, seconds=1), beta=lambda sym, at: None)
+    r = row(db)
+    assert (r["status"], r["reason"], r["beta"]) == ("filtered", fade.BETA_UNKNOWN, None) and sent == []
+
+
+def test_a_beta_that_arrives_inside_the_window_lets_the_short_through(db):
+    sent, _ = run(db, None)
+    fade.monitor(db, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(seconds=40), beta=lambda sym, at: 1.2)
+    r = row(db)
+    assert (r["status"], r["beta"]) == ("open", 1.2) and len(sent) == 1
+
+
+def test_no_print_and_price_reasons_come_before_unknown_beta(db):
+    fade.on_alert(db, alert(), now=T10)
+    fade.monitor(db, [].append, lambda s, **k: None, now=T10 + timedelta(minutes=5, seconds=1), beta=lambda sym, at: None)
+    assert row(db)["reason"] == fade.NO_PRINT_REASON             # halted or no quote: not an event, as before
+
+
+def test_price_outside_the_band_keeps_its_reason_when_beta_is_unknown(tmp_path):
+    d = OpsStore(tmp_path / "p.db")
+    ap.arm(d, T10)
+    fade.on_alert(d, alert(), now=T10)
+    fade.monitor(d, [].append, lambda s, **k: 0.6, now=T10 + timedelta(seconds=20), beta=lambda sym, at: None)
+    with d.tx() as c:
+        assert c.execute("SELECT reason FROM fade_trades").fetchone()[0].startswith("price ")
+
+
+def test_unknown_beta_is_an_event_the_long_book_and_the_repeat_rule_still_see():
+    from sgt.fast import long_shadow
+
+    assert fade.BETA_UNKNOWN in fade.EVENT_FILTERS and fade.BETA_UNKNOWN in long_shadow.SHORT_SKIPS
+    assert not fade.BETA_UNKNOWN.startswith(fade.BETA_REASON[:9])    # never counted in the "beta >= 3" gate's check
 
 
 def test_company_news_is_checked_first(db):
@@ -135,6 +173,9 @@ def test_beta_line_buckets_and_unknown():
     assert "β >=3: win 21%, avg -6.7% (29)" in ft.beta_line(3.0)
 
 
-def test_unknown_beta_short_text_has_no_beta_line(db):
-    sent, _ = run(db, None)
-    assert "📐" not in sent[0]
+def test_a_short_taken_without_a_beta_check_has_no_beta_line(db):
+    """An unknown beta is no short since 2026-11-21, so a text without a beta exists only where no check runs."""
+    sent = []
+    fade.on_alert(db, alert(), now=T10)
+    fade.monitor(db, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(seconds=20))
+    assert len(sent) == 1 and "📐" not in sent[0]

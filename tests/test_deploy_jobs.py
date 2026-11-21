@@ -40,3 +40,13 @@ def test_every_entrypoint_case_runs_an_existing_script():
     for job, cmd in entry_cases().items():
         for script in re.findall(r"/app/scripts/([\w.]+\.py)", cmd):
             assert (ROOT / "scripts" / script).exists(), f"{job}: scripts/{script} does not exist"
+
+
+def test_a_failed_model_decision_never_skips_the_book_steps_that_close_stale_positions():
+    """Audit 2026-11-21 (D-3): under ``set -e`` a failing ``decide`` ended the 15:50 job before the book steps, and
+    those steps are what closes a book that has no live decision today (owner 2026-11-16)."""
+    cmd = entry_cases()["megacaplive"]
+    decides = [ln for ln in cmd.splitlines() if "megacap_forward.py decide" in ln]
+    assert len(decides) == 2 and all(ln.rstrip().endswith("|| true") for ln in decides), decides
+    for book in ("megacap", "megacapext", "megacaplong"):
+        assert re.search(rf"sms_control\.py {book}\b", cmd), f"{book} book step missing from the live job"
