@@ -68,6 +68,7 @@ def test_it_records_each_forward_session_once_with_the_studys_own_numbers(tmp_pa
     assert res["added"] == 6 and res["until"] == "2026-11-24" and res["sessions"] == {"SPY": 3, "QQQ": 3}
     assert sorted(led.session.unique()) == ["2026-11-20", "2026-11-23", "2026-11-24"] and (led.trades >= 1).all()
     assert [c[0] for c in calls] == ["SPY", "QQQ"] and all(c[1].tzinfo is not None for c in calls)
+    assert all(c[2] == NIGHT - nf.SETTLED for c in calls)        # the range ends in the past: the plan refuses a later end
     s = nas.sessions_from_bars(nf.frame(market()))
     whole = nas.simulate(s, rule="B", fill="next", cost=nas.COSTS["careful"], start=nf.FIRST)       # the study's run
     mine = led[led.symbol == "SPY"].sort_values("session")
@@ -77,6 +78,13 @@ def test_it_records_each_forward_session_once_with_the_studys_own_numbers(tmp_pa
     assert not np.allclose(other.ret, whole.ret, atol=2e-4)
     again = nf.record(NIGHT, fetcher(market(), calls), tmp_path)
     assert again["added"] == 0 and len(calls) == 2 and nf.ledger(tmp_path).equals(led)               # no request, no rewrite
+
+
+def test_a_range_that_is_already_old_ends_at_the_midnight_after_its_last_session(tmp_path):
+    calls = []
+    weekend = datetime(2026, 11, 26, 15, 0, tzinfo=timezone.utc)                # 10:00 ET: the last complete session is 11-25
+    nf.record(weekend, fetcher(market(), calls), tmp_path)
+    assert calls and all(c[2] == datetime(2026, 11, 26, 0, 0, tzinfo=nf.ET) for c in calls)
 
 
 def test_nothing_before_the_first_forward_session_and_nothing_of_an_unfinished_one(tmp_path):
