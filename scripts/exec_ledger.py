@@ -157,7 +157,7 @@ def _ssr(api: Api, symbol: str, session: str, at: pd.Timestamp, out: dict | None
         return None
     day = day[day.rth]              # amendment 1 (2026-11-21): the trigger is read from regular-hours trades only
     if out is not None:
-        before = day[day.ts < at]
+        before = day[day.ts + em.MINUTE <= at]
         out["ssr_basis"] = {"prior_close": pc, "low_before_entry": float(before.low.min()) if len(before) else None,
                             "prior_low": pl, "close_before_prior": ppc}
     return em.ssr(day, at, pc, pl, ppc)

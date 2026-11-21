@@ -182,5 +182,15 @@ def test_ssr_today_carried_over_and_unknown():
     assert em.ssr(day, s(0), 10.0, None, None) is True               # 8.9 <= 9.0 before the entry
     assert em.ssr(day.iloc[:1], s(0), 10.0, None, None) is False
     assert em.ssr(day, s(-400), 10.0, None, None) is False           # the low came after this entry
+    assert em.ssr(day, s(-270), 10.0, None, None) is False           # inside the 8.9 minute: it is not complete yet
+    assert em.ssr(day, s(-240), 10.0, None, None) is True            # that minute is complete
     assert em.ssr(day.iloc[:1], s(0), 10.0, 8.0, 9.0) is True        # yesterday fell 10% from its prior close
     assert em.ssr(day, s(0), None, None, None) is None
+
+
+def test_a_trade_at_the_entry_instant_is_not_a_trigger():
+    # the halt case: the entry IS the reopening trade; a second print at the same instant through the stop is not "after"
+    trades = [(0, 10.0), (300, 12.0)] + every(320, 2200, 12.0)
+    t = tape(trades, [(0, 9.9, 10.0)])
+    r = em.long(t, "A", s(29), 12.0 * 0.99)                      # buys 12.0 at the 300 s trade (no trade for 60 s after 30 s)
+    assert r["entry"] == 12.0 and r["entry_how"] == "trade" and r["reason"] == "time"

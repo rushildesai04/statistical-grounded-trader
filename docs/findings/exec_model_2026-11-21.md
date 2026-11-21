@@ -108,3 +108,11 @@ Amendments (dated, after the freeze):
   result was seen); the run that produced the ledger is the second.
 - The first results under the freeze are kept as produced (`reports/exec_model/result_2026-11-21.json`); the amended
   flags are applied to a copy.
+
+**Amendment 2, 2026-11-21, from the independent code review. No reported number changed.**
+- `ssr`, the day's own trigger: the code read the low of the order's own minute, part of which trades after the
+  order. It now reads only minutes completed before the order. Re-checked on the tape for all 29 shorts and 77
+  forward alerts: no flag and no label changes.
+- A stop or target trigger is a trade strictly AFTER the entry fill, as section 3 words it; the code had allowed a
+  trade at the same instant.
+

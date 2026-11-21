@@ -246,3 +246,12 @@ registered plan before any data is looked at for it:
 - 15 and 37 placeable shorts, 18 longs: small samples. The split between placeable and flagged shorts was defined
   before the results, but its size (about 11 to 15 points) is an observation on overlapping samples, not a test.
 - The daily books' close fills and the long-calls ledger were read, not re-priced.
+
+## 8. Validation of the work itself
+- Model frozen before results; one run; two dated amendments (flags, labels and one code strictness), neither changed
+  a reported number. The first results are kept as produced next to the amended copy.
+- Tests: 2,116 before the audit, 2,176 now; lint clean. The model has 20 tests, the ledger script 11, its reader 4.
+- One independent code review, told to hunt for look-ahead and for anything that would change a reported average:
+  graded sound. Its one material point (the price-test flag read the order's own minute) was re-checked on the tape
+  for all 106 rows: no flag changed; the code now reads completed minutes only.
+- What none of this validates: that any rule makes money, or that a broker would have filled any of these orders.

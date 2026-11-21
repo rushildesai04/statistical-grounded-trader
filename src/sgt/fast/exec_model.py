@@ -95,13 +95,15 @@ def fill(tape: Tape, symbol: str, side: str, at: pd.Timestamp, shares: float | N
 
 def first_touch(tape: Tape, symbol: str, start: pd.Timestamp, end: pd.Timestamp, lo: float | None = None,
                 hi: float | None = None) -> tuple[pd.Timestamp, float, str, float] | None:
-    """The first official trade in [start, end) at or below ``lo`` or at or above ``hi``: (time, price, "lo" | "hi",
+    """The first official trade in (start, end) at or below ``lo`` or at or above ``hi``: (time, price, "lo" | "hi",
     that minute's bar extreme on the touched side). Bars pick the minutes; the trades of a minute decide the order."""
     b = tape.bars[(tape.bars.ts >= start.floor("min")) & (tape.bars.ts < end)]
     for r in b.itertuples(index=False):
         if not ((lo is not None and r.low <= lo) or (hi is not None and r.high >= hi)):
             continue
         for t, p, _ in _trades(tape, symbol, max(start, r.ts), min(end, r.ts + MINUTE)):
+            if t <= start.value:              # strictly after the entry (spec section 3)
+                continue
             if lo is not None and p <= lo:
                 return _ts(t), float(p), "lo", float(r.low)
             if hi is not None and p >= hi:
@@ -180,7 +182,7 @@ def ssr(day: pd.DataFrame, at: pd.Timestamp, prior_close: float | None, prior_lo
     spec). None = the prior closes are unknown."""
     if not prior_close or prior_close <= 0:
         return None
-    before = day[day.ts < at]
+    before = day[day.ts + MINUTE <= at]       # minutes COMPLETED before the order (amendment 2: no look into its own minute)
     today = bool(len(before) and float(before.low.min()) <= 0.9 * prior_close)
     carried = bool(prior_low and prior_prior_close and prior_low <= 0.9 * prior_prior_close)
     return today or carried
