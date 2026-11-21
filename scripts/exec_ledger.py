@@ -220,7 +220,7 @@ def forward_rows(api: Api, c: sqlite3.Connection, limit: int | None) -> tuple[li
     ev = ev[ev.status == "ok"].reset_index(drop=True)
     sc = score(ev, store)
     ev = ev.assign(tested_net=sc.net.to_numpy(), tested_gross=sc.gross.to_numpy())
-    got = pd.read_sql("SELECT symbol, posted_at, created_at, ib_avail, alp_shortable, status, reason FROM fade_trades", c)
+    got = pd.read_sql("SELECT symbol, posted_at, created_at, ib_avail, status AS taken FROM fade_trades", c)
     got["posted_at"] = pd.to_datetime(got.posted_at, utc=True, format="ISO8601")
     got = got.sort_values("created_at").drop_duplicates(["symbol", "posted_at"])
     ev = ev.merge(got, on=["symbol", "posted_at"], how="left")
@@ -233,7 +233,7 @@ def forward_rows(api: Api, c: sqlite3.Connection, limit: int | None) -> tuple[li
         posted, received = pd.Timestamp(r.posted_at), _t(r.created_at)
         decided = max(received, pd.Timestamp(fade.entry_start(posted.to_pydatetime())))
         out = {"book": "forward", "symbol": r.symbol, "session": str(r.session), "alert_type": r.alert_type,
-               "posted_at": posted, "received_at": received, "decided_at": decided, "taken": r.status,
+               "posted_at": posted, "received_at": received, "decided_at": decided, "taken": r.taken,
                "orig": {"entry_ts": pd.Timestamp(r.entry_ts), "entry": float(r.entry), "net": float(r.tested_net)
                         if pd.notna(r.tested_net) else None}}
         if decided - posted > pd.Timedelta(fade.MAX_ENTRY_DELAY):
@@ -295,7 +295,13 @@ def main() -> int:
                 print(f"{name} {len(done)}/{len(rows)} requests {api.n}", file=sys.stderr, flush=True)
             out[name] = done
         if args.forward:
-            out["forward"], out["forward_counts"] = forward_rows(api, c, args.limit)
+            try:
+                out["forward"], out["forward_counts"] = forward_rows(api, c, args.limit)
+            except Exception as exc:  # noqa: BLE001 - the trades above are still printed; the failure is named
+                import traceback
+
+                traceback.print_exc()
+                out["forward_error"] = f"{type(exc).__name__}: {exc}"[:300]
         out["meta"]["requests"] = api.n
     print(json.dumps(out, default=_plain))
     return 0
