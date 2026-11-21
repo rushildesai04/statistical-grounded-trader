@@ -51,6 +51,8 @@ JOBS = {
     "fadepricesize": ("fade price-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "megacapretrain": ("monthly model training", "Today's 15:50 model run may have no models; it retries tomorrow."),
     "megacaplive": ("live model calls (15:50)", "Today's model trades did not go in; positions stay as they were."),
+    "megacaphalf": ("half-day close of the model books (12:50)",
+                    "On a half day the model books may still hold yesterday's calls; on a full day nothing is affected."),
     "analyst": ("AI trade analyst", "No lessons tonight; trading is unaffected. It retries tomorrow."),
     "fadevol": ("fade calm-skip / vol-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "megacapoverlay": ("megacap timing-overlay shadow", "Nothing was traded; it catches up on the next run."),
