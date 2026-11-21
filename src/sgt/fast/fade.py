@@ -75,6 +75,13 @@ NEWS_REASON = "news (no-news rule, amendment F6)"
 # only, beta from the year before each alert): >= 3 -2.14%/trade (n 76; no-news -6.67%, n 29), < 1.5 +1.86% (n 1,654).
 HIGH_BETA_SKIP = 3.0
 BETA_REASON = "beta >= 3 (no shorts on high beta, amendment F7)"
+# Owner 2026-11-21 (system audit, finding 12: "yes for beta"): a short whose beta cannot be read is not taken, like a
+# short whose borrow is unknown. Until now an unknown beta never blocked (3 shorts, all on 2026-11-10, the rule's first
+# day). Unknown means the lookup failed or timed out on every pass of the entry window, OR the stock has fewer than 60
+# daily returns (``sgt.fast.beta.MIN_OBS``): a recent listing has no beta and is therefore not shorted. Checked after
+# the price, so an alert with no print or a price outside $1-50 keeps that reason. Unknown company news still does not
+# block (owner: "leave for news").
+BETA_UNKNOWN = "beta unknown at entry (no beta, no short)"
 # Amendment F8 (prereg_fade_repeat_days_2026-11-12, deep review of the 11-12 losses): no short on a stock the channel
 # alerted 1-7 calendar days earlier (a multi-day runner). No-news fades: kept +2.54% vs repeats -1.01% (training,
 # n 1,018 / 317), held-out +2.55% vs -1.33% (n 371 / 133). The long book still treats these alerts as events.
@@ -111,7 +118,7 @@ BORROW_FEW = "too few shares to borrow at IBKR for this size"
 BORROW_UNKNOWN = "borrow unknown at entry (no fresh IBKR list): no short"
 BORROW_REASONS = (BORROW_NONE, BORROW_FEW, BORROW_UNKNOWN)
 # Alerts the short did not take although they were events in a tested cell with a priced entry bar.
-EVENT_FILTERS = (NEWS_REASON, BETA_REASON, REPEAT_REASON, OFF_REASON, *BORROW_REASONS)
+EVENT_FILTERS = (NEWS_REASON, BETA_REASON, BETA_UNKNOWN, REPEAT_REASON, OFF_REASON, *BORROW_REASONS)
 
 
 def no_shares(db: OpsStore, r, px: float) -> str | None:
@@ -408,8 +415,12 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         return
     if NO_NEWS and news is not None and r["news_own"] is None and _company_news(db, r, news(r["symbol"], now)):
         return
-    if beta is not None and r["beta"] is None and _high_beta(db, r, beta(r["symbol"], now)):
-        return
+    no_beta = False
+    if beta is not None and r["beta"] is None:
+        b = beta(r["symbol"], now)
+        if _high_beta(db, r, b):
+            return
+        no_beta = b is None                           # owner 2026-11-21: unknown beta is no short (BETA_UNKNOWN)
     px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
     if px is None or not px > 0:
         if now - posted > MAX_ENTRY_DELAY:          # the tested rule: no bar within 5 minutes -> no trade (halts)
@@ -417,6 +428,10 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")
+        return
+    if no_beta:                                       # read again on every pass of the entry window, then no short
+        if now - posted > MAX_ENTRY_DELAY:
+            _set(db, r["id"], "pending", status="filtered", reason=BETA_UNKNOWN)
         return
     if need_borrow and (why := no_shares(db, r, px)) is not None:   # owner 2026-11-16: no shares, no short (no text)
         _set(db, r["id"], "pending", status="filtered", reason=why)
@@ -537,8 +552,8 @@ def _company_news(db: OpsStore, r, flags: dict | None) -> bool:
 
 
 def _high_beta(db: OpsStore, r, b: float | None) -> bool:
-    """Amendment F7: stamp the beta; True (and filtered) when it is >= HIGH_BETA_SKIP. Unknown (None) never blocks
-    and is retried on the next tick only while the entry is still pending."""
+    """Amendment F7: stamp the beta; True (and filtered) when it is >= HIGH_BETA_SKIP. Unknown (None) is not stamped:
+    the caller reads it again on the next pass and takes no short while it stays unknown (owner 2026-11-21)."""
     if b is None:
         return False
     if b >= HIGH_BETA_SKIP:

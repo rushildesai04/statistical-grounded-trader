@@ -43,7 +43,8 @@ def _latest(session: str) -> pd.Timestamp:
 
 # Owner 2026-11-10 ("longs first"): longs are considered on every research alert, including the ones the SHORT
 # skipped for company news (F6) or high beta (F7); those never settle as fades, so they are taken from 'filtered'.
-SHORT_SKIPS = (fade.NEWS_REASON, fade.BETA_REASON, fade.REPEAT_REASON,     # F8 2026-11-12: still a long event
+SHORT_SKIPS = (fade.NEWS_REASON, fade.BETA_REASON, fade.BETA_UNKNOWN,      # 2026-11-21: no beta, no short; a long needs none
+               fade.REPEAT_REASON,                                          # F8 2026-11-12: still a long event
                fade.OFF_REASON,                                             # fade off 2026-11-12: longs unchanged
                *fade.BORROW_REASONS)                                        # 2026-11-16: a long needs no borrowed shares
 
