@@ -146,11 +146,17 @@ def _label(model: dict, flags: list[str]) -> str:
     return "UNRESOLVED" if model.get("status") != "ok" or bad else "MODELED"
 
 
-def _ssr(api: Api, symbol: str, session: str, at: pd.Timestamp) -> bool | None:
+def _ssr(api: Api, symbol: str, session: str, at: pd.Timestamp, out: dict | None = None) -> bool | None:
+    """The short-sale price test at ``at``; ``out`` receives the numbers it was read from (for the ledger's reader)."""
     try:
-        return em.ssr(api.day(symbol, session), at, *api.prior(symbol, session))
+        day, (pc, pl, ppc) = api.day(symbol, session), api.prior(symbol, session)
     except em.NoData:
         return None
+    if out is not None:
+        before = day[day.ts < at]
+        out["ssr_basis"] = {"prior_close": pc, "low_before_entry": float(before.low.min()) if len(before) else None,
+                            "prior_low": pl, "close_before_prior": ppc}
+    return em.ssr(day, at, pc, pl, ppc)
 
 
 def short_row(api: Api, r: dict) -> dict:
@@ -177,7 +183,7 @@ def short_row(api: Api, r: dict) -> dict:
         flags.append("no_borrow")
     elif r.get("alp_shortable") == 0:
         flags.append("borrow_conflict")
-    if decided is not None and _ssr(api, sym, ses, decided + em.LATENCY):
+    if decided is not None and _ssr(api, sym, ses, decided + em.LATENCY, out):
         flags.append("ssr")
     return {**out, "model": m, "stress_latency_net": s5.get("net"), "flags": flags, "label": _label(m, flags)}
 
@@ -243,7 +249,7 @@ def forward_rows(api: Api, c: sqlite3.Connection, limit: int | None) -> tuple[li
         flags = list(m.get("flags") or ())
         if received > pd.Timestamp(r.entry_ts):
             flags.append("late")
-        if _ssr(api, r.symbol, str(r.session), decided + em.LATENCY):
+        if _ssr(api, r.symbol, str(r.session), decided + em.LATENCY, out):
             flags.append("ssr")
         if pd.notna(r.ib_avail) and r.ib_avail <= 0:
             flags.append("no_borrow")
