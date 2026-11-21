@@ -39,6 +39,7 @@ THROTTLE, TIMEOUT = 0.32, 15.0            # seconds between requests (the accoun
 TRADE_PAGES, PAGE = 10, 10_000            # at most 100,000 trades of one span are read
 BOOK = 100_000.0                          # the paper book's starting value: order size = weight x this
 OPS_DB = "reports/ops/ops.db"
+APPEND_DAYS, APPEND_MAX = 14, 60          # the nightly mode: how far back it looks, and trades of one book per run
 
 
 class Api:
@@ -267,8 +268,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--forward", action="store_true", help="also re-price the forward record (population b)")
     ap.add_argument("--limit", type=int, default=None, help="first N rows of each population (a dry run of the plumbing)")
-    ap.add_argument("--since", default="2026-01-01", help="sessions from this date")
+    ap.add_argument("--since", default=None, help="sessions from this date (default: all; with --append the last 14 days)")
+    ap.add_argument("--append", default=None, metavar="FILE",
+                    help="the nightly mode: price only trades not yet in FILE and append them as JSON lines")
     args = ap.parse_args()
+    from sgt.fast import exec_book
+
+    have = set()
+    if args.append:                               # a trade that had no data is tried again; a priced one never is
+        have = {(r["book"], r["id"]) for r in exec_book.rows(Path(args.append))
+                if (r.get("model") or {}).get("status") not in ("no_data", "error")}
+        args.since = args.since or (datetime.now(ET).date() - timedelta(days=APPEND_DAYS)).isoformat()
+    args.since = args.since or "2026-01-01"
     from sgt.core.secrets import get_secret
 
     h = {"APCA-API-KEY-ID": get_secret("alpaca_key_id"), "APCA-API-SECRET-KEY": get_secret("alpaca_secret_key")}
@@ -279,6 +290,8 @@ def main() -> int:
                                          (args.since,))]
     longs = [dict(r) for r in c.execute("SELECT * FROM long_trades WHERE status='settled' AND session>=? ORDER BY id" + lim,
                                         (args.since,))]
+    shorts = [r for r in shorts if ("short", r["id"]) not in have][:APPEND_MAX if args.append else None]
+    longs = [r for r in longs if ("long", r["id"]) not in have][:APPEND_MAX if args.append else None]
     out = {"meta": {"model": "exec_model v1", "latency_s": em.LATENCY.total_seconds(),
                     "stress_latency_s": em.STRESS_LATENCY.total_seconds(), "generated_at": datetime.now(timezone.utc).isoformat()}}
     with httpx.Client(base_url=BASE, headers=h, timeout=TIMEOUT) as client:
@@ -306,6 +319,15 @@ def main() -> int:
                 traceback.print_exc()
                 out["forward_error"] = f"{type(exc).__name__}: {exc}"[:300]
         out["meta"]["requests"] = api.n
+    if args.append:
+        path = Path(args.append)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        new = out["shorts"] + out["longs"]
+        with path.open("a") as fh:
+            for r in new:
+                fh.write(json.dumps({**r, "written_at": out["meta"]["generated_at"]}, default=_plain) + "\n")
+        print(f"exec ledger: {len(new)} trades priced ({api.n} requests); " + (exec_book.line(path) or "nothing in the ledger"))
+        return 0
     print(json.dumps(out, default=_plain))
     return 0
 
