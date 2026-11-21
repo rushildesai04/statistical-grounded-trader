@@ -650,3 +650,28 @@ def test_the_six_name_book_and_the_long_calls_book_go_flat_too_the_overlay_does_
     while sat.weekday() != 5:
         sat += timedelta(days=1)
     assert sc.flat_without_decision(db, "megacap_ext", "megacap 15", datetime(sat.year, sat.month, sat.day, 15, 51, tzinfo=sc.ET)) is False
+
+
+def test_on_a_half_day_the_1250_run_closes_the_model_books_and_on_a_full_day_it_does_nothing(db, monkeypatch):
+    """Audit 2026-11-21 (D-2): the session of 2026-11-27 closes 13:00 ET; the 15:50 job comes after it, so nothing
+    renewed or closed yesterday's one-day calls. The 12:50 job runs the same book steps."""
+    sms = FakeSms()
+    monkeypatch.setattr(sc, "Sms", lambda: sms)
+    half, prev = date(2026, 11, 27), date(2026, 11, 25)
+    from sgt.intraday.calendar import default_calendar
+    assert default_calendar().bounds(half).rth_close.astimezone(sc.ET).hour == 13
+    _old_decision(sc.LONG_SETS[0], half, {"NVDA": 1})
+    _holds(db, "megacap", {"NVDA": 0.2})
+    _holds(db, sc.LONG_BOOK, {"JPM": 0.0476})
+    full = _full_session()
+    at_full = datetime(full.year, full.month, full.day, 12, 51, tzinfo=sc.ET)
+    sc.cmd_megacap(db, now=at_full)                                        # a full day at 12:51: outside the live slot
+    sc.cmd_megacap_long(db, now=at_full)
+    assert _orders(db) == {} and sms.sent == []
+    at_half = datetime(half.year, half.month, half.day, 12, 51, tzinfo=sc.ET)
+    sc.cmd_megacap(db, now=at_half)
+    sc.cmd_megacap_long(db, now=at_half)
+    sc.cmd_megacap(db, now=at_half)                                        # once per session
+    assert _orders(db) == {("megacap", "NVDA"): (0.0, half.isoformat()), (sc.LONG_BOOK, "JPM"): (0.0, half.isoformat())}
+    assert len(sms.sent) == 2 and all("NO DECISION today" in t for t in sms.sent)
+    assert prev < half

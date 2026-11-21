@@ -48,6 +48,12 @@ if [ "${1:-}" = "job" ]; then
                  # prereg_megacap_long_forward_2026-11-13: long calls of both sets, only when both decided live
                  run reports/ops/run.log python /app/scripts/sms_control.py megacaplong
                fi ;;
+    # Audit 2026-11-21 (D-2), 12:50 ET: only the book steps, no decision. On a half day there is no live decision,
+    # so each step closes what its book holds at that day's 13:00 close (owner 2026-11-16: a one-day call that is not
+    # renewed is not a position). On a full day 12:50 is outside the live slot and each step only prints a line.
+    megacaphalf) run reports/ops/run.log python /app/scripts/sms_control.py megacap || true
+               run reports/ops/run.log python /app/scripts/sms_control.py megacapext || true
+               run reports/ops/run.log python /app/scripts/sms_control.py megacaplong ;;
     megacapext) run reports/megacap_ext/run.log python /app/scripts/megacap_forward.py auto --set ext
                run reports/ops/run.log python /app/scripts/sms_control.py megacapext ;;
     etf)       run reports/forward/run.log python /app/scripts/forward_paper.py refresh || true
