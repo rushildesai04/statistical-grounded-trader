@@ -1,0 +1,170 @@
+"""Execution check (audit 2026-11-21): the official record against what the bot could have done. A measurement."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pandas as pd
+import pytest
+
+from sgt.fast import exec_check as ec
+from sgt.fast.est_costs import LOCATE
+from sgt.ops.store import OpsStore
+
+DAY, NIGHT = "2026-11-18", datetime(2026, 11, 19, 1, 40, tzinfo=timezone.utc)
+OPEN = pd.Timestamp("2026-11-18 14:30", tz="UTC")                # 09:30 ET
+COST = 0.01
+
+
+@pytest.fixture()
+def db(tmp_path):
+    return OpsStore(tmp_path / "ops.db")
+
+
+def rth(path=None, flat=10.0):
+    """Official regular-hours minutes; ``path``: minute-of-session -> (open, high, low, close)."""
+    path, rows = path or {}, []
+    for m in range(390):
+        o, h, lo, c = path.get(m, (flat, flat, flat, flat))
+        rows.append({"ts": OPEN + pd.Timedelta(minutes=m), "segment": "rth", "open": o, "high": h, "low": lo, "close": c,
+                     "volume": 100.0})
+    return pd.DataFrame(rows)
+
+
+def short(db, sym="AAA", posted="2026-11-18T15:00:20+00:00", got="2026-11-18T15:00:40+00:00",
+          decided="2026-11-18T15:01:12+00:00", entry_ts="2026-11-18 15:01:00+00:00", net=0.05, status="settled",
+          session=DAY, mid=[0]):
+    mid[0] += 1
+    with db.tx() as c:
+        return c.execute(
+            "INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, reason, created_at,"
+            " est_entry, est_entry_at, entry_ts, entry, net) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (sym, session, "volume_spike", posted, "-1", mid[0], status, "60 min", got, 10.0, decided, entry_ts, 10.0,
+             net)).lastrowid
+
+
+def long(db, fade_id, sym="AAA", exit_ts="2026-11-18 15:10:00+00:00", reason="stop", entry=10.0, stop=9.7, net=-0.04,
+         status="settled", session=DAY):
+    with db.tx() as c:
+        return c.execute(
+            "INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, entry, exit, exit_ts, exit_reason, net, "
+            "cost_rt, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (fade_id, sym, session, "L8", status, stop, entry, stop, exit_ts, reason, net, COST, "x")).lastrowid
+
+
+def one(db, table, rid):
+    with db.tx() as c:
+        return dict(c.execute(f"SELECT * FROM {table} WHERE id=?", (rid,)).fetchone())  # noqa: S608 - test, fixed names
+
+
+def run(db, days, now=NIGHT):
+    return ec.run(db, lambda sym, session: days.get(sym), lambda sym, ts, px: COST, now=now)
+
+
+def test_short_is_scored_from_the_first_minute_at_or_after_the_decision(db):
+    # decided 15:01:12 -> the 15:02 minute (minute 32) opens 11; it then falls to 9.9 by the 60-minute cover
+    bars = rth({32: (11.0, 11.0, 11.0, 11.0), 91: (9.9, 9.9, 9.9, 9.9)})
+    rid = short(db)
+    assert run(db, {"AAA": bars}) == ["AAA short at the decision +8.5%"]
+    r = one(db, "fade_trades", rid)
+    assert r["dec_entry"] == 11.0
+    assert r["dec_net"] == pytest.approx((11.0 - 9.9) / 11.0 - COST - LOCATE)
+    assert r["dec_note"] is None and r["net"] == 0.05           # the official result is never touched
+
+
+def test_a_decision_exactly_on_the_minute_uses_that_minute(db):
+    rid = short(db, decided="2026-11-18T15:02:00+00:00")
+    run(db, {"AAA": rth({32: (11.0, 11.0, 11.0, 11.0)})})
+    assert one(db, "fade_trades", rid)["dec_entry"] == 11.0
+
+
+def test_the_stop_applies_from_the_decision_entry(db):
+    # sold 10 at 15:02; a later minute trades 12.5: the 20% stop (12.0) covers there
+    rid = short(db)
+    run(db, {"AAA": rth({40: (10.0, 12.5, 10.0, 12.4)})})
+    assert one(db, "fade_trades", rid)["dec_net"] == pytest.approx(-0.20 - COST - LOCATE)
+
+
+def test_no_minute_after_the_decision_is_a_note_not_a_number(db):
+    rid = short(db, decided="2026-11-18T21:05:00+00:00")       # after the close
+    assert run(db, {"AAA": rth()}) == ["AAA short: no minute"]
+    r = one(db, "fade_trades", rid)
+    assert r["dec_net"] is None and r["dec_note"] == ec.NO_MINUTE
+
+
+def test_written_once_and_missing_bars_are_retried(db):
+    rid = short(db)
+    assert run(db, {}) == []                                    # no bars yet: nothing written, retried
+    assert one(db, "fade_trades", rid)["dec_net"] is None and one(db, "fade_trades", rid)["dec_note"] is None
+    assert len(run(db, {"AAA": rth()})) == 1
+    first = one(db, "fade_trades", rid)["dec_net"]
+    assert run(db, {"AAA": rth({32: (20.0, 20.0, 20.0, 20.0)})}) == []     # a second run never rewrites it
+    assert one(db, "fade_trades", rid)["dec_net"] == first
+
+
+def test_only_settled_shorts_inside_the_lookback(db):
+    a = short(db, sym="OPENED", status="est_closed")
+    b = short(db, sym="OLD", session="2026-10-01")
+    run(db, {"OPENED": rth(), "OLD": rth()})
+    assert one(db, "fade_trades", a)["dec_net"] is None and one(db, "fade_trades", b)["dec_net"] is None
+
+
+def test_malformed_bars_never_raise_or_write(db):
+    rid = short(db)
+    assert run(db, {"AAA": pd.DataFrame({"ts": ["not a time"], "open": ["x"]})}) == []
+    assert one(db, "fade_trades", rid)["dec_net"] is None
+
+
+def test_long_stop_exit_records_that_minutes_low(db):
+    fid = short(db)
+    lid = long(db, fid)                                        # stop exit in the 15:10 minute (minute 40)
+    out = run(db, {"AAA": rth({40: (9.9, 9.9, 9.3, 9.4)})})
+    assert "AAA long stop minute low 9.3" in out
+    assert one(db, "long_trades", lid)["stop_low"] == 9.3
+    assert one(db, "long_trades", lid)["net"] == -0.04          # the official result is never touched
+
+
+def test_long_target_exits_and_open_longs_are_left_alone(db):
+    a = long(db, short(db, sym="T"), sym="T", reason="target")
+    b = long(db, short(db, sym="O"), sym="O", status="est_closed")
+    run(db, {"T": rth(), "O": rth()})
+    assert one(db, "long_trades", a)["stop_low"] is None and one(db, "long_trades", b)["stop_low"] is None
+
+
+def test_summary_and_line(db):
+    assert ec.line(db) is None                                 # nothing recorded: no line
+    short(db, sym="LATE", got="2026-11-18T15:01:05+00:00", net=0.10)       # received 5 s after the official minute opened
+    fid = short(db, sym="INTIME", net=-0.20)
+    short(db, sym="ALSO", net=-0.05)                                       # received 20 s before its official minute
+    long(db, fid, sym="INTIME", entry=10.0, stop=9.7, net=-0.04)
+    run(db, {"LATE": rth(), "ALSO": rth(), "INTIME": rth({40: (9.9, 9.9, 9.3, 9.4)})})
+    s = ec.summary(db)
+    assert s["shorts"] == 3 and s["late"] == 1                             # only the one received after its minute opened
+    assert s["official"] == pytest.approx(-0.05)
+    assert s["long_stops"] == 1 and s["stop_net"] == pytest.approx(-0.04)
+    assert s["low_net"] == pytest.approx(9.3 / 10.0 - 1 - COST)
+    assert s["below"] == pytest.approx(9.3 / 9.7 - 1)
+    text = ec.line(db)
+    assert text.startswith("execution check (a measurement): 3 shorts official -5.0% a trade")
+    assert "after the official entry minute on 1" in text and "reread at 50" in text
+    assert "1 long stop exits booked at the stop -4.0% a trade, -8.0% at that minute's low" in text
+
+
+def test_a_low_above_the_booked_exit_never_improves_the_figure(db):
+    # a gap: the exit was booked at the minute's open, under the stop; the "low" figure is never above the booked exit
+    fid = short(db)
+    with db.tx() as c:
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, entry, exit, exit_ts, exit_reason, "
+                  "net, cost_rt, stop_low, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (fid, "AAA", DAY, "L8", "settled", 9.7, 10.0, 9.5, "2026-11-18 15:10:00+00:00", "stop", -0.06, COST, 9.6, "x"))
+    s = ec.summary(db)
+    assert s["low_net"] == pytest.approx(9.5 / 10.0 - 1 - COST) and s["below"] == pytest.approx(0.0)
+
+
+def test_a_second_writer_never_overwrites_a_recorded_figure(db):
+    rid = short(db)
+    r = {"id": rid, "symbol": "AAA", "session": DAY, "est_entry_at": "2026-11-18T15:01:12+00:00"}
+    cost = lambda sym, ts, px: COST  # noqa: E731
+    assert ec._short(db, r, lambda sym, session: rth(), cost) is not None
+    first = one(db, "fade_trades", rid)["dec_net"]
+    assert ec._short(db, r, lambda sym, session: rth({32: (20.0, 20.0, 20.0, 20.0)}), cost) is None
+    assert one(db, "fade_trades", rid)["dec_net"] == first

@@ -311,3 +311,23 @@ def test_a_failed_rereview_keeps_the_finished_review(db):
     assert got["verdict"] == "execution issue" and got["what_happened"] == "halted after entry"
     with db.tx() as c:
         assert tuple(c.execute("SELECT status, note_reviews FROM trade_ai WHERE key='fade:1'").fetchone()) == ("ok", 1)
+
+
+def test_review_rules_do_not_call_the_short_rule_proven_or_a_loss_variance():
+    """Audit 2026-11-21: the reviewer was told the backtest figure as a live fact and to file a loss as variance."""
+    from sgt.ai import trade_review as tr
+
+    assert "fades earn about +1.7%" not in tr.RULES and "NOT confirmed" in tr.RULES
+    assert "i.e. variance" not in tr.SYSTEM and "never by itself 'normal variance'" in tr.SYSTEM
+    assert "a losing trade is the expected outcome, not news" not in tr.RULES
+
+
+def test_issue_kinds_keep_the_old_three_and_tell_the_new_ones_apart():
+    from sgt.ai import trade_review as tr
+
+    assert tr.ISSUE_KINDS[:3] == ("execution", "data", "setup")           # stored reviews stay valid
+    assert {"alert", "eligibility", "implementation", "risk", "reporting", "strategy", "evidence"} <= set(tr.ISSUE_KINDS)
+    assert tr.SCHEMA["schema"]["properties"]["issues"]["items"]["properties"]["kind"]["enum"] == list(tr.ISSUE_KINDS)
+    v = tr.validate({"issues": [{"kind": "strategy", "text": "the rule was followed and lost"},
+                                {"kind": "made up", "text": "x"}]})
+    assert [i["kind"] for i in v["issues"]] == ["strategy", "data"]       # an unknown kind is never trusted

@@ -1010,6 +1010,13 @@ def cmd_settle() -> int:
         print("long text prices: " + (", ".join(tp) or "nothing due"))
     except Exception:  # noqa: BLE001 - a measurement; never blocks the settlement
         log.exception("long text prices failed")
+    try:                                         # audit 2026-11-21: the official record against what the bot could
+        from sgt.fast import exec_check         # have done (shorts from its own decision; long stops at the low)
+
+        ec = exec_check.run(db, *sip_session_tools())
+        print("execution check: " + (", ".join(ec) or "nothing new"))
+    except Exception:  # noqa: BLE001 - a measurement; never blocks the settlement
+        log.exception("execution check failed")
     return 0
 
 

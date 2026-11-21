@@ -648,6 +648,11 @@ function scoreBox(sc) {
   if (sc.ev != null) out.push(el("div", "conf-note", "average of " + (sc.n != null ? Number(sc.n).toLocaleString("en-US") + " tested trades like this" : "trades like this")
     + ": " + pct2(sc.ev) + " each" + (sc.win != null ? ", " + Math.round(sc.win * 100) + "% won" : "") + ". It does not rank this trade against others of its kind."));
   if (sc.stopped) out.push(el("div", "conf-note", "NO-GO: " + sc.stopped + "."));
+  // Audit 2026-11-21: a card showed NO-GO beside a trade that was taken. The verdict is worked out when the page is
+  // built (today's record), not at the entry, and no book reads it: the paper books take every trade their own rules
+  // allow (owner 2026-11-18). The card says so instead of leaving the contradiction.
+  if (sc.go != null) out.push(el("div", "conf-note", "Verdict as of this page, not as of the entry. It is advice: "
+    + "the paper books trade on their own rules whatever it says."));
   if (sc.caveat) out.push(el("div", "conf-note", sc.caveat));
   return out;
 }
@@ -680,6 +685,9 @@ function card(t, i) {
   } else {
     if (t.exit) fact(isLong(t) ? "sell" : "cover", "$" + t.exit.toFixed(2));
     if (t.reason) fact("exit", t.reason);
+    // audit 2026-11-21: a settled card shows the official exit; what the live feed texted is kept when it differed
+    if (t.live_reason) fact("texted live", t.live_reason);
+    if (t.result_note) fact("scored", t.result_note);
     if (isLong(t)) { if (t.target) fact("target", "$" + t.target.toFixed(2)); }
     else fact("news", t.news ? "yes" : "none found");
     c.append(top, facts);
