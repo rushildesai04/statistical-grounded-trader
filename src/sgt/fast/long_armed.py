@@ -5,6 +5,9 @@ reached the phone 64 to 88 seconds after the booked entry price (live rows 2026-
 median 2.4% by then, against a 2.8% stop distance, and 8 of 14 trades were already over). A setup is known one bar
 earlier, when its last candle closes (``Setup.ready``): from that moment the rule's order is fixed. This module texts
 that order once, while it can still be acted on. The book itself is unchanged: same fills, same texts after the fill.
+Since 2026-11-20 (owner: "get in at the right time") a base break that is the alert's only pending order is BOUGHT by
+the book at that moment (``long_book.at_close``): its LONG IN card replaces this text. This text still goes out for
+the buy-stop setups, and for a base break the book could not buy at its close (another order pending).
 
 One text per (alert, ready time), at most MAX_PER_ALERT per alert, only for an order that is still pending on the
 closed bars, that can beat its estimated cost (the book would not take the others), and for a market order only while
