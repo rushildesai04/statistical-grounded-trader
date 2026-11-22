@@ -109,3 +109,18 @@ def test_long_row_buys_the_ask_and_an_ask_under_the_stop_is_no_trade():
     r = el.long_row(FakeApi(), row)
     assert r["label"] == "MODELED" and r["model"]["entry"] == 10.05 and r["model"]["reason"] == "time"
     assert el.long_row(FakeApi(), {**row, "stop": 10.05})["label"] == "NO TRADE"
+
+
+def test_settled_check_reads_the_database_read_only_and_reports_the_gap(tmp_path):
+    from sgt.ops.store import OpsStore
+
+    db = OpsStore(tmp_path / "ops.db")
+    with db.tx() as c:
+        for i, status in ((1, "settled"), (2, "settled"), (3, "filtered")):
+            c.execute("INSERT INTO fade_trades(id, symbol, session, alert_type, posted_at, channel, message_id, status, "
+                      "created_at) VALUES (?,?,?,?,?,?,?,?,?)", (i, f"S{i}", "2026-11-18", "volume_spike", "x", "-1", i, status, "x"))
+    led = tmp_path / "ledger.jsonl"
+    led.write_text(json.dumps({"book": "short", "id": 1, "session": "2026-11-18", "label": "MODELED",
+                               "model": {"status": "ok", "net": 0.1}, "orig": {"net": 0.1}}) + "\n")
+    r = el.settled_check(led, str(tmp_path / "ops.db"))
+    assert r["short"]["expected"] == 2 and r["short"]["missing"] == [2] and r["ok"] is False

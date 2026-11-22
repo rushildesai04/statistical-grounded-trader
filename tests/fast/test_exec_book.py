@@ -146,3 +146,28 @@ def test_flagged_trades_never_enter_the_review(tmp_path):
     write(p, many("short", [-0.03] * 50) + [row("short", 900 + i, 0.40, label="UNRESOLVED", session="2026-12-01") for i in range(40)])
     v = eb.review("short", p)
     assert v["state"] == "RETIRE" and v["n"] == 50 and v["mean"] == pytest.approx(-0.03)
+
+
+# ---- reconciliation of an import (audit 2026-11-22) ----
+def test_reconcile_names_what_is_missing_extra_unpriced_and_superseded(tmp_path):
+    p = tmp_path / "ledger.jsonl"
+    assert eb.reconcile({"short": {1, 2}, "long": set()}, p) == {
+        "short": {"expected": 2, "held": 0, "missing": [1, 2], "extra": [], "no_data": []},
+        "long": {"expected": 0, "held": 0, "missing": [], "extra": [], "no_data": []}, "superseded_lines": 0, "ok": False}
+    bad = {**row("short", 2, None), "model": {"status": "no_data"}}
+    write(p, [row("short", 1, 0.1), bad, row("short", 2, -0.1), row("short", 9, 0.0), row("long", 5, 0.0)])
+    r = eb.reconcile({"short": {1, 2, 3}, "long": {5}}, p)
+    assert r["short"] == {"expected": 3, "held": 3, "missing": [3], "extra": [9], "no_data": []}       # 2 was retried: priced
+    assert r["long"]["held"] == 1 and r["superseded_lines"] == 1 and r["ok"] is False
+    write(p, [row("short", 1, 0.1), row("short", 1, 0.1), row("short", 2, 0.2), bad, row("long", 5, 0.0)])
+    r = eb.reconcile({"short": {1, 2}, "long": {5}}, p)
+    assert r["ok"] is True and r["superseded_lines"] == 2 and r["short"]["no_data"] == [2]             # last line wins: unpriced
+
+
+def test_importing_twice_changes_nothing_the_reader_sees(tmp_path):
+    p = tmp_path / "ledger.jsonl"
+    once = [row("short", 1, 0.1), row("short", 2, -0.2), row("long", 5, 0.03)]
+    write(p, once)
+    before = (eb.summary(p), eb.reconcile({"short": {1, 2}, "long": {5}}, p)["ok"])
+    write(p, once + once)                                                   # the same import appended again
+    assert (eb.summary(p), eb.reconcile({"short": {1, 2}, "long": {5}}, p)["ok"]) == before

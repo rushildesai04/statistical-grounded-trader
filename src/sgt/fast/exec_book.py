@@ -47,6 +47,33 @@ def rows(path: Path = LEDGER) -> list[dict]:
         return []
 
 
+def reconcile(expected: dict[str, set], path: Path = LEDGER) -> dict:
+    """The ledger against the trades it should hold (audit 2026-11-22: an import must be checkable, not trusted).
+    ``expected``: book -> ids of the settled trades in the ops database. Per book: how many are expected, held,
+    missing (never written), extra (in the file, not settled in the database), still without data (written as
+    no_data / error and due a retry), and how many lines of the file were superseded by a later line of the same
+    trade. ``ok`` only when nothing is missing or extra."""
+    lines = 0
+    try:
+        if path.exists() and path.stat().st_size <= MAX_BYTES:
+            with path.open() as fh:
+                lines = sum(1 for ln in fh if ln.strip())
+    except OSError:
+        lines = 0
+    held = rows(path)
+    out, total = {}, 0
+    for book in BOOKS:
+        mine = {r["id"]: r for r in held if r["book"] == book}
+        want = set(expected.get(book) or ())
+        total += len(mine)
+        out[book] = {"expected": len(want), "held": len(mine), "missing": sorted(want - set(mine)),
+                     "extra": sorted(set(mine) - want),
+                     "no_data": sorted(i for i, r in mine.items() if (r.get("model") or {}).get("status") in ("no_data", "error"))}
+    out["superseded_lines"] = max(0, lines - total)
+    out["ok"] = all(not out[b]["missing"] and not out[b]["extra"] for b in BOOKS)
+    return out
+
+
 def _num(x) -> float | None:
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
 

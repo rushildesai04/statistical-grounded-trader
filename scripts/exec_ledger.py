@@ -267,16 +267,35 @@ def forward_rows(api: Api, c: sqlite3.Connection, limit: int | None) -> tuple[li
     return rows, counts
 
 
+def settled_check(path: Path, db: str = OPS_DB) -> dict:
+    """``exec_book.reconcile`` of ``path`` against the ids of every settled trade in the ops database (read-only)."""
+    from sgt.fast import exec_book
+
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        want = {"short": {r[0] for r in c.execute("SELECT id FROM fade_trades WHERE status='settled'")},
+                "long": {r[0] for r in c.execute("SELECT id FROM long_trades WHERE status='settled'")}}
+    finally:
+        c.close()
+    return exec_book.reconcile(want, path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--forward", action="store_true", help="also re-price the forward record (population b)")
     ap.add_argument("--limit", type=int, default=None, help="first N rows of each population (a dry run of the plumbing)")
     ap.add_argument("--since", default=None, help="sessions from this date (default: all; with --append the last 14 days)")
+    ap.add_argument("--check", default=None, metavar="FILE",
+                    help="no pricing: reconcile FILE against the settled trades of the ops database and print the result")
     ap.add_argument("--append", default=None, metavar="FILE",
                     help="the nightly mode: price only trades not yet in FILE and append them as JSON lines")
     args = ap.parse_args()
     from sgt.fast import exec_book
 
+    if args.check:
+        res = settled_check(Path(args.check))
+        print(json.dumps(res))
+        return 0 if res["ok"] else 2
     have = set()
     if args.append:                               # a trade that had no data is tried again; a priced one never is
         have = {(r["book"], r["id"]) for r in exec_book.rows(Path(args.append))
@@ -329,6 +348,10 @@ def main() -> int:
         with path.open("a") as fh:
             for r in new:
                 fh.write(json.dumps({**r, "written_at": out["meta"]["generated_at"]}, default=_plain) + "\n")
+        rc = settled_check(path)
+        print("exec ledger reconciled: " + ("every settled trade is held once" if rc["ok"] else
+                                            f"MISMATCH missing {rc['short']['missing']} {rc['long']['missing']} "
+                                            f"extra {rc['short']['extra']} {rc['long']['extra']}"))
         print(f"exec ledger: {len(new)} trades priced ({api.n} requests); " + (exec_book.line(path, datetime.now(ET).date().isoformat()) or "no trade of the forward sample yet"))
         return 0
     print(json.dumps(out, default=_plain))
