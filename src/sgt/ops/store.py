@@ -139,10 +139,16 @@ def iso(ts: datetime) -> str:
     return ts.astimezone(timezone.utc).isoformat()
 
 
+DECIDE_TIMEOUT_S = 0.5              # the longest the decision record may hold a trading loop (see OpsStore.decide)
+SPOOL_NAME = "decisions.spool.jsonl"   # next to the database: lines that could not be written, waiting for a replay
+SPOOL_MAX_BYTES, SPOOL_MAX_LINES = 5_000_000, 20_000
+
+
 class OpsStore:
     def __init__(self, path: Path = DB_PATH) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self.decide_lost = 0                # decision lines this process could neither write nor spool
         c = sqlite3.connect(path, timeout=30)
         try:
             c.execute("PRAGMA journal_mode=WAL")
@@ -180,17 +186,108 @@ class OpsStore:
                reason: str | None = None, config: str | None = None, **facts: Any) -> None:
         """One line of the decision record (audit 2026-11-22): what a book decided about one alert or trade, WHEN it
         decided it, with the facts it had then. Append-only, written at the moment of the decision, so a later review
-        reads what was known instead of reconstructing it from the outcome. It must never cost a trade: any failure
-        is logged and swallowed."""
+        reads what was known instead of reconstructing it from the outcome.
+
+        Failure behaviour (audit 2026-11-22, phase 3b). It never raises and never holds a trading loop: the write
+        uses its own connection with a DECIDE_TIMEOUT_S wait, where every other write waits 30 s. A line that cannot
+        be written (database busy, table missing, disk error) goes to the spool file next to the database with its
+        original time and is put back by ``decide_replay`` (the nightly health check runs it). Only when the spool
+        cannot be written either is the line lost: logged as an error and counted in ``decide_lost``. Nothing here
+        is silent: ``decision_health`` compares the record with the books' own rows every night."""
         try:
-            with self.tx() as c:
-                c.execute("INSERT INTO decisions(at, book, ref, symbol, state_from, state_to, reason, facts, config) "
-                          "VALUES (?,?,?,?,?,?,?,?,?)",
-                          (utcnow().isoformat(), book, ref, symbol, state_from, state_to,
-                           None if reason is None else str(reason)[:300],
-                           json.dumps({k: v for k, v in facts.items() if v is not None}, default=str)[:2000], config))
-        except Exception:  # noqa: BLE001 - observability only: never raises into a trading path
-            logging.getLogger(__name__).exception("decision record failed for %s %s", book, ref)
+            line = [utcnow().isoformat(), book, ref, symbol, state_from, state_to,
+                    None if reason is None else str(reason)[:300],
+                    json.dumps({k: v for k, v in facts.items() if v is not None}, default=str)[:2000], config]
+        except Exception:  # noqa: BLE001 - a fact that cannot be written down must not cost the trade
+            logging.getLogger(__name__).exception("decision record: line not built for %s %s", book, ref)
+            self.decide_lost += 1
+            return
+        try:
+            self._decide_write([line], DECIDE_TIMEOUT_S)
+        except Exception as e:  # noqa: BLE001 - observability only: never raises into a trading path
+            self._decide_spool(line, e)
+
+    def _decide_write(self, lines: list[list], timeout: float) -> int:
+        """Insert decision lines in one transaction on a connection of their own; lines already there are skipped."""
+        c = sqlite3.connect(self.path, timeout=timeout, isolation_level=None)
+        try:
+            c.execute("BEGIN IMMEDIATE")
+            n = 0
+            for ln in lines:
+                if c.execute("SELECT 1 FROM decisions WHERE at=? AND book=? AND ref IS ? AND state_to IS ? LIMIT 1",
+                             (ln[0], ln[1], ln[2], ln[5])).fetchone() is None:
+                    c.execute("INSERT INTO decisions(at, book, ref, symbol, state_from, state_to, reason, facts, "
+                              "config) VALUES (?,?,?,?,?,?,?,?,?)", ln)
+                    n += 1
+            c.execute("COMMIT")
+            return n
+        except BaseException:
+            if c.in_transaction:
+                c.execute("ROLLBACK")
+            raise
+        finally:
+            c.close()
+
+    @property
+    def spool_path(self) -> Path:
+        return Path(self.path).with_name(SPOOL_NAME)
+
+    def _decide_spool(self, line: list, err: Exception) -> None:
+        log = logging.getLogger(__name__)
+        try:
+            p = self.spool_path
+            if p.exists() and p.stat().st_size > SPOOL_MAX_BYTES:
+                raise OSError("decision spool is full")
+            with p.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"line": line, "error": repr(err)[:200]}) + "\n")
+            log.warning("decision record: line for %s %s kept in the spool (%r)", line[1], line[2], err)
+        except Exception:  # noqa: BLE001 - last resort: say so loudly, count it, never raise
+            self.decide_lost += 1
+            log.exception("DECISION RECORD LINE LOST for %s %s (database: %r)", line[1], line[2], err)
+
+    def spooled(self) -> int:
+        """Decision lines waiting in the spool (0 = none; -1 = the spool cannot be read)."""
+        try:
+            return sum(sum(1 for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip())
+                       for p in (self.spool_path, self.spool_path.with_suffix(".replaying")) if p.exists())
+        except OSError:
+            return -1
+
+    def decide_replay(self) -> int:
+        """Put spooled lines back into the record (recovery; run by the nightly health check, safe to run by hand).
+        The spool is renamed first, so lines written meanwhile go to a fresh file; a line already in the table is
+        skipped, so a replay that died after its commit cannot double a line. On any failure the renamed file stays
+        and the next run retries it. Returns the number of lines inserted."""
+        work = self.spool_path.with_suffix(".replaying")
+        try:
+            if self.spool_path.exists():
+                if work.exists():                       # an earlier replay did not finish: take both, oldest first
+                    with work.open("a", encoding="utf-8") as f:
+                        f.write(self.spool_path.read_text(encoding="utf-8"))
+                    self.spool_path.unlink()
+                else:
+                    self.spool_path.rename(work)
+            if not work.exists():
+                return 0
+            lines = []
+            for raw in work.read_text(encoding="utf-8").splitlines()[:SPOOL_MAX_LINES]:
+                try:
+                    ln = json.loads(raw).get("line")
+                except (ValueError, AttributeError):
+                    continue                                # a torn last line of a crash: nothing to recover from it
+                if isinstance(ln, list) and len(ln) == 9:
+                    lines.append(ln)
+            c = sqlite3.connect(self.path, timeout=30)      # the table may be the thing that was missing
+            try:
+                c.executescript(SCHEMA)                     # every statement is IF NOT EXISTS, as at start-up
+            finally:
+                c.close()
+            n = self._decide_write(lines, 30)
+            work.unlink()
+            return n
+        except Exception:  # noqa: BLE001 - recovery must not break the job that calls it; the file stays for a retry
+            logging.getLogger(__name__).exception("decision record: replay of the spool failed (it stays for a retry)")
+            return 0
 
     def decisions(self, book: str, ref: int) -> list[dict]:
         """The decision record of one alert or trade, oldest first."""

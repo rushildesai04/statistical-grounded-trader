@@ -466,6 +466,12 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             lines.append(el)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'
         lines.append("execution check: unavailable")
+    try:                                         # audit 2026-11-22: the decision record says every night whether it is whole
+        from sgt.ops import decision_health
+
+        lines.append(decision_health.line(db, now_et.date().isoformat()))
+    except Exception:  # noqa: BLE001 - its own label: a failed health check must be seen, not read as "complete"
+        lines.append("⚠️ decision record: health check failed")
     lines += [f"{bold('live vs tested')}: {r}" for r in record]
     try:
         lines += [f"{bold('fade exec')}: " + x.removeprefix("fade exec: ") for x in realism.lines(db)]
