@@ -77,8 +77,8 @@ def health(db: OpsStore, session: str, alerts_db: Path | None = None) -> dict:
                 rows += len(ids)
                 covered += sum(1 for i in ids if i in have)
             seen = [(r["symbol"], json.loads(r["facts"] or "{}").get("posted_at")) for r in c.execute(
-                "SELECT symbol, facts FROM decisions WHERE book='short' AND state_from IS NULL AND at LIKE ?",
-                (session + "%",))]
+                "SELECT symbol, facts FROM decisions WHERE book='short' AND state_from IS NULL AND at>=?",
+                (session,))]                 # from the day's start on: a line may be written just after midnight UTC
     except Exception as e:  # noqa: BLE001 - a broken record is the finding, not a crash of the summary
         return {**out, "ok": False, "error": repr(e)[:120]}
     out |= {"rows": rows, "covered": covered, "since": start}

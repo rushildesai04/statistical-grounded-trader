@@ -832,15 +832,32 @@ night it cannot finish is texted and caught up on the next run.
   traced, not only the trades.** 261 are not a tested kind; 117 are a stock's later alerts that day; of the 422 rows
   the short book blocked 169 for hours, 115 for news, 57 for price, 12 as repeats, 12 with no print, 8 with no shares,
   4 on beta, and traded 29. No alert was lost to lateness (median receipt 26 s, none over 5 minutes). Every
-  deterministic gate checked on every taken short and long: no violation. The long book watched 82 first alerts: no
-  setup on 37, bought 24, off or not yet live on 19, fill seen too late on 2; 87 later alerts never start a watch.
-  The rule was followed in every reconstructed decision; what failed was the DATA (one exchange, under 1% of the
-  volume; a borrow list; no price test). The long-calls ledger and its paper book are reconciled: the gap was the
+  deterministic gate checked on every taken short and long: no violation. Of 82 first alerts the long book watched 66 (no
+  setup on 37, bought 24, seen while off 3, fill seen too late 2) and never watched 16 (8 before it was running, 8
+  while switched off); 87 later alerts never start a watch. The rule was followed in every reconstructed decision.
+  That is compliance, not soundness: see the next entry for what the losses are made of. The long-calls ledger and its paper book are reconciled: the gap was the
   book's old position sizes and a one-day offset; from 11-23 both hold 1/21 a call. No enhancement to a trading rule
   is supported. Research queue of five questions, all about what could be executed or seen; the first is registered
   (`prereg_short_price_test_limit_2026-11-22.md`, variant `short-ssr-limit-v1`: a short under the price test sold
   with a limit at the offer; own ledger, never mixed with the baseline). New: table `decisions` records every state
   change of both alert books with the facts of that moment.
+- **Closing questions 2026-11-22 (`docs/findings/closing_questions_2026-11-22.md`): compliance is not
+  effectiveness.** Each loss placed by a comparison that exists. Longs, 18 losses: 6 on orders that were not valid on
+  real quotes, 2 on patterns not on the full tape, 8 on real setups that lose on real quotes too, 2 not reproduced;
+  and 4 of the 6 wins are losses on real quotes, so correcting the data makes the long record WORSE (-3.63% against
+  -2.25% as booked). Shorts, 16 losses: 5 on orders not sellable as assumed, 10 with no flag that lose on real quotes
+  too (-15.9%), 1 not reproduced. Unexplained, with no valid comparison: why unflagged shorts lose against a +1.76%
+  backtest. **Full-tape setup check (`prereg_long_setup_tape_2026-11-22.md`, plan frozen, run once):** of 29 recorded
+  long setups 19 existed, 7 at another minute, 3 only on the thin feed; the tape's stop differs by more than a
+  quarter of the risk in 14 of 26. For the base break live now, feed and tape agree on 4 of the 22 alerts where
+  either shows one: setup validity is NOT established on the free feed, and it is a data-source problem no rule
+  repairs. H1's fill model is specified and tightened (Amendment 1; the registered threshold must hold under both
+  versions; passing only permits proposing a follow-up). The decision record cannot hold a trading loop (0.5 s),
+  spools what it cannot write, and the nightly summary says "complete" or names what is missing, including a
+  channel alert that never reached the book (VRAX 11-04: most likely a listener restart; such an alert is still not
+  replayed). Standing: longs are measurement only until a real-time full-tape source exists; shorts are limited to
+  H1 and the registered review. Owner review Friday 2026-12-18; final date 2027-02-26. Deploys outside 09:25 to
+  16:00 ET from now on.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

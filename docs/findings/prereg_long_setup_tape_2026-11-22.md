@@ -67,3 +67,60 @@ except as a count of losers per class. 29 and 82 are small numbers; no percentag
 
 ## Not done
 No return by class beyond the count of losers, no new parameter, no re-run after the tape is loaded, no forward rows.
+
+---
+## Result (run once, 2026-11-22; plan `59c518f`; `reports/long_setup_tape/result.json`)
+Step 1, control: 29 of 29 recorded setups reproduced on the free feed's stored bars with today's detectors (same
+minute, same stop). No correction of the matching was needed; the only change before the tape was loaded was an
+import path. Bars: 82 stock-days on each feed, none missing.
+
+### A. The 29 recorded setups
+
+| Class | Setups | of them bought | bought and lost |
+|---|---|---|---|
+| EXISTED (same candle, same minute) | 19 | 14 | 11 |
+| EXISTED, TIMING DIFFERED | 7 | 7 | 5 |
+| THIN FEED ONLY | 3 | 3 | 2 |
+| INSUFFICIENT EVIDENCE | 0 | 0 | 0 |
+
+- By kind: first red candle (L4a, L4b) 22: 17 existed, 4 differed in timing, 1 thin-feed only (RETO 11-12: the
+  candle is on the tape, its order would have been cancelled). Break of structure (L6) 2: both on another candle
+  (one 8 minutes earlier, one 1 minute later). Halt reopening (L7a) 2: 1 existed, 1 a minute later; the tape agrees
+  with the feed on what was a halt in all 29. **Base break (L8, the rule live now) 3: 1 existed (LVWR), 2 thin-feed
+  only (SVRE and JMIA, 11-20: on the tape those minutes were not a base under the same definition).**
+- Timing, where it differed: the tape's fill was 8 minutes earlier to 1 minute later than the book's.
+- The stop. Of the 26 setups that exist on the tape, the tape's stop is lower than the feed's in 19, equal in 5,
+  higher in 2; in 14 of 26 it differs by more than a quarter of the trade's planned risk. A setup that "existed"
+  therefore still had, more often than not, a materially different stop than the one the book used.
+- Losers are not concentrated in the artefacts: 16 of the 18 losing longs were on setups that exist on the tape.
+
+### B. The rule live now (base break + bull flag), all 82 first qualifying alerts, existence only
+
+| Class | Alerts |
+|---|---|
+| BOTH NONE | 60 |
+| SAME (kind and minute) | 4 |
+| DIFFERENT (a pick on both, another minute) | 7 |
+| THIN FEED ONLY | 7 |
+| TAPE ONLY | 4 |
+| NO DATA | 0 |
+
+Of the 18 alerts where the feed shows the live rule a setup, the tape shows the same one in 4, another one in 7
+(3 to 18 minutes apart, either way) and none in 7. Of the 15 where the tape shows one, the feed misses 4.
+
+### What this does and does not establish
+- Established: the base break the book acts on is, most of the time, not the tape's base break. On these 82 alerts
+  the two agree on 4 of the 22 where either sees one. The one-candle setups the book used before were mostly real
+  (17 of 22), but with a stop the tape puts lower.
+- One caution on "thin feed only": the 4% cap on the base's width was set on 2026-11-19 for the FEED's narrower
+  view. On the tape the same number is a stricter test, so some of the 7 are bases the tape shows wider, not minutes
+  with no pattern at all.
+- Not established: that real candles would help. The forward long sample measures "a pattern found on the free feed,
+  executed on the real market", which is what the bot replay of 2026-11-19 tested (a loser there too). The replay of
+  2026-11-18 found the book on feed candles losing LESS than the rule on real ones. Setup validity is a statement
+  about what the record describes, not a route to profit.
+- 3, 22 and 82 are small numbers. The direction is clear; no percentage here is a rate to rely on.
+
+Consequence, as registered: none for any rule. The forward long sample keeps its definition and must be described
+as above wherever its result is reported. A setup pattern on the tape can only be traded with real-time full-tape
+data, which the book does not have (still the unmet data requirement).

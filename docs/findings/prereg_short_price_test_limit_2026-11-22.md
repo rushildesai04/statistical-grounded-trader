@@ -101,3 +101,66 @@ convention (conservative), consistency of the outcome rules, computability from 
 | Simpler alternative: label these events "not sellable as assumed" forever and price them once at the offer | Yes: adopted | This is now the plan |
 
 No disagreement remained. Agreement from a reviewer is not evidence that anything makes money.
+
+---
+## Amendment 1 (2026-11-22, same day; before any code for the variant exists and before any outcome is computed)
+Owner's brief of 2026-11-22: "Validate H1's fill model before interpreting returns. A legal limit order is not
+necessarily fillable ... A touch at the limit must not automatically count as a fill ... Do not silently alter H1's
+registered criteria."
+
+**What does not change.** The population (the first 30 price-test events from 2026-11-23), the single read (the 30th
+event or 2027-02-26), the seal, the four reported figures, the 95% one-sided session bound, the use of the result (a
+label), and the only threshold in the plan (a follow-up may be PROPOSED at 15 fills AND a per-event lower bound above
+0, unfilled at 0). The fill rule as written above ("first official trade strictly above the limit, filled in full")
+is kept and reported under the name AS WRITTEN.
+
+**What is added.** A stricter fill model, named AS SPECIFIED, defined below. The threshold must now be met under
+BOTH. An amendment that can only make the threshold harder to meet is the one kind made after registration; it is
+recorded here, not folded into the text above.
+
+### The fill model, item by item
+
+| Item | AS SPECIFIED | Why, and what stays unknown |
+|---|---|---|
+| Submission latency | The order is live at the exchange at decision + 1 s (the baseline's figure). A 5 s case is reported, labelled stress | The bot's real latency to a broker is unmeasured: no order has ever been sent |
+| Quote freshness | The limit is the national best ask standing at decision + 1 s: the last quote update at or before it. Its age is recorded. No order when there is no quote, a zero side, or ask at or under bid. In a halt the order is entered and simply does not fill | A standing quote is valid however old; what its age cannot show is that the size is still there |
+| Price-test legality | Checked per order, not assumed: the limit must be at least one tick above the best bid at submission ($0.01 from $1, $0.0001 under it). An order that fails is "no order" | Rule 201 lets a displayed short priced above the best bid at its first display execute even if the bid later rises to it ([SEC FAQ](https://www.sec.gov/divisions/marketreg/rule201faq.htm), rule 201(b)(1)(iii)(A)). Our flag is computed from prints, not taken from an exchange's list: the abandon rule above stands |
+| Queue | We are LAST at our price on every venue. A trade AT the limit is never ours | Price-time priority; nothing in public data shows the queue |
+| Eligible trades | Only regular-way prints of a round lot or more can fill us: odd lots, average-price, derivatively priced, out-of-sequence, extended-hours and corrected prints are ignored | A print above a resting quote does not always mean that quote traded (sweeps, odd lots, off-exchange prints): "strictly above" is necessary, not sufficient |
+| Available size, partial fills | Order size = the short book's paper size for that alert, in shares. Filled shares = eligible volume traded strictly above the limit inside the window, capped at the order. A full fill needs that volume to reach the order; less is a PARTIAL fill of that fraction, the rest cancelled. Displayed ask size at submission is recorded (it is ahead of us) | Volume above our price is a stand-in for "the market took out our level"; the true fill is unknowable without an order |
+| Cancellation timing | Cancel sent 60 s after submission, effective 1 s later: a qualifying print up to 61 s still fills | The fills that arrive while a cancel is in flight are the adverse ones; they must count |
+| Fees | Locate 0.5% of the sale (as registered). Commission 0. Regulatory sell fees are not modelled (hundredths of a percent at these prices) | **The locate price is the largest unknown: the nightly borrow scan records availability, not price, and hard-to-borrow locates in such stocks can cost a multiple of 0.5%** |
+| Borrow requirement | A real short needs a locate before the order. Events without listed shares stay in the registered figures (as registered) and every figure is repeated for events ON the lendable list at the decision | A follow-up, if one is ever proposed, can only concern events with listed shares |
+| Unfilled alerts | Stay in every per-alert figure: at 0, and at their would-have (as registered). A partial fill enters per alert as fraction x the trade's result | |
+| Fill count for the threshold | Full fills only, under AS SPECIFIED; and at least 15 under AS WRITTEN too | |
+
+### Validation of the fill model, before any return is looked at
+The exploratory run on the 23 already-seen events (above) is narrowed: it reports MECHANICS ONLY (order or no order,
+tick check, quote age, displayed size, eligible volume through the limit, full / partial / none, time of fill). No
+entry-to-exit result is computed in it. The model passes when:
+1. every order satisfies the tick check, by construction and by assertion;
+2. a second pass over the same stored quotes and trades gives identical fills (deterministic);
+3. five events, chosen by a fixed rule (the first five by date), are checked by hand against the raw quotes and
+   prints, and the check is shown in the pull request;
+4. the share of events with no usable quote, and of prints dropped as ineligible, is reported and explained.
+If it cannot be made to pass, the variant is abandoned without a result.
+
+**The limit of any such model.** It cannot validate fillability; only a real order can, and real money is locked. So
+the result stays an estimate at a limit, however carefully specified. What the model does is refuse every fill that
+depends on a favourable assumption.
+
+### How the lower bound treats clustered days, selection and the small sample
+- Clustered days. The bound resamples whole SESSIONS, so trades of one day move together, as they do. With about 15
+  sessions a percentile bootstrap is known to be too narrow: the bound is optimistic, not conservative. This is one
+  reason the threshold only permits a proposal.
+- Selection, three kinds. (a) The class was chosen after 23 of its events were seen at +10.7%: the 30 forward events
+  are new, so the measurement is clean, but the hypothesis is a selected one and its true value should be expected
+  well below what prompted it; the registered check on the training file found no difference by this flag. (b) Fills
+  are adversely selected: the governing figure is per alert with an unfilled alert at 0, never per filled trade.
+  (c) Four figures are reported; ONE governs (per alert, unfilled at 0), so there is no choosing afterwards.
+- Small sample. 30 alerts with single results of +30% and -22%: one trade moves the average by a full point. The
+  share of the total made by the best three trades is reported for this reason. No significance is claimed.
+
+**Passing the threshold permits proposing one independent follow-up, with its own registration, on new events, by
+the owner's decision. It does not establish an edge. It does not authorize a trade, a change to the paper book, or
+real money.**
