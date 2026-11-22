@@ -718,6 +718,12 @@ async def run() -> int:
                 await asyncio.to_thread(tape_check.check, db, send, tape)
             except Exception:  # noqa: BLE001 - a late correction must never stop the listener; logged
                 log.exception("official-tape check failed")
+            try:                                 # owner 2026-11-21 (2 C): the same check for the long book
+                from sgt.fast import long_tape_check
+
+                await asyncio.to_thread(long_tape_check.check, db, long_send, tape)
+            except Exception:  # noqa: BLE001 - a late correction must never stop the listener; logged
+                log.exception("official-tape check for longs failed")
             await asyncio.sleep(TAPE_EVERY)
 
     ai_dc, ai_state = data_client(), AIState()
