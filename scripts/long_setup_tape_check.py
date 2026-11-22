@@ -159,7 +159,7 @@ def agree(e: dict, feed: pd.DataFrame | None, tape: pd.DataFrame | None) -> dict
 def _client():
     import httpx
 
-    from sgt.core.settings import get_settings
+    from sgt.config import get_settings
     from sgt.intraday.sources import _alpaca_headers
     return httpx.Client(timeout=30), get_settings().alpaca_data_url.rstrip("/"), _alpaca_headers()
 
