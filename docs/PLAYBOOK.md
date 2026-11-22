@@ -828,6 +828,19 @@ night it cannot finish is texted and caught up on the next run.
   long-calls ledger and its paper book are 1.0 to 1.9 points apart, not reconciled. No strategy search (owner). Registered check of the split on the training file
   (`prereg_fade_price_test_2026-11-21.md`, run once): NOT SHOWN. 467 price-test fades +1.37%, 864 others +1.76%:
   the live split is not in the backtest and stays an observation on 77 alerts.
+- **Funnel audit 2026-11-22 (`docs/findings/funnel_audit_2026-11-22.md`): all 801 channel alerts of 13 sessions
+  traced, not only the trades.** 261 are not a tested kind; 117 are a stock's later alerts that day; of the 422 rows
+  the short book blocked 169 for hours, 115 for news, 57 for price, 12 as repeats, 12 with no print, 8 with no shares,
+  4 on beta, and traded 29. No alert was lost to lateness (median receipt 26 s, none over 5 minutes). Every
+  deterministic gate checked on every taken short and long: no violation. The long book watched 82 first alerts: no
+  setup on 37, bought 24, off or not yet live on 19, fill seen too late on 2; 87 later alerts never start a watch.
+  The rule was followed in every reconstructed decision; what failed was the DATA (one exchange, under 1% of the
+  volume; a borrow list; no price test). The long-calls ledger and its paper book are reconciled: the gap was the
+  book's old position sizes and a one-day offset; from 11-23 both hold 1/21 a call. No enhancement to a trading rule
+  is supported. Research queue of five questions, all about what could be executed or seen; the first is registered
+  (`prereg_short_price_test_limit_2026-11-22.md`, variant `short-ssr-limit-v1`: a short under the price test sold
+  with a limit at the offer; own ledger, never mixed with the baseline). New: table `decisions` records every state
+  change of both alert books with the facts of that moment.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

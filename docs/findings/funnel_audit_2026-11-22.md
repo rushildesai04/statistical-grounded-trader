@@ -17,9 +17,11 @@ PLAUSIBLE (consistent with the data, not established) or UNSUPPORTED (no evidenc
 3. **Leave unchanged:** every gate, entry, exit and size of both alert books. The gates that are deterministic were
    checked on every taken short: no violation (section 5).
 4. **No enhancement to the trading rules is supported.** The five questions worth asking are all about what could
-   have been EXECUTED or SEEN, not about a cleverer rule (section 7). One is registered as the first experiment.
-5. **What would change that:** the registered forward review (30 longs, 50 unflagged shorts), and the first
-   experiment's own acceptance rule.
+   have been EXECUTED or SEEN, not about a cleverer rule (section 7). One is registered as the first experiment: a
+   one-time, sealed measurement of the price-test shorts at the only price they may be sold. It can add nothing to
+   the baseline, and it does not touch the shorts that lack listed shares (those stay unpriceable).
+5. **What would change that:** the registered forward review (30 longs, 50 unflagged shorts). The first experiment
+   can at most justify PROPOSING a follow-up (15 of 30 filled and a per-alert lower bound above zero).
 
 ## 1. Foundations (item 1)
 | Item | Finding | Status |
@@ -160,7 +162,7 @@ keeps the frozen stop, target and hold and is reported per alert AND per filled 
 
 | # | Question | Problem it comes from | For | Against | Earlier test | Cost |
 |---|---|---|---|---|---|---|
-| H1 | Can a short under the price test be sold with a limit at the offer, and what is it worth per alert? | 14 of 29 shorts and 36 of 73 forward events are "unresolved": the baseline cannot price a third of the book | a legal mechanism, known before entry, affects 35% of events in both samples | adverse selection: an offer fills when the stock runs up; a limit 2 to 10% above the print was tested and rejected | `prereg_fade_limit_entry_2026-11-17` (a different order: above the market, all alerts) | low: quotes and prints already read |
+| H1 | Can a short under the price test be sold with a limit at the offer, and what is it worth per alert? | 7 of 29 shorts and 23 of 73 forward events carry the price-test flag and cannot be priced as the baseline assumes (the further shorts unresolved for lack of listed shares are NOT addressed by this) | a legal mechanism, known before entry, affects 35% of events in both samples | adverse selection: an offer fills when the stock runs up; a limit 2 to 10% above the print was tested and rejected | `prereg_fade_limit_entry_2026-11-17` (a different order: above the market, all alerts) | low: quotes and prints already read |
 | H2 | Did the long's base and break exist on the full tape? | phantom bases and feed-only breaks | direct test of whether the losses are data or rule | 15-minute delay: can only be measured after the fact, cannot be traded on | none | low |
 | H3 | Spread and stop slippage against planned risk, per long | stops 3% wide in stocks that move 3% a minute | arithmetic | needs real-time quotes to act on | cost cap | none: already in the ledger |
 | H4 | Halt reopenings as their own class of short | extreme outcomes, least reliable execution | 74 such alerts in 13 sessions | 5 trades | halt audit 11-09 | none: a label |
@@ -171,7 +173,10 @@ breakeven stops, longer holds, time-of-day and price sizing, volatility sizing, 
 
 **First experiment: H1**, registered in `prereg_short_price_test_limit_2026-11-22.md` before any of its outcomes is
 computed. It is an execution variant with its own identifier (`short-ssr-limit-v1`), its own ledger file and its own
-lines in the decision record. It reads the same alerts as the baseline and writes nothing to it.
+lines in the decision record. It reads the same alerts as the baseline and writes nothing to it. After the
+independent review it is a ONE-TIME MEASUREMENT, sealed until its 30th event: its result is a label on that class of
+short ("not sellable as assumed; at a limit at the offer: filled N of 30, X% a filled trade, Y% an alert"). Those
+shorts are never relabelled, never enter the baseline average and never count in a registered review.
 
 ## 8. Decision observability (item 11)
 Implemented: table `decisions`, one line per state change of either alert book, written by the book at the moment it
@@ -185,5 +190,9 @@ a narrative from the chart.
 ## 9. Review of the queue (item 10)
 An independent reviewer was asked to attack H1 and the queue for look-ahead, unrealistic execution, overfitting,
 small and correlated samples, dependence on outliers, whether simpler logic does as well, and whether H1 addresses
-the diagnosed cause. Its points and what was done with each are recorded at the end of the registration document.
-Agreement from a reviewer is not evidence that anything makes money.
+the diagnosed cause. Grade: minor gaps, nothing blocking. It found no look-ahead, a legal order and a conservative
+fill rule. It found the first draft's accept rule too weak for about 15 correlated days, an accept branch that would
+have leaked into the registered short review, variant numbers that would have been read early on the nightly line,
+and a plan that overstated its reach. All were accepted: the experiment is now a sealed one-time measurement that
+cannot change the baseline (the simpler design the reviewer proposed). The table of points and what was done is at
+the end of the registration document. Agreement from a reviewer is not evidence that anything makes money.
