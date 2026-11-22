@@ -53,6 +53,8 @@ JOBS = {
     "megacaplive": ("live model calls (15:50)", "Today's model trades did not go in; positions stay as they were."),
     "megacaphalf": ("half-day close of the model books (12:50)",
                     "On a half day the model books may still hold yesterday's calls; on a full day nothing is affected."),
+    "execledger": ("execution model ledger",
+                   "Today's trades were not re-priced at real quotes tonight; it tries again tomorrow. No trade is affected."),
     "analyst": ("AI trade analyst", "No lessons tonight; trading is unaffected. It retries tomorrow."),
     "fadevol": ("fade calm-skip / vol-sizing shadow", "Nothing was traded; it catches up on the next run."),
     "megacapoverlay": ("megacap timing-overlay shadow", "Nothing was traded; it catches up on the next run."),
