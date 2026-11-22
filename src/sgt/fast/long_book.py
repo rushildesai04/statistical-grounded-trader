@@ -54,6 +54,9 @@ TESTED_WIN = {"L8": 0.37}     # share of those 255 trades that made money; no wi
 # (training / later period) and -1.85% on November's alerts, against -1.29% / -1.83% / -2.54% for the one-minute
 # setups: about a third of the dollars lost, never a profit. The base's width cap is 4% since then (patterns).
 LIVE_KINDS = ("L8", "L5v2")
+# The rule set a decision was made under, on every line of the decision record (audit 2026-11-22). Change it whenever
+# a setup, the entry moment, a gate, the stop, the target or the hold changes.
+RULE_VERSION = "long 2026-11-20: base break L8 + bull flag L5v2, bought at the break candle's close, cost cap 1%, no long while our short is open, 2R, 30 min"
 RULES_BASE = "B1"                    # long_trades.rules of a base-break long: stop under the base, 2R, HOLD; no red-candle
                                      # exit (that exit belongs to the one-minute setups it was tested on)
 LIVE_WATCH = max(pt.WATCH, pt.BASE_WATCH)   # how long after its start bar an alert can still produce a setup
@@ -427,14 +430,22 @@ def _arm(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool, arm
 def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime) -> bool:
     v = nav(db)
     w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
+    rules = RULES_BASE if s is not None and s.kind == "L8" else RULES
     with db.tx() as c:
-        return c.execute(
+        cur = c.execute(
             "INSERT OR IGNORE INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
             "entry_ts, est_entry, est_last, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
              s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
-             t.entry if t else None, t.entry if t else None, iso(now),
-             RULES_BASE if s is not None and s.kind == "L8" else RULES)).rowcount == 1
+             t.entry if t else None, t.entry if t else None, iso(now), rules))
+        done, rid = cur.rowcount == 1, cur.lastrowid
+    if done:       # audit 2026-11-22: the decision record (what the book did with this alert, and on what facts)
+        db.decide("long", rid, row["symbol"], None, status, None, f"{RULE_VERSION}; rules {rules}", fade_id=row["id"],
+                  kind=s.kind if s else None, setup_ready=iso(s.ready.to_pydatetime()) if s else None,
+                  trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
+                  entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
+                  decided_at=iso(now), posted_at=row.get("posted_at"))
+    return done
 
 
 def target(s: pt.Setup, t: pt.Trade) -> float:
@@ -502,8 +513,12 @@ def default_close(session: str) -> datetime:
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
     keys = ", ".join(f"{k}=?" for k in cols)
     with db.tx() as c:
-        return c.execute(f"UPDATE long_trades SET {keys} WHERE id=? AND status=?",  # noqa: S608 - fixed column names
+        done = c.execute(f"UPDATE long_trades SET {keys} WHERE id=? AND status=?",  # noqa: S608 - fixed column names
                          (*cols.values(), rid, expect)).rowcount == 1
+    if done and ("status" in cols or "reason" in cols):          # a price mark alone (est_last) is not a decision
+        db.decide("long", rid, None, expect, cols.get("status", expect), cols.get("reason"), RULE_VERSION,
+                  **{k: v for k, v in cols.items() if k not in ("status", "reason")})
+    return done
 
 
 def nav(db: OpsStore, through: date | None = None) -> float:

@@ -7,6 +7,7 @@ and the scheduled jobs can run concurrently without double-approving or double-e
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -25,6 +26,10 @@ CREATE INDEX IF NOT EXISTS ix_approvals_status ON approvals(status, strategy);
 CREATE TABLE IF NOT EXISTS inbound(sid TEXT PRIMARY KEY, sent_at TEXT, body TEXT, handled_at TEXT, outcome TEXT);
 CREATE TABLE IF NOT EXISTS flags(key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, event TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS decisions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, book TEXT NOT NULL, ref INTEGER, symbol TEXT,
+  state_from TEXT, state_to TEXT, reason TEXT, facts TEXT, config TEXT);
+CREATE INDEX IF NOT EXISTS ix_decisions_ref ON decisions(book, ref);
 CREATE TABLE IF NOT EXISTS book_orders(
   id INTEGER PRIMARY KEY AUTOINCREMENT, strategy TEXT NOT NULL, symbol TEXT NOT NULL, target REAL NOT NULL,
   fill_session TEXT NOT NULL, source TEXT NOT NULL, approval_id INTEGER, status TEXT NOT NULL,
@@ -170,6 +175,27 @@ class OpsStore:
         with self.tx() as c:
             c.execute("INSERT INTO audit(at, event, detail) VALUES (?,?,?)",
                       (utcnow().isoformat(), event, json.dumps(detail, default=str)[:4000]))
+
+    def decide(self, book: str, ref: int | None, symbol: str | None, state_from: str | None, state_to: str | None,
+               reason: str | None = None, config: str | None = None, **facts: Any) -> None:
+        """One line of the decision record (audit 2026-11-22): what a book decided about one alert or trade, WHEN it
+        decided it, with the facts it had then. Append-only, written at the moment of the decision, so a later review
+        reads what was known instead of reconstructing it from the outcome. It must never cost a trade: any failure
+        is logged and swallowed."""
+        try:
+            with self.tx() as c:
+                c.execute("INSERT INTO decisions(at, book, ref, symbol, state_from, state_to, reason, facts, config) "
+                          "VALUES (?,?,?,?,?,?,?,?,?)",
+                          (utcnow().isoformat(), book, ref, symbol, state_from, state_to,
+                           None if reason is None else str(reason)[:300],
+                           json.dumps({k: v for k, v in facts.items() if v is not None}, default=str)[:2000], config))
+        except Exception:  # noqa: BLE001 - observability only: never raises into a trading path
+            logging.getLogger(__name__).exception("decision record failed for %s %s", book, ref)
+
+    def decisions(self, book: str, ref: int) -> list[dict]:
+        """The decision record of one alert or trade, oldest first."""
+        with self.tx() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM decisions WHERE book=? AND ref=? ORDER BY id", (book, ref))]
 
     def flag(self, key: str, default: str | None = None) -> str | None:
         with self.tx() as c:

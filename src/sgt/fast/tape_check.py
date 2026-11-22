@@ -93,6 +93,8 @@ def check(db: OpsStore, send, bars: Bars, now: datetime | None = None) -> int:
             if not done:
                 continue
             n += 1
+            db.decide("short", r["id"], r["symbol"], r["status"], "est_closed", LATE, None, exit=px, exit_at=iso(at),
+                      official_tape_read_at=iso(now), was=r.get("reason"))
             cost = est_costs.cost("short", r["symbol"], r["est_entry_at"], entry) or 0.0
             g = (entry - px) / entry - cost
             v = nav(db)

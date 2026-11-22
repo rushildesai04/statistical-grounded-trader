@@ -89,6 +89,8 @@ def check(db: OpsStore, send, bars: Bars, now: datetime | None = None) -> int:
             if not done:
                 continue
             n += 1
+            db.decide("long", r["id"], r["symbol"], r["status"], "est_closed", LATE, None, exit=px, exit_at=iso(at),
+                      official_tape_read_at=iso(now), was=r.get("reason"))
             if was_open:
                 t = pt.Trade(r["kind"], "long", pd.Timestamp(started), entry, pd.Timestamp(at), px, "stop", px / entry - 1)
                 send(long_book.exit_text(db, r, t) + f"\nSeen late: the stop traded at {at.astimezone(ET):%H:%M} ET on "
