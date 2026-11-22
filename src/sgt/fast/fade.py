@@ -162,16 +162,32 @@ class LiveAlert:
     has_news: bool | None = None
 
 
+# The rule set a decision was made under, stored on every line of the decision record (audit 2026-11-22). Change it
+# whenever a gate, the entry, the stop or the hold changes.
+RULE_VERSION = "fade 2026-11-21: F6 no-news, F7 beta<3 (unknown = no short), F8 no repeat 7d, borrow listed, $1-50, 20% stop, 60 min"
+RECORDED = ("status", "reason", "news_own", "beta")     # a row update that touches one of these is a decision
+
+
 def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, now: datetime) -> int | None:
     w = trade_weight(db) * drift_scale(db) if status in ("pending", "ask") else None   # fixed at entry; settle uses it
     with db.tx() as c:
         if status != "filtered" and c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND "
                                               "status!='filtered'", (a.symbol, session)).fetchone():
-            return None
-        return c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status,"
-                         " reason, weight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                         (a.symbol, session, a.alert_type, iso(a.posted_at), a.channel, a.message_id, status, reason,
-                          w, iso(now))).lastrowid
+            db_dup = True
+        else:
+            db_dup = False
+            rid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status,"
+                            " reason, weight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (a.symbol, session, a.alert_type, iso(a.posted_at), a.channel, a.message_id, status, reason,
+                             w, iso(now))).lastrowid
+    if db_dup:      # the stock already has a live row today: no second trade, but the alert is on the record
+        db.decide("short", None, a.symbol, None, "duplicate", "the stock already has a live alert today", RULE_VERSION,
+                  alert_type=a.alert_type, posted_at=iso(a.posted_at), received_at=iso(now), message_id=a.message_id)
+        return None
+    db.decide("short", rid, a.symbol, None, status, reason or None, RULE_VERSION, alert_type=a.alert_type,
+              posted_at=iso(a.posted_at), received_at=iso(now), received_after_s=round((now - a.posted_at).total_seconds(), 1),
+              weight=w)
+    return rid
 
 
 def day_est_pnl(db: OpsStore, session: str) -> float:
@@ -566,8 +582,12 @@ def _high_beta(db: OpsStore, r, b: float | None) -> bool:
 def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
     keys = ", ".join(f"{k}=?" for k in cols)
     with db.tx() as c:
-        return c.execute(f"UPDATE fade_trades SET {keys} WHERE id=? AND status=?",  # noqa: S608 - fixed column names
+        done = c.execute(f"UPDATE fade_trades SET {keys} WHERE id=? AND status=?",  # noqa: S608 - fixed column names
                          (*cols.values(), rid, expect)).rowcount == 1
+    if done and any(k in cols for k in RECORDED):     # a price mark alone (est_last) is not a decision
+        db.decide("short", rid, None, expect, cols.get("status", expect), cols.get("reason"), RULE_VERSION,
+                  **{k: v for k, v in cols.items() if k not in ("status", "reason")})
+    return done
 
 
 def due(db: OpsStore, now: datetime | None = None) -> pd.DataFrame:

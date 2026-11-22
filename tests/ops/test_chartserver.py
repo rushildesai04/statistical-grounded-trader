@@ -125,6 +125,26 @@ def test_notes_api_bounds_body_and_rate_and_wrong_token(api, monkeypatch):
     assert 429 in codes
 
 
+@pytest.fixture(autouse=True)
+def one_clock_minute(monkeypatch):
+    """Audit 2026-11-22: the two rate-limit tests failed a deploy gate about once in 40 runs. The limiter counts per
+    clock minute; a burst of requests that happened to straddle a minute boundary restarted the count and never saw
+    a 429. The tests now run inside one held minute; the boundary itself has its own test below."""
+    monkeypatch.setattr(chartserver, "_now", lambda: 600.0)
+
+
+def test_the_limit_restarts_at_a_minute_boundary_and_not_before():
+    t = [659.9]
+    b = chartserver._Bucket(3)
+    real, chartserver._now = chartserver._now, lambda: t[0]
+    try:
+        assert [b.allow() for _ in range(4)] == [True, True, True, False]
+        t[0] = 660.0                                              # the next clock minute: a fresh count
+        assert [b.allow() for _ in range(4)] == [True, True, True, False]
+    finally:
+        chartserver._now = real
+
+
 def test_notes_reads_are_rate_limited_too(api):
     c, _ = api
     codes = [c.get(f"/{TOKEN}/api/notes").status_code for _ in range(chartserver.READS_PER_MIN + 3)]

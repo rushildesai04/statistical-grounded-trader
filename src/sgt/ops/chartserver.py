@@ -58,15 +58,20 @@ WRITES_PER_MIN = 60
 READS_PER_MIN = 120                                # review 2026-11-09 F-1: reads take the DB lock too
 
 
+_now = time.monotonic      # the limiter's clock, a module name so a test can hold it still (audit 2026-11-22)
+
+
 class _Bucket:
-    """Fixed-window write limiter shared by the server's threads."""
+    """Fixed-window limiter shared by the server's threads: at most ``per_min`` calls inside one clock minute. The
+    count restarts at each minute boundary, so a burst that straddles one can pass up to twice the limit; that is
+    accepted here (the limit protects the database lock, it is not a quota)."""
 
     def __init__(self, per_min: int) -> None:
         self.per_min, self.window, self.n, self.lock = per_min, 0, 0, threading.Lock()
 
     def allow(self) -> bool:
         with self.lock:
-            w = int(time.monotonic() // 60)
+            w = int(_now() // 60)
             if w != self.window:
                 self.window, self.n = w, 0
             self.n += 1
