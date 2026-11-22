@@ -96,8 +96,28 @@ def health(db: OpsStore, session: str, alerts_db: Path | None = None) -> dict:
     return out
 
 
+WARN_S = 1.0                        # a trading write that waited this long is a warning; under it, a number
+
+
+def database(db: OpsStore, session: str) -> str:
+    """The day's slow waits for the database's write lock (``OpsStore.tx``), as a clause for the nightly line."""
+    rows = db.slow(session)
+    if not rows:
+        return "database: no write waited 0.25 s"
+    w = max(rows, key=lambda r: float(r.get("wait") or 0))
+    k = max(rows, key=lambda r: float(r.get("hold") or 0))
+    short = lambda r: ":".join(str(r.get("who", "?")).split(":")[:2])  # noqa: E731 - file:function
+    worst = float(w.get("wait") or 0)
+    return (("⚠️ " if worst >= WARN_S else "") + f"database: {len(rows)} slow, longest wait {worst:.1f} s "
+            f"({short(w)}), longest hold {float(k.get('hold') or 0):.1f} s ({short(k)})")
+
+
 def line(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:
     """One line for the nightly summary: always present, a warning when anything is missing."""
+    return _record(db, session, alerts_db) + "; " + database(db, session)
+
+
+def _record(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:
     h = health(db, session, alerts_db)
     if "error" in h:
         return f"⚠️ decision record: cannot be read ({h['error']}); {h['waiting']} lines waiting in the spool"

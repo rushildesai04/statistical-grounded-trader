@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,6 +141,9 @@ def iso(ts: datetime) -> str:
     return ts.astimezone(timezone.utc).isoformat()
 
 
+SLOW_S = 0.25                       # a wait for the write lock, or a hold of it, this long is written down
+WAITS_NAME = "db_waits.jsonl"       # next to the database
+WAITS_MAX_BYTES, WAITS_MAX_LINES = 2_000_000, 20_000
 DECIDE_TIMEOUT_S = 0.5              # the longest the decision record may hold a trading loop (see OpsStore.decide)
 SPOOL_NAME = "decisions.spool.jsonl"   # next to the database: lines that could not be written, waiting for a replay
 SPOOL_MAX_BYTES, SPOOL_MAX_LINES = 5_000_000, 20_000
@@ -164,10 +169,17 @@ class OpsStore:
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
+        """One write transaction. It takes the database's single write lock at once (BEGIN IMMEDIATE) and keeps it
+        for the whole block, so everything inside must be quick: no network, no file reads. A block that only READS
+        belongs in ``read()``, which takes no write lock. Measured 2026-11-22 (docs/findings/
+        ops_risks_2026-11-22.md): a held lock delays every other writer by as long as it is held, the stop check of
+        an open trade included. A wait for the lock, or a hold of it, of SLOW_S or more is written down with who."""
         c = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         c.row_factory = sqlite3.Row
+        t0, held = time.monotonic(), None
         try:
             c.execute("BEGIN IMMEDIATE")
+            held = time.monotonic()
             yield c
             c.execute("COMMIT")
         except BaseException:
@@ -176,6 +188,56 @@ class OpsStore:
             raise
         finally:
             c.close()
+            end = time.monotonic()
+            wait, hold = (held or end) - t0, (end - held) if held is not None else 0.0
+            if wait >= SLOW_S or hold >= SLOW_S:
+                self._note_slow(wait, hold, held is None, sys._getframe(2))
+
+    @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """A consistent READ that takes no write lock. The database runs in WAL mode, where a reader and the writer do
+        not block each other: a page or a report built inside this block cannot delay a trading write, however long
+        it takes. Writes are refused (query_only). Use it for every block that only selects."""
+        c = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        c.row_factory = sqlite3.Row
+        try:
+            c.execute("PRAGMA query_only=ON")
+            c.execute("BEGIN")                      # deferred: one snapshot from the first select on
+            yield c
+        finally:
+            if c.in_transaction:
+                c.execute("ROLLBACK")
+            c.close()
+
+    def _note_slow(self, wait: float, hold: float, failed: bool, frame) -> None:
+        """One line per slow wait or hold, next to the database (bounded; never raises: it runs on trading paths)."""
+        try:
+            who = f"{Path(frame.f_code.co_filename).name}:{frame.f_code.co_name}:{frame.f_lineno}"
+            p = Path(self.path).with_name(WAITS_NAME)
+            if p.exists() and p.stat().st_size > WAITS_MAX_BYTES:
+                return
+            with p.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"at": utcnow().isoformat(), "wait": round(wait, 3), "hold": round(hold, 3),
+                                    "who": who, "failed": failed}) + "\n")
+            logging.getLogger(__name__).warning("ops database: waited %.2f s, held %.2f s (%s)", wait, hold, who)
+        except Exception:  # noqa: BLE001 - a measurement must never break the write it measures
+            logging.getLogger(__name__).exception("ops database: slow wait not recorded")
+
+    def slow(self, day: str) -> list[dict]:
+        """The slow waits and holds written down on one UTC day (ISO date); [] when there were none."""
+        p = Path(self.path).with_name(WAITS_NAME)
+        out = []
+        try:
+            for raw in (p.read_text(encoding="utf-8").splitlines() if p.exists() else [])[-WAITS_MAX_LINES:]:
+                try:
+                    r = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and str(r.get("at", "")).startswith(day):
+                    out.append(r)
+        except OSError:
+            logging.getLogger(__name__).exception("ops database: the record of slow waits cannot be read")
+        return out
 
     def audit(self, event: str, **detail: Any) -> None:
         with self.tx() as c:

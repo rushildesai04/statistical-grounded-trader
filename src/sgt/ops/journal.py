@@ -45,7 +45,9 @@ def entries(db: OpsStore, limit: int = 500) -> list[dict]:
     """Every trade worth a note, newest first: entered fades, scanner trades, long-book trades, model-book orders that
     filled."""
     out = []
-    with db.tx() as c:
+    # 2026-11-22: a read. Under tx() this page held the database's write lock for its whole build (0.29 s measured on
+    # the runner with 53 trades, growing with every trade) and every trading write waited behind it.
+    with db.read() as c:
         for r in c.execute("SELECT id, " + ", ".join(FADE_COLS) + " FROM fade_trades WHERE status IN "  # noqa: S608
                            "('open','est_closed','settled','void') ORDER BY id DESC LIMIT ?", (limit,)):
             out.append({"key": f"fade:{r['id']}", "book": "alert fade", **{k: r[k] for k in FADE_COLS},
