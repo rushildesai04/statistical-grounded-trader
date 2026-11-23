@@ -124,7 +124,7 @@ negative where it can.
 Is the split an artefact? It was checked for the obvious one: a short labelled "price test" BECAUSE the stock fell
 after the entry would win by construction. It is not that: every price-test label rests on the prior day's drop or
 on the day's low BEFORE the entry, and the borrow label does not depend on price at all (independent review,
-section 9). 15 and 14 trades are still small samples of clustered days, and this is the pre-cohort record, not the
+section 8). 15 and 14 trades are still small samples of clustered days, and this is the pre-cohort record, not the
 registered sample.
 
 For the longs: 18 past longs priced on real quotes, -3.6% a trade (22% wins); the base break replayed on 775 past
