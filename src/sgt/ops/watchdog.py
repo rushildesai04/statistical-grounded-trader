@@ -19,7 +19,7 @@ A failure notice, not a trade text: zero on a normal day, at most CAP a day.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
@@ -32,6 +32,53 @@ ET = ZoneInfo("America/New_York")
 STALE = timedelta(minutes=3)            # 18 missed stop checks; a deploy never falls in alert hours
 AGAIN = timedelta(minutes=30)
 CAP, EVENT, FLAG = 6, "watchdog_text", "watchdog_last"
+
+
+MARK = "watchdog.mark"                 # beside the database: its modification time = when the last warning went out
+
+
+def _last_warned(db: OpsStore) -> datetime:
+    """When the last warning was sent: the later of the flag and the marker file. The file exists because the flag
+    cannot be written exactly when it matters most: with a full disk every database write fails, the text still
+    goes out, and without a second memory the warning would repeat every minute, uncapped (found 2026-11-23)."""
+    out = datetime.fromtimestamp(0, tz=timezone.utc)
+    try:
+        v = db.flag(FLAG)
+        if v:
+            out = max(out, datetime.fromisoformat(v))
+    except Exception:  # noqa: BLE001 - an unreadable database: the file still answers
+        pass
+    try:
+        out = max(out, datetime.fromtimestamp((Path(db.path).parent / MARK).stat().st_mtime, tz=timezone.utc))
+    except OSError:
+        pass
+    return out
+
+
+def _mark_warned(db: OpsStore, now: datetime) -> None:
+    try:
+        db.set_flag(FLAG, iso(now))
+    except Exception:  # noqa: BLE001 - the file below is the fallback
+        log.exception("listener watchdog: flag not written")
+    try:                                                    # changing a file's time needs no free space
+        import os
+
+        os.utime(Path(db.path).parent / MARK, (now.timestamp(), now.timestamp()))
+    except OSError:
+        log.exception("listener watchdog: marker not updated")
+
+
+def ready(db: OpsStore) -> None:
+    """Create the marker while the disk is healthy (called on every run; creating it later may be impossible)."""
+    try:
+        p = Path(db.path).parent / MARK
+        if not p.exists():
+            import os
+
+            p.touch()
+            os.utime(p, (0, 0))                             # never warned yet
+    except OSError:
+        log.exception("listener watchdog: marker not created")
 
 
 def silent(db: OpsStore, now: datetime) -> dict[str, float]:
@@ -50,7 +97,8 @@ def silent(db: OpsStore, now: datetime) -> dict[str, float]:
     age = own_thread.beat_age(folder, "long book", at)
     if age is not None and age > STALE.total_seconds():
         out["long book"] = age
-    every = chan_poll.interval(db.flag(chan_poll.FLAG)) or 300        # the fast check switched off: one pass in 5 min
+    # how often the channel is read: the fast check in alert hours (0 = switched off), one pass in 5 minutes otherwise
+    every = (chan_poll.interval(db.flag(chan_poll.FLAG)) if chan_poll.active(now) else 0) or 300
     age = own_thread.beat_age(folder, "alerts", at)
     if age is not None and age > max(STALE.total_seconds(), 3 * every):
         out["alerts"] = age
@@ -61,6 +109,7 @@ def check(db: OpsStore, send: Callable[[str], None], now: datetime, in_hours=Non
     """Text the owner when the listener's heartbeat is stale in alert hours. Returns the text sent, else None.
     Never raises (it rides on the control job, which must go on)."""
     try:
+        ready(db)
         if in_hours is None:
             from sgt.fast import chan_poll
 
@@ -70,8 +119,7 @@ def check(db: OpsStore, send: Callable[[str], None], now: datetime, in_hours=Non
         quiet = silent(db, now)
         if not quiet:
             return None
-        last = db.flag(FLAG)
-        if last and now - datetime.fromisoformat(last) < AGAIN:
+        if now - _last_warned(db) < AGAIN:
             return None
         with db.read() as c:
             shorts = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('ask','pending','open')").fetchone()[0]
@@ -100,11 +148,27 @@ def check(db: OpsStore, send: Callable[[str], None], now: datetime, in_hours=Non
                              + (f" ({longs} open on paper)" if longs else ""))
             text = ("[SGT] ⚠️ Listener problem: " + "; ".join(parts) + ". The short book's stop checks are running. "
                     "If this text repeats, it is stuck.")
-        how = text_guard.send_capped(db, send, EVENT, CAP, text, "listener watchdog", now)
+        went: list[int] = []
+
+        def tracked(t: str) -> None:
+            send(t)
+            went.append(1)
+
+        try:
+            how = text_guard.send_capped(db, tracked, EVENT, CAP, text, "listener watchdog", now)
+        except Exception:  # noqa: BLE001 - the database refused to count or record it (a full disk)
+            log.exception("listener watchdog: the text could not be counted or recorded")
+            how = "unrecorded"
+            if not went:                                    # it failed BEFORE sending: send it anyway. The day's cap
+                try:                                        # cannot be read; the marker below still spaces warnings
+                    send(text)
+                except Exception:  # noqa: BLE001
+                    log.exception("listener watchdog: the text could not be sent")
+                    how = "failed"
         if how == "failed":
             return None                                     # not sent: no mark, so the next minute tries again
-        db.set_flag(FLAG, iso(now))                         # sent, or over the day's limit: quiet for AGAIN
-        return text if how == "sent" else None
+        _mark_warned(db, now)                               # sent, unrecorded, or over the day's limit: quiet for AGAIN
+        return text if how in ("sent", "unrecorded") else None
     except Exception:  # noqa: BLE001 - a watchdog that breaks the control job would be worse than none
         log.exception("listener watchdog failed")
         return None
