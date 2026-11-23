@@ -817,6 +817,60 @@ def test_open_shorts_are_checked_again_while_a_long_run_of_waiting_alerts_is_wor
     assert next(r for r in rows(a.db) if r["symbol"] == "HELD")["status"] == "est_closed"   # closed: not checked a third time
 
 
+# ---- failure behaviour: a database that cannot be written; a death between a state change and its text ---------------
+
+def _open_short(path, ch):
+    a = started(path, ch)
+    a.push(ch.post(10, "AAA:volume_spike", POSTED), POSTED + timedelta(seconds=10))
+    sent = []
+    fade.monitor(a.db, sent.append, Tape(5.0, et(10, 1, 2)), now=et(10, 1, 5), up_since=a.state.up_since)
+    assert rows(a.db)[0]["status"] == "open" and len(sent) == 1
+    return a, sent
+
+
+def test_a_full_disk_books_nothing_texts_nothing_corrupts_nothing_and_stops_the_heartbeat(path, ch, monkeypatch):
+    """The volume fills: SQLite refuses every write ("database or disk is full"); reads still work. The stop check
+    sees the price through the stop and cannot book it. What must hold: no text for an exit that is not on record,
+    the row unchanged (not half-written), the pass does not die silently (the listener logs it), the heartbeat is
+    NOT written (so the watchdog, another process, texts), and when writing works again the exit is booked once."""
+    a, sent = _open_short(path, ch)
+    before = rows(a.db)[0]
+    beat = a.db.flag("fade_heartbeat")
+    real = OpsStore.tx
+
+    def full(self):
+        raise sqlite3.OperationalError("database or disk is full")
+
+    monkeypatch.setattr(OpsStore, "tx", full)
+    with pytest.raises(sqlite3.OperationalError):           # reaches the listener's loop, which logs it and goes on
+        fade.monitor(a.db, sent.append, Tape(6.5, et(10, 9, 58)), now=et(10, 10), up_since=a.state.up_since)
+    assert rows(a.db)[0] == before and len(sent) == 1 and a.db.flag("fade_heartbeat") == beat
+    monkeypatch.setattr(OpsStore, "tx", real)
+    fade.monitor(a.db, sent.append, Tape(6.6, et(10, 10, 20)), now=et(10, 10, 30), up_since=a.state.up_since)
+    r = rows(a.db)[0]
+    assert (r["status"], r["est_exit"]) == ("est_closed", 6.6) and len(sent) == 2   # booked once, at the price of then
+
+
+def test_a_death_between_an_exit_and_its_text_never_doubles_the_exit_but_the_text_is_lost(path, ch):
+    """What the status guard covers and what it does not. The exit is committed, then the text is sent. If the
+    process dies in between: on the next start the row is closed, so nothing is booked or texted twice (covered);
+    the text that was never sent is not sent later and nothing records that it is missing (NOT covered: a known
+    limit, visible in the register; the trade is on the site and in the nightly summary)."""
+    a, sent = _open_short(path, ch)
+
+    def dies(text):
+        raise SystemExit("killed after the exit was committed, before the text left")
+
+    with pytest.raises(SystemExit):
+        fade.monitor(a.db, dies, Tape(6.5, et(10, 9, 58)), now=et(10, 10), up_since=a.state.up_since)
+    assert rows(a.db)[0]["status"] == "est_closed"          # the state change survived the death
+    b = OpsStore(path)                                      # the next start
+    for k in range(3):
+        fade.monitor(b, sent.append, Tape(6.7, et(10, 10, 20)), now=et(10, 10, 30 + k), up_since=et(10, 10, 25))
+    r = rows(b)[0]
+    assert (r["status"], r["est_exit"]) == ("est_closed", 6.5) and len(sent) == 1   # one exit; its text never came
+
+
 # ---- the long book ---------------------------------------------------------------------------------------------------
 
 T1 = pd.Timestamp("2026-11-09 15:01", tz="UTC")

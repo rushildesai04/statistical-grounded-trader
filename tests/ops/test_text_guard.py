@@ -98,6 +98,6 @@ def test_the_listener_gives_armed_texts_their_own_count():
     import fade_live as fl
 
     src = Path(fl.__file__).read_text()
-    assert 'arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY' in src and "None, arm_send, None, rec.up_since, long_pace.start)" in src
+    assert 'arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY' in src and "None, arm_send, None, rec.up_since, long_pace.sweep)" in src
     assert "trader_text" not in src and "rule_send" not in src     # owner 2026-11-19: no text for the trend-hold exit
     assert "None, long_send" not in src

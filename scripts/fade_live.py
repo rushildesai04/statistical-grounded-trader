@@ -574,6 +574,9 @@ async def run() -> int:
             log.exception("storing message %s failed", msg.id)
 
     from sgt.fast import alert_recovery, chan_poll
+    from sgt.ops import own_thread
+
+    ops_dir = Path(db.path).parent             # liveness files and the record of late checks live beside the database
 
     # Listener recovery (owner 2026-11-22; sgt.fast.alert_recovery): the channel is read in order from a durable
     # cursor, so an alert posted while this process was down is found, labelled and recorded when it comes back.
@@ -615,6 +618,7 @@ async def run() -> int:
             pause = None
             try:
                 await alert_recovery.catch_up(db, rec, fetch, dispatch, newest, before)
+                await alert_recovery.off_loop(own_thread.beat, ops_dir, "alerts")   # the channel was read: the watchdog's sign
             except FloodWaitError as exc:      # Telegram asks us to slow down: obey
                 pause = chan_poll.flood_pause(getattr(exc, "seconds", None))
                 log.warning("channel check paused %d s (Telegram flood wait)", pause)
@@ -644,7 +648,8 @@ async def run() -> int:
     async def catch_up():
         while True:
             try:
-                log.info("channel catch-up stored %d messages", await collector.backfill(FORWARD_START))
+                # 2026-11-23: off the event loop (it used to write the research database on it)
+                log.info("channel catch-up stored %d messages", await collector.backfill_off_loop(FORWARD_START))
             except Exception:  # noqa: BLE001 - keep listening; retried next hour
                 log.exception("channel catch-up failed")
             await asyncio.sleep(POLL_EVERY)
@@ -655,15 +660,12 @@ async def run() -> int:
     # 2026-11-23 (operational risk review, sgt.ops.own_thread): the two books' passes run on threads of their own,
     # so a stop check can never wait for a worker the research loops hold; and every pass that starts late is
     # written down for the nightly line.
-    from sgt.ops import own_thread
-
-    ops_dir = Path(db.path).parent
     short_thread, long_thread = own_thread.OwnThread("short-book"), own_thread.OwnThread("long-book")
     short_pace, long_pace = own_thread.Pace(ops_dir, "short book", TICK), own_thread.Pace(ops_dir, "long book", LONG_EVERY)
 
     def short_pass() -> None:                  # the pace is taken at every stop check, not once a pass
         fade.monitor(db, send, quote, None, book.lookup, context, news_check, beta_check, rec.up_since,
-                     short_pace.start)
+                     short_pace.sweep)
 
     async def loop():
         n = 0
@@ -713,7 +715,7 @@ async def run() -> int:
 
         def long_pass() -> None:
             long_book.tick(db, lambda sym, now: live_bars(lc, sym, now), long_send,
-                           None, arm_send, None, rec.up_since, long_pace.start)   # armed text. No text for the trend-hold exit
+                           None, arm_send, None, rec.up_since, long_pace.sweep)   # armed text. No text for the trend-hold exit
 
         while True:
             try:
@@ -768,7 +770,8 @@ async def run() -> int:
                 log.exception("ai review loop failed")
             await asyncio.sleep(AI_EVERY)
 
-    tasks = [asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
+    tasks = [asyncio.create_task(own_thread.watch_loop(ops_dir)),      # writes down any time the event loop stands still
+             asyncio.create_task(loop()), asyncio.create_task(catch_up()), asyncio.create_task(scan_loop()),
              asyncio.create_task(long_loop()), asyncio.create_task(tape_loop()), asyncio.create_task(context_loop()),
              asyncio.create_task(ai_loop()), asyncio.create_task(channel_loop())]
     try:

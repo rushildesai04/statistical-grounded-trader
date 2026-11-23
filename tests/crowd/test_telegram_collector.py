@@ -150,3 +150,62 @@ async def test_edit_date_is_stored():
         rows = dict(session.execute(select(TelegramMessage.message_id, TelegramMessage.edited_at)).all())
     assert rows[2] is None
     assert rows[1].replace(tzinfo=timezone.utc) == edited
+
+
+# ---- the live listener's hourly catch-up must not do database work on the event loop (2026-11-23) -----------------
+
+async def _longest_stall(coro) -> float:
+    """Run ``coro`` beside a task that should wake every 10 ms; returns the longest time it could not."""
+    import asyncio
+    import time
+
+    worst, stop = [0.0], [False]
+
+    async def ticker():
+        last = time.monotonic()
+        while not stop[0]:
+            await asyncio.sleep(0.01)
+            now = time.monotonic()
+            worst[0], last = max(worst[0], now - last), now
+
+    t = asyncio.create_task(ticker())
+    await asyncio.sleep(0.05)
+    try:
+        await coro
+    finally:
+        stop[0] = True
+        await t
+    return worst[0]
+
+
+async def test_a_slow_database_write_in_the_catch_up_stops_the_event_loop_only_on_the_old_path(monkeypatch):
+    """Controlled slow write: storing one message takes 0.4 s (a database that makes the writer wait). On the path the
+    listener used until 2026-11-23 (``backfill``) every other task on the loop stood still for that long, the
+    scheduling of the next stop check included. On ``backfill_off_loop`` the loop keeps turning."""
+    import time
+
+    real = TelegramCollector._store
+
+    def slow(self, session, channel, msg, posted_at):
+        time.sleep(0.4)
+        return real(self, session, channel, msg, posted_at)
+
+    monkeypatch.setattr(TelegramCollector, "_store", slow)
+    since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    old = TelegramCollector(["a"], "unused.session", source=FakeSource({"a": [_msg(1, "YMAT new high 4.49"), _msg(2, "WFF new high 33.01")]}))
+    new = TelegramCollector(["b"], "unused.session", source=FakeSource({"b": [_msg(1, "YMAT new high 4.49"), _msg(2, "WFF new high 33.01")]}))
+    assert await _longest_stall(old.backfill(since)) >= 0.35           # reproduced: the loop was held for a whole write
+    assert await _longest_stall(new.backfill_off_loop(since)) < 0.2    # isolated: the same writes, the loop free
+    assert _counts() == (4, 4)                                          # both stored everything
+
+
+async def test_the_off_loop_catch_up_stores_what_the_old_one_stored_in_batches_and_resumes():
+    msgs = [_msg(i, f"S{chr(65 + i % 26)}{chr(65 + i // 26)} new high 4.{i:02d}", i % 60) for i in range(1, 8)]
+    src = FakeSource({"chan": msgs})
+    c = TelegramCollector(["chan"], "unused.session", source=src)
+    assert await c.backfill_off_loop(datetime(2026, 10, 1, tzinfo=timezone.utc), batch=3) == 7     # 3 + 3 + 1
+    assert _counts()[0] == 7
+    assert await c.backfill_off_loop(datetime(2026, 10, 1, tzinfo=timezone.utc)) == 0              # resumes after the stored id
+    assert src.calls[-1][1] == 7
+    late = TelegramCollector(["x"], "unused.session", source=FakeSource({"x": [_msg(1, "YMAT new high 4.49")]}))
+    assert await late.backfill_off_loop(datetime(2026, 11, 1, tzinfo=timezone.utc)) == 0           # before ``since``: not stored

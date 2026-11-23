@@ -109,3 +109,55 @@ def test_a_slow_write_names_the_code_that_asked_for_it_not_the_store_helper(tmp_
     heartbeat()
     who = db.slow(datetime.now(timezone.utc).date().isoformat())[-1]["who"]
     assert who.startswith("test_own_thread.py:heartbeat:") and who.endswith(" via set_flag")
+
+
+# ---- the observed timing of stop checks, signs of life, an event loop that stands still (2026-11-23) --------------
+
+def test_the_intervals_between_stop_checks_are_measured_not_assumed(tmp_path):
+    clock = [0.0]
+    pace = ot.Pace(tmp_path, "short book", 10, clock=lambda: clock[0])
+    day, noon = datetime.now(timezone.utc).date().isoformat(), lambda t: True
+    pace.start()
+    before = 0.0                                             # how long the check before took
+    for gap, work in [(10.1, 0.2)] * 40 + [(12.0, 1.5), (14.0, 3.0), (10.2, 0.1), (21.0, 9.5)] + [(10.0, 0.1)] * 30:
+        clock[0] += gap - before                             # this check starts ``gap`` after the one before it started
+        pace.start()
+        clock[0] += work
+        pace.finish()                                        # ... and takes ``work``
+        before = work
+    pace.flush()
+    rows = [r for r in ot.gaps(tmp_path, day) if r.get("kind") == "summary"]
+    assert sum(r["n"] for r in rows) == 74 and len(rows) == 2                  # one written at 10 minutes, one at the end
+    total = [sum(r["counts"][i] for r in rows) for i in range(4)]
+    assert total == [71, 2, 1, 0]                                              # within 11 s / 15 s / 25 s / later
+    assert max(r["max_gap"] for r in rows) == 21.0 and max(r["max_work"] for r in rows) == 9.5
+    assert ot.clause(tmp_path, day, noon) == (
+        "stop checks: measured in alert hours: short book 74 checks, 95.9% within 11 s, longest gap 21 s, longest "
+        "single check 10 s; none late, no restart in alert hours")
+    assert ot.clause(tmp_path, day, lambda t: False) == "stop checks: none late, no restart in alert hours"   # not in hours
+
+
+def test_a_loops_sign_of_life_is_a_file_not_a_database_write(tmp_path):
+    assert ot.beat_age(tmp_path, "long book") is None                           # never beat: unknown, not silent
+    ot.beat(tmp_path, "long book")
+    assert 0 <= ot.beat_age(tmp_path, "long book") < 2 and (tmp_path / "beat.long_book").exists()
+    assert ot.beat_age(tmp_path, "long book", now=time.time() + 400) > 399
+    ot.Pace(tmp_path, "short book", 10).start()
+    assert ot.beat_age(tmp_path, "short book") < 2                              # every stop check beats
+    ot.beat(tmp_path / "no" / "folder", "x")                                    # cannot be written: logged, not raised
+
+
+def test_an_event_loop_that_stands_still_is_written_down_whatever_held_it(tmp_path):
+    async def run():
+        watch = asyncio.create_task(ot.watch_loop(tmp_path, every=0.02, late=0.2))
+        await asyncio.sleep(0.1)
+        time.sleep(0.5)                                      # blocking work ON the loop, as a slow database write was
+        await asyncio.sleep(0.2)
+        watch.cancel()
+
+    asyncio.run(run())
+    day = datetime.now(timezone.utc).date().isoformat()
+    (g,) = ot.gaps(tmp_path, day)
+    assert g["loop"] == ot.EVENT_LOOP and g["gap"] >= 0.5
+    assert ot.clause(tmp_path, day).startswith("⚠️ stop checks: 1 started late, longest gap ") and "(event loop" in \
+        ot.clause(tmp_path, day)
