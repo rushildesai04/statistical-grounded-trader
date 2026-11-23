@@ -929,6 +929,12 @@ night it cannot finish is texted and caught up on the next run.
   machine (one call a minute to a monitoring service; owner's account and one secret; reported free). Cache: the
   1.8 GB of minute bars is the daily models' registered training data, not disposable; proposal is to delete
   nothing, warn at 70% and grow the volume. Unresolved on purpose: a text lost on a crash; late-receipt entries.
+- **Outside probe and disk, made honest (same document, updated 11-23 midday).** The probe's "ok" now means the
+  listener shows all its signs of life at that hour, not "the scheduler ran"; it is cut off after 6 s and lives only
+  in the control job, so it cannot hold a trading task. Vendor's own pages: free plan 20 checks, no SMS credits
+  listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
+  warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
+  watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has
