@@ -52,9 +52,11 @@ def check(db: OpsStore, send: Callable[[str], None], now: datetime, in_hours=Non
         text = (f"[SGT] ⚠️ The listener has not run for {int((now - seen).total_seconds() // 60)} min "
                 f"(last pass {seen.astimezone(ET):%H:%M} ET). Alerts are not being read. {held} "
                 "It restarts by itself after a crash; if this text repeats, it is stuck.")
-        db.set_flag(FLAG, iso(now))
-        text_guard.send_capped(db, send, EVENT, CAP, text, "listener watchdog", now)
-        return text
+        how = text_guard.send_capped(db, send, EVENT, CAP, text, "listener watchdog", now)
+        if how == "failed":
+            return None                                     # not sent: no mark, so the next minute tries again
+        db.set_flag(FLAG, iso(now))                         # sent, or over the day's limit: quiet for AGAIN
+        return text if how == "sent" else None
     except Exception:  # noqa: BLE001 - a watchdog that breaks the control job would be worse than none
         log.exception("listener watchdog failed")
         return None

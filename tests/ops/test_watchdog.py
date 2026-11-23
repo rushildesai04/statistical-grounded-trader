@@ -41,6 +41,20 @@ def test_a_silent_listener_in_alert_hours_is_texted_once_then_every_half_hour_wi
     assert wd.check(db, sent.append, NOON + timedelta(minutes=40, seconds=30)) is None and len(sent) == 2
 
 
+def test_a_warning_that_could_not_be_sent_is_tried_again_the_next_minute(tmp_path):
+    db, sent, fail = OpsStore(tmp_path / "ops.db"), [], [True]
+    beat(db, NOON - timedelta(minutes=5))
+
+    def send(text):
+        if fail[0]:
+            raise OSError("the text service is down")
+        sent.append(text)
+
+    assert wd.check(db, send, NOON) is None and db.flag(wd.FLAG) is None      # failed: not marked as told
+    fail[0] = False
+    assert "has not run for 6 min" in wd.check(db, send, NOON + timedelta(minutes=1)) and len(sent) == 1
+
+
 def test_outside_alert_hours_a_stale_heartbeat_is_not_a_text(tmp_path):
     db, sent = OpsStore(tmp_path / "ops.db"), []
     night = datetime(2026, 11, 23, 23, 30, tzinfo=ET).astimezone(timezone.utc)   # a deploy at night
