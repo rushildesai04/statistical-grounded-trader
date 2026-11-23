@@ -228,3 +228,14 @@ def test_each_alert_carries_what_the_sources_said_and_unlisted_ones_carry_nothin
     extra = alert_feed.rows(db, channel_alerts=[{"symbol": "GHOST", "at": "2026-11-19T15:10:00+00:00", "type": "premarket_high"}])
     ghost = [r for r in extra if r["symbol"] == "GHOST"]
     assert all((r["context"], r["headline"]) == ("", "") for r in ghost)
+
+
+def test_a_recovered_alert_carries_its_replay_label_on_the_page(tmp_path):
+    """Listener recovery 2026-11-22: an alert posted while the listener was down says so wherever it is listed."""
+    db = OpsStore(tmp_path / "ops.db")
+    with db.tx() as c:
+        rid = _alert(c, "BACK", "2026-11-23", "15:00", "skipped", "alert received late")
+        c.execute("UPDATE fade_trades SET via='replay', recovered_at='2026-11-23T15:06:10+00:00' WHERE id=?", (rid,))
+        _alert(c, "LIVE", "2026-11-23", "15:10", "skipped", "alert received late")
+    got = {r["symbol"]: r["short"] for r in alert_feed.rows(db)}
+    assert got == {"BACK": "not shorted [recovered after a restart, 370 s after the post]", "LIVE": "not shorted"}

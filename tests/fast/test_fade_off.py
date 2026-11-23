@@ -31,7 +31,8 @@ def last(db):
 
 def run(db, *, px=4.0, alert_type="volume_spike", beta=None, sym="ABCD", at=T10):
     sent = []
-    fade.on_alert(db, fade.LiveAlert(sym, alert_type, at - timedelta(seconds=10), "-1", 1, None), now=at)
+    post = fade.LiveAlert(sym, alert_type, at - timedelta(seconds=10), "-1", int(at.timestamp()), None)   # its own message
+    fade.on_alert(db, post, now=at)
     fade.monitor(db, sent.append, lambda s, **k: px, now=at + timedelta(seconds=20),
                  beta=(lambda s, t: beta) if beta is not None else None)
     return sent

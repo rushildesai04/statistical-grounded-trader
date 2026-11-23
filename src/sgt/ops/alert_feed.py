@@ -30,6 +30,7 @@ WHY = {
     fade.BORROW_UNKNOWN: "borrow unknown at entry: no short",
     fade.NO_PRINT_REASON: "no trade printed within 5 minutes (halted or no quote)",
     "alert received late": "the alert reached us too late to enter at the tested time",
+    fade.RESTART_NO_PRINT: "the stock traded, but not after our listener was back, inside the 5 minutes",
     "declined": "you declined it",
 }
 _CODE = re.compile(r"\s*\((?:[^()]*(?:amendment|owner|prereg)[^()]*)\)")
@@ -74,6 +75,15 @@ def short_words(status: str, net) -> str:
     if status in ("pending", "ask"):
         return "waiting for its entry minute"
     return "not shorted"
+
+
+def recovered_words(via, posted_at, recovered_at) -> str:
+    """The replay label of an alert that was posted while the listener was down (sgt.fast.alert_recovery); else ''."""
+    if via != "replay":
+        return ""
+    a, b = _when(posted_at), _when(recovered_at)
+    late = f", {int((b - a).total_seconds())} s after the post" if a and b and b >= a else ""
+    return f" [recovered after a restart{late}]"
 
 
 def long_words(status: str | None, net) -> str:
@@ -159,6 +169,7 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
             return []
         got = c.execute(
             "SELECT f.id, f.symbol, f.session, f.alert_type, f.posted_at, f.status, f.reason, f.net, f.wh_net, f.wh_note, "
+            "f.via, f.recovered_at, "
             f"f.ctx_head, f.news_head, {', '.join('f.' + k.strip() for k in alert_context.CTX_COLS.split(','))}, "
             "l.status AS l_status, l.net AS l_net FROM fade_trades f LEFT JOIN long_trades l ON l.fade_id=f.id "
             f"WHERE f.session IN ({','.join('?' * len(days))}) ORDER BY f.session DESC, f.posted_at DESC, f.id DESC "
@@ -169,7 +180,7 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
         longed = r["l_status"] in ENTERED
         out.append({"_t": _when(r["posted_at"]), "id": r["id"], "session": str(r["session"])[:10], "at": _et(r["posted_at"]),
                     "symbol": str(r["symbol"])[:12], "type": str(r["alert_type"] or "")[:40],
-                    "short": short_words(r["status"], r["net"]),
+                    "short": short_words(r["status"], r["net"]) + recovered_words(r["via"], r["posted_at"], r["recovered_at"]),
                     "why": "" if shorted or r["status"] in ("pending", "ask") else why(r["reason"]),
                     "would": would_words(r["status"], r["wh_net"], r["wh_note"]),
                     "would_n": r["wh_net"] if r["status"] in would_have.NOT_TAKEN else None,

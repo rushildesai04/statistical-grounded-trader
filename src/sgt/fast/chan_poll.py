@@ -6,6 +6,12 @@ about every 60 seconds, so over all 362 alerts received from 2026-11-04 to 11-18
 the last message seen every EVERY seconds during the session, and hands each new message to the same handler the
 push path uses. The push path stays: whichever sees a message first handles it, the other finds it in ``Seen``.
 
+2026-11-22 (listener recovery): the live listener no longer calls ``poll_once`` or ``pushed`` from this module.
+The same check now runs from a DURABLE cursor and also replays what was posted while the process was down
+(``sgt.fast.alert_recovery.ordered_pass`` / ``pushed``). ``Seen``, ``interval``, ``active`` and ``flood_pause`` are
+still used; ``State``, ``pushed`` and ``poll_once`` are kept as the record of the in-memory design they replaced
+(first pass = baseline only, so an alert posted during a restart was never handled: VRAX, 2026-11-04).
+
 Bounded and fail-safe: one small request per pass (MAX_BATCH messages at most); the first pass only sets the
 baseline (nothing older than the start is replayed); a Telegram "slow down" answer pauses the check for as long
 as it asks (capped); any other failure is logged by the caller and the next pass simply tries again. Flag

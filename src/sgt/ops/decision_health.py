@@ -113,8 +113,13 @@ def database(db: OpsStore, session: str) -> str:
 
 
 def line(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:
-    """One line for the nightly summary: always present, a warning when anything is missing."""
-    return _record(db, session, alerts_db) + "; " + database(db, session)
+    """One line for the nightly summary: always present, a warning when anything is missing. Three clauses: the
+    decision record, the alert channel (recovered alerts, gaps, an unfinished catch-up: ``alert_recovery.clause``)
+    and the database's write lock."""
+    from sgt.fast import alert_recovery, exec_book
+
+    return (_record(db, session, alerts_db) + "; " + alert_recovery.clause(db, session, exec_book.REVIEW_FROM) + "; "
+            + database(db, session))
 
 
 def _record(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:

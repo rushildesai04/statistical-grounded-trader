@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS decisions(
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, book TEXT NOT NULL, ref INTEGER, symbol TEXT,
   state_from TEXT, state_to TEXT, reason TEXT, facts TEXT, config TEXT);
 CREATE INDEX IF NOT EXISTS ix_decisions_ref ON decisions(book, ref);
+CREATE TABLE IF NOT EXISTS alert_events(
+  channel TEXT NOT NULL, message_id INTEGER NOT NULL, symbol TEXT NOT NULL, alert_type TEXT NOT NULL,
+  posted_at TEXT NOT NULL, received_at TEXT NOT NULL, via TEXT, recovered_at TEXT, status TEXT NOT NULL, reason TEXT,
+  fade_id INTEGER, PRIMARY KEY(channel, message_id, symbol, alert_type));
+CREATE INDEX IF NOT EXISTS ix_alert_events_posted ON alert_events(posted_at);
+CREATE TABLE IF NOT EXISTS alert_gaps(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, channel TEXT NOT NULL, from_id INTEGER, to_id INTEGER,
+  n INTEGER, reason TEXT NOT NULL, detail TEXT);
 CREATE TABLE IF NOT EXISTS book_orders(
   id INTEGER PRIMARY KEY AUTOINCREMENT, strategy TEXT NOT NULL, symbol TEXT NOT NULL, target REAL NOT NULL,
   fill_session TEXT NOT NULL, source TEXT NOT NULL, approval_id INTEGER, status TEXT NOT NULL,
@@ -112,6 +120,10 @@ COLUMNS = {
         # audit 2026-11-21 (sgt.fast.exec_check): the same short from the first official minute after the bot's own
         # decision (the official entry assumes alert + 10 s; the alert often reaches us later). A measurement.
         "dec_entry": "REAL", "dec_net": "REAL", "dec_note": "TEXT",
+        # 2026-11-22 (sgt.fast.alert_recovery): how the alert reached the book ("push", "poll", or "replay" = posted
+        # while the listener was down and found by the catch-up) and, for a replay, when it was recovered. The entry
+        # of a recovered alert never uses a print older than recovered_at.
+        "via": "TEXT", "recovered_at": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars

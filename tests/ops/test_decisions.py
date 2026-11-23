@@ -202,4 +202,4 @@ def test_a_row_without_a_line_and_a_waiting_spool_are_both_named(db, monkeypatch
     db.spool_path.write_text(json.dumps({"line": ["x"] * 9}) + "\n")
     got = decision_health.line(db, "2026-11-02", tmp_path / "absent.db")
     assert got == ("⚠️ decision record INCOMPLETE: 1 of 2 alert rows have no line; 1 lines waiting in the spool; "
-                   "database: no write waited 0.25 s")
+                   "alerts: in order, none recovered, no gap; database: no write waited 0.25 s")

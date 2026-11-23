@@ -63,7 +63,7 @@ def test_cells_match_the_research_definition():
 def test_unarmed_event_asks_and_blocks_later_alerts_window_filter_does_not(db, ask_first):
     early = alert(at=datetime(2026, 11, 2, 9, 0, tzinfo=ET).astimezone(timezone.utc))
     assert fade.on_alert(db, early, now=early.posted_at) == "filtered: window"
-    assert fade.on_alert(db, alert(), now=T10) == "ask #2"
+    assert fade.on_alert(db, alert(mid=7), now=T10) == "ask #2"        # a later post of the stock (its own message)
     ap.arm(db, T10)
     assert fade.on_alert(db, alert(mid=2), now=T10) == "duplicate symbol-session"
     assert fade.on_alert(db, alert("XYZ", "halted"), now=T10) == "not a cell"

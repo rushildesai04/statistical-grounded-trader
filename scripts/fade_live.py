@@ -573,55 +573,60 @@ async def run() -> int:
         except Exception:  # noqa: BLE001 - logged; the hourly poll re-fetches anything missed
             log.exception("storing message %s failed", msg.id)
 
-    from sgt.fast import chan_poll
+    from sgt.fast import alert_recovery, chan_poll
 
-    poll_state = chan_poll.State()
+    # Listener recovery (owner 2026-11-22; sgt.fast.alert_recovery): the channel is read in order from a durable
+    # cursor, so an alert posted while this process was down is found, labelled and recorded when it comes back.
+    # Until that catch-up has reached the newest message the push path only asks for another pass.
+    rec = alert_recovery.State(str(CHANNEL), utcnow())      # up_since is set again once connected (below)
+    wake = asyncio.Event()
 
-    def dispatch(msg, how: str) -> None:       # the work itself: every alert of the message goes to the books
-        # 2026-11-19 (review): a message is marked seen before this runs, so a failure here must never pass quietly:
-        # each alert is tried on its own, a failure is logged with its trace and written to the audit log, and the
-        # other alerts of the message (and the channel history, in the push path) still go through.
-        try:
-            posted = msg.date.astimezone(timezone.utc)
-            alerts = to_alerts(msg.message or "", posted, msg.id)
-        except Exception:  # noqa: BLE001 - logged and audited; the listener goes on
-            log.exception("message %s could not be read as alerts", getattr(msg, "id", "?"))
-            db.audit("alert_failed", message_id=getattr(msg, "id", None), stage="parse", how=how)
-            return
-        for a in alerts:
-            try:
-                did = fade.on_alert(db, a)
-            except Exception:  # noqa: BLE001 - logged and audited; the next alert is still handled
-                log.exception("alert %s %s (message %s) failed", a.symbol, a.alert_type, msg.id)
-                db.audit("alert_failed", message_id=msg.id, symbol=str(a.symbol)[:12], stage="book", how=how)
-                continue
-            log.info("alert %s %s -> %s (%s, %.0f s after posting)", a.symbol, a.alert_type, did, how,
-                     (utcnow() - posted).total_seconds())
+    def dispatch(msg, how: str):               # the work itself: every alert of the message goes to the books
+        # 2026-11-19 (review): a failure here must never pass quietly: each alert is tried on its own, a failure is
+        # logged with its trace and written to the audit log, and the other alerts of the message still go through.
+        # 2026-11-22: an alert that failed is not on the durable record, so the ordered pass tries it again.
+        return alert_recovery.dispatch(db, msg, how, to_alerts)
 
-    take = chan_poll.pushed(poll_state, dispatch)   # push: one "seen" check, then dispatch (2026-11-19 fix)
+    take = alert_recovery.pushed(rec, dispatch)     # push: one "seen" check, then dispatch (2026-11-19 fix)
 
     @client.on(events.NewMessage(chats=CHANNEL))
     async def on_new(ev):
-        take(ev.message)
+        if not take(ev.message) and not rec.caught_up:
+            wake.set()                         # not caught up yet: the ordered pass will reach it, at once
         record(ev.message)
+
+    async def fetch(after: int, limit: int):   # the oldest ``limit`` messages after ``after``, oldest first
+        return await client.get_messages(CHANNEL, min_id=after, limit=limit, reverse=True)
+
+    async def newest():
+        return max((m.id for m in await client.get_messages(CHANNEL, limit=1) if isinstance(getattr(m, "id", None), int)),
+                   default=0)
+
+    async def before(t: datetime):             # the newest message posted before ``t``
+        return max((m.id for m in await client.get_messages(CHANNEL, offset_date=t, limit=1)
+                    if isinstance(getattr(m, "id", None), int)), default=None)
 
     async def channel_loop():                  # owner 2026-11-18: the channel is asked every 15 s, not only pushed
         from telethon.errors import FloodWaitError
 
         while True:
-            every = chan_poll.interval(db.flag(chan_poll.FLAG))
-            await asyncio.sleep(every or chan_poll.EVERY)
-            if not every or not chan_poll.active(utcnow()):
-                continue
+            pause = None
             try:
-                await chan_poll.poll_once(lambda **kw: client.get_messages(CHANNEL, **kw), poll_state,
-                                          lambda m: dispatch(m, "poll"))   # poll_once did the "seen" check itself
-            except FloodWaitError as exc:      # Telegram asks us to slow down: obey, the push path keeps working
+                await alert_recovery.catch_up(db, rec, fetch, dispatch, newest, before)
+            except FloodWaitError as exc:      # Telegram asks us to slow down: obey
                 pause = chan_poll.flood_pause(getattr(exc, "seconds", None))
                 log.warning("channel check paused %d s (Telegram flood wait)", pause)
-                await asyncio.sleep(pause)
-            except Exception:  # noqa: BLE001 - the extra check must never stop the listener; logged, tried again
+            except Exception:  # noqa: BLE001 - the check must never stop the listener; logged, tried again
                 log.exception("channel check failed")
+            try:
+                every = chan_poll.interval(db.flag(chan_poll.FLAG))
+            except Exception:  # noqa: BLE001 - a busy database must not end this loop
+                every = chan_poll.EVERY
+            wake.clear()
+            try:
+                await asyncio.wait_for(wake.wait(), pause or alert_recovery.wait_s(rec, every, chan_poll.active(utcnow())))
+            except asyncio.TimeoutError:
+                pass
 
     @client.on(events.MessageEdited(chats=CHANNEL))
     async def on_edit(ev):                     # research excludes edited alerts; the book keeps the trade, flagged
@@ -645,7 +650,7 @@ async def run() -> int:
         while True:
             try:
                 await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check,
-                                        beta_check)
+                                        beta_check, rec.up_since)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             try:
@@ -662,6 +667,7 @@ async def run() -> int:
     await client.start()
     if not await client.is_user_authorized():
         raise SystemExit("fade session not authorized; run `fade_live.py login` on the Mac")
+    rec.up_since = utcnow()                    # anything posted before this moment was posted while we were away
     log.info("listening on %s", CHANNEL)
     sc = data_client()                          # scanner: own connection, own loop (never delays the fade's stops)
     scan_quote, scan_state = iex_quote(sc), ScanState()
@@ -685,7 +691,7 @@ async def run() -> int:
         while True:
             try:
                 await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send,
-                                        None, arm_send, None)   # armed text. No text for the trend-hold exit
+                                        None, arm_send, None, rec.up_since)   # armed text. No text for the trend-hold exit
                 # (owner 2026-11-19: too many messages): it is still recorded and shown in the nightly summary.
             except Exception:  # noqa: BLE001 - the long book must never stop the listener; logged
                 log.exception("long book failed")

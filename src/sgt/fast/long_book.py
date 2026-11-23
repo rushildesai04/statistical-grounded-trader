@@ -167,7 +167,8 @@ def candidates(db: OpsStore, now: datetime) -> list[dict]:
                        + long_shadow.REOPEN_MAX).to_pytimedelta())
     with db.tx() as c:
         rows = c.execute(
-            "SELECT id, symbol, session, posted_at, status, reason FROM fade_trades f WHERE session=? AND posted_at>=? "
+            "SELECT id, symbol, session, posted_at, status, reason, via, recovered_at FROM fade_trades f WHERE "
+            "session=? AND posted_at>=? "
             "AND " + long_shadow.QUALIFY + " AND " + long_shadow.FIRST + " AND NOT EXISTS (SELECT 1 FROM long_trades t "
             "WHERE t.fade_id=f.id) ORDER BY id",
             (session, since, *long_shadow.QUALIFY_ARGS, *long_shadow.QUALIFY_ARGS)).fetchall()
@@ -329,7 +330,18 @@ def _turn(rows: list[dict], now: datetime) -> list[dict]:
     return pick
 
 
-def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None) -> int:
+def live_from(row: dict, up_since: datetime | None) -> pd.Timestamp | None:
+    """Since when the book could act on this alert in this process: the later of the alert's recovery (a replay
+    after a restart, ``sgt.fast.alert_recovery``) and the listener's start. None = always (no restart involved).
+    Listener recovery 2026-11-22 (owner: "never use a historical price as an executable entry"): a fill on a candle
+    that began before this moment was not watched live, so it is ``missed``, as LIVE_LAG already says for fills more
+    than five minutes old. For an alert handled live both marks are before the alert, so nothing changes."""
+    marks = [pd.Timestamp(t) for t in (row.get("recovered_at"), up_since) if t]
+    return max(m if m.tzinfo else m.tz_localize("UTC") for m in marks) if marks else None
+
+
+def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None,
+         up_since: datetime | None = None) -> int:
     """One pass: open new longs, then advance open ones. Returns the number of longs opened. A base break is opened
     when its candle closes (``at_close``, owner 2026-11-20), any other fill when the feed shows it. ``arm`` (a text
     sender, owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills
@@ -362,7 +374,8 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                     _arm(db, row, f, now, off, arm, matrix_line(raw, now))
                 continue
             s, t = hit
-            if pd.Timestamp(now) - t.entry_ts > LIVE_LAG:
+            since = live_from(row, up_since)
+            if pd.Timestamp(now) - t.entry_ts > LIVE_LAG or (since is not None and t.entry_ts < since):
                 _insert(db, row, s, t, "missed", now)
                 log.info("long %s %s filled %s, before the book saw it: missed", row["symbol"], s.kind, t.entry_ts)
                 continue
@@ -444,7 +457,8 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
                   kind=s.kind if s else None, setup_ready=iso(s.ready.to_pydatetime()) if s else None,
                   trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
                   entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
-                  decided_at=iso(now), posted_at=row.get("posted_at"))
+                  decided_at=iso(now), posted_at=row.get("posted_at"), via=row.get("via"),
+                  recovered_at=row.get("recovered_at"))
     return done
 
 

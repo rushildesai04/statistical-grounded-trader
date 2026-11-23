@@ -168,6 +168,9 @@ def short_row(api: Api, r: dict) -> dict:
     shares = (r.get("weight") or fade.WEIGHT) * BOOK / r["est_entry"] if r.get("est_entry") else None
     out = {"book": "short", "id": r["id"], "symbol": sym, "session": ses, "alert_type": r["alert_type"],
            "posted_at": r["posted_at"], "received_at": r["created_at"], "decided_at": r["est_entry_at"],
+           # 2026-11-22 (listener recovery): how the alert reached the book; "replay" = recovered after a restart.
+           # A label only: the trade is priced and counted exactly as any other (the cohort's definition is unchanged).
+           "via": r.get("via"), "recovered_at": r.get("recovered_at"),
            "orig": {"entry_ts": r["entry_ts"], "entry": r["entry"], "exit": r["cover"], "reason": r["reason"], "net": r["net"],
                     "est_entry": r["est_entry"]}}
     try:
@@ -196,7 +199,7 @@ def long_row(api: Api, r: dict) -> dict:
     sym, ses, decided = r["symbol"], r["session"], _t(r["created_at"])
     shares = (r.get("weight") or fade.WEIGHT) * BOOK / r["est_entry"] if r.get("est_entry") else None
     out = {"book": "long", "id": r["id"], "symbol": sym, "session": ses, "kind": r["kind"], "rules": r["rules"],
-           "decided_at": r["created_at"], "stop": r["stop"],
+           "decided_at": r["created_at"], "stop": r["stop"], "via": r.get("via"), "recovered_at": r.get("recovered_at"),
            "orig": {"entry_ts": r["fill_ts"], "entry": r["entry"], "exit": r["exit"], "reason": r["exit_reason"],
                     "net": r["net"], "est_entry": r["est_entry"], "live_reason": r["reason"]}}
     try:
@@ -312,6 +315,11 @@ def main() -> int:
                                          (args.since,))]
     longs = [dict(r) for r in c.execute("SELECT * FROM long_trades WHERE status='settled' AND session>=? ORDER BY id" + lim,
                                         (args.since,))]
+    if {"via", "recovered_at"} <= {r[1] for r in c.execute("PRAGMA table_info(fade_trades)")}:   # the alert's label
+        how = {r["id"]: (r["via"], r["recovered_at"]) for r in c.execute(
+            "SELECT id, via, recovered_at FROM fade_trades WHERE session>=? AND via IS NOT NULL", (args.since,))}
+        for r in longs:
+            r["via"], r["recovered_at"] = how.get(r["fade_id"], (None, None))
     shorts = [r for r in shorts if ("short", r["id"]) not in have][:APPEND_MAX if args.append else None]
     longs = [r for r in longs if ("long", r["id"]) not in have][:APPEND_MAX if args.append else None]
     out = {"meta": {"model": "exec_model v1", "latency_s": em.LATENCY.total_seconds(),

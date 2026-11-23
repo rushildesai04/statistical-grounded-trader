@@ -124,3 +124,12 @@ def test_settled_check_reads_the_database_read_only_and_reports_the_gap(tmp_path
                                "model": {"status": "ok", "net": 0.1}, "orig": {"net": 0.1}}) + "\n")
     r = el.settled_check(led, str(tmp_path / "ops.db"))
     assert r["short"]["expected"] == 2 and r["short"]["missing"] == [2] and r["ok"] is False
+
+
+def test_a_recovered_alerts_trade_is_priced_like_any_other_and_carries_its_label():
+    """Listener recovery 2026-11-22: the cohort's definition does not change; the ledger row says how the alert came."""
+    live, back = el.short_row(FakeApi(), short()), el.short_row(FakeApi(), short(
+        via="replay", recovered_at="2026-11-18T15:00:38+00:00"))
+    assert (live["via"], live["recovered_at"]) == (None, None)
+    assert (back["via"], back["recovered_at"]) == ("replay", "2026-11-18T15:00:38+00:00")
+    assert back["model"] == live["model"] and back["label"] == live["label"] == "MODELED"
