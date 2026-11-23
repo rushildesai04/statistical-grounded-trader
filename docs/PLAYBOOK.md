@@ -882,6 +882,18 @@ night it cannot finish is texted and caught up on the next run.
   began before the listener was back is `missed`. Nightly line: an `alerts:` clause (recovered by stage, gaps, an
   unfinished catch-up). Not covered: a post Telegram never delivers; an alert late WITHOUT a restart keeps the old
   late rule. The database's write lock in session hours stays an OPEN risk (measurement of #198 kept).
+- **Recovery verified after the merge, 2026-11-23 (`docs/findings/recovery_verification_2026-11-23.md`); live as
+  runner v108 = main `5be1ae9` since Sun 11-22 23:24 ET, before the forward cohort's first session.** (1)
+  Eligibility of a recovered SHORT is AMBIGUOUS: the registered five minutes bounds how late the first tradable bar
+  may be; the code also tolerates late receipt; F5 withdrew late entries on evidence. Record-only for recovered
+  shorts is prepared as its own change, the owner's call. The long book is defined (a setup that completes after the
+  listener is back is live; one from before is `missed`). (2) Three engineering defects found and fixed, none of
+  which produced a trade: a missing cursor was set at the channel's newest message (now: after the last message on
+  record; an unread interval gets a gap row); the replay's database work ran on the event loop and could hold back
+  a stop check (now on its own thread); after a rollback and roll-forward a filtered alert got a second row (now
+  recognised by its row). (3) Controlled drill, `scripts/recovery_drill.py`: a real process killed and restarted
+  with alerts posted meanwhile, 12 of 12 checks. (4) The restart corrections (no stretched short window, no long
+  fill from before the listener was back) apply to the whole cohort and can only remove a restart-case trade.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has
