@@ -79,9 +79,9 @@ def _num(x) -> float | None:
 
 
 def summary(path: Path = LEDGER, since: str | None = None, before: str | None = None) -> dict:
-    """Per book: trades in the ledger (sessions from ``since``, and earlier than ``before``), the MODELED ones (the baseline), their average under
-    the model and in the original record, the stress average (stops at their minute's extreme), and how many are
-    UNRESOLVED."""
+    """Per book: trades in the ledger (sessions from ``since``, and earlier than ``before``), the MODELED ones (the
+    baseline), their average under the model and in the original record, the stress average (stops at their minute's
+    extreme), how many are UNRESOLVED, and ``span``: the first and last session of those trades (None with none)."""
     out = {}
     for book in BOOKS:
         rs = [r for r in rows(path) if r["book"] == book and (since is None or str(r.get("session") or "") >= since)
@@ -92,7 +92,9 @@ def summary(path: Path = LEDGER, since: str | None = None, before: str | None = 
         n = len(mod)
         se = math.sqrt(sum((m - sum(x[0] for x in mod) / n) ** 2 for m, _, _ in mod) / (n - 1) / n) if n > 1 else None
         both = [(m, o) for m, o, _ in mod if o is not None]
+        days = sorted(str(r["session"]) for r in rs if r.get("session"))
         out[book] = {"trades": len(rs), "modeled": n, "unresolved": sum(r.get("label") == "UNRESOLVED" for r in rs),
+                     "span": (days[0], days[-1]) if days else None,
                      "model": sum(m for m, _, _ in mod) / n if n else None, "se": se,
                      "original": sum(o for _, o in both) / len(both) if both else None,
                      "stress": sum(sx if sx is not None else m for m, _, sx in mod) / n if n else None}
