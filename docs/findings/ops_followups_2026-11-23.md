@@ -3,13 +3,18 @@
 Owner, 2026-11-23: "#204 is already merged ... complete deployment verification ... Keep the remaining risks accurately
 bounded." Paper only. No trading rule, no cohort definition and no rule-version label is changed by anything here.
 
+> **Update, 11:10 to 11:40 ET (owner: "#205 is already merged too").** Sections 1, 3 and 4 below are corrected in
+> place where marked "(update)"; section 6 is new.
+
 ## 1. Status
 
 | | |
 |---|---|
 | #204 merged | Mon 2026-11-23 10:52 ET (main `9a4cc65`), inside session hours |
 | Running at the time of writing | runner **v110 = main `d603298`** (#203), since Mon 01:34 ET. #204 is NOT running: the deploy script refuses 09:25 to 16:10 ET and was not bypassed |
-| #204's deploy | waits for 16:11 ET, then the usual guards (clean `main` at `9a4cc65`, tests, nothing open, windows); it tries again every 5 minutes while an alert trade is open, until 20:20 ET. It runs on the owner's Mac: it needs that machine awake, not a chat session |
+| #205 merged (update) | Mon 2026-11-23 11:07 ET (main `a8267a9`), also in session |
+| The queued deploy (update) | **exact commit selected: `a8267a9`**, which holds both #204 and #205 (the first queue, for `9a4cc65`, was stopped at 11:09 ET and replaced). It waits for 16:11 ET, then the usual guards (clean `main` at `a8267a9`, the test suite, nothing open on the runner, the windows); it tries again every 5 minutes while an alert trade is open, until 20:20 ET |
+| How durable that queue is (update) | It is a process on the owner's Mac, checked running at 11:10 ET, detached from the chat session (it survives the chat ending) and holding a no-idle-sleep request while it runs. It is NOT guaranteed: closing the lid on battery, logging out, a shutdown or restart of the Mac, a lost network, or an expired platform login stops or defeats it. If it does not run, nothing is harmed: v110 keeps running and the deploy is one command by hand: `scratchpad/deploy_day21.sh` |
 | What v110 does not have yet | the long-book and alert-intake signs of life for the watchdog, the research catch-up off the event loop, the measurement of every stop-check interval, the alert-intake part of the 09:20 check. All four start with v111 |
 | The 09:07 ET look promised from the chat session | fired at 10:52 ET, when the session next became active. It was never monitoring, as stated on 2026-11-23; the runner's own 09:20 ET check ran on time (`preflight_at` 09:20:00 ET) and sent nothing, which is its "all good" |
 
@@ -50,7 +55,43 @@ is deployed.
 
 Prepared for option A, inactive: `sgt.ops.deadman` (one GET a minute from the control job, 5 s timeout, never
 raises, nothing sent unless the secret holds a plain https address; `tests/ops/test_deadman.py`). Turning it on is
-the owner's three steps above; nothing was created, signed up for or paid.
+the owner's steps below; nothing was created, signed up for or paid.
+
+**From the vendor's own pages (update; read 2026-11-23).**
+
+| Fact | Vendor text | Page |
+|---|---|---|
+| Free plan | "Hobbyist", "$0 / month", "Monitor 20 jobs", "100 log entries per job" | [pricing](https://healthchecks.io/pricing/) |
+| SMS, WhatsApp, phone calls on the free plan | no credits are listed for it; the first plan that lists them is Business, "$20 / month": "50 SMS & WhatsApp credits", "20 phone call credits". So: plan on a channel that needs no credits (email or a phone app). Which channels the free plan includes is not stated on the pages read: to be seen when the account is made | [pricing](https://healthchecks.io/pricing/) |
+| The address to call | `https://hc-ping.com/<uuid>`; a failure is the same address with `/fail`; "HEAD|GET|POST" | [pinging API](https://healthchecks.io/docs/http_api/) |
+| How often | "If you ping a check more than 5 times per minute, some of the requests may get rate limited". The probe calls once a minute | [pinging API](https://healthchecks.io/docs/http_api/) |
+| Period and grace | "Period is the expected time between pings"; "Grace Time is the additional time to wait before sending an alert when a check is late" | [configuring checks](https://healthchecks.io/docs/configuring_checks/) |
+
+**Setup (the owner's, about five minutes; the address is a secret and is never pasted into a chat or a document).**
+1. Create an account at the service and one check. Schedule: period 1 minute, grace 3 minutes.
+2. Add one notification channel that reaches a phone without credits, and send its test notification.
+3. In the owner's own terminal, store the check's address on the runner (it restarts the runner: outside 09:25 to
+   16:10 ET and with nothing open):
+   `fly secrets set SGT_SECRET_DEADMAN_URL='<the address>' -a sgt-runner`
+4. Tell the assistant only that it is set. It then verifies, without reading the secret, that the check shows
+   calls arriving and that stopping the control job for five minutes produces the notification.
+
+To switch it off: `fly secrets unset SGT_SECRET_DEADMAN_URL -a sgt-runner`.
+
+**It cannot hold up trading (update; tests in `tests/ops/test_deadman.py`).**
+- No trading task contains it: the only code that calls it is the per-minute control job, a process separate from
+  the listener (`test_nothing_in_the_listener_or_the_books_ever_calls_the_outside_probe`).
+- In that job it is the last step, after owner commands are handled and the text connection is closed.
+- A slow answer, an outage or a name lookup that never returns costs that job at most 6 s: the call runs on a thread
+  that is abandoned (`test_a_call_that_hangs_is_cut_off...`).
+- A failed call changes nothing on the runner; it is the outside service that then reports silence.
+
+**What an "ok" call means (update).** Not "the scheduler ran". The control job calls "ok" only when the listener
+shows all its signs of life at that hour: the short book's stop check and the long book's (every 10 to 15 s around
+the clock) and the reading of the channel (every 15 s in alert hours, every 5 minutes otherwise). With any of them
+silent it calls "/fail". If the job cannot read the database, or the machine or its schedule is dead, no call is
+made and the service reports the silence. Texts about a silent listener remain an alert-hours matter; the probe
+judges at any hour.
 
 Sources for the reported plan limits (third-party pages; the vendors' own pages were not read):
 [healthchecks.io pricing](https://healthchecks.io/pricing),
@@ -76,7 +117,23 @@ training history.
 
 **Proposal.**
 1. Delete nothing now. Used: 2.10 of 5.18 GB; at most 91 MB was written in the last 7 days, so about 30 weeks of room.
-2. Warn early: the nightly line says so at 70% used (the 09:20 check already texts at 90%). Not built; a few lines.
+2. Warn early (update: built). The warnings and where each one goes:
+
+| Warning | When | Reaches the owner by | Status |
+|---|---|---|---|
+| "disk N% full ... add room before 90%" | every night from 70% used | the nightly summary text, 20:50 ET | built in the change that carries this update (`decision_health.disk`, tested) |
+| "the server disk is N% full: jobs may start failing" | 90% used | a text at 09:20 ET on every session day (`scripts/preflight.py`) | live since 2026-11-08 |
+| "The listener has not run for N min" | the disk is full and the heartbeat can no longer be written | a text within 3 minutes in alert hours (the watchdog), repeated every 30 minutes | live (v110); from this change it is spaced by a marker file, because on a full disk the database cannot record that the text went out and it would otherwise repeat every minute (found here, tested) |
+
+**If storage becomes critically low (tested where marked).**
+- No entry or exit can be booked; no text goes out for an exit that is not on record; no row is half-written
+  (tested: `test_a_full_disk_books_nothing_texts_nothing_corrupts_nothing...`).
+- The heartbeat stops, so the watchdog texts (tested), and the outside probe, once configured, reports "fail".
+- Decision-record lines cannot be written or spooled: counted as lost and said in the nightly line (tested in #197).
+- The nightly settlement cannot store the full-tape bars it scores from: trades stay unsettled until there is room.
+- When room returns, a waiting exit is booked once, at the price of that moment (tested).
+- Nothing is deleted automatically, ever. Making room is the owner's decision: growing the volume (paid) or
+  removing regenerated output only (point 4).
 3. At 70%, GROW the volume instead of pruning (a paid change: needs the owner's approval; the platform's volume
    price is to be read then).
 4. If something must ever be removed: only regenerated output (`reports/charts`, caches of derived features), never a
@@ -89,3 +146,12 @@ training history.
 |---|---|
 | A text lost when the process dies between a state change and its text | unresolved. Never doubled; never sent later; nothing records the loss. The trade is on the site and in the nightly summary. Trigger: a restart inside alert hours (warned about nightly). The fix, if wanted, is engineering (the text written in the state change's own transaction), not a strategy change; not built |
 | An alert received late without a restart enters at the print of that moment | unresolved, and a trading-rule question. The registered rule and F5 say "first bar / first quote at or after alert + 10 s". Today: 34 alerts, receipt delay median 10 s, none over 60 s. Owner's decision, on the specification and pre-cohort evidence, not on the cohort's interim returns. Nothing prepared, nothing changed |
+
+## 6. After the deploy (to be filled by the post-deploy check; nothing below is claimed until then)
+
+The queued deploy's verification list, in this order: runner version and commit; the three signs of life present
+and fresh (`beat.short_book`, `beat.long_book`, `beat.alerts`, and the heartbeat flag); the research catch-up's log
+line from the new path; the first interval summaries in `loop_gaps.jsonl` (ten minutes after the start); both books
+on, the real-money switch unset, the cursor where the last message is; no rule or cohort definition changed (the
+diff `d603298..a8267a9` touches no book rule: checked before queuing). Session-hours numbers are reported from the
+20:50 ET line; idle-hour numbers are not offered in their place.

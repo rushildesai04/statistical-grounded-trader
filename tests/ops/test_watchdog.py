@@ -181,6 +181,7 @@ def test_a_process_that_hangs_is_noticed_from_outside_it(tmp_path, monkeypatch):
             time.sleep(0.05)
         monkeypatch.setattr(wd, "STALE", timedelta(seconds=1.0))
         monkeypatch.setattr("sgt.fast.chan_poll.interval", lambda v: 0.2)   # so the alerts limit is STALE too
+        monkeypatch.setattr("sgt.fast.chan_poll.active", lambda t: True)    # ... whatever the hour the test runs at
         time.sleep(0.3)
         assert wd.check(db, sent.append, now(), in_hours=lambda t: True) is None   # running: nothing to say
         os.kill(child.pid, signal.SIGSTOP)                   # hung
@@ -195,3 +196,41 @@ def test_a_process_that_hangs_is_noticed_from_outside_it(tmp_path, monkeypatch):
     finally:
         child.kill()
         child.wait()
+
+
+# ---- the outside probe's "ok" and a warning that survives a database that cannot be written (2026-11-23) ------------
+
+def test_the_signs_of_life_are_judged_at_any_hour_with_that_hours_own_pace(tmp_path):
+    """The outside probe says "ok" only when ``silent`` is empty, at night too. At night the channel is read every
+    5 minutes, so a 10-minute-old read is life; the books' checks run every 10 to 15 s around the clock."""
+    import os
+
+    db = OpsStore(tmp_path / "ops.db")
+    night = datetime(2026, 11, 23, 23, 30, tzinfo=ET).astimezone(timezone.utc)
+    _alive(db, tmp_path, night - timedelta(seconds=10))
+    t = night.timestamp() - 600
+    os.utime(tmp_path / "beat.alerts", (t, t))
+    assert wd.silent(db, night) == {}                        # healthy at night: the probe would say ok
+    beat(db, night - timedelta(minutes=5))                   # the short book stops at night
+    assert list(wd.silent(db, night)) == ["short book"]      # ... the probe would say fail, though no text is sent
+    assert wd.check(db, lambda t: 1 / 0, night) is None      # (texts stay an alert-hours matter)
+
+
+def test_a_warning_goes_out_once_even_when_the_database_cannot_record_it(tmp_path, monkeypatch):
+    """A full disk: the heartbeat stops (it cannot be written), the watchdog texts, and then cannot write down that it
+    did. Without a second memory it would text every minute, uncapped. The marker file's time is that memory."""
+    import sqlite3
+
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    beat(db, NOON - timedelta(minutes=5))
+    assert wd.check(db, sent.append, NOON - timedelta(minutes=10)) is None and (tmp_path / wd.MARK).exists()   # healthy: marker made
+
+    def full(self):
+        raise sqlite3.OperationalError("database or disk is full")
+
+    monkeypatch.setattr(OpsStore, "tx", full)                # from here no database write succeeds
+    assert "has not run for 5 min" in wd.check(db, sent.append, NOON) and len(sent) == 1
+    for m in (1, 2, 10, 29):
+        assert wd.check(db, sent.append, NOON + timedelta(minutes=m)) is None
+    assert len(sent) == 1                                    # once, not every minute
+    assert wd.check(db, sent.append, NOON + timedelta(minutes=31)) is not None and len(sent) == 2   # again after 30 min

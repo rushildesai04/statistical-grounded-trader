@@ -97,6 +97,24 @@ def health(db: OpsStore, session: str, alerts_db: Path | None = None) -> dict:
 
 
 WARN_S = 1.0                        # a trading write that waited this long is a warning; under it, a number
+DISK_WARN = 0.70                    # the volume this full is said every night (the 09:20 ET check texts at 90%)
+_usage = None                       # tests replace it; None = shutil.disk_usage
+
+
+def disk(db: OpsStore, usage=None) -> str:
+    """A clause for the nightly line when the data volume is DISK_WARN full or more, else "" (2026-11-23). Early on
+    purpose: the registered research data on it is never pruned to make room, so room has to be added in time."""
+    try:
+        import shutil
+
+        u = (usage or _usage or shutil.disk_usage)(Path(db.path).parent)
+        used = u.used / u.total
+    except Exception as e:  # noqa: BLE001 - said, never raised
+        return f"⚠️ disk: cannot be read ({type(e).__name__})"
+    if used < DISK_WARN:
+        return ""
+    return (f"⚠️ disk {used:.0%} full ({u.free / 1e9:.1f} GB free): add room before 90%; nothing on it is pruned "
+            "without the owner's word")
 
 
 def database(db: OpsStore, session: str) -> str:
@@ -121,8 +139,10 @@ def line(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:
     from sgt.fast import chan_poll
     from sgt.ops import own_thread
 
+    full = disk(db)
     return (_record(db, session, alerts_db) + "; " + alert_recovery.clause(db, session, exec_book.REVIEW_FROM) + "; "
-            + own_thread.clause(Path(db.path).parent, session, chan_poll.active) + "; " + database(db, session))
+            + own_thread.clause(Path(db.path).parent, session, chan_poll.active) + "; " + database(db, session)
+            + (("; " + full) if full else ""))
 
 
 def _record(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:

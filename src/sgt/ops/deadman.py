@@ -6,8 +6,14 @@ outside the machine: the per-minute control job calls an address once a minute; 
 minutes, the outside service notifies the owner. The runner needs no reachable address of its own.
 
 Nothing is sent unless the secret ``deadman_url`` (env ``SGT_SECRET_DEADMAN_URL`` on the runner) holds an https address.
-The call carries no data: a GET of that address, or of address + "/fail" when the listener is silent in alert hours
-(so the outside service also reports a hung listener if the text service itself is down). 5 s timeout; never raises.
+The call carries no data: a GET of that address when the LISTENER shows its signs of life (``watchdog.silent`` is
+empty: the short book's stop check, the long book's, the reading of the channel, at any hour), or of address + "/fail"
+when one of them is silent. So an "ok" call means "the machine, its schedule, its database and the listener are
+alive", not merely "the scheduler ran"; and when the control job cannot even read the database it makes no call at
+all, which the outside service reports as silence.
+
+It cannot hold up trading: it runs in the per-minute control job, a process separate from the listener, as that
+job's last step, and it is cut off after BOUND_S whatever the network does (a name lookup that hangs included).
 Options, access and cost: docs/findings/ops_followups_2026-11-23.md, section 2.
 """
 from __future__ import annotations
@@ -17,6 +23,7 @@ import logging
 log = logging.getLogger(__name__)
 SECRET = "deadman_url"
 TIMEOUT_S = 5.0
+BOUND_S = 6.0                        # the whole call, name lookup included, never costs the control job more than this
 MAX_LEN = 300
 
 
@@ -42,13 +49,27 @@ def ping(ok: bool = True, get=None) -> str:
     url = address()
     if url is None:
         return "off"
-    try:
-        if get is None:
-            import httpx
+    import threading
 
-            get = httpx.get
-        get(url if ok else url + "/fail", timeout=TIMEOUT_S)
-        return "sent"
-    except Exception as exc:  # noqa: BLE001 - a missed call is what the outside service is there to notice
-        log.warning("outside probe call failed: %s", type(exc).__name__)
+    out: list[str] = []
+
+    def call() -> None:
+        try:
+            fn = get
+            if fn is None:
+                import httpx
+
+                fn = httpx.get
+            fn(url if ok else url + "/fail", timeout=TIMEOUT_S)
+            out.append("sent")
+        except Exception as exc:  # noqa: BLE001 - a missed call is what the outside service is there to notice
+            log.warning("outside probe call failed: %s", type(exc).__name__)
+            out.append("failed")
+
+    t = threading.Thread(target=call, name="outside-probe", daemon=True)   # daemon: a hung call dies with the job
+    t.start()
+    t.join(BOUND_S)
+    if not out:
+        log.warning("outside probe call abandoned after %.0f s", BOUND_S)
         return "failed"
+    return out[0]

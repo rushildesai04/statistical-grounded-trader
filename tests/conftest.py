@@ -31,3 +31,16 @@ def fresh_db():
     init_db()
     yield
     Base.metadata.drop_all(engine)
+
+
+@pytest.fixture(autouse=True)
+def roomy_disk(monkeypatch):
+    """The nightly health line names the data volume from 70% full (sgt.ops.decision_health.disk). A test must not
+    depend on how full the disk of the machine running it happens to be: every test sees a volume 40% used unless
+    it passes its own figures."""
+    from types import SimpleNamespace
+
+    from sgt.ops import decision_health
+
+    monkeypatch.setattr(decision_health, "_usage",
+                        lambda path: SimpleNamespace(total=5.18e9, used=2.10e9, free=3.08e9))

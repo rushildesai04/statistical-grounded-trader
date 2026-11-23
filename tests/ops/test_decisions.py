@@ -204,3 +204,17 @@ def test_a_row_without_a_line_and_a_waiting_spool_are_both_named(db, monkeypatch
     assert got == ("⚠️ decision record INCOMPLETE: 1 of 2 alert rows have no line; 1 lines waiting in the spool; "
                    "alerts: in order, none recovered, no gap; stop checks: none late, no restart in alert hours; "
                    "database: no write waited 0.25 s")
+
+
+def test_the_volume_is_named_in_the_nightly_line_from_70_percent_full(tmp_path):
+    """2026-11-23: the registered research data on the volume is never pruned to make room, so the warning has to
+    come early: every night from 70% (the 09:20 ET check texts at 90%)."""
+    from types import SimpleNamespace
+
+    db = OpsStore(tmp_path / "ops.db")
+    gb = 1e9
+    assert decision_health.disk(db, lambda p: SimpleNamespace(total=5.18 * gb, used=2.10 * gb, free=3.08 * gb)) == ""
+    got = decision_health.disk(db, lambda p: SimpleNamespace(total=5.18 * gb, used=3.73 * gb, free=1.45 * gb))
+    assert got.startswith("⚠️ disk 72% full (1.4 GB free)") and "nothing on it is pruned" in got
+    assert decision_health.disk(db, lambda p: 1 / 0) == "⚠️ disk: cannot be read (ZeroDivisionError)"
+    assert "disk" not in decision_health.line(db, "2026-11-02", tmp_path / "absent.db")      # under 70%: not a word
