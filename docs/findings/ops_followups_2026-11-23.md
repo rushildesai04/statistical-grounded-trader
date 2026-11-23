@@ -155,3 +155,14 @@ line from the new path; the first interval summaries in `loop_gaps.jsonl` (ten m
 on, the real-money switch unset, the cursor where the last message is; no rule or cohort definition changed (the
 diff `d603298..a8267a9` touches no book rule: checked before queuing). Session-hours numbers are reported from the
 20:50 ET line; idle-hour numbers are not offered in their place.
+
+## 7. Review of #206's two details and the probe's isolation (2026-11-23, about 12:00 ET)
+
+| Question | Finding | Change |
+|---|---|---|
+| Does off-hours probe health follow the listener's own schedule? | Not at the change of pace. Outside alert hours the channel is read every 5 minutes, and the listener's last slow wait can end a minute AFTER alert hours begin (09:25 ET); judged by the fast pace (limit 3 minutes) a healthy listener was "alerts silent" for up to about two minutes every morning: a false text and a false "fail". **Found before it was ever deployed.** Books that are switched off or paused still check in (tested), so they never read as silent | for 5 minutes + 60 s after the pace changes the slower pace still applies (`test_the_first_minutes_of_alert_hours_are_judged_by_the_pace_the_listener_was_still_on`, `test_books_that_are_switched_off_or_paused_are_not_a_silent_listener`) |
+| Is a full-disk warning still spaced when the marker file cannot be written either? | No: #206 assumed changing a file's time always works. On a full, read-only or failing volume it may not, and then nothing remembered the warning | when neither the marker nor the database can be written, the silence's own age is the clock: a warning in the minute it reaches 3 minutes and every 30 minutes after, no state read or written (`test_with_no_way_to_write_anything_down_the_warning_is_spaced_by_the_age_of_the_silence`: three texts in 70 minutes, not 70). Residual: two runs landing in the same minute of silence could send two |
+| Is the probe isolated in behaviour, not only in the source? | Yes. A real second process makes the probe's call to (a) a local server that accepts and never answers, (b) a port nothing listens on, while an open short's stop is crossed: the stop is booked in under a second with the probe still waiting; the probe gives up inside its bound and reports "failed" | test only (`test_an_outside_probe_that_stalls_or_cannot_be_reached_does_not_delay_a_stop`) |
+
+The one deploy queue reads its target commit from a file at 16:11 ET, so a newer merged commit replaces the target
+without a second job; a second start of the queue is refused.
