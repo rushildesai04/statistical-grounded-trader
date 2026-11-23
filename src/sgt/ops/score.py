@@ -78,15 +78,17 @@ def _no_flag(db: OpsStore) -> str:
 
     Corrected the same day: "no exclusion flag", never "placeable" (no broker approved or filled anything), and only
     the trades of BEFORE the registered sample (``exec_book.REVIEW_FROM``): a fixed historical figure. The sample's
-    own average is read by ``exec_book.review`` at its fixed counts and is not put on a card as a running number."""
+    own average is read by ``exec_book.review`` at its fixed counts and is not put on a card as a running number.
+    The sentence names its sample: how many trades, and the first and last session they come from."""
     try:
         from sgt.fast import exec_book
 
         b = exec_book.summary(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl",
                               before=exec_book.REVIEW_FROM)["short"]
-        if b["modeled"]:
-            return (f" On real quotes the {b['modeled']} shorts of before {exec_book.REVIEW_FROM} with no exclusion "
-                    f"flag made {b['model']:+.1%} a trade; {b['unresolved']} more carry a flag and are not in that "
+        if b["modeled"] and b["span"]:
+            return (f" Earlier shorts on real quotes, sessions {b['span'][0]} to {b['span'][1]} (all before the "
+                    f"registered sample, which starts {exec_book.REVIEW_FROM}): the {b['modeled']} with no exclusion "
+                    f"flag averaged {b['model']:+.1%} a trade; {b['unresolved']} more carry a flag and are not in that "
                     f"average. No flag does not mean a broker would have filled it.")
     except Exception:  # noqa: BLE001 - the score must never fail a page or a text
         pass

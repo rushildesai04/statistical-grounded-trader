@@ -127,16 +127,18 @@ def test_the_short_card_never_says_go_on_an_average_that_includes_flagged_shorts
     monkeypatch.setattr(live_monitor, "check_forward", lambda d: {"alarms": ["win rate"], "n": 105, "mean": 0.0105, "win": 0.50})
     led = tmp_path / "reports" / "exec_model" / "ledger.jsonl"
     led.parent.mkdir(parents=True)
-    led.write_text("".join(json.dumps({"book": "short", "id": i, "session": "2026-11-12", "label": lab,
+    led.write_text("".join(json.dumps({"book": "short", "id": i, "session": day, "label": lab,
                                        "model": {"net": net}, "orig": {"net": net}}) + "\n"
-                           for i, (lab, net) in enumerate([("MODELED", -0.10), ("MODELED", -0.08), ("UNRESOLVED", 0.3)]))
+                           for i, (day, lab, net) in enumerate([("2026-11-12", "MODELED", -0.10), ("2026-10-30", "MODELED", -0.08),
+                                                                ("2026-11-20", "UNRESOLVED", 0.3)]))
                    + json.dumps({"book": "short", "id": 9, "session": "2026-11-23", "label": "MODELED",          # the sample
                                  "model": {"net": 0.50}, "orig": {"net": 0.50}}) + "\n")
     s = score.for_trade("fade", 1_250, db=db)
     assert s["go"] is None and s["ev"] == 0.0105 and s["usd"] == pytest.approx(13.125)
     assert "every alert whether or not it could be shorted" in s["basis"]
     assert s["caveat"].startswith("No GO / NO-GO: this average is of EVERY alert")
-    assert ("the 2 shorts of before 2026-11-23 with no exclusion flag made -9.0% a trade; 1 more carry a flag and are not "
+    assert (" Earlier shorts on real quotes, sessions 2026-10-30 to 2026-11-20 (all before the registered sample, which "     # the date range
+            "starts 2026-11-23): the 2 with no exclusion flag averaged -9.0% a trade; 1 more carry a flag and are not "       # and the count
             "in that average. No flag does not mean a broker would have filled it.") in s["caveat"]
     assert "placeable" not in (s["caveat"] + score.line(s)).lower()
     assert score.line(s) == "average +$13 (swing about $217): no GO / NO-GO (an average of every alert, not of the trades entered)"
