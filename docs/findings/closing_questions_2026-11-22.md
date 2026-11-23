@@ -40,6 +40,19 @@ measurement H1) besides its registered review. Owner review of both: Friday 2026
 | | H3 spread and slippage against planned risk; H4 halt reopenings; H5 later alerts | NOT STARTED, and not to be started before 2026-12-18 | section 7 |
 | | H2 full-tape setup validity | CLOSED for the past record (section 3); a forward label is proposed, not built | |
 
+**Owner's decision, 2026-11-22 (after reading this document): option A, for a week.** "Longs remain frozen paper
+measurement; shorts remain H1 plus the registered review. No new strategy search." The choice is separate from any
+merge. It is revisited on Monday 2026-11-30, with the fifth health line (section 7).
+
+**Three kinds of number are kept apart everywhere:** HISTORICAL results (what was booked, 2026-11-04 to 11-20);
+CORRECTED SIMULATIONS of those same trades (the execution model, the full-tape setup check); and the FORWARD cohort
+(trades from 2026-11-23), which nothing in this document or its follow-ups has read.
+
+**Follow-ups of the same day:** the two operational risks named below as open are measured and tracked in
+`ops_risks_2026-11-22.md`; the populations behind "24, 29 and 22" and the stop levels are set out at the top of the
+result in `prereg_long_setup_tape_2026-11-22.md`; H1's locate charge is an assumption with its sensitivity fixed in
+Amendment 2.
+
 ## 1. Compliance is not effectiveness: where each loss sits
 Zero rule violations says the code did what the rule says. It says nothing about whether the rule is sound. Each
 losing trade is placed in exactly one row below by a comparison that exists: the same order re-priced on real quotes
@@ -123,8 +136,11 @@ result). Retrospective; its own script and output folder; nothing joins the nigh
 | ... break of structure, halt reopening (retired) | 1 | 3 | 0 | 0 |
 | ... base break (live now) | 1 | 0 | 2 | 0 |
 
-The stop differs from the feed's by more than a quarter of the planned risk in 14 of the 26 that exist (lower on the
-tape in 19). For the rule live now, on all 82 alerts: both feeds show nothing on 60; of the other 22 they agree on 4,
+**Existence is not equal risk.** The stop differs from the feed's by more than a quarter of the planned risk in 14
+of the 26 that exist (12 further away, 2 closer; 5 at twice the book's risk or more; median planned risk 2.7% of
+the price with the book's stop, 4.6% with the tape's). "Existed" says the pattern was there, not that the trade
+taken was the trade the pattern defines. The 29 are the recorded setups (24 bought, 3 seen, 2 missed); the 22 in
+the next sentence are a different population (today's rule re-run on all 82 alerts), of which only 3 were trades. For the rule live now, on all 82 alerts: both feeds show nothing on 60; of the other 22 they agree on 4,
 show different minutes on 7, the feed alone shows a setup on 7 and the tape alone on 4.
 
 So setup validity is NOT established for the long book as it runs today. It is a property of the data source, and
@@ -178,13 +194,22 @@ protection: a stop resting at a broker remains a deployment blocker.
 | Investigation | Deliverable | Complete when | Stops when |
 |---|---|---|---|
 | Full-tape setup validity, past record | section 3 | done 2026-11-22 | closed; not re-run |
-| Decision record and its health line | "complete" in the nightly summary | 5 sessions in a row say complete (earliest Mon 2026-11-30) | incomplete on 2 sessions: fixed before any other work |
+| Decision record and its health line | "complete" in the nightly summary | 5 sessions in a row say complete: Mon 11-23, Tue 11-24, Wed 11-25, Fri 11-27, Mon 11-30 (see below) | incomplete on 2 sessions: fixed before any other work |
+| Trade-state database: waits for the write lock | the `database:` clause of the same nightly line | 5 sessions measured, counted from the session after the fix is deployed | a wait of 1 s or more: its holder is moved off the write lock before other work |
+| Alerts posted while the listener is down | recovery design in `ops_risks_2026-11-22.md` (not built) | built on the owner's word, or after one more unrecorded alert | |
 | Restart gap | deploys only outside 09:25 to 16:00 ET from now (a process rule, no code); the nightly line names any alert that still slips | 2026-12-18 with no unrecorded alert | one more unrecorded alert: a replay-on-start fix is built as its own change |
 | H1, sealed measurement | variant code, mechanics-only validation, five hand checks | validation passes (target Fri 2026-12-04) | validation cannot pass: abandoned without a result. Read once at the 30th event or 2027-02-26 |
 | Registered review, longs | verdict from the first 30 priced forward longs | 30th trade; one early look at 15 | as registered (retire / keep / inconclusive, one extension, 2027-02-26) |
 | Registered review, shorts | verdict from the first 50 unflagged forward shorts | 50th trade; one early look at 25 | as registered |
 | Daily books: three unverified items (live bars against test bars; ETF weights' timing; partial-month rebalance) | each confirmed or refuted with file and line | Fri 2026-12-04 | those three only |
 | H3, H4, H5 | none | not started | not before 2026-12-18, and only by the owner's word |
+
+**Which sessions count for the health milestone** (checked against the exchange calendar the books use,
+`sgt.intraday.calendar`): a session counts when it is an exchange session, the build with the decision record ran
+for the whole of it, and the 20:50 ET summary printed the line. Thursday 11-26 is Thanksgiving: closed, does not
+count (the summary still runs that night and its line is not counted). Friday 11-27 closes at 13:00 and COUNTS: it
+is a session. The build went live Sunday 11-22 at 17:19 ET, before Monday's open, so the fifth session is Monday
+11-30 and its line is read that night. Any session whose line says INCOMPLETE restarts the count.
 
 **Friday 2026-12-18, after the close (19 sessions of forward data): the owner's review.** One page, from inputs fixed
 today, answering for each alert book "further paper research, measurement only, or stop":

@@ -74,6 +74,35 @@ Step 1, control: 29 of 29 recorded setups reproduced on the free feed's stored b
 minute, same stop). No correction of the matching was needed; the only change before the tape was loaded was an
 import path. Bars: 82 stock-days on each feed, none missing.
 
+### Read this first (added 2026-11-22, same day, from the stored result; nothing was re-run)
+**Three populations, not one.**
+
+| Number | What it is | What it includes |
+|---|---|---|
+| 24 | the long book's TRADES | every long bought and settled, 2026-11-10 to 11-20. Their kinds: first red candle 17, break of structure 2, halt reopening 2, base break 3 |
+| 29 | the RECORDED SETUPS (part A) | those 24, plus 3 setups seen while the book was switched off (11-18) and 2 whose fill was seen too late to buy (11-16). Every row of the long table that names a setup |
+| 22 | alerts where TODAY'S RULE finds a setup on either set of candles (part B) | not a subset of the 29. Today's rule (base break, bull flag) re-run on all 82 first alerts of those days, most of them days on which that rule was not live. 18 on the feed, 15 on the tape, 11 on both; 21 are base breaks and 1 a bull flag (tape only). Only 3 of the 22 were actual trades: the three base breaks of 11-20, which are also 3 of the 24 |
+
+**"Existed" does not mean "the same risk".** Of the 26 recorded setups that are on the tape, the stop the pattern
+gives on the tape is not the stop the book used:
+
+| The tape's stop against the book's | Setups (of 26) |
+|---|---|
+| differs by more than a quarter of the trade's planned risk | **14** (12 further away, 2 closer) |
+| planned risk on the tape at least 1.5 times the book's | 5 |
+| ... at least twice | 5 (XLAB 2.75x, NUAI 2.71x, KULR 2.6x, SLSN 2.33x, VTSI 2.0x) |
+| within a quarter | 12 |
+
+Median planned risk, from the same entry price: 2.7% of the price with the book's stop, 4.6% with the tape's
+(ratio per trade: median 1.23, from 0.5 to 2.75). Of the 21 bought longs that are on the tape, 13 had a materially
+different stop. Two things follow. The book's stop usually sat INSIDE the real candle the pattern is built on, so a
+trade could be stopped by prices the pattern itself allows. And the book sizes by its stop distance, so it took a
+larger position than the same pattern read on the tape would have. A class of "existed" below therefore says the
+pattern was there; it does not say the trade taken was the trade the pattern defines.
+
+A registered item left out of the first write-up: for the 4 alerts where today's rule picks the SAME setup on both
+(part B), the tape's stop differs from the feed's by 2% to 11% of the feed's risk; none by more than a quarter.
+
 ### A. The 29 recorded setups
 
 | Class | Setups | of them bought | bought and lost |
