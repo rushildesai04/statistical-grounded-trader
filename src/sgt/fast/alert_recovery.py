@@ -154,7 +154,7 @@ def _start(db: OpsStore, ch: str, top: int) -> tuple[int, bool]:
     written down as a gap, like every other stretch the listener decides not to handle."""
     bad = db.flag(alert_log.CURSOR + ch) is not None        # a value is there and cannot be used
     last = alert_log.last_handled(db, ch)
-    if last is not None and last <= top:
+    if last is not None:                                    # also when it is past the channel's newest message
         if bad:                                             # nothing is passed, but a lost cursor is written down
             alert_log.skip(db, ch, None, last, BAD_CURSOR_ANCHORED, n=0)
         else:

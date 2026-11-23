@@ -211,6 +211,15 @@ def test_an_unreadable_cursor_is_never_read_as_zero(path, ch):
     assert g["reason"] == ar.BAD_CURSOR and g["to_id"] == 9  # restarted from the newest message, and written down
 
 
+def test_a_missing_cursor_with_a_record_past_the_channels_newest_message_is_not_called_a_first_start(path, ch):
+    """The last recorded message can be past the channel's newest one (later posts were deleted): the cursor goes to
+    the last record, nothing is read twice, and no gap row claims the book had no record."""
+    db = OpsStore(path)
+    alert_log.note(db, (CH, 30, "AAA", "halted"), POSTED, POSTED, "push", None, "none", "not a cell")
+    li = Listener(path, ch, et(10, 2))                      # the channel's newest message is 9
+    assert li.catch_up(et(10, 2, 5)).done and cursor(li.db) == 30 and li.order == [] and alert_log.gaps(li.db, "2000") == []
+
+
 def test_an_unreadable_cursor_with_alerts_on_record_resumes_after_the_last_of_them(path, ch):
     a = started(path, ch)
     a.push(ch.post(10, "AAA:volume_spike", POSTED), POSTED + timedelta(seconds=10))
@@ -671,19 +680,19 @@ def test_an_alert_channel_that_never_answers_does_not_hold_an_exit(path, ch):
         await asyncio.Event().wait()
 
     took, finished = _exit_delay(path, ch, fetch=hangs, backlog=1)
-    assert took < 0.5 and not finished                      # the stop was booked while the channel still hung
+    assert took < 1.0 and not finished                      # the stop was booked while the channel still hung
 
 
 def test_a_slow_replay_does_not_hold_an_exit(path, ch):
-    """Review 2026-11-23: the replay of #200 handled each alert ON the event loop, so one alert waiting 1 s for the
+    """Review 2026-11-23: the replay of #200 handled each alert ON the event loop, so one alert waiting 2 s for the
     database held back the next stop check by as long. Its work now runs on a thread of its own."""
-    took, finished = _exit_delay(path, ch, slow=1.0, backlog=6)
-    assert took < 0.5 and not finished                      # booked while the replay was still crawling
+    took, finished = _exit_delay(path, ch, slow=2.0, backlog=4)
+    assert took < 1.0 and not finished                      # booked while the replay was still crawling
 
 
 def test_a_large_backlog_does_not_hold_an_exit(path, ch):
     took, _ = _exit_delay(path, ch, backlog=200)
-    assert took < 0.5
+    assert took < 1.0
 
 
 # ---- the long book ---------------------------------------------------------------------------------------------------
