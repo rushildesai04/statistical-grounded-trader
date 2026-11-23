@@ -225,7 +225,12 @@ class OpsStore:
     def _note_slow(self, wait: float, hold: float, failed: bool, frame) -> None:
         """One line per slow wait or hold, next to the database (bounded; never raises: it runs on trading paths)."""
         try:
+            via = []                            # a store helper (set_flag, audit, ...) is not the answer to "who":
+            while frame.f_back is not None and Path(frame.f_code.co_filename).name == "store.py" and len(via) < 4:
+                via.append(frame.f_code.co_name)    # ... name the code that called it
+                frame = frame.f_back
             who = f"{Path(frame.f_code.co_filename).name}:{frame.f_code.co_name}:{frame.f_lineno}"
+            who += f" via {'/'.join(reversed(via))}" if via else ""
             p = Path(self.path).with_name(WAITS_NAME)
             if p.exists() and p.stat().st_size > WAITS_MAX_BYTES:
                 return
@@ -370,7 +375,9 @@ class OpsStore:
             return [dict(r) for r in c.execute("SELECT * FROM decisions WHERE book=? AND ref=? ORDER BY id", (book, ref))]
 
     def flag(self, key: str, default: str | None = None) -> str | None:
-        with self.tx() as c:
+        """One flag's value. A READ: it takes no write lock (2026-11-23). Every switch the books consult (paused, the
+        off flags, arming) goes through here, on the stop-check path too, and used to queue behind any writer."""
+        with self.read() as c:
             r = c.execute("SELECT value FROM flags WHERE key=?", (key,)).fetchone()
         return r["value"] if r else default
 

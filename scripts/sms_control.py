@@ -340,6 +340,9 @@ def cmd_poll(db: OpsStore) -> int:
     approvals.expire(db, now)
     sms = Sms()
     try:
+        from sgt.ops import watchdog
+
+        watchdog.check(db, sms.send, now)           # 2026-11-23: a silent listener in alert hours is texted (never raises)
         try:
             for m in sms.inbound(max(since, now - LOOKBACK)):
                 with db.tx() as c:

@@ -591,9 +591,11 @@ async def run() -> int:
 
     @client.on(events.NewMessage(chats=CHANNEL))
     async def on_new(ev):
-        if not take(ev.message) and not rec.caught_up:
+        # 2026-11-23 (operational risk review): nothing here touches a database on the event loop any more. The
+        # alert is handled on the alerts thread; the research record (another database) on a pool thread.
+        if not await take(ev.message) and not rec.caught_up:
             wake.set()                         # not caught up yet: the ordered pass will reach it, at once
-        record(ev.message)
+        await asyncio.to_thread(record, ev.message)
 
     async def fetch(after: int, limit: int):   # the oldest ``limit`` messages after ``after``, oldest first
         return await client.get_messages(CHANNEL, min_id=after, limit=limit, reverse=True)
@@ -619,7 +621,7 @@ async def run() -> int:
             except Exception:  # noqa: BLE001 - the check must never stop the listener; logged, tried again
                 log.exception("channel check failed")
             try:
-                every = chan_poll.interval(db.flag(chan_poll.FLAG))
+                every = chan_poll.interval(await alert_recovery.off_loop(db.flag, chan_poll.FLAG))
             except Exception:  # noqa: BLE001 - a busy database must not end this loop
                 every = chan_poll.EVERY
             wake.clear()
@@ -627,12 +629,17 @@ async def run() -> int:
                 await asyncio.wait_for(wake.wait(), pause or alert_recovery.wait_s(rec, every, chan_poll.active(utcnow())))
             except asyncio.TimeoutError:
                 pass
+            except Exception:  # noqa: BLE001 - nothing outside a try in this loop: it must never end (review 2026-11-23)
+                log.exception("channel wait failed")
+                await asyncio.sleep(chan_poll.EVERY)
 
     @client.on(events.MessageEdited(chats=CHANNEL))
     async def on_edit(ev):                     # research excludes edited alerts; the book keeps the trade, flagged
-        with db.tx() as c:
-            c.execute("UPDATE fade_trades SET edited=1 WHERE channel=? AND message_id=?", (str(CHANNEL), ev.message.id))
-        record(ev.message)
+        def mark() -> None:
+            with db.tx() as c:
+                c.execute("UPDATE fade_trades SET edited=1 WHERE channel=? AND message_id=?", (str(CHANNEL), ev.message.id))
+            record(ev.message)
+        await asyncio.to_thread(mark)          # off the event loop (2026-11-23)
 
     async def catch_up():
         while True:
@@ -645,12 +652,24 @@ async def run() -> int:
     real_send = CappedSms(db, "pilot_text", MAX_PILOT_TEXTS_DAY, "real-money")
     real = PilotHandle(db, real_send)          # Schwab real-money pilot; None unless SGT_PILOT_SCHWAB=1
 
+    # 2026-11-23 (operational risk review, sgt.ops.own_thread): the two books' passes run on threads of their own,
+    # so a stop check can never wait for a worker the research loops hold; and every pass that starts late is
+    # written down for the nightly line.
+    from sgt.ops import own_thread
+
+    ops_dir = Path(db.path).parent
+    short_thread, long_thread = own_thread.OwnThread("short-book"), own_thread.OwnThread("long-book")
+    short_pace, long_pace = own_thread.Pace(ops_dir, "short book", TICK), own_thread.Pace(ops_dir, "long book", LONG_EVERY)
+
+    def short_pass() -> None:                  # the pace is taken at every stop check, not once a pass
+        fade.monitor(db, send, quote, None, book.lookup, context, news_check, beta_check, rec.up_since,
+                     short_pace.start)
+
     async def loop():
         n = 0
         while True:
             try:
-                await asyncio.to_thread(fade.monitor, db, send, quote, None, book.lookup, context, news_check,
-                                        beta_check, rec.up_since)
+                await short_thread.run(short_pass)
             except Exception:  # noqa: BLE001 - keep the loop alive, log the stack
                 log.exception("monitor failed")
             try:
@@ -668,6 +687,10 @@ async def run() -> int:
     if not await client.is_user_authorized():
         raise SystemExit("fade session not authorized; run `fade_live.py login` on the Mac")
     rec.up_since = utcnow()                    # anything posted before this moment was posted while we were away
+    try:                                       # how long the book had been silent before this start (a crash shows)
+        own_thread.note_restart(ops_dir, await alert_recovery.off_loop(db.flag, "fade_heartbeat"), rec.up_since)
+    except Exception:  # noqa: BLE001 - a note; the listener starts regardless
+        log.exception("restart not noted")
     log.info("listening on %s", CHANNEL)
     sc = data_client()                          # scanner: own connection, own loop (never delays the fade's stops)
     scan_quote, scan_state = iex_quote(sc), ScanState()
@@ -688,10 +711,13 @@ async def run() -> int:
     async def long_loop():
         from sgt.fast import long_book
 
+        def long_pass() -> None:
+            long_book.tick(db, lambda sym, now: live_bars(lc, sym, now), long_send,
+                           None, arm_send, None, rec.up_since, long_pace.start)   # armed text. No text for the trend-hold exit
+
         while True:
             try:
-                await asyncio.to_thread(long_book.tick, db, lambda sym, now: live_bars(lc, sym, now), long_send,
-                                        None, arm_send, None, rec.up_since)   # armed text. No text for the trend-hold exit
+                await long_thread.run(long_pass)
                 # (owner 2026-11-19: too many messages): it is still recorded and shown in the nightly summary.
             except Exception:  # noqa: BLE001 - the long book must never stop the listener; logged
                 log.exception("long book failed")

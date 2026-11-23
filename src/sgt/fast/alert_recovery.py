@@ -117,16 +117,21 @@ def dispatch(db: OpsStore, msg, how: str, to_alerts, on_alert=None, now=utcnow) 
 
 
 def pushed(state: State, handle):
-    """The handler of the PUSH path: ``take(message)`` hands a message to ``handle(message, "push")`` once, and only
-    when the ordered pass has caught up. Before that it only asks for another ordered pass, which will reach the
-    message in its place in the channel's order. Returns whether it was dispatched here."""
-    def take(message) -> bool:
+    """The handler of the PUSH path: ``await take(message)`` hands a message to ``handle(message, "push")`` once, and
+    only when the ordered pass has caught up. Before that it only asks for another ordered pass, which will reach the
+    message in its place in the channel's order. Returns whether it was dispatched here.
+
+    2026-11-23: the handling itself runs on the alerts thread (``off_loop``), not on the event loop. Until then a
+    pushed alert was handled ON the loop, as it always had been: its database write could wait for the lock, and for
+    that long no other loop's next pass could be scheduled, the stop checks included. One thread for the push path
+    and the ordered pass also means two alerts are never handled at the same time."""
+    async def take(message) -> bool:
         if not state.caught_up:
             state.kick = True
             return False
         if not state.seen.add(message.id):
             return False
-        handle(message, "push")
+        await off_loop(handle, message, "push")
         return True
     return take
 
@@ -134,7 +139,11 @@ def pushed(state: State, handle):
 _POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="alerts")   # the ordered pass's database work
 
 
-async def _off_loop(fn, *args, **kw):
+class PagingError(RuntimeError):
+    """The channel answered a request for "the oldest N after X" with something else."""
+
+
+async def off_loop(fn, *args, **kw):
     """Run blocking work of the ordered pass on its own thread, never on the event loop and never on the shared
     worker pool. Review 2026-11-23 (owner: "an unreachable alert channel, slow replay, or large backlog must not block
     monitoring or exits"): the event loop schedules every other loop of the listener, the stop checks of open trades
@@ -200,15 +209,15 @@ async def ordered_pass(db: OpsStore, state: State, fetch, handle, newest, before
     posted before ``t`` (None when there is none). The cursor moves one message at a time and only when
     ``alert_log.advance`` finds every alert of the message on record; a failure of the channel or the database
     raises out of here with the cursor wherever it last was, and the next pass starts from it. Everything that
-    touches the database runs off the event loop (``_off_loop``)."""
+    touches the database runs off the event loop (``off_loop``)."""
     out, ch = Pass(), state.channel
-    cur = await _off_loop(alert_log.cursor, db, ch)
+    cur = await off_loop(alert_log.cursor, db, ch)
     if cur is None:
         top = await newest()
         if not isinstance(top, int) or top <= 0:
             out.done = True                                 # an empty channel: nothing to anchor on yet
             return out
-        cur, more = await _off_loop(_start, db, ch, top)
+        cur, more = await off_loop(_start, db, ch, top)
         if not more:
             out.done = True
             return out
@@ -220,16 +229,24 @@ async def ordered_pass(db: OpsStore, state: State, fetch, handle, newest, before
         if not msgs:
             out.done = True
             break
+        if len(got) >= want > 1:
+            # A full page: there may be more behind it, so the page MUST start at the oldest message after the
+            # cursor, or everything between would be passed unread. Asked, not assumed (2026-11-23: the library's
+            # paging was read from its source and seen once in production; this makes a wrong answer an error
+            # with the cursor untouched instead of a silent skip). One small request, only when a page is full.
+            head = [m.id for m in await fetch(cur, 1) if isinstance(getattr(m, "id", None), int) and m.id > cur]
+            if head and min(head) != msgs[0].id:
+                raise PagingError(f"page after {cur} starts at {msgs[0].id}, the oldest message after it is {min(head)}")
         t = now()
         first = _posted(msgs[0])
         if first is not None and t - first > HORIZON:       # a backlog too old to matter: one recorded jump
             edge = await before(t - HORIZON)
             if isinstance(edge, int) and edge > cur:
-                await _off_loop(_jump, db, ch, cur, edge, first)
+                await off_loop(_jump, db, ch, cur, edge, first)
                 cur, out.skipped = edge, out.skipped + 1
                 continue
         for m in msgs:
-            did = await _off_loop(_step, db, state, handle, m, cur, t)
+            did = await off_loop(_step, db, state, handle, m, cur, t)
             if did == "stuck":
                 out.stuck = m.id
                 return out
@@ -259,12 +276,12 @@ async def catch_up(db: OpsStore, state: State, fetch, handle, newest, before, no
             if not (out.done and state.kick):
                 break
     except Exception as exc:
-        await _off_loop(_tell, db, state, False, error=type(exc).__name__)   # the caller logs and retries
+        await off_loop(_tell, db, state, False, error=type(exc).__name__)   # the caller logs and retries
         raise
     state.caught_up = total.done
-    await _off_loop(_tell, db, state, total.done, stuck=total.stuck)
+    await off_loop(_tell, db, state, total.done, stuck=total.stuck)
     if total.recovered or total.skipped:
-        await _off_loop(_audit, db, "alert_replay", channel=state.channel, handled=total.handled,
+        await off_loop(_audit, db, "alert_replay", channel=state.channel, handled=total.handled,
                         recovered=total.recovered, skipped=total.skipped, done=total.done)
         log.warning("alert catch-up: %d messages handled (%d posted while the listener was down), %d passed "
                     "unhandled and written down, %s", total.handled, total.recovered, total.skipped,

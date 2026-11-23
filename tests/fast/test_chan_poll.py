@@ -146,4 +146,10 @@ def test_the_listener_runs_the_check_and_the_shorter_intervals():
     # 2026-11-19: a failing alert is logged AND audited, one by one; the other alerts of the message still go through
     rsrc = Path(fl.__file__).resolve().parents[1].joinpath("src/sgt/fast/alert_recovery.py").read_text()
     assert rsrc.count('_audit(db, "alert_failed"') == 2 and "continue" in rsrc.split("did = on_alert(db, a, t)")[1][:400]
-    assert "rec.up_since = utcnow()" in src and "beta_check, rec.up_since)" in src
+    assert "rec.up_since = utcnow()" in src and "beta_check, rec.up_since," in src
+    # 2026-11-23 (operational risk review): no database work on the event loop; the books on threads of their own
+    assert "await take(ev.message)" in src and "await asyncio.to_thread(record, ev.message)" in src
+    assert "await asyncio.to_thread(mark)" in src and "await alert_recovery.off_loop(db.flag, chan_poll.FLAG)" in src
+    assert "await short_thread.run(short_pass)" in src and "await long_thread.run(long_pass)" in src
+    assert "asyncio.to_thread(fade.monitor" not in src and "asyncio.to_thread(long_book.tick" not in src
+    assert 'log.exception("channel wait failed")' in src            # nothing outside a try in the channel loop

@@ -81,7 +81,7 @@ class Listener:
 
     def push(self, m, at=None):
         self.clock = at or self.clock
-        return ar.pushed(self.state, self.handle)(m)
+        return asyncio.run(ar.pushed(self.state, self.handle)(m))
 
 
 class Tape:
@@ -536,7 +536,7 @@ def test_a_long_backlog_is_read_in_pages_oldest_first_and_new_alerts_wait_their_
     ch.calls.clear()
     out = b.catch_up(et(10, 2, 5))
     assert (out.handled, out.done) == (ar.MAX_PER_PASS, False) and not b.state.caught_up and cursor(b.db) == 209
-    assert ch.calls == [(9, 100), (109, 100)]               # two pages, then the pass's bound
+    assert ch.calls == [(9, 100), (9, 1), (109, 100), (109, 1)]   # two full pages, each checked to start at the oldest
     live = ch.post(300, "AAA:volume_spike", et(10, 2, 6))
     assert not b.push(live, et(10, 2, 7)) and b.state.kick and rows(b.db) == []     # not before the backlog
     assert ar.wait_s(b.state, 15, True) == ar.BEHIND_EVERY
@@ -546,6 +546,30 @@ def test_a_long_backlog_is_read_in_pages_oldest_first_and_new_alerts_wait_their_
     assert len(events(b.db)) == 251 and rows(b.db)[0]["via"] == "poll" and gaps(b.db) == []
     assert ar.wait_s(b.state, 15, True) == 15 and ar.wait_s(b.state, 15, False) == ar.OFF_EVERY
     assert ar.wait_s(b.state, 0, True) == ar.OFF_EVERY      # the fast check switched off: the cursor still moves
+
+
+def test_a_channel_that_answers_a_full_page_with_the_newest_messages_is_an_error_not_a_silent_skip(path, ch):
+    """The ordered pass asks for "the oldest 100 after the cursor". If the channel (or the library) ever answered a
+    backlog with the NEWEST 100, handling them would move the cursor past everything older, unread. A full page is
+    therefore checked against the oldest message after the cursor; a wrong page stops the pass, cursor untouched."""
+    started(path, ch)
+    for i in range(150):
+        ch.post(10 + i, f"S{i}:halted", et(9, 50) + timedelta(seconds=i))
+    b = Listener(path, ch, et(10, 2))
+
+    async def newest_first(after, limit):                   # a full page of the 100 NEWEST; one message asked: the oldest
+        got = [ch.msgs[i] for i in sorted(ch.msgs) if i > after]
+        return got[-limit:] if limit > 1 else got[:1]
+
+    b.ch = type("C", (), {"fetch": staticmethod(newest_first), "newest": ch.newest, "before": ch.before})()
+    with pytest.raises(ar.PagingError):
+        b.catch_up(et(10, 2, 5))
+    assert cursor(b.db) == 9 and b.order == [] and not b.state.caught_up            # nothing handled, nothing passed
+    later = datetime.now(timezone.utc) + ar.BEHIND_WARN
+    assert "catch-up NOT complete since " in ar.clause(b.db, "2026-11-02", now=later) and "(PagingError)" in ar.clause(
+        b.db, "2026-11-02", now=later)
+    b.ch = ch                                               # the channel answers properly again: nothing was lost
+    assert b.catch_up(et(10, 2, 9)).done and cursor(b.db) == 159 and [i for i, _ in b.order] == list(range(10, 160))
 
 
 def test_deleted_messages_and_holes_in_the_ids_need_no_special_case(path, ch):
@@ -699,9 +723,98 @@ def test_a_slow_replay_does_not_hold_an_exit(path, ch):
     assert took < 1.0 and not finished                      # booked while the replay was still crawling
 
 
+def test_a_pushed_alert_whose_database_write_is_slow_does_not_hold_an_exit(path, ch):
+    """Until 2026-11-23 a pushed alert was handled ON the event loop: while its write waited for the database no other
+    loop's next pass could be scheduled. Here the push takes 2 s; the stop of the open short is still booked at once."""
+    a = started(path, ch)
+    a.push(ch.post(10, "AAA:volume_spike", POSTED), POSTED + timedelta(seconds=10))
+    tape, sent = Tape(5.0, et(10, 1, 2)), []
+    fade.monitor(a.db, sent.append, tape, now=et(10, 1, 5), up_since=a.state.up_since)
+
+    def slow(m, how):
+        time.sleep(2.0)
+        return a.handle(m, how)
+
+    async def run():
+        async def monitor_loop():
+            while True:
+                await asyncio.to_thread(fade.monitor, a.db, sent.append, tape, et(10, 10), None, None, None, None,
+                                        a.state.up_since)
+                await asyncio.sleep(0.02)
+
+        mon = asyncio.create_task(monitor_loop())
+        push = asyncio.create_task(ar.pushed(a.state, slow)(ch.post(11, "BBB:volume_spike", et(10, 9, 50))))
+        await asyncio.sleep(0.15)                           # the push is being handled
+        tape.px, tape.at, t0 = 6.5, et(10, 9, 58), time.monotonic()
+        while rows(a.db)[0]["status"] != "est_closed":
+            assert time.monotonic() - t0 < 5, "the exit was never booked"
+            await asyncio.sleep(0.01)
+        took, pending = time.monotonic() - t0, not push.done()
+        mon.cancel()
+        assert await push                                   # and the pushed alert is handled, once
+        return took, pending
+
+    took, pending = asyncio.run(run())
+    assert took < 1.0 and pending and [r["symbol"] for r in rows(a.db)] == ["AAA", "BBB"]
+
+
 def test_a_large_backlog_does_not_hold_an_exit(path, ch):
     took, _ = _exit_delay(path, ch, backlog=200)
     assert took < 1.0
+
+
+def test_the_stop_of_an_open_short_is_checked_before_any_waiting_alert_is_worked_on(path, ch):
+    """Red-team 2026-11-23, reproduced: the pass walked every row in id order on one thread. A waiting alert's lookups
+    (news, beta, quote, halt check: seconds each when the feed is slow, repeated every pass for up to five minutes)
+    ran BEFORE the stop check of an open position with a higher id."""
+    a = started(path, ch)
+    for i, sym in enumerate(("WAIT1", "WAIT2", "WAIT3")):                           # three alerts still waiting to enter
+        a.push(ch.post(10 + i, f"{sym}:volume_spike", et(10, 8, 20)), et(10, 8, 30))
+    a.push(ch.post(20, "HELD:volume_spike", et(10, 8, 21)), et(10, 8, 31))          # the open short has the HIGHEST id
+    with a.db.tx() as c:
+        c.execute("UPDATE fade_trades SET status='open', est_entry=5.0, est_last=5.0, est_entry_at=? WHERE symbol='HELD'",
+                  (iso(et(10, 9, 5)),))
+    asked, sent = [], []
+
+    def quote(symbol, since=None):
+        asked.append(symbol)
+        if symbol != "HELD":
+            time.sleep(0.3)                                 # a slow feed, as in a halt
+            return None
+        return 6.5                                          # through the 20% stop
+    quote.since_aware = True
+    t0 = time.monotonic()
+    fade.monitor(a.db, sent.append, quote, now=et(10, 9, 30), up_since=a.state.up_since)
+    assert asked[0] == "HELD" and time.monotonic() - t0 >= 0.9                      # first, before 0.9 s of waiting rows
+    held = next(r for r in rows(a.db) if r["symbol"] == "HELD")
+    assert held["status"] == "est_closed" and len(sent) == 1
+
+
+def test_open_shorts_are_checked_again_while_a_long_run_of_waiting_alerts_is_worked_on(path, ch, monkeypatch):
+    a = started(path, ch)
+    for i in range(6):
+        a.push(ch.post(10 + i, f"WAIT{i}:volume_spike", et(10, 8, 20)), et(10, 8, 30))
+    a.push(ch.post(20, "HELD:volume_spike", et(10, 8, 21)), et(10, 8, 31))
+    with a.db.tx() as c:
+        c.execute("UPDATE fade_trades SET status='open', est_entry=5.0, est_last=5.0, est_entry_at=? WHERE symbol='HELD'",
+                  (iso(et(10, 9, 5)),))
+    monkeypatch.setattr(fade, "SWEEP_EVERY", 0.25)
+    asked, sweeps, px = [], [], [5.1]
+
+    def quote(symbol, since=None):
+        asked.append(symbol)
+        if symbol != "HELD":
+            time.sleep(0.1)
+            if len(asked) == 3:
+                px[0] = 6.5                                 # the stock goes through the stop in the MIDDLE of the pass
+            return None
+        return px[0]
+    quote.since_aware = True
+    fade.monitor(a.db, lambda t: None, quote, now=et(10, 9, 30), up_since=a.state.up_since,
+                 on_sweep=lambda: sweeps.append(len(asked)))
+    assert len(sweeps) >= 2 and asked.count("HELD") == 2    # checked at the start, and again 0.25 s into the entries
+    assert asked.index("HELD", 1) < len(asked) - 1          # ... before the last waiting alert was worked on
+    assert next(r for r in rows(a.db) if r["symbol"] == "HELD")["status"] == "est_closed"   # closed: not checked a third time
 
 
 # ---- the long book ---------------------------------------------------------------------------------------------------
@@ -831,3 +944,30 @@ def test_record_only_changes_nothing_for_the_other_rules_or_for_an_alert_handled
     assert got["OLD"] == ("skipped", "alert received late", "replay")               # the late rule still names it
     assert got["NWS"] == ("filtered", fade.NEWS_REASON, "replay")                   # a rule's filter still names it
     assert got["NEW"][0] == "pending" and got["NEW"][2] == "poll"                   # not a replay: untouched
+
+
+def test_open_longs_are_checked_before_candidates_are_read_and_again_only_when_one_was_opened(tmp_path, one_minute_setups):
+    """Red-team 2026-11-23: each candidate costs a bar request, and the exit check of the open longs ran after all
+    of them. It now runs first; the check at the end of the pass stays for a long opened in that pass."""
+    db, sent, asked, sweeps = OpsStore(tmp_path / "ops.db"), [], [], []
+    ap.arm(db, T1.to_pydatetime())
+    long_alert(db)                                          # ABCD: a candidate that fills at 15:03
+    with db.tx() as c:                                      # and an open long on another stock, from an earlier alert
+        fid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                        "created_at) VALUES ('HELD','2026-11-09','volume_spike','2026-11-09T14:30:20+00:00',?,5,'skipped',"
+                        "'2026-11-09T14:30:30+00:00')", (CH,)).lastrowid
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, entry_ts, "
+                  "est_entry, est_last, created_at, rules) VALUES (?,'HELD','2026-11-09','L4b','open',10.55,10.2,11.25,0.01,"
+                  "'2026-11-09T14:33:00+00:00',10.55,10.55,'2026-11-09T14:34:00+00:00','A2')", (fid,))
+
+    def bars(sym, at):
+        asked.append(sym)
+        return LONG_DAY
+
+    now = (T1 + pd.Timedelta(minutes=3)).to_pydatetime()
+    assert lb.tick(db, bars, sent.append, now=now, on_sweep=lambda: sweeps.append(len(asked))) == 1
+    assert asked[0] == "HELD"                               # the open long first, before the candidate's bars
+    assert sweeps[0] == 0 and len(sweeps) == 2              # ... and once more because a long was opened in this pass
+    sweeps.clear()
+    lb.tick(db, bars, sent.append, now=now + timedelta(seconds=15), on_sweep=lambda: sweeps.append(1))
+    assert len(sweeps) == 1                                 # nothing opened: one check a pass, as before

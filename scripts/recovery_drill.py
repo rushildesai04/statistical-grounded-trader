@@ -105,7 +105,7 @@ def listen(d: Path) -> int:
         while True:
             rows = _lines(d / "push.jsonl")
             for r in rows[seen:]:
-                take(message(r))
+                await take(message(r))
             seen = len(rows)
             await asyncio.sleep(TICK / 4)
 
