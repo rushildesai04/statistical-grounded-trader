@@ -28,6 +28,7 @@ class Kind:
     per: str = "trade"          # what ``ev`` is the average of: one trade, or one day held (a model call is one day)
     caveat: str | None = None   # what the tested figure cannot claim (audit 2026-11-15); shown under the score
     stopped: str | None = None  # a pre-registered stop rule has tripped: NO-GO whatever the tested average says
+    verdict: bool = True        # False: this average cannot carry a GO / NO-GO (it is not of trades that can be placed)
 
 
 def _alert(key: str, label: str, book: str, n: int) -> Kind:
@@ -65,19 +66,47 @@ def kind_of(strategy: str, side: str) -> str:
     return "yardstick"
 
 
+FADE_CAVEAT = ("No GO / NO-GO: this average is of EVERY alert priced the way the backtest prices it, including shorts that "
+               "could not have been placed (no shares to borrow, or the short-sale price test). It is not the result of "
+               "the trades this book can make.")
+
+
+def _placeable(db: OpsStore) -> str:
+    """What the shorts with no exclusion flag made on real quotes (the nightly ledger), as a sentence; "" when the
+    ledger cannot be read. Strategy review 2026-11-23: the card said GO on the strength of an average those trades
+    do not share."""
+    try:
+        from sgt.fast import exec_book
+
+        b = exec_book.summary(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl")["short"]
+        if b["modeled"]:
+            return (f" On real quotes the {b['modeled']} past shorts with no exclusion flag made {b['model']:+.1%} a "
+                    f"trade; {b['unresolved']} more could not be priced as placeable.")
+    except Exception:  # noqa: BLE001 - the score must never fail a page or a text
+        pass
+    return ""
+
+
 def _fade_now(db: OpsStore | None) -> Kind:
-    """The fade's expectation today: its tested average, replaced by the forward record while the drift guard is in
-    alarm (the tested number is then known to be stale). An unreadable record never improves the expectation."""
-    k = KINDS["fade"]
+    """The fade's figure today: its tested average, replaced by the forward record while the drift guard is in alarm
+    (the tested number is then known to be stale). An unreadable record never improves the expectation.
+
+    Strategy review 2026-11-23: neither figure carries a verdict. Both are averages over every alert, placeable or
+    not, and the forward record's +1.0% over 105 alerts was -1.0% without its five best trades, while the shorts that
+    could be placed lost on real quotes. A card must not say GO on that. The verdict is advice on the page and never
+    was a trading gate; removing it changes no trade."""
+    k = replace(KINDS["fade"], verdict=False, caveat=FADE_CAVEAT)
     if db is None:
         return k
+    k = replace(k, caveat=FADE_CAVEAT + _placeable(db))
     try:
         r = live_monitor.check_forward(db)
     except Exception:  # noqa: BLE001 - the score must never fail a page or a text; the tested figure stands
         return k
     if r.get("alarms") and r.get("n"):
         return Kind(k.key, k.label, float(r["mean"]), k.sd, float(r["win"]), int(r["n"]),
-                    f"forward record of {int(r['n'])} alerts (drift guard in alarm; tested {k.ev:+.1%})")
+                    f"forward record of {int(r['n'])} alerts, every alert whether or not it could be shorted "
+                    f"(drift guard in alarm; tested {KINDS['fade'].ev:+.1%})", caveat=k.caveat, verdict=False)
     return k
 
 
@@ -117,7 +146,8 @@ def for_trade(kind: str, dollars: float | None, sigma: float | None = None, db: 
     return {"kind": k.key, "label": k.label, "ev": k.ev, "sd": sd, "size": size,
             "usd": None if k.ev is None or size is None else k.ev * size,
             "swing": None if sd is None or size is None else sd * size,
-            "win": k.win, "n": k.n, "go": None if k.ev is None else bool(k.ev > 0 and not k.stopped), "basis": k.basis,
+            "win": k.win, "n": k.n,
+            "go": None if k.ev is None or not k.verdict else bool(k.ev > 0 and not k.stopped), "basis": k.basis,
             "per": k.per, "caveat": k.caveat, "stopped": k.stopped}
 
 
@@ -140,4 +170,6 @@ def line(s: dict) -> str | None:
              else f"{s['ev']:+.2%} per {'day' if day else 'trade'}")
     swing = f" (swing about ${s['swing']:,.0f})" if s.get("swing") is not None else ""
     stop = f" ({s['stopped']})" if s.get("stopped") else ""
+    if s.get("go") is None:                 # an average that cannot carry a verdict (see FADE_CAVEAT)
+        return f"average {money}{swing}: no GO / NO-GO (not an average of placeable trades)"
     return f"expected {money}{swing}: {'GO' if s['go'] else 'NO-GO'}{stop}"

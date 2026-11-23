@@ -35,14 +35,14 @@ def test_alert_kinds_quote_the_same_expectation_their_monitor_judges():
     assert long["usd"] == pytest.approx(-0.0209 * 4_956) and long["swing"] == pytest.approx(book.std * 4_956)
     assert score.line(long) == "expected -$104 (swing about $310): NO-GO"
     fade = score.for_trade("fade", 4_823)
-    assert fade["ev"] == 0.0170 and fade["go"] is True              # no db: the tested figure
+    assert fade["ev"] == 0.0170 and fade["go"] is None              # no db: the tested figure, and no verdict on it
 
 
 def test_the_fade_uses_its_forward_record_while_the_guard_is_in_alarm(tmp_path, monkeypatch):
     db = OpsStore(tmp_path / "ops.db")
     monkeypatch.setattr(live_monitor, "check_forward", lambda d: {"alarms": ["win rate"], "n": 73, "mean": -0.018, "win": 0.45})
     s = score.for_trade("fade", 5_000, db=db)
-    assert s["go"] is False and s["ev"] == -0.018 and s["usd"] == pytest.approx(-90) and s["n"] == 73
+    assert s["go"] is None and s["ev"] == -0.018 and s["usd"] == pytest.approx(-90) and s["n"] == 73
     assert "drift guard in alarm" in s["basis"] and "tested +1.7%" in s["basis"]
     monkeypatch.setattr(live_monitor, "check_forward", lambda d: {"alarms": [], "n": 73, "mean": -0.018, "win": 0.45})
     assert score.for_trade("fade", 5_000, db=db)["ev"] == 0.0170                 # no alarm: tested
@@ -59,7 +59,7 @@ def test_unknown_kind_or_size_is_never_a_silent_go():
 
 def test_resize_keeps_the_kind_and_rescales_the_dollars():
     one = score.for_trade("fade", None)
-    assert one["usd"] is None and one["swing"] is None and one["go"] is True
+    assert one["usd"] is None and one["swing"] is None and one["go"] is None
     s = score.resize(one, 4_823)
     assert s["usd"] == pytest.approx(0.0170 * 4_823) and s["swing"] == pytest.approx(0.1735 * 4_823) and s["size"] == 4_823
     assert score.resize(one, None)["usd"] is None and one["usd"] is None           # the original is not changed
@@ -110,3 +110,27 @@ def test_the_model_long_score_says_it_was_not_confirmed_on_unseen_stocks():
     assert k.ev == 0.0025 and k.n == 3448
     assert "Not confirmed on unseen stocks" in k.caveat and "+0.15%" in k.caveat
     assert "unseen" not in (score.KINDS["model_short"].caveat or "")
+
+
+def test_the_short_card_never_says_go_on_an_average_of_trades_that_could_not_all_be_placed(tmp_path, monkeypatch):
+    """Strategy review 2026-11-23. The short cards said GO because the forward record of 105 alerts averaged +1.0%.
+    That record prices EVERY alert the way the backtest does, including shorts with no shares to borrow or under the
+    price test; without its five best trades it was -1.0%, and the 15 shorts with no exclusion flag had made -8.9% a
+    trade on real quotes. The card now shows the average with no verdict, says what it is an average of, and puts
+    the placeable trades' result beside it. The verdict was advice on a page, never a gate: no trade changes."""
+    import json
+
+    db = OpsStore(tmp_path / "reports" / "ops" / "ops.db")
+    monkeypatch.setattr(live_monitor, "check_forward", lambda d: {"alarms": ["win rate"], "n": 105, "mean": 0.0105, "win": 0.50})
+    led = tmp_path / "reports" / "exec_model" / "ledger.jsonl"
+    led.parent.mkdir(parents=True)
+    led.write_text("".join(json.dumps({"book": "short", "id": i, "session": "2026-11-12", "label": lab,
+                                       "model": {"net": net}, "orig": {"net": net}}) + "\n"
+                           for i, (lab, net) in enumerate([("MODELED", -0.10), ("MODELED", -0.08), ("UNRESOLVED", 0.3)])))
+    s = score.for_trade("fade", 1_250, db=db)
+    assert s["go"] is None and s["ev"] == 0.0105 and s["usd"] == pytest.approx(13.125)
+    assert "every alert whether or not it could be shorted" in s["basis"]
+    assert s["caveat"].startswith("No GO / NO-GO: this average is of EVERY alert")
+    assert "the 2 past shorts with no exclusion flag made -9.0% a trade; 1 more could not be priced" in s["caveat"]
+    assert score.line(s) == "average +$13 (swing about $217): no GO / NO-GO (not an average of placeable trades)"
+    assert score.for_trade("alert_long", 500)["go"] is False                      # other kinds keep their verdict
