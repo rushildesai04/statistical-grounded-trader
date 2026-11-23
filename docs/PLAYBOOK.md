@@ -899,6 +899,18 @@ night it cannot finish is texted and caught up on the next run.
   reason "recovered after a restart: recorded, not entered". It stays an event (repeat rule, long book). Why: the
   registered rule enters at the first bar after the alert; nothing authorizes an entry after downtime, and F5 showed
   late entries are a worse bet. Alerts handled live are untouched. Changing it back is a trading-rule decision.
+- **Operational risks reviewed adversarially, 2026-11-23 (`docs/findings/ops_risk_register_2026-11-23.md`: every
+  risk with its path, class, evidence and status; effective versions v107 to v110).** Fixed: (1) a waiting alert's
+  slow lookups delayed the stop check of open positions in the same pass (reproduced by an independent red-team):
+  open positions are now checked FIRST in every pass and again every 10 s (shorts) / 15 s (longs) while entries are
+  worked on; (2) alert handling, edits and flag reads did database work on the event loop: all off it; (3) flag
+  reads took the write lock: now reads; (4) the two books' passes run on threads of their own; (5) a listener
+  silent in session was unnoticed until 20:50 ET: the per-minute job now texts after 3 minutes (a failure notice,
+  at most 6 a day) and the nightly line gains `stop checks:` (late checks, restarts in alert hours); (6) a wrong
+  page from the channel is an error, not a silent skip; (7) rule-version labels now name the restart rules. OPEN:
+  the database's write lock in session hours (holds of 0.44 to 0.65 s seen on a quiet night; first session data Mon
+  11-23 20:50 ET); an alert received late WITHOUT a restart still enters by the old late rule (a specification/code
+  discrepancy: owner's decision, not changed); a real replay with posts and a backlog over 100 not yet seen live.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has
