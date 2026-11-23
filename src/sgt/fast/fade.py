@@ -36,7 +36,7 @@ from sgt.fast.fade_texts import (CONF, CONF_LABEL, CONF_MAX, EXIT_WHY, FILING_HI
                                  _qty, _usd, ask_text, borrow_note, confidence, news_group, out_text, signals_line,
                                  tod_hist)
 from sgt.intraday.calendar import default_calendar
-from sgt.ops import approvals
+from sgt.ops import alert_log, approvals
 from sgt.ops.sms_style import italic
 from sgt.ops.store import OpsStore, iso, utcnow
 
@@ -90,6 +90,10 @@ REPEAT_REASON = "alerted in the prior 7 days (multi-day runner, amendment F8)"
 NO_PRINT_REASON = "no trade print within 5 min (halted or no quote)"
 # Skips that show the alert had no tested entry bar (not an event); "no quote within 5 min" is the pre-11-09 wording.
 NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed before entry")
+# Listener recovery 2026-11-22: the stock DID trade in the tested entry bar, but no print came after the listener was
+# back (a recovered alert, or a restart with the alert waiting). An operational skip, like "alert received late": the
+# alert stays an event (F8 and the long book count it); it is not evidence of a halt, so it is not in NOT_EVENT_SKIPS.
+RESTART_NO_PRINT = "no trade print after the restart within 5 min of the alert"
 # Owner 2026-11-12 night (option A after the adversarial validation): new shorts OFF. The November forward record lost
 # -3.44%/trade (win 39%, n 61; a 9-session stretch of held-out days is this bad 1.1% of the time) and two independent
 # checks found no code or backtest bias; owner: shorting is deprioritized (borrowed shares, unlimited loss, margin).
@@ -160,6 +164,8 @@ class LiveAlert:
     channel: str
     message_id: int
     has_news: bool | None = None
+    via: str | None = None                      # "push" | "poll" | "replay" (sgt.fast.alert_recovery); None = unknown
+    recovered_at: datetime | None = None        # set for a replay: when the catch-up found it (tz-aware)
 
 
 # The rule set a decision was made under, stored on every line of the decision record (audit 2026-11-22). Change it
@@ -168,26 +174,47 @@ RULE_VERSION = "fade 2026-11-21: F6 no-news, F7 beta<3 (unknown = no short), F8 
 RECORDED = ("status", "reason", "news_own", "beta")     # a row update that touches one of these is a decision
 
 
+ALREADY = -1                                    # _insert: the alert is already on record (handled before)
+
+
 def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, now: datetime) -> int | None:
+    """The alert's row and its durable identifier (``alert_log``), in ONE transaction: either both are stored or
+    neither. Returns the row id, None for a second alert of a stock that already has a live row today (recorded,
+    no row), or ALREADY when this very alert was handled before (a second delivery: nothing is written)."""
     w = trade_weight(db) * drift_scale(db) if status in ("pending", "ask") else None   # fixed at entry; settle uses it
+    k, rec = alert_log.key(a), a.recovered_at
     with db.tx() as c:
+        if alert_log.find(c, k) is not None:
+            return ALREADY
         if status != "filtered" and c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND "
                                               "status!='filtered'", (a.symbol, session)).fetchone():
             db_dup = True
+            alert_log.put(c, k, a.posted_at, now, a.via, rec, alert_log.DUPLICATE,
+                          "the stock already has a live alert today", None)
         else:
             db_dup = False
             rid = c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status,"
-                            " reason, weight, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            " reason, weight, created_at, via, recovered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                             (a.symbol, session, a.alert_type, iso(a.posted_at), a.channel, a.message_id, status, reason,
-                             w, iso(now))).lastrowid
+                             w, iso(now), a.via, iso(rec) if rec else None)).lastrowid
+            alert_log.put(c, k, a.posted_at, now, a.via, rec, status, reason, rid)
+    how = {"via": a.via, "recovered_at": iso(rec) if rec else None,                  # the replay label, on the record
+           "recovered_age_s": round((rec - a.posted_at).total_seconds(), 1) if rec else None}
     if db_dup:      # the stock already has a live row today: no second trade, but the alert is on the record
         db.decide("short", None, a.symbol, None, "duplicate", "the stock already has a live alert today", RULE_VERSION,
-                  alert_type=a.alert_type, posted_at=iso(a.posted_at), received_at=iso(now), message_id=a.message_id)
+                  alert_type=a.alert_type, posted_at=iso(a.posted_at), received_at=iso(now), message_id=a.message_id,
+                  **how)
         return None
     db.decide("short", rid, a.symbol, None, status, reason or None, RULE_VERSION, alert_type=a.alert_type,
               posted_at=iso(a.posted_at), received_at=iso(now), received_after_s=round((now - a.posted_at).total_seconds(), 1),
-              weight=w)
+              weight=w, **how)
     return rid
+
+
+def _no_row(db: OpsStore, a: LiveAlert, now: datetime, what: str) -> str:
+    """An alert that gets no row by design (not a tested kind, a closed day): still on the durable record, once."""
+    alert_log.note(db, alert_log.key(a), a.posted_at, now, a.via, a.recovered_at, alert_log.NONE, what)
+    return what
 
 
 def day_est_pnl(db: OpsStore, session: str) -> float:
@@ -258,16 +285,27 @@ def prior_alert(db: OpsStore, symbol: str, day: date) -> str | None:
 
 
 def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
-    """Classify one parsed alert. Returns what happened (for logs); texts nothing (``monitor`` does)."""
+    """Classify one parsed alert. Returns what happened (for logs); texts nothing (``monitor`` does).
+
+    Handled exactly once (2026-11-22): the alert's durable identifier is written with its row, so a second delivery
+    of the same alert (push and poll, a replay after a restart, a retry) changes nothing and says so. A recovered
+    alert (``a.via == "replay"``) goes through the SAME rules with the real ``now``: recovery decides nothing about
+    trading. Older than MAX_ENTRY_DELAY it is "alert received late", as any late alert always was."""
     now = now or utcnow()
     if a.posted_at.tzinfo is None:
         raise ValueError("naive posted_at")
+    if a.recovered_at is not None and a.recovered_at.tzinfo is None:
+        raise ValueError("naive recovered_at")
+    with db.read() as c:
+        done = alert_log.find(c, alert_log.key(a))
+    if done is not None:
+        return f"already handled ({done['status']})"
     if a.alert_type not in CELLS or (a.alert_type == "news" and a.has_news is not True):
-        return "not a cell"
+        return _no_row(db, a, now, "not a cell")
     et = a.posted_at.astimezone(ET)
     session = et.date().isoformat()
     if not default_calendar().is_session(et.date()):
-        return "not a session"
+        return _no_row(db, a, now, "not a session")
     entry_et = entry_start(a.posted_at).astimezone(ET).time()     # the tested entry bar's minute (09:30-15:44)
     last = last_entry(et.date())
     if not FIRST_ENTRY <= entry_et <= last:
@@ -293,6 +331,8 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     else:
         status, reason = "pending", VETO
     rid = _insert(db, a, session, status, reason, now)
+    if rid == ALREADY:
+        return "already handled"
     if rid is None:
         return "duplicate symbol-session"
     return f"skipped: {reason}" if status == "skipped" else f"{status} #{rid}"
@@ -300,9 +340,10 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
 
 def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None,
             context: Callable[[str], dict] | None = None, news: NewsCheck | None = None,
-            beta: BetaCheck | None = None) -> None:
+            beta: BetaCheck | None = None, up_since: datetime | None = None) -> None:
     """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
-    open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event."""
+    open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event.
+    ``up_since``: when this listener came up; an entry never uses a print older than it (``_floor``)."""
     now = now or utcnow()
     db.set_flag("fade_heartbeat", iso(now))
     with db.tx() as c:
@@ -311,7 +352,8 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borro
         try:
             if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
                 r = _stamp(db, r, borrow(r["symbol"], now))
-            _advance(db, send, quote, r, now, context, news, beta, need_borrow=borrow is not None)
+            _advance(db, send, quote, r, now, context, news, beta, need_borrow=borrow is not None,
+                     up_since=up_since)
         except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
             log.exception("fade row %s failed", r["id"])
 
@@ -334,12 +376,12 @@ def record(db: OpsStore) -> tuple[int, float | None]:
 
 
 def _advance(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
-             beta: BetaCheck | None = None, need_borrow: bool = False) -> None:
+             beta: BetaCheck | None = None, need_borrow: bool = False, up_since: datetime | None = None) -> None:
     """``need_borrow``: the book has a borrow source (the listener always does), so the borrow rule applies."""
     if r["status"] == "ask":
-        _ask(db, send, quote, r, now, context, news, beta, need_borrow)
+        _ask(db, send, quote, r, now, context, news, beta, need_borrow, up_since)
     elif r["status"] == "pending":
-        _enter(db, send, quote, r, now, context, news, beta, need_borrow)
+        _enter(db, send, quote, r, now, context, news, beta, need_borrow, up_since)
     else:
         _exit(db, send, quote, r, now)
 
@@ -351,7 +393,7 @@ def _approval(db: OpsStore, rid: int):
 
 
 def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
-         beta: BetaCheck | None = None, need_borrow: bool = False) -> None:
+         beta: BetaCheck | None = None, need_borrow: bool = False, up_since: datetime | None = None) -> None:
     """Text one approval request per event; an approved request becomes a pending entry (same tick)."""
     posted = datetime.fromisoformat(r["posted_at"])
     deadline = posted + MAX_ENTRY_DELAY - ASK_MARGIN
@@ -387,7 +429,7 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
         if _set(db, r["id"], "ask", status="pending", reason="approved"):  # the owner's OK: no at-entry gates
             # borrow is not a preference: an approved short still needs shares (2026-11-16)
             _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "approved"}, now, context,
-                   need_borrow=need_borrow)
+                   need_borrow=need_borrow, up_since=up_since)
         return
     if a["status"] == "rejected":
         _set(db, r["id"], "ask", status="skipped", reason="declined")
@@ -412,11 +454,22 @@ def _ask(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news:
         _set(db, r["id"], "ask", status="skipped", reason="approval no longer open")
     elif _set(db, r["id"], "ask", status="pending", reason="auto"):
         _enter(db, send, quote, {**dict(r), "status": "pending", "reason": "auto"}, now, context, news, beta,
-               need_borrow)
+               need_borrow, up_since)
+
+
+def _floor(r, start: datetime, up_since: datetime | None) -> datetime:
+    """The earliest print a short entry may use: the tested entry bar's start and, never earlier, the moment this
+    listener could act on the alert: when the alert was recovered (a replay) and when the process came up. Listener
+    recovery 2026-11-22 (owner: "never use a historical price as an executable entry"): after a restart the latest
+    print can be minutes old, from before the bot knew of the alert or was running. For an alert handled live both
+    are before ``start``, so nothing changes."""
+    rec = r["recovered_at"] if "recovered_at" in r.keys() else None
+    marks = [t for t in (datetime.fromisoformat(rec) if rec else None, up_since) if t is not None]
+    return max([start, *marks])
 
 
 def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, news: NewsCheck | None = None,
-           beta: BetaCheck | None = None, need_borrow: bool = False) -> None:
+           beta: BetaCheck | None = None, need_borrow: bool = False, up_since: datetime | None = None) -> None:
     posted = datetime.fromisoformat(r["posted_at"])
     start = entry_start(posted)
     if now < start:
@@ -437,10 +490,20 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         if _high_beta(db, r, b):
             return
         no_beta = b is None                           # owner 2026-11-21: unknown beta is no short (BETA_UNKNOWN)
-    px = quote(r["symbol"], since=start) if getattr(quote, "since_aware", False) else quote(r["symbol"])
+    aware, floor = getattr(quote, "since_aware", False), _floor(r, start, up_since)
+    late = floor > start                            # recovered, or the listener restarted, inside the entry bar or after
+    over = now - posted > MAX_ENTRY_DELAY
+    if late and (over or not aware):
+        # After a restart the entry window is never stretched: a row that waited through the 5 minutes while the
+        # listener was down is not entered on the first print it sees afterwards (before 2026-11-22 it was, however
+        # late). And a quote that cannot prove its time is never a restart entry.
+        px = None
+    else:
+        px = quote(r["symbol"], since=floor) if aware else quote(r["symbol"])
     if px is None or not px > 0:
-        if now - posted > MAX_ENTRY_DELAY:          # the tested rule: no bar within 5 minutes -> no trade (halts)
-            _set(db, r["id"], "pending", status="skipped", reason=NO_PRINT_REASON)
+        if over:                                    # the tested rule: no bar within 5 minutes -> no trade (halts)
+            traded = late and (not aware or (quote(r["symbol"], since=start) or 0) > 0)   # it printed; we were away
+            _set(db, r["id"], "pending", status="skipped", reason=RESTART_NO_PRINT if traded else NO_PRINT_REASON)
         return
     if not PRICE_MIN <= px <= PRICE_MAX:
         _set(db, r["id"], "pending", status="filtered", reason=f"price {_fmt(px)} outside $1-50")

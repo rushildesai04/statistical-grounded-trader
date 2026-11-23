@@ -138,8 +138,12 @@ def test_the_listener_runs_the_check_and_the_shorter_intervals():
     src = Path(fl.__file__).read_text()
     assert fl.LONG_EVERY == 15 and fl.TAPE_EVERY == 30 and fl.TICK == 10
     assert "asyncio.create_task(channel_loop())" in src
-    # 2026-11-19: one "seen" check per message. The push path goes through the guard; the poll gets the work itself.
-    assert "take = chan_poll.pushed(poll_state, dispatch)" in src and "take(ev.message)" in src
-    assert 'lambda m: dispatch(m, "poll")' in src and 'take(m, "poll")' not in src
-    # 2026-11-19: a message is marked seen before dispatch runs, so a failing alert is logged AND audited, one by one
-    assert src.count('db.audit("alert_failed"') == 2 and "did = fade.on_alert(db, a)" in src and "continue" in src.split("did = fade.on_alert(db, a)")[1][:400]
+    # 2026-11-19: one "seen" check per message. The push path goes through the guard; the ordered pass gets the work
+    # itself. 2026-11-22: both now live in sgt.fast.alert_recovery (durable cursor; tests/fast/test_alert_recovery.py)
+    assert "take = alert_recovery.pushed(rec, dispatch)" in src and "take(ev.message)" in src
+    assert "alert_recovery.catch_up(db, rec, fetch, dispatch, newest, before)" in src and "poll_once" not in src
+    assert "reverse=True" in src.split("async def fetch(")[1][:300]     # oldest first: a backlog is never cut at its old end
+    # 2026-11-19: a failing alert is logged AND audited, one by one; the other alerts of the message still go through
+    rsrc = Path(fl.__file__).resolve().parents[1].joinpath("src/sgt/fast/alert_recovery.py").read_text()
+    assert rsrc.count('_audit(db, "alert_failed"') == 2 and "continue" in rsrc.split("did = on_alert(db, a, t)")[1][:400]
+    assert "rec.up_since = utcnow()" in src and "beta_check, rec.up_since)" in src
