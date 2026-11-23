@@ -28,7 +28,7 @@ class Kind:
     per: str = "trade"          # what ``ev`` is the average of: one trade, or one day held (a model call is one day)
     caveat: str | None = None   # what the tested figure cannot claim (audit 2026-11-15); shown under the score
     stopped: str | None = None  # a pre-registered stop rule has tripped: NO-GO whatever the tested average says
-    verdict: bool = True        # False: this average cannot carry a GO / NO-GO (it is not of trades that can be placed)
+    verdict: bool = True        # False: this average cannot carry a GO / NO-GO (it covers alerts the book did not or could not trade)
 
 
 def _alert(key: str, label: str, book: str, n: int) -> Kind:
@@ -67,21 +67,27 @@ def kind_of(strategy: str, side: str) -> str:
 
 
 FADE_CAVEAT = ("No GO / NO-GO: this average is of EVERY alert priced the way the backtest prices it, including shorts that "
-               "could not have been placed (no shares to borrow, or the short-sale price test). It is not the result of "
-               "the trades this book can make.")
+               "carry an exclusion flag (no listed shares to borrow, or the short-sale price test). It is not the result "
+               "of the trades this book enters.")
 
 
-def _placeable(db: OpsStore) -> str:
+def _no_flag(db: OpsStore) -> str:
     """What the shorts with no exclusion flag made on real quotes (the nightly ledger), as a sentence; "" when the
     ledger cannot be read. Strategy review 2026-11-23: the card said GO on the strength of an average those trades
-    do not share."""
+    do not share.
+
+    Corrected the same day: "no exclusion flag", never "placeable" (no broker approved or filled anything), and only
+    the trades of BEFORE the registered sample (``exec_book.REVIEW_FROM``): a fixed historical figure. The sample's
+    own average is read by ``exec_book.review`` at its fixed counts and is not put on a card as a running number."""
     try:
         from sgt.fast import exec_book
 
-        b = exec_book.summary(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl")["short"]
+        b = exec_book.summary(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl",
+                              before=exec_book.REVIEW_FROM)["short"]
         if b["modeled"]:
-            return (f" On real quotes the {b['modeled']} past shorts with no exclusion flag made {b['model']:+.1%} a "
-                    f"trade; {b['unresolved']} more could not be priced as placeable.")
+            return (f" On real quotes the {b['modeled']} shorts of before {exec_book.REVIEW_FROM} with no exclusion "
+                    f"flag made {b['model']:+.1%} a trade; {b['unresolved']} more carry a flag and are not in that "
+                    f"average. No flag does not mean a broker would have filled it.")
     except Exception:  # noqa: BLE001 - the score must never fail a page or a text
         pass
     return ""
@@ -91,14 +97,14 @@ def _fade_now(db: OpsStore | None) -> Kind:
     """The fade's figure today: its tested average, replaced by the forward record while the drift guard is in alarm
     (the tested number is then known to be stale). An unreadable record never improves the expectation.
 
-    Strategy review 2026-11-23: neither figure carries a verdict. Both are averages over every alert, placeable or
-    not, and the forward record's +1.0% over 105 alerts was -1.0% without its five best trades, while the shorts that
-    could be placed lost on real quotes. A card must not say GO on that. The verdict is advice on the page and never
+    Strategy review 2026-11-23: neither figure carries a verdict. Both are averages over every alert, flagged or
+    not, and the forward record's +1.0% over 105 alerts was -1.0% without its five best trades, while the 15 earlier
+    shorts with no exclusion flag lost on real quotes. A card must not say GO on that. The verdict is advice on the page and never
     was a trading gate; removing it changes no trade."""
     k = replace(KINDS["fade"], verdict=False, caveat=FADE_CAVEAT)
     if db is None:
         return k
-    k = replace(k, caveat=FADE_CAVEAT + _placeable(db))
+    k = replace(k, caveat=FADE_CAVEAT + _no_flag(db))
     try:
         r = live_monitor.check_forward(db)
     except Exception:  # noqa: BLE001 - the score must never fail a page or a text; the tested figure stands
@@ -171,5 +177,5 @@ def line(s: dict) -> str | None:
     swing = f" (swing about ${s['swing']:,.0f})" if s.get("swing") is not None else ""
     stop = f" ({s['stopped']})" if s.get("stopped") else ""
     if s.get("go") is None:                 # an average that cannot carry a verdict (see FADE_CAVEAT)
-        return f"average {money}{swing}: no GO / NO-GO (not an average of placeable trades)"
+        return f"average {money}{swing}: no GO / NO-GO (an average of every alert, not of the trades entered)"
     return f"expected {money}{swing}: {'GO' if s['go'] else 'NO-GO'}{stop}"

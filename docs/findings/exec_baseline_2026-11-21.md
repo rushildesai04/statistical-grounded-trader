@@ -290,6 +290,11 @@ line reports it mechanically. The thresholds are the ones first written this day
 ledger (priced at 1 s latency, no exclusion flag), in the order they were made. The review reads the FIRST N of them,
 never a later window. Flagged, NO TRADE and unpriceable trades are reported beside it and never counted.
 
+> Note added 2026-11-23, no rule changed: "nothing in this audit has seen them" was true on 2026-11-21. From the
+> sample's first session its trades are seen as they happen (dashboard, texts) and losses are reviewed; that is
+> operational visibility. What stays forbidden is changing a rule, the sample or a criterion on what is seen, and
+> acting on any number other than the ones below at their fixed counts.
+
 **Average and lower bound.** The average is the plain mean of the modeled results. Its lower bound is the 10th
 percentile of the means of 10,000 resamples of whole SESSIONS (seed 20261123): trades of one day move together, so
 days are resampled, not trades. With fewer than two sessions there is no bound and a book cannot be kept.

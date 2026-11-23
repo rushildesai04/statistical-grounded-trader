@@ -78,13 +78,14 @@ def _num(x) -> float | None:
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) else None
 
 
-def summary(path: Path = LEDGER, since: str | None = None) -> dict:
-    """Per book: trades in the ledger (sessions from ``since``), the MODELED ones (the baseline), their average under
+def summary(path: Path = LEDGER, since: str | None = None, before: str | None = None) -> dict:
+    """Per book: trades in the ledger (sessions from ``since``, and earlier than ``before``), the MODELED ones (the baseline), their average under
     the model and in the original record, the stress average (stops at their minute's extreme), and how many are
     UNRESOLVED."""
     out = {}
     for book in BOOKS:
-        rs = [r for r in rows(path) if r["book"] == book and (since is None or str(r.get("session") or "") >= since)]
+        rs = [r for r in rows(path) if r["book"] == book and (since is None or str(r.get("session") or "") >= since)
+              and (before is None or str(r.get("session") or "") < before)]
         mod = [(m, o, sx) for r in rs if r.get("label") == "MODELED"
                for m, o, sx in [(_num((r.get("model") or {}).get("net")), _num((r.get("orig") or {}).get("net")),
                                  _num((r.get("model") or {}).get("stress_extreme_net")))] if m is not None]

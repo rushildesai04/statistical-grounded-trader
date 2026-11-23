@@ -112,12 +112,15 @@ def test_the_model_long_score_says_it_was_not_confirmed_on_unseen_stocks():
     assert "unseen" not in (score.KINDS["model_short"].caveat or "")
 
 
-def test_the_short_card_never_says_go_on_an_average_of_trades_that_could_not_all_be_placed(tmp_path, monkeypatch):
+def test_the_short_card_never_says_go_on_an_average_that_includes_flagged_shorts(tmp_path, monkeypatch):
     """Strategy review 2026-11-23. The short cards said GO because the forward record of 105 alerts averaged +1.0%.
     That record prices EVERY alert the way the backtest does, including shorts with no shares to borrow or under the
     price test; without its five best trades it was -1.0%, and the 15 shorts with no exclusion flag had made -8.9% a
     trade on real quotes. The card now shows the average with no verdict, says what it is an average of, and puts
-    the placeable trades' result beside it. The verdict was advice on a page, never a gate: no trade changes."""
+    the result of the earlier shorts with no exclusion flag beside it. The verdict was advice on a page, never a gate:
+    no trade changes. Corrected the same day: the card never says "placeable" (nothing was approved or filled by a
+    broker), and it quotes only trades of BEFORE the registered sample, so the sample's running average is not on a
+    card before its fixed counts."""
     import json
 
     db = OpsStore(tmp_path / "reports" / "ops" / "ops.db")
@@ -126,11 +129,15 @@ def test_the_short_card_never_says_go_on_an_average_of_trades_that_could_not_all
     led.parent.mkdir(parents=True)
     led.write_text("".join(json.dumps({"book": "short", "id": i, "session": "2026-11-12", "label": lab,
                                        "model": {"net": net}, "orig": {"net": net}}) + "\n"
-                           for i, (lab, net) in enumerate([("MODELED", -0.10), ("MODELED", -0.08), ("UNRESOLVED", 0.3)])))
+                           for i, (lab, net) in enumerate([("MODELED", -0.10), ("MODELED", -0.08), ("UNRESOLVED", 0.3)]))
+                   + json.dumps({"book": "short", "id": 9, "session": "2026-11-23", "label": "MODELED",          # the sample
+                                 "model": {"net": 0.50}, "orig": {"net": 0.50}}) + "\n")
     s = score.for_trade("fade", 1_250, db=db)
     assert s["go"] is None and s["ev"] == 0.0105 and s["usd"] == pytest.approx(13.125)
     assert "every alert whether or not it could be shorted" in s["basis"]
     assert s["caveat"].startswith("No GO / NO-GO: this average is of EVERY alert")
-    assert "the 2 past shorts with no exclusion flag made -9.0% a trade; 1 more could not be priced" in s["caveat"]
-    assert score.line(s) == "average +$13 (swing about $217): no GO / NO-GO (not an average of placeable trades)"
+    assert ("the 2 shorts of before 2026-11-23 with no exclusion flag made -9.0% a trade; 1 more carry a flag and are not "
+            "in that average. No flag does not mean a broker would have filled it.") in s["caveat"]
+    assert "placeable" not in (s["caveat"] + score.line(s)).lower()
+    assert score.line(s) == "average +$13 (swing about $217): no GO / NO-GO (an average of every alert, not of the trades entered)"
     assert score.for_trade("alert_long", 500)["go"] is False                      # other kinds keep their verdict
