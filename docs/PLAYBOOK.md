@@ -922,6 +922,13 @@ night it cannot finish is texted and caught up on the next run.
   stops duplicates but NOT a text lost when the process dies right after a state change (open limitation: nothing
   records it). Late receipt: 9 of 29 past shorts reached the book after their tested entry minute began, 2 entered
   over 60 s into it; owner's decision, not to be taken on cohort returns. No check runs from outside the machine.
+- **Follow-ups, cohort day 1 (`docs/findings/ops_followups_2026-11-23.md`).** #204 merged Mon 10:52 ET in session:
+  it deploys after the close (the script refuses session hours). First production numbers, 09:30 to 10:53 ET on
+  v110: no write waited 0.25 s, one held the lock 0.30 s (the beta table at the open), no late stop check, no
+  restart; 34 alerts, receipt delay median 10 s, none over 60 s. Prepared, inactive: an outside probe for a dead
+  machine (one call a minute to a monitoring service; owner's account and one secret; reported free). Cache: the
+  1.8 GB of minute bars is the daily models' registered training data, not disposable; proposal is to delete
+  nothing, warn at 70% and grow the volume. Unresolved on purpose: a text lost on a crash; late-receipt entries.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

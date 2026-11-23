@@ -363,6 +363,13 @@ def cmd_poll(db: OpsStore) -> int:
                          "marked FAILED. Check STATUS / the broker.")
     finally:
         sms.close()
+        try:                                        # 2026-11-23: the outside probe (off until its address is set)
+            from sgt.fast import chan_poll
+            from sgt.ops import deadman, watchdog
+
+            deadman.ping(ok=not (chan_poll.active(now) and watchdog.silent(db, now)))
+        except Exception:  # noqa: BLE001 - never breaks the control job
+            log.exception("outside probe failed")
     return 0
 
 
