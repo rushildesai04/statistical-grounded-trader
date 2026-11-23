@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,6 +51,8 @@ TOO_OLD = "older than {d} days when the listener came back: it can change no rul
 UNREADABLE = "the message could not be read as alerts"
 GAVE_UP = "an alert of the message could not be handled after {n} tries"
 BAD_CURSOR = "the cursor could not be read: restarted from the newest message"
+BAD_CURSOR_ANCHORED = "the cursor could not be read: restarted from the last message on record (nothing passed)"
+FIRST_START = "first start with no alert on record: nothing before the newest message is read"
 
 
 @dataclass
@@ -127,6 +131,67 @@ def pushed(state: State, handle):
     return take
 
 
+_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="alerts")   # the ordered pass's database work
+
+
+async def _off_loop(fn, *args, **kw):
+    """Run blocking work of the ordered pass on its own thread, never on the event loop and never on the shared
+    worker pool. Review 2026-11-23 (owner: "an unreachable alert channel, slow replay, or large backlog must not block
+    monitoring or exits"): the event loop schedules every other loop of the listener, the stop checks of open trades
+    included. Handling an alert writes to the database, and a write can wait for the lock: done on the loop (as the
+    replay of #200 did), a slow replay held back the next stop check for as long. One thread of its own also means
+    the replay never takes a worker the monitors need."""
+    return await asyncio.get_running_loop().run_in_executor(_POOL, functools.partial(fn, *args, **kw))
+
+
+def _start(db: OpsStore, ch: str, top: int) -> tuple[int, bool]:
+    """Set the cursor where there is none; returns (cursor, True when messages after it are still to be read).
+
+    The last message the book has ANY record of is the anchor: everything after it is read and handled, so an alert
+    posted during the very restart that first runs this code, or pushed while the cursor is being set, is not
+    discarded (review 2026-11-23; #200 anchored on the channel's newest message, which assumed all of it handled).
+    Only a book with no record at all starts at the newest message, and then the interval it does not read is
+    written down as a gap, like every other stretch the listener decides not to handle."""
+    bad = db.flag(alert_log.CURSOR + ch) is not None        # a value is there and cannot be used
+    last = alert_log.last_handled(db, ch)
+    if last is not None:                                    # also when it is past the channel's newest message
+        if bad:                                             # nothing is passed, but a lost cursor is written down
+            alert_log.skip(db, ch, None, last, BAD_CURSOR_ANCHORED, n=0)
+        else:
+            alert_log.baseline(db, ch, last)
+        _audit(db, "alert_cursor_start", channel=ch, message_id=last, newest=top, anchored="last handled")
+        return last, last < top
+    alert_log.skip(db, ch, None, top, BAD_CURSOR if bad else FIRST_START)
+    _audit(db, "alert_cursor_start", channel=ch, message_id=top, newest=top, anchored="newest")
+    return top, False
+
+
+def _step(db: OpsStore, state: State, handle, m, cur: int, t: datetime) -> str:
+    """One message through the book and the cursor past it (blocking: runs off the event loop). Returns "handled",
+    "recovered", "skipped" (passed with a gap row) or "stuck" (an alert of it is not on record; the cursor stays)."""
+    ch = state.channel
+    how = "replay" if (_posted(m) or t) < state.up_since else "poll"
+    keys = handle(m, how)
+    if keys is None:                                        # unreadable: nothing to retry, written down, passed
+        alert_log.skip(db, ch, cur, m.id, UNREADABLE, n=1)
+        _audit(db, "alert_gap", channel=ch, from_id=cur, to_id=m.id, why="unreadable")
+        return "skipped"
+    if alert_log.advance(db, ch, m.id, keys):
+        return "recovered" if how == "replay" else "handled"
+    n = state.tries[m.id] = state.tries.get(m.id, 0) + 1    # an alert of the message is not on record
+    if n < TRIES:
+        return "stuck"                                      # the cursor stays; the next pass tries again, in order
+    lost = [(k, _posted(m) or t, t, how, t if how == "replay" else None) for k in keys]
+    bad = alert_log.skip(db, ch, cur, m.id, GAVE_UP.format(n=TRIES), n=1, failed=lost)   # one transaction
+    _audit(db, "alert_gap", channel=ch, from_id=cur, to_id=m.id, why="failed", symbols=bad)
+    return "skipped"
+
+
+def _jump(db: OpsStore, ch: str, cur: int, edge: int, first: datetime) -> None:
+    alert_log.skip(db, ch, cur, edge, TOO_OLD.format(d=HORIZON.days), first_posted=iso(first))
+    _audit(db, "alert_gap", channel=ch, from_id=cur, to_id=edge, why="horizon")
+
+
 async def ordered_pass(db: OpsStore, state: State, fetch, handle, newest, before, now=utcnow) -> Pass:
     """One pass from the durable cursor towards the newest message, oldest first.
 
@@ -134,21 +199,19 @@ async def ordered_pass(db: OpsStore, state: State, fetch, handle, newest, before
     ``dispatch``'s result; ``newest()`` -> the newest message's id; ``before(t)`` -> the id of the newest message
     posted before ``t`` (None when there is none). The cursor moves one message at a time and only when
     ``alert_log.advance`` finds every alert of the message on record; a failure of the channel or the database
-    raises out of here with the cursor wherever it last was, and the next pass starts from it."""
+    raises out of here with the cursor wherever it last was, and the next pass starts from it. Everything that
+    touches the database runs off the event loop (``_off_loop``)."""
     out, ch = Pass(), state.channel
-    cur = alert_log.cursor(db, ch)
-    if cur is None:                                         # first start with a cursor: nothing older is replayed
+    cur = await _off_loop(alert_log.cursor, db, ch)
+    if cur is None:
         top = await newest()
         if not isinstance(top, int) or top <= 0:
             out.done = True                                 # an empty channel: nothing to anchor on yet
             return out
-        if db.flag(alert_log.CURSOR + ch) is not None:      # a value was there and cannot be used: say so
-            alert_log.skip(db, ch, None, top, BAD_CURSOR)
-        else:
-            alert_log.baseline(db, ch, top)
-        _audit(db, "alert_cursor_baseline", channel=ch, message_id=top)
-        out.done = True
-        return out
+        cur, more = await _off_loop(_start, db, ch, top)
+        if not more:
+            out.done = True
+            return out
     while out.handled + out.skipped < MAX_PER_PASS:
         want = min(PAGE, MAX_PER_PASS - out.handled - out.skipped)
         got = list(await fetch(cur, want))
@@ -162,32 +225,20 @@ async def ordered_pass(db: OpsStore, state: State, fetch, handle, newest, before
         if first is not None and t - first > HORIZON:       # a backlog too old to matter: one recorded jump
             edge = await before(t - HORIZON)
             if isinstance(edge, int) and edge > cur:
-                alert_log.skip(db, ch, cur, edge, TOO_OLD.format(d=HORIZON.days), first_posted=iso(first))
-                _audit(db, "alert_gap", channel=ch, from_id=cur, to_id=edge, why="horizon")
+                await _off_loop(_jump, db, ch, cur, edge, first)
                 cur, out.skipped = edge, out.skipped + 1
                 continue
         for m in msgs:
-            how = "replay" if (_posted(m) or t) < state.up_since else "poll"
-            keys = handle(m, how)
-            if keys is None:                                # unreadable: nothing to retry, written down, passed
-                alert_log.skip(db, ch, cur, m.id, UNREADABLE, n=1)
-                _audit(db, "alert_gap", channel=ch, from_id=cur, to_id=m.id, why="unreadable")
-                out.skipped += 1
-            elif alert_log.advance(db, ch, m.id, keys):
-                out.handled, out.recovered = out.handled + 1, out.recovered + (how == "replay")
-            else:                                           # an alert of the message is not on record
-                n = state.tries[m.id] = state.tries.get(m.id, 0) + 1
-                if n < TRIES:
-                    out.stuck = m.id
-                    return out                              # the cursor stays; the next pass tries again, in order
-                lost = [(k, _posted(m) or t, t, how, t if how == "replay" else None) for k in keys]
-                bad = alert_log.skip(db, ch, cur, m.id, GAVE_UP.format(n=TRIES), n=1, failed=lost)   # one transaction
-                _audit(db, "alert_gap", channel=ch, from_id=cur, to_id=m.id, why="failed", symbols=bad)
-                out.skipped += 1
+            did = await _off_loop(_step, db, state, handle, m, cur, t)
+            if did == "stuck":
+                out.stuck = m.id
+                return out
+            out.handled += did in ("handled", "recovered")
+            out.recovered += did == "recovered"
+            out.skipped += did == "skipped"
             state.tries.pop(m.id, None)
             state.seen.add(m.id)
             cur = m.id
-            await asyncio.sleep(0)                          # a long backlog must not starve the other loops
         if len(got) < want:                                 # a short page: that was the channel's newest message
             out.done = True
             break
@@ -208,13 +259,13 @@ async def catch_up(db: OpsStore, state: State, fetch, handle, newest, before, no
             if not (out.done and state.kick):
                 break
     except Exception as exc:
-        _tell(db, state, False, error=type(exc).__name__)   # the caller logs and retries; the cursor is unchanged
+        await _off_loop(_tell, db, state, False, error=type(exc).__name__)   # the caller logs and retries
         raise
     state.caught_up = total.done
-    _tell(db, state, total.done, stuck=total.stuck)
+    await _off_loop(_tell, db, state, total.done, stuck=total.stuck)
     if total.recovered or total.skipped:
-        _audit(db, "alert_replay", channel=state.channel, handled=total.handled, recovered=total.recovered,
-               skipped=total.skipped, done=total.done)
+        await _off_loop(_audit, db, "alert_replay", channel=state.channel, handled=total.handled,
+                        recovered=total.recovered, skipped=total.skipped, done=total.done)
         log.warning("alert catch-up: %d messages handled (%d posted while the listener was down), %d passed "
                     "unhandled and written down, %s", total.handled, total.recovered, total.skipped,
                     "complete" if total.done else "NOT complete")
@@ -286,7 +337,7 @@ def clause(db: OpsStore, session: str, cohort_from: str | None = None, now: date
     messages it did not handle, or when an alert was given up on. Never raises."""
     try:
         a = account(db, session, session)
-        gaps = alert_log.gaps(db, session)
+        gaps = alert_log.gaps(db, session, session + "\uffff")
         try:
             st = json.loads(db.flag(STATE_FLAG) or "{}")
         except ValueError:
@@ -302,9 +353,9 @@ def clause(db: OpsStore, session: str, cohort_from: str | None = None, now: date
                 when = f" since {since:%H:%M} UTC" if since else ""
                 bad.append(f"catch-up NOT complete{when} ({what})")
         if gaps:
-            ids = ", ".join(f"{g['from_id']}..{g['to_id']}" for g in gaps[:3]) + ("…" if len(gaps) > 3 else "")
+            ids = "; ".join(f"{g['from_id']}..{g['to_id']}: {g['reason']}" for g in gaps[:3]) + ("…" if len(gaps) > 3 else "")
             bad.append(f"{len(gaps)} stretch{'es' if len(gaps) != 1 else ''} of the channel NOT handled "
-                       f"(message ids {ids}: {gaps[0]['reason']})")
+                       f"(message ids {ids})")
         lost = alert_log.failed(db, session, session + "\uffff")   # however they arrived, not only replays
         if lost:
             bad.append(f"{lost} alerts failed")

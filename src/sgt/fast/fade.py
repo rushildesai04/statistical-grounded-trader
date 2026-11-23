@@ -186,6 +186,10 @@ def _insert(db: OpsStore, a: LiveAlert, session: str, status: str, reason: str, 
     with db.tx() as c:
         if alert_log.find(c, k) is not None:
             return ALREADY
+        old = alert_log.legacy_row(c, k)
+        if old is not None:      # its row exists without an identifier (an older build wrote it): handled, never twice
+            alert_log.put(c, k, a.posted_at, now, None, None, old["status"], alert_log.LEGACY, old["id"])
+            return ALREADY
         if status != "filtered" and c.execute("SELECT 1 FROM fade_trades WHERE symbol=? AND session=? AND "
                                               "status!='filtered'", (a.symbol, session)).fetchone():
             db_dup = True
@@ -308,18 +312,17 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
         return _no_row(db, a, now, "not a session")
     entry_et = entry_start(a.posted_at).astimezone(ET).time()     # the tested entry bar's minute (09:30-15:44)
     last = last_entry(et.date())
+    def put(status: str, reason: str, what: str) -> str:
+        return "already handled" if _insert(db, a, session, status, reason, now) == ALREADY else what
+
     if not FIRST_ENTRY <= entry_et <= last:
-        _insert(db, a, session, "filtered", f"outside 09:30-{last:%H:%M}", now)
-        return "filtered: window"
+        return put("filtered", f"outside 09:30-{last:%H:%M}", "filtered: window")
     if NO_NEWS and a.alert_type == "news":                         # amendment F6 (owner 2026-11-09)
-        _insert(db, a, session, "filtered", NEWS_REASON, now)
-        return "filtered: news"
+        return put("filtered", NEWS_REASON, "filtered: news")
     if NO_REPEAT and prior_alert(db, a.symbol, et.date()) is not None:     # amendment F8 (owner 2026-11-12)
-        _insert(db, a, session, "filtered", REPEAT_REASON, now)
-        return "filtered: repeat"
+        return put("filtered", REPEAT_REASON, "filtered: repeat")
     if now - a.posted_at > MAX_ENTRY_DELAY:
-        _insert(db, a, session, "skipped", "alert received late", now)
-        return "skipped: late"
+        return put("skipped", "alert received late", "skipped: late")
     if db.paused():
         reason, status = "paused", "skipped"
     elif (reason := caps(db, session)) is not None:

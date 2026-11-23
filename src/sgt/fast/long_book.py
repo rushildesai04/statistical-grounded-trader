@@ -375,8 +375,12 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             s, t = hit
             since = live_from(row, up_since)
-            if pd.Timestamp(now) - t.entry_ts > LIVE_LAG or (since is not None and t.entry_ts < since):
-                _insert(db, row, s, t, "missed", now)
+            stale = pd.Timestamp(now) - t.entry_ts > LIVE_LAG
+            if stale or (since is not None and t.entry_ts < since):
+                # the decision line says which rule made it "missed", so the restart rule's cases can be counted
+                why = "fill older than 5 min when seen" if stale else "fill candle began before the listener was back"
+                _insert(db, row, s, t, "missed", now, missed_why=why,
+                        live_since=iso(since.to_pydatetime()) if since is not None else None)
                 log.info("long %s %s filled %s, before the book saw it: missed", row["symbol"], s.kind, t.entry_ts)
                 continue
             if costly(row["symbol"], t):                   # owner 2026-11-20: not bought, not texted, scored nightly
@@ -440,7 +444,8 @@ def _arm(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool, arm
         log.exception("armed text for %s failed", row["id"])
 
 
-def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime) -> bool:
+def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime,
+            **facts) -> bool:
     v = nav(db)
     w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
     rules = RULES_BASE if s is not None and s.kind == "L8" else RULES
@@ -458,7 +463,7 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
                   trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
                   entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
                   decided_at=iso(now), posted_at=row.get("posted_at"), via=row.get("via"),
-                  recovered_at=row.get("recovered_at"))
+                  recovered_at=row.get("recovered_at"), **facts)
     return done
 
 

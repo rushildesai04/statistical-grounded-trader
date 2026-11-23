@@ -14,7 +14,7 @@ deployed. All trading stays on paper. No entry rule, exit rule, gate or size was
 | Can an alert be handled twice? | No. Each alert has a durable identifier written in the same transaction as its row. A second delivery finds it and writes nothing. |
 | Can the listener skip an alert without saying so? | No. The cursor passes an unhandled message only together with a row in `alert_gaps`, and the nightly line warns. |
 | What changed for an alert handled live? | Nothing in what the books do. One extra small write per message (the cursor) and one row per alert in the new identifier table. |
-| First start after this deploy | Sets the cursor at the channel's newest message. Nothing older is replayed. Recovery works from the second start on. |
+| First start after this deploy | Set the cursor at the channel's newest message; nothing older was replayed (v108, 2026-11-22 23:24 ET; the interval is written down in `recovery_verification_2026-11-23.md`, section 3). Corrected in the follow-up: a missing cursor now starts after the last message on record. |
 
 ## 1. How it works
 
@@ -71,6 +71,12 @@ Three things were made STRICTER, all only when a restart is involved:
 
 For an alert handled live, both marks lie before the alert, so `_floor` returns the bar's start and `live_from`
 changes nothing (test `test_an_alert_handled_live_enters_exactly_as_before`).
+
+> **Correction, 2026-11-23 (post-merge verification, `recovery_verification_2026-11-23.md`, section 1).** The
+> paragraph below says the existing rules define eligibility for both books. For the SHORT book that was too strong:
+> the registered rule's five minutes bounds how late the first tradable bar may be, the code also uses it as a
+> tolerance for late receipt, and amendment F5 withdrew late entries on evidence. It is ambiguous. A record-only
+> safeguard for recovered shorts is prepared as its own change for the owner's review. The long book is defined.
 
 **Owner's call, stated plainly.** The brief says: if the existing rules do not define recovery eligibility, record
 without entering. They do define it for both books (the late rule and the entry window for the short; the watch
