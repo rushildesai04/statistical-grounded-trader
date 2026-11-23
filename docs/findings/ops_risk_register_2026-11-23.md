@@ -11,11 +11,17 @@ Classes used: **DEMONSTRATED** (reproduced in a test or on the runner), **PLAUSI
 **CANNOT OCCUR** (shown, with the reason), **NOT APPLICABLE WHILE PAPER-ONLY** (a requirement for real orders, kept in
 section 5).
 
+> **Second pass, 2026-11-23 01:30 to 02:30 ET (owner: "Tighten risk-register claims").** Changed in place below and
+> marked "(second pass)": the disk is no longer listed as disproven; the limits of the status guard are stated;
+> missing or late texts are an open limitation, not "not applicable"; the hourly research catch-up is fixed, not
+> open; stop-check intervals are measured, not assumed; the late-receipt discrepancy has its requirement and its
+> counts; which checks are durable and which are not.
+
 ## 1. Running version and what was verified
 
 | | |
 |---|---|
-| Running | runner **v109 = main `87b21c8`**, deployed Sun 2026-11-22 23:59 ET (gate 2,267 passed) |
+| Running (second pass) | runner **v110 = main `d603298`** (#203, including its last fix), deployed Mon 2026-11-23 01:34 ET, gate passed; verified read-only: heartbeat 3 s, both books on, catch-up ok after the restart, cursor intact, nothing open, no watchdog text. Before it: v109 = `87b21c8`, Sun 23:59 ET |
 | Merged in it | #201 (first start after the last record, replay off the event loop, rows without identifiers recognised, `missed_why`, the drill) and #202 (recovered shorts record-only). Diff `5be1ae9..87b21c8` on the trading path: the record-only rule, the legacy-row guard, a local helper with the same reason strings, `missed_why`. Nothing else |
 | Targeted checks on `87b21c8` | 163 tests of the alert, short, long, decision and lock paths pass; the recovery drill passes 12 of 12 in record-only mode |
 | Recovered shorts | recorded with `via = replay`, posting and recovery time; never entered, also with a fresh print after the recovery (tests, drill check 7). Reason "recovered after a restart: recorded, not entered" |
@@ -25,16 +31,18 @@ section 5).
 
 ## 2. Effective versions (for the cohort's accounting)
 
-Every version below went live BEFORE the forward cohort's first session (Mon 2026-11-23 09:30 ET), provided v110 is
-deployed before 09:25 ET; otherwise v110 takes effect from Tue 2026-11-24 and Monday's decision lines carry the
-shorter label, read with this table.
+Every version below through v110 went live BEFORE the forward cohort's first session (Mon 2026-11-23 09:30 ET): v110
+was deployed Mon 01:34 ET, so every decision line of the cohort carries the full label. A later engineering deploy
+gets its own row here. The cohort is ONE cohort across them: it is not restarted, and no trade is excluded, because
+an engineering version changed; a row of this table is how a reader tells which build made a decision.
 
 | Runner | main | Live from (ET) | What changed that the accounting needs to know |
 |---|---|---|---|
 | v107 | `e6d0d30` | Sun 11-22 23:09 | reads without the write lock (journal page); lock waits recorded |
 | v108 | `5be1ae9` | Sun 11-22 23:24 | recovery: durable cursor and identifiers; replay label; **restart corrections**: a short's entry window is not stretched by downtime, no entry on a print from before the listener was back, a long fill on a candle that began before then is `missed` |
 | v109 | `87b21c8` | Sun 11-22 23:59 | **recovered shorts record-only**; first start after the last record; replay off the event loop; `missed_why` on a missed long's decision line |
-| v110 | this change | after merge | **rule-version labels name the restart rules** (the labels of v108 and v109 did not: a record gap found in this review); stop checks first in every pass; alert handling off the event loop; late stop checks recorded |
+| v110 | `d603298` | Mon 11-23 01:34 | **rule-version labels name the restart rules** (the labels of v108 and v109 did not: a record gap found in this review); stop checks first in every pass; alert handling off the event loop; late stop checks recorded; the watchdog text |
+| v111 | the second-pass change | after merge | no rule, no label change. The research catch-up off the event loop; stop-check intervals measured; the watchdog reads three signs of life; the 09:20 check covers the alert intake |
 
 Reasons kept on the record, by which every restart case can be counted: short rows "alert received late",
 "recovered after a restart: recorded, not entered", "no trade print after the restart within 5 min of the alert";
@@ -58,6 +66,8 @@ the registered calculation.
 | 9 | **The channel loop could end on an exception outside its try** (the wait computation) | alert receipt by the 15-second check | PLAUSIBLE (red-team) | wrapped; the loop sleeps and goes on | source check in `test_chan_poll.py` |
 | 10 | **The deploy script did not enforce "no deploy in session".** The rule was mine, in a document | alert receipt and stops during a restart | DEMONSTRATED (the script's window check had no session hours) | the script refuses 09:25 to 16:10 ET | window table checked by hand (16 times) |
 
+| 11 (second pass) | **The hourly research catch-up did database work on the event loop.** `TelegramCollector._fetch` writes each message as it arrives, on the loop, inside one session held open across the network reads; the research database waits up to 30 s for a writer | the scheduling of every loop's next pass (stop checks included), alert receipt by push | DEMONSTRATED (controlled slow write: storing one message takes 0.4 s; every other task on the loop stood still for 0.35 s or more) | `backfill_off_loop`: the start id is read and the messages stored on worker threads, in batches of their own; the fetch stays on the loop. And `watch_loop` writes down any time the event loop stands still for 3 s, whatever the cause | `test_a_slow_database_write_in_the_catch_up_stops_the_event_loop_only_on_the_old_path` (asserts the stall on the old path AND its absence on the new one), `test_an_event_loop_that_stands_still_is_written_down...` |
+
 Also from this review, a diagnosis aid: a slow database wait now names the code that asked for the write, not the
 store helper (`... via set_flag`).
 
@@ -65,12 +75,11 @@ store helper (`... via set_flag`).
 
 | Claim challenged | Result |
 |---|---|
-| Two processes (the listener, a cron job, the tape check) can close or enter the same row twice | CANNOT OCCUR: every state change is `UPDATE ... WHERE id=? AND status=?` inside the single write lock; the loser changes nothing. Traced by two independent reviewers; exercised in the rollback run (two builds on one database) |
+| Two processes (the listener, a cron job, the tape check) can close or enter the same row twice | CANNOT OCCUR: every state change is `UPDATE ... WHERE id=? AND status=?` inside the single write lock; the loser changes nothing. Traced by two independent reviewers; exercised in the rollback run (two builds on one database). **What this guard does NOT cover (second pass):** the side effect after the state change. The row is committed, THEN its text is sent. A death in between leaves the state right and the text unsent; it is never sent twice, and never sent later. Tested both ways (`test_a_death_between_an_exit_and_its_text_never_doubles_the_exit_but_the_text_is_lost`). See section 6 |
 | A second delivery of an alert (push and check, replay, retry) duplicates a row, decision line, entry or text | CANNOT OCCUR: the durable identifier is checked inside the write. Tests; drill check 11 (kill, cursor wound back, same message pushed again) |
 | A stop-check loop can die quietly while the process lives | CANNOT OCCUR: each loop body is wrapped whole; a lost Telegram connection ends the process, which the supervisor restarts (red-team, verified). A hung process is now caught by row 5 |
 | A stop check can wait for a worker thread | closed by row 4 |
 | The decision record can block or be lost silently | closed in #197: 0.5 s bound, spool, nightly replay and health line; tests for a locked database, a missing table, a dead disk |
-| The disk can fill | the volume is at 40% (2.1 of 5.2 GB); the files this work added are bounded (2 MB, 1 MB, 5 MB); the 09:20 check texts under 10% free. Closed, monitored |
 | A rollback corrupts state or duplicates actions | closed in #201 (run on the real previous build; a duplicate filtered row fixed); rollback only through the deploy script, which refuses while a row waits or is open |
 
 ## 5. Not applicable while paper-only: requirements for real orders (kept, not closed)
@@ -79,7 +88,7 @@ store helper (`... via set_flag`).
 |---|---|
 | A stop resting at the broker | paper positions have no broker; every stop here is a check by this process. For real money this process must never be the only protection |
 | The stop when a stock is halted or silent on the free feed: `fade._exit` has no price, so it marks the trade at its last print and waits (red-team) | the OFFICIAL result is computed from the full tape by the research rule whatever the live estimate did; the live text can be late by up to 16 minutes (the tape check). Real money needs real-time full-tape data and a broker stop |
-| A crash between a state change and its text loses the text | the paper record is right, the text is missing (never doubled). Real orders need idempotency keys at the broker and a reconciliation on start |
+| An order sent and its record must survive a crash together | paper has no order. Real orders need idempotency keys at the broker and a reconciliation on start. (The paper-side effect of the same window, a lost text, is a limitation NOW: section 6) |
 | Borrow, locate cost, the short-sale price test, queue position, partial fills | the nightly modeled ledger prices them (a research ledger, not stop protection); H1 is registered for the price-test case |
 | Durability against power loss versus commit speed (`synchronous`) | left at the durable setting; changing it trades lost commits for speed and is not needed on the evidence so far |
 
@@ -88,12 +97,35 @@ store helper (`... via set_flag`).
 | Risk | Concrete impact | Safeguard now | Evidence or capability missing | Next trigger |
 |---|---|---|---|---|
 | **Database write lock in session hours** | a write (an exit, an entry, a heartbeat) waits as long as another writer holds the lock. Observed on the runner Sun night: three single-row writes HELD it 0.44 to 0.65 s (the volume's commit time), one write waited 0.53 s. In session there are more writers (control job every minute, charts and lab every 10, borrow every 15, pilot book every 5) | reads no longer take the lock (journal page, flags, the short book's row selects); stop checks run first; nothing on the event loop waits for it; every wait or hold of 0.25 s and every late stop check is written down with who | one session of data. The first arrives Mon 2026-11-23 20:50 ET (`database:` and `stop checks:` clauses) | a wait of 1 s or more, or any late stop check: the named caller is moved to a read or made shorter, with its test. Five clean sessions close it as measured |
-| **An alert received late without a restart** (a specification/code discrepancy, NOT changed) | the registered rule enters at the first bar after alert + 10 s; the live book enters at the print of the moment the alert reaches it, up to five minutes later (median delay 28 s, 90th percentile 53 s). Amendment F5 measured late entries as a worse bet (+0.97% at the alert, +0.14% two minutes late, -0.21% four minutes late) | none, by design: this is the frozen rule for live alerts. Measured every night per trade (`dec_entry`, flag `late`) and separated in the modeled ledger | nothing is missing; it is a rule question | **owner's decision** if a limit on late receipt is wanted (for example: record, not enter, when an alert arrives more than N seconds late). Not prepared, not adopted |
+| **An alert received late without a restart** (a specification/code discrepancy, NOT changed; second pass: the requirement and the counts) | **The requirement:** `prereg_alert_fade_2026-11-01.md`, frozen rule, "Entry time and price exactly as in that test": the first 1-minute bar at or after alert + 10 s (`telegram_alert_test.py:85`), and Amendment F5, "every qualifying event enters at the tested timing (first quote at or after alert + 10 s)". **The implementation:** `fade._enter` enters at the first usable print after the alert REACHED the book, which can be after that bar began. **Counts (history to 2026-11-20, before the cohort; counts only, no result was read):** of 29 shorts ever entered, 9 reached the book after their tested entry minute had begun; 2 were entered more than 60 s after it began (the longest 208 s, a stock with no earlier print); receipt delay median 33 s, 90th percentile 58 s, longest 59 s. Of all 422 alert rows, 3 arrived more than 60 s after posting, none more than 120 s, none was "received late" (over 5 minutes) | none, by design: this is the frozen behaviour for live alerts. Each trade's flag `late` and its price from the bot's own decision time are in the nightly ledger | nothing is missing; it is a rule question | **owner's decision**, to be taken on the specification and the pre-cohort evidence (F5), NOT on the cohort's interim returns. Nothing is prepared or adopted; the cohort's entry timing is unchanged |
 | **Telegram behaviour not yet seen live** | a post Telegram never delivers or deletes before the listener is back is not recovered; a real backlog over 100 and a "slow down" answer during a catch-up have not happened | the nightly check against the channel's own record names an alert that never reached the book; the paging check of row 7; the catch-up obeys "slow down" and keeps the cursor | a real restart with posts in it | the first such restart: checked by query the same day and reported |
-| **The hourly research catch-up writes its own database on the event loop** | a wait on that database (not the trading one) would hold back the scheduling of the next pass; passes already running are not affected | the two books' passes are on their own threads; a resulting late stop check is now recorded | whether it ever waits: unknown | a late stop check at about the top of an hour: move that write off the loop |
+| **The disk fills (second pass: MITIGATED, low priority; not disproven)** | every write fails: no entry or exit can be booked, no text for an unbooked exit; the listener keeps running and logs each pass | measured Mon 01:35 ET: 2.10 of 5.18 GB used; 1.80 GB of it is the market-data cache, which nothing prunes; at most 91 MB was written in the last 7 days (about 30 weeks of room at that rate). The 09:20 check texts under 10% free. Failure behaviour tested (`test_a_full_disk_books_nothing_texts_nothing_corrupts_nothing...`): nothing booked, nothing texted, the row intact, the heartbeat stops (so the watchdog texts within 3 minutes), and the exit is booked once when writing works again | no retention rule for the market-data cache | the 10% text, or 4 GB used: prune the cache by age |
+| **A text that is late, or never sent (second pass)** | the owner's picture of the day is wrong until the nightly summary; and a long's official price "when its text went out" is measured from the text's time. Three ways: the text service fails (recorded, shown nightly); the day's text limit is reached (one notice, then recorded); the process dies between a state change and its text (the text is lost and NOTHING records it) | every trade is on the site and in the nightly summary; a failed or dropped text is counted; a restart in alert hours is now written down and warned about, which is the moment such a text could have been lost | a per-trade record that its text left (none exists) | a restart warning in the nightly line: the trades changed in the minute before the silence are checked against the texts sent, by hand. If it ever happens: write the text into the same transaction as the state change and send from there |
+| **A machine that is down (second pass)** | everything stops, and so does every check that runs on it: the watchdog, the 09:20 check, the nightly line | the platform is expected to restart the machine (not verified here); nothing tells the owner | a check from OUTSIDE the machine (none exists) | **owner's decision**: an outside probe needs a reachable health address or a second host |
 | **A crash between a row's commit and its decision line** | the line is missing for that row | the nightly line says "alert rows have no line" | none | first occurrence: decide whether to write the line on the next start |
 | **Market data outage** | no quote, so no live entry and no live exit until it returns | the official result is computed from the tape; the 09:20 check texts when data is dead before the open; a late stop check is recorded | none | a `stop checks:` warning with a slow pass |
 | **Paper record against executable behaviour** | results of the paper books are not results of orders | the nightly modeled ledger and its registered review (first read at 15 / 25 trades); the three unverified daily-book items are due Fri 2026-12-04 | the forward sample | the scheduled reviews; nothing new here |
+
+### Stop checks: intended against observed (second pass)
+
+| | |
+|---|---|
+| Intended | the short book checks every open position every 10 s, the long book every 15 s |
+| What can stretch it | a pass that takes long (slow quotes; before v110 also waiting alerts' lookups), an event loop that stands still, a busy database, a thread that waits |
+| Measured before v111 | nothing: only checks more than 25 s / 35 s late were written down (v110), and none was by 01:35 ET, a minute after it started (idle: no position open) |
+| Measured from v111 | every interval between two stop checks and the time each check took, per loop: counted within 1.1 x the intended interval, within 1.5 x, within the late limit, later; longest gap; longest single check. Written every 10 minutes; the nightly line reports alert hours: "short book N checks, x% within 11 s, longest gap G s, longest single check W s" |
+| First real numbers | the first session after v111 is deployed, at 20:50 ET. Idle hours say nothing about a session and are not offered as evidence |
+| What this does NOT establish | that a stop crossing is DETECTED in time. The check reads the free feed, which carries under 1% of the volume: the price it sees can be old or absent while the stock trades elsewhere (a halted or thin stock has no price at all; section 5). A check every 10 s on that feed is a check of that feed. The official result comes from the full tape afterwards |
+
+### Which checks are durable (second pass)
+
+| Check | Runs where | Depends on a chat session? |
+|---|---|---|
+| Watchdog, every minute in alert hours: three signs of life (short book's stop check, long book's stop check, the reading of the channel), none of them "an alert arrived". Tested against a real process frozen with SIGSTOP | the runner's own schedule, a process separate from the listener | no |
+| 09:20 ET pre-open check: heartbeat, market data, database writable, disk; from v111 also the alert intake (channel read in the last 15 minutes, catch-up finished, no stretch passed unhandled since the close) | the runner's own schedule | no |
+| Nightly health line, 20:50 ET | the runner's own schedule | no |
+| My read-only look at the listener at 09:07 ET on 2026-11-23 | a timer inside the assistant's session | **YES: it runs only if that session is still open. It is an extra look, not monitoring, and nothing depends on it** |
+| Anything from outside the machine | does not exist | see "A machine that is down" above |
 
 ## 7. Independent reviews used
 
