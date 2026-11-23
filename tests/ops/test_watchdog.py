@@ -234,3 +234,84 @@ def test_a_warning_goes_out_once_even_when_the_database_cannot_record_it(tmp_pat
         assert wd.check(db, sent.append, NOON + timedelta(minutes=m)) is None
     assert len(sent) == 1                                    # once, not every minute
     assert wd.check(db, sent.append, NOON + timedelta(minutes=31)) is not None and len(sent) == 2   # again after 30 min
+
+
+# ---- the listener's own schedule at the change of pace; no memory at all (review of #206, 2026-11-23) ----------------
+
+def test_the_first_minutes_of_alert_hours_are_judged_by_the_pace_the_listener_was_still_on(tmp_path):
+    """Outside alert hours the channel is read every 5 minutes; the listener's last slow wait can end a minute after
+    alert hours begin (09:25 ET). A read 4 minutes old at 09:25:30 is therefore normal. Judged by the fast pace
+    (limit 3 minutes) it was "alerts silent": a false warning every morning, and a false "fail" to the outside probe."""
+    import os
+
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+
+    def at(h, m, s=0):
+        return datetime(2026, 11, 23, h, m, s, tzinfo=ET).astimezone(timezone.utc)
+
+    def read_ago(now, seconds):
+        _alive(db, tmp_path, now - timedelta(seconds=10))
+        t = now.timestamp() - seconds
+        os.utime(tmp_path / "beat.alerts", (t, t))
+
+    read_ago(at(9, 25, 30), 240)                             # last slow read at 09:21:30
+    assert wd.silent(db, at(9, 25, 30)) == {} and wd.check(db, sent.append, at(9, 25, 30)) is None
+    read_ago(at(9, 30, 59), 330)                             # still inside the change of pace (5 min + 60 s)
+    assert wd.silent(db, at(9, 30, 59)) == {}
+    read_ago(at(9, 32), 240)                                 # past it: the fast pace applies again
+    assert list(wd.silent(db, at(9, 32))) == ["alerts"]
+    read_ago(at(9, 25, 30), 1000)                            # and a read 16 minutes old is silent at any pace
+    assert list(wd.silent(db, at(9, 25, 30))) == ["alerts"] and sent == []
+    read_ago(at(16, 0, 30), 250)                             # the other change of pace only loosens: nothing to fix
+    assert wd.silent(db, at(16, 0, 30)) == {}
+
+
+def test_books_that_are_switched_off_or_paused_are_not_a_silent_listener(tmp_path):
+    """An intentionally idle book still checks in: the short book's pass writes its heartbeat and the long book's pass
+    runs its stop check with every switch off, so neither the watchdog nor the outside probe sees a failure."""
+    from sgt.fast import fade, long_book
+    from sgt.ops import own_thread
+
+    db = OpsStore(tmp_path / "ops.db")
+    for k in (fade.OFF_FLAG, long_book.OFF_FLAG, "paused"):
+        db.set_flag(k, "1")
+    pace = own_thread.Pace(tmp_path, "long book", 15)
+    fade.monitor(db, lambda t: None, lambda s: None, now=NOON)
+    long_book.tick(db, lambda sym, now: None, lambda t: None, now=NOON, on_sweep=pace.sweep)
+    own_thread.beat(tmp_path, "alerts")
+    assert db.flag("fade_heartbeat") and own_thread.beat_age(tmp_path, "long book") < 2    # both books checked in
+    import os
+
+    for name in ("beat.long_book", "beat.alerts"):           # put the files' times on the test's clock
+        os.utime(tmp_path / name, (NOON.timestamp(), NOON.timestamp()))
+    assert wd.silent(db, NOON + timedelta(seconds=20)) == {}
+
+
+def test_with_no_way_to_write_anything_down_the_warning_is_spaced_by_the_age_of_the_silence(tmp_path, monkeypatch):
+    """The volume is full or read-only: the database refuses writes AND the marker file cannot be touched or changed.
+    Nothing can remember that a warning went out. The control job still runs once a minute; the silence's own age is
+    then the clock: a warning in the minute it reaches 3 minutes, and every 30 minutes after. Not one a minute."""
+    import os
+    import sqlite3
+
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    stopped = NOON - timedelta(minutes=2, seconds=30)
+    beat(db, stopped)
+    assert wd.check(db, sent.append, NOON) is None           # healthy enough: marker made while the disk worked
+
+    def refuse(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    def full(self):
+        raise sqlite3.OperationalError("database or disk is full")
+
+    monkeypatch.setattr(os, "utime", refuse)                 # the marker cannot be changed ...
+    monkeypatch.setattr("pathlib.Path.touch", refuse)        # ... nor made
+    monkeypatch.setattr(OpsStore, "tx", full)                # ... and the database takes no write
+    assert wd._can_remember(db, NOON) is False
+    times = []
+    for minute in range(1, 71):                              # the control job, once a minute, for 70 minutes
+        if wd.check(db, sent.append, NOON + timedelta(minutes=minute)):
+            times.append(minute)
+    assert times == [1, 31, 61] and len(sent) == 3           # silence 3, 33 and 63 minutes old: three texts, not 70
+    assert [wd.due_without_memory(60 * m) for m in (2, 3, 4, 32, 33, 34)] == [False, True, False, False, True, False]
