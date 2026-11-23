@@ -8,6 +8,7 @@ import json
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -869,6 +870,77 @@ def test_a_death_between_an_exit_and_its_text_never_doubles_the_exit_but_the_tex
         fade.monitor(b, sent.append, Tape(6.7, et(10, 10, 20)), now=et(10, 10, 30 + k), up_since=et(10, 10, 25))
     r = rows(b)[0]
     assert (r["status"], r["est_exit"]) == ("est_closed", 6.5) and len(sent) == 1   # one exit; its text never came
+
+
+def test_an_outside_probe_that_stalls_or_cannot_be_reached_does_not_delay_a_stop(path, ch):
+    """Behaviour, not a reading of the source: the outside probe's call is made by the control job, a separate
+    process. Here that process is real and its endpoint is controlled: (a) a local server that accepts the
+    connection and never answers (a slow or hung monitoring service), (b) a port nothing listens on (unreachable).
+    While the probe's process is stuck in its call, the open short's stop is booked as promptly as ever, and the
+    probe itself gives up inside its bound and reports "failed"."""
+    import os
+    import socket
+    import subprocess
+    import sys
+
+    import sgt
+
+    a, sent = _open_short(path, ch)
+    tape = Tape(5.0, et(10, 1, 2))
+    silent_server = socket.socket()
+    silent_server.bind(("127.0.0.1", 0))
+    silent_server.listen(8)                                 # connections are accepted by the kernel and never served
+    dead = socket.socket()
+    dead.bind(("127.0.0.1", 0))
+    closed_port = dead.getsockname()[1]
+    dead.close()                                            # nothing listens here any more
+    code = ("import time\nfrom sgt.ops import deadman\ndeadman.TIMEOUT_S, deadman.BOUND_S = 2.0, 2.5\n"
+            "t = time.monotonic()\nprint(deadman.ping(), round(time.monotonic() - t, 1), flush=True)\n")
+    env = {**os.environ, "PYTHONPATH": str(Path(sgt.__file__).resolve().parents[1])}
+
+    def probe(port):
+        return subprocess.Popen([sys.executable, "-W", "ignore", "-c", code], stdout=subprocess.PIPE, text=True,
+                                env={**env, "SGT_SECRET_DEADMAN_URL": f"https://127.0.0.1:{port}/check"})
+
+    async def run():
+        async def monitor_loop():
+            while True:
+                await asyncio.to_thread(fade.monitor, a.db, sent.append, tape, et(10, 10), None, None, None, None,
+                                        a.state.up_since)
+                await asyncio.sleep(0.02)
+
+        mon = asyncio.create_task(monitor_loop())
+        stuck = probe(silent_server.getsockname()[1])       # the control job's process, calling a service that hangs
+        t_wait = time.monotonic()
+        while silent_server and time.monotonic() - t_wait < 15:
+            await asyncio.sleep(0.05)
+            try:
+                silent_server.settimeout(0.01)
+                conn, _ = silent_server.accept()            # its call has arrived: it is now waiting for an answer
+                break
+            except OSError:
+                continue
+        else:
+            raise AssertionError("the probe's call never arrived")
+        tape.px, tape.at, t0 = 6.5, et(10, 9, 58), time.monotonic()     # through the 20% stop, with the probe stuck
+        while rows(a.db)[0]["status"] != "est_closed":
+            assert time.monotonic() - t0 < 5, "the exit was never booked"
+            await asyncio.sleep(0.01)
+        took, still_stuck = time.monotonic() - t0, stuck.poll() is None
+        mon.cancel()
+        out = (await asyncio.to_thread(stuck.communicate, None, 20))[0].split()
+        conn.close()
+        return took, still_stuck, out
+
+    try:
+        took, still_stuck, out = asyncio.run(run())
+        gone = probe(closed_port).communicate(timeout=20)[0].split()
+    finally:
+        silent_server.close()
+    assert took < 1.0 and still_stuck                       # the stop was booked while the probe was still waiting
+    assert out[0] == "failed" and float(out[1]) <= 3.5      # ... and the probe gave up inside its bound
+    assert gone[0] == "failed" and float(gone[1]) <= 3.5    # unreachable: fails at once, harms nothing
+    assert len(sent) == 2                                   # one entry text, one exit text
 
 
 # ---- the long book ---------------------------------------------------------------------------------------------------

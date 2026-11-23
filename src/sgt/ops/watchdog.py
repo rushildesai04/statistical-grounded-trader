@@ -35,6 +35,35 @@ CAP, EVENT, FLAG = 6, "watchdog_text", "watchdog_last"
 
 
 MARK = "watchdog.mark"                 # beside the database: its modification time = when the last warning went out
+OFF_PACE = 300                         # seconds between reads of the channel outside alert hours (alert_recovery.OFF_EVERY)
+
+
+def _can_remember(db: OpsStore, now: datetime) -> bool:
+    """Can a warning be written down at all, right now? The marker file is tried the way a warning would use it
+    (its times are set to what they already are: nothing changes), then the database. On a volume that is full,
+    read-only or failing, both can be impossible, and no file "that needs no space" may be assumed to work."""
+    try:
+        import os
+
+        p = Path(db.path).parent / MARK
+        st = p.stat()
+        os.utime(p, (st.st_atime, st.st_mtime))
+        return True
+    except OSError:
+        pass
+    try:
+        db.set_flag("watchdog_probe", iso(now))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def due_without_memory(age_s: float) -> bool:
+    """When nothing can be written down, the only memory left is the silence itself: its age grows by one minute per
+    run of the control job. A warning is due in the minute the silence reaches STALE and every AGAIN after that
+    (minutes 3, 33, 63, ... of silence), never in between. No state is read or written."""
+    m, first, step = int(age_s // 60), int(STALE.total_seconds() // 60), max(1, int(AGAIN.total_seconds() // 60))
+    return m >= first and (m - first) % step == 0
 
 
 def _last_warned(db: OpsStore) -> datetime:
@@ -97,8 +126,17 @@ def silent(db: OpsStore, now: datetime) -> dict[str, float]:
     age = own_thread.beat_age(folder, "long book", at)
     if age is not None and age > STALE.total_seconds():
         out["long book"] = age
-    # how often the channel is read: the fast check in alert hours (0 = switched off), one pass in 5 minutes otherwise
-    every = (chan_poll.interval(db.flag(chan_poll.FLAG)) if chan_poll.active(now) else 0) or 300
+    # How often the channel is read: the fast check in alert hours (0 = switched off), one pass in OFF_PACE seconds
+    # otherwise. The limit follows the listener's OWN schedule, including the minutes after alert hours begin: the
+    # listener's last wait was still the slow one, so at 09:25 ET the last read can be OFF_PACE old with nothing
+    # wrong. Judged by the fast pace alone that was a false "alerts silent" every morning (found 2026-11-23, before
+    # it was ever deployed): for OFF_PACE + 60 s after the change of pace the slower pace still applies.
+    fast = chan_poll.interval(db.flag(chan_poll.FLAG))
+
+    def pace(t: datetime) -> int:
+        return (fast if chan_poll.active(t) else 0) or OFF_PACE
+
+    every = max(pace(now), pace(now - timedelta(seconds=OFF_PACE + 60)))
     age = own_thread.beat_age(folder, "alerts", at)
     if age is not None and age > max(STALE.total_seconds(), 3 * every):
         out["alerts"] = age
@@ -121,6 +159,8 @@ def check(db: OpsStore, send: Callable[[str], None], now: datetime, in_hours=Non
             return None
         if now - _last_warned(db) < AGAIN:
             return None
+        if not _can_remember(db, now) and not due_without_memory(max(quiet.values())):
+            return None                                     # no memory available: spaced by the age of the silence
         with db.read() as c:
             shorts = c.execute("SELECT COUNT(*) FROM fade_trades WHERE status IN ('ask','pending','open')").fetchone()[0]
             longs = c.execute("SELECT COUNT(*) FROM long_trades WHERE status='open'").fetchone()[0]
