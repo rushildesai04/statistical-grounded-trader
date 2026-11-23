@@ -153,3 +153,7 @@ def test_the_listener_runs_the_check_and_the_shorter_intervals():
     assert "await short_thread.run(short_pass)" in src and "await long_thread.run(long_pass)" in src
     assert "asyncio.to_thread(fade.monitor" not in src and "asyncio.to_thread(long_book.tick" not in src
     assert 'log.exception("channel wait failed")' in src            # nothing outside a try in the channel loop
+    # 2026-11-23, second review: the hourly research catch-up off the loop too; stalls and signs of life recorded
+    assert "await collector.backfill_off_loop(FORWARD_START)" in src and "await collector.backfill(" not in src
+    assert "own_thread.watch_loop(ops_dir)" in src and 'own_thread.beat, ops_dir, "alerts"' in src
+    assert "short_pace.sweep)" in src and "long_pace.sweep)" in src

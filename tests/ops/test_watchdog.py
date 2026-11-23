@@ -80,3 +80,118 @@ def test_the_control_job_runs_the_watchdog_every_minute():
 
     src = (Path(__file__).resolve().parents[2] / "scripts" / "sms_control.py").read_text()
     assert "watchdog.check(db, sms.send, now)" in src.split("def cmd_poll")[1][:900]
+
+
+# ---- what "silent" means: three signs of life, none of them an alert arriving (2026-11-23) -------------------------
+
+def _alive(db, folder, at, short=True, long=True, alerts=True):
+    import os
+
+    from sgt.ops import own_thread
+
+    if short:
+        beat(db, at)
+    for name, on in (("long book", long), ("alerts", alerts)):
+        own_thread.beat(folder, name)
+        t = at.timestamp() if on else at.timestamp() - 900
+        os.utime(folder / f"beat.{name.replace(' ', '_')}", (t, t))
+
+
+def test_a_quiet_channel_is_not_a_silent_listener(tmp_path):
+    """No alert all morning and nothing open: the listener still shows all three signs of life, so no text."""
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    _alive(db, tmp_path, NOON - timedelta(seconds=10))
+    assert wd.silent(db, NOON) == {} and wd.check(db, sent.append, NOON) is None and sent == []
+    with db.read() as c:
+        assert c.execute("SELECT COUNT(*) FROM fade_trades").fetchone()[0] == 0     # not one alert, and still healthy
+
+
+def test_a_dead_alert_intake_is_reported_while_the_stops_still_run_and_the_text_says_which(tmp_path):
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    _alive(db, tmp_path, NOON - timedelta(seconds=10), alerts=False)                # Telegram connection gone, books fine
+    assert list(wd.silent(db, NOON)) == ["alerts"]
+    text = wd.check(db, sent.append, NOON)
+    assert "the alert channel has not been checked for 15 min" in text and "new alerts may NOT be reaching the books" in text
+    assert "The short book's stop checks are running." in text and "has not run for" not in text
+    db2, sent2 = OpsStore(tmp_path / "b" / "ops.db"), []
+    _alive(db2, tmp_path / "b", NOON - timedelta(seconds=10), long=False)           # the long book's thread is stuck
+    with db2.tx() as c:
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, status, created_at) VALUES (1,'AAA','2026-11-23','open','x')")
+    assert "the long book has not checked its positions for 15 min (1 open on paper)" in wd.check(db2, sent2.append, NOON)
+
+
+def test_the_text_says_alerts_are_not_read_only_when_the_channels_own_sign_is_gone(tmp_path):
+    """Review 2026-11-23: with only the short book's thread stuck (the case its own thread exists to contain) the text
+    said "Alerts are not being read" although the channel was being read."""
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    _alive(db, tmp_path, NOON - timedelta(seconds=10), short=False)
+    beat(db, NOON - timedelta(minutes=10))                                         # the short book alone is stuck
+    assert list(wd.silent(db, NOON)) == ["short book"]
+    text = wd.check(db, sent.append, NOON)
+    assert "has not run for 10 min" in text and "The alert channel is still being read." in text
+    assert "Alerts are not being read" not in text
+    cold, sent2 = OpsStore(tmp_path / "cold" / "ops.db"), []                       # a start that never got as far as
+    beat(cold, NOON - timedelta(minutes=10))                                       # reading the channel: no sign at all
+    assert "Alerts are not being read." in wd.check(cold, sent2.append, NOON)
+
+
+def test_with_the_fast_channel_check_switched_off_five_minutes_between_reads_is_normal(tmp_path):
+    import os
+
+    from sgt.fast import chan_poll
+    from sgt.ops import own_thread
+
+    db = OpsStore(tmp_path / "ops.db")
+    db.set_flag(chan_poll.FLAG, "0")
+    _alive(db, tmp_path, NOON - timedelta(seconds=10))
+    t = NOON.timestamp() - 600                               # read 10 minutes ago: inside 3 passes of 5 minutes
+    os.utime(tmp_path / "beat.alerts", (t, t))
+    assert wd.silent(db, NOON) == {}
+    t = NOON.timestamp() - 1000
+    os.utime(tmp_path / "beat.alerts", (t, t))
+    assert list(wd.silent(db, NOON)) == ["alerts"]
+    assert own_thread.beat_age(tmp_path, "never beat", NOON.timestamp()) is None    # unknown is not silent
+
+
+def test_a_process_that_hangs_is_noticed_from_outside_it(tmp_path, monkeypatch):
+    """A real listener stand-in: a separate process that beats ten times a second, then is frozen with SIGSTOP (it
+    is alive, it holds its files, it does nothing: a hang). The watchdog runs HERE, in another process, and reads
+    only what the frozen one left on disk."""
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    import sgt
+
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    code = ("import sys, time\nfrom pathlib import Path\nfrom sgt.ops.store import OpsStore, iso, utcnow\n"
+            "from sgt.ops import own_thread\nd = Path(sys.argv[1])\ndb = OpsStore(d / 'ops.db')\n"
+            "while True:\n    db.set_flag('fade_heartbeat', iso(utcnow()))\n"
+            "    own_thread.beat(d, 'long book'); own_thread.beat(d, 'alerts')\n    time.sleep(0.1)\n")
+    env = {**os.environ, "PYTHONPATH": str(Path(sgt.__file__).resolve().parents[1])}
+    child = subprocess.Popen([sys.executable, "-W", "ignore", "-c", code, str(tmp_path)], env=env)
+    try:
+        now = lambda: datetime.now(timezone.utc)  # noqa: E731
+        end = time.time() + 20
+        while db.flag("fade_heartbeat") is None or not (tmp_path / "beat.alerts").exists():
+            assert time.time() < end and child.poll() is None, "the stand-in never started"
+            time.sleep(0.05)
+        monkeypatch.setattr(wd, "STALE", timedelta(seconds=1.0))
+        monkeypatch.setattr("sgt.fast.chan_poll.interval", lambda v: 0.2)   # so the alerts limit is STALE too
+        time.sleep(0.3)
+        assert wd.check(db, sent.append, now(), in_hours=lambda t: True) is None   # running: nothing to say
+        os.kill(child.pid, signal.SIGSTOP)                   # hung
+        time.sleep(1.6)
+        assert child.poll() is None                          # still a live process
+        text = wd.check(db, sent.append, now(), in_hours=lambda t: True)
+        assert sorted(wd.silent(db, now())) == ["alerts", "long book", "short book"]          # all three signs gone
+        assert text and "The listener has not run for 0 min" in text and "Alerts are not being read." in text
+        os.kill(child.pid, signal.SIGCONT)                   # it comes back: quiet again
+        time.sleep(0.6)
+        assert wd.silent(db, now()) == {}
+    finally:
+        child.kill()
+        child.wait()

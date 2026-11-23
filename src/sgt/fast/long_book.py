@@ -360,12 +360,20 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
     fixed, now = now, now or utcnow()
 
     def sweep(when: datetime) -> float:
+        done = None
         if on_sweep is not None:
             try:
-                on_sweep()
+                done = on_sweep()                          # may hand back what to call when the check is over
             except Exception:  # noqa: BLE001 - a measurement; the check itself goes on
                 log.exception("sweep hook failed")
-        _advance(db, bars, send, when)
+        try:
+            _advance(db, bars, send, when)
+        finally:
+            if callable(done):
+                try:
+                    done()
+                except Exception:  # noqa: BLE001 - a measurement
+                    log.exception("sweep hook failed")
         return monotonic()
 
     last, opened = sweep(now), 0

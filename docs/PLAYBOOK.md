@@ -911,6 +911,17 @@ night it cannot finish is texted and caught up on the next run.
   the database's write lock in session hours (holds of 0.44 to 0.65 s seen on a quiet night; first session data Mon
   11-23 20:50 ET); an alert received late WITHOUT a restart still enters by the old late rule (a specification/code
   discrepancy: owner's decision, not changed); a real replay with posts and a backlog over 100 not yet seen live.
+- **Register, second pass 2026-11-23 (same document; runner v110 = main `d603298` since Mon 01:34 ET).** Fixed: the
+  hourly research catch-up wrote its database ON the event loop (reproduced: one slow write held every task); now off
+  it, and any stall of the loop is written down. Stop-check intervals are now MEASURED (each gap and each check's
+  duration, reported for alert hours); idle hours are not evidence, and a frequent check of the thin free feed does
+  not show a stop crossing is seen in time. The watchdog reads three signs of life (short book, long book, channel
+  read), none of them "an alert arrived"; tested against a frozen process. The 09:20 ET check now covers the alert
+  intake and is the durable pre-open check (a look scheduled inside a chat session is not). Relabelled: the disk is
+  mitigated, not disproven (2.1 of 5.2 GB; the 1.8 GB market-data cache has no retention rule); the status guard
+  stops duplicates but NOT a text lost when the process dies right after a state change (open limitation: nothing
+  records it). Late receipt: 9 of 29 past shorts reached the book after their tested entry minute began, 2 entered
+  over 60 s into it; owner's decision, not to be taken on cohort returns. No check runs from outside the machine.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has

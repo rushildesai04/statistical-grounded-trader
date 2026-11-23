@@ -170,3 +170,33 @@ def test_run_hands_its_calendar_to_the_data_check(tmp_path, monkeypatch):
     assert pf.run(db, now, quote_time=last_close, disk=tmp_path) == []                 # real calendar: fine
     (line,) = pf.run(db, now, quote_time=last_close, disk=tmp_path, cal=Closed())      # no session known: strict
     assert "stale" in line
+
+
+def test_the_alert_intake_is_checked_before_the_open_from_the_runners_own_schedule(tmp_path):
+    """2026-11-23: the pre-open look at the alert intake must not depend on a chat session being open. It is part of
+    the 09:20 ET check the runner runs itself: a channel not read for 15 minutes, an unfinished catch-up, or a
+    stretch of the channel passed unhandled since yesterday's close is one plain line each."""
+    import os
+
+    from sgt.ops import alert_log, own_thread
+
+    db = OpsStore(tmp_path / "ops.db")
+    assert pf.check_alerts(db, NOW) == []                    # nothing known yet: nothing claimed
+    own_thread.beat(tmp_path, "alerts")
+    t = NOW.timestamp() - 120
+    os.utime(tmp_path / "beat.alerts", (t, t))
+    db.set_flag("alert_catchup", '{"ok": true}')
+    assert pf.check_alerts(db, NOW) == []
+    t = NOW.timestamp() - 20 * 60
+    os.utime(tmp_path / "beat.alerts", (t, t))
+    db.set_flag("alert_catchup", '{"ok": false, "stuck": 27300}')
+    alert_log.skip(db, "-1", 27290, 27295, "the message could not be read as alerts", n=1)
+    got = pf.check_alerts(db, datetime.now(timezone.utc))    # the gap row is stamped with the wall clock
+    assert any("catch-up is not complete (stopped at message 27300)" in g for g in got)
+    assert any("1 stretch of the alert channel were passed unhandled" in g for g in got)
+    assert pf.check_alerts(db, NOW)[0] == "the alert channel has not been read for 20 min: alerts will be missed"
+    wall = datetime.now(timezone.utc)                        # the window is "since the previous pre-open check":
+    assert not any("passed unhandled" in g for g in pf.check_alerts(db, wall, since=wall + timedelta(seconds=1)))
+    assert any("passed unhandled" in g for g in pf.check_alerts(db, wall, since=wall - timedelta(days=3)))   # a weekend
+    src = (Path(__file__).resolve().parents[2] / "deploy" / "fly" / "crontab").read_text()
+    assert "job preflight" in src                            # scheduled on the runner, every weekday morning

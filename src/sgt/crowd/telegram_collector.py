@@ -14,6 +14,7 @@ which made a capped backfill keep only the newest messages and never fill older 
 """
 from __future__ import annotations
 
+import asyncio
 import fcntl
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ from sgt.db.upsert import upsert as _upsert
 from sgt.util import to_utc, utcnow
 
 DEFAULT_MAX_MESSAGES_PER_RUN = 5_000
+OFF_LOOP_BATCH = 200                 # messages per transaction in ``backfill_off_loop``
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +204,49 @@ class TelegramCollector:
                     self._store(session, channel, msg, posted_at)
                     stored += 1
         return stored
+
+    async def backfill_off_loop(self, since: datetime, batch: int = OFF_LOOP_BATCH) -> int:
+        """``backfill`` for a caller that shares its event loop with other work (the live listener): the same
+        messages are stored, but NO database call runs on the event loop.
+
+        Operational risk review 2026-11-23 (reproduced, tests/crowd/test_telegram_collector.py): ``_fetch`` opens one
+        database session and writes each message as it arrives, on the loop. A write that waits for the research
+        database (30 s busy timeout) stopped the whole loop for as long: no other task could be scheduled, the
+        listener's stop checks included. And the one session stayed open across the network reads, holding that
+        database's write lock for the length of the fetch. Here the start id is read on a worker thread, the
+        messages are fetched on the loop (the Telegram client lives there) and stored on a worker thread in
+        batches, each batch its own short transaction. Storing is an idempotent upsert, so a batch that fails is
+        simply fetched again by the next run."""
+        if since.tzinfo is None:
+            raise ValueError("since must be tz-aware UTC")
+        since, source, stored = to_utc(since), self._get_source(), 0
+        for channel in self.channels:
+            min_id = await asyncio.to_thread(self._max_id, channel)
+            held: list[SourceMessage] = []
+            seen = 0
+            async for msg in source.iter_messages(channel, min_id=min_id, limit=self.max_messages_per_run, since=since):
+                if seen >= self.max_messages_per_run:
+                    break
+                seen += 1
+                if msg.id <= min_id or to_utc(msg.date) < since:
+                    continue
+                held.append(msg)
+                if len(held) >= batch:
+                    stored += await asyncio.to_thread(self._store_many, channel, held)
+                    held = []
+            if held:
+                stored += await asyncio.to_thread(self._store_many, channel, held)
+        return stored
+
+    def _max_id(self, channel: str) -> int:
+        with get_session() as session:
+            return self._max_stored_id(session, channel)
+
+    def _store_many(self, channel: str, msgs: list[SourceMessage]) -> int:
+        with get_session() as session:
+            for msg in msgs:
+                self._store(session, channel, msg, to_utc(msg.date))
+        return len(msgs)
 
     def store(self, channel: str, msg: SourceMessage) -> None:
         """Store + parse one live message (idempotent upsert)."""

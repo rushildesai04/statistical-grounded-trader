@@ -379,20 +379,28 @@ def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borro
     fixed, now = now, now or utcnow()
 
     def sweep() -> float:
+        done = None
         if on_sweep is not None:
             try:
-                on_sweep()
+                done = on_sweep()                           # may hand back what to call when the check is over
             except Exception:  # noqa: BLE001 - a measurement; the check itself goes on
                 log.exception("sweep hook failed")
         when = fixed or utcnow()
-        with db.read() as c:                                # a read: it does not wait for a writer
-            held = c.execute("SELECT * FROM fade_trades WHERE status='open' ORDER BY id").fetchall()
-        for r in held:
-            try:
-                _advance(db, send, quote, r, when, context, news, beta, need_borrow=borrow is not None,
-                         up_since=up_since)
-            except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
-                log.exception("fade row %s failed", r["id"])
+        try:
+            with db.read() as c:                            # a read: it does not wait for a writer
+                held = c.execute("SELECT * FROM fade_trades WHERE status='open' ORDER BY id").fetchall()
+            for r in held:
+                try:
+                    _advance(db, send, quote, r, when, context, news, beta, need_borrow=borrow is not None,
+                             up_since=up_since)
+                except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
+                    log.exception("fade row %s failed", r["id"])
+        finally:
+            if callable(done):
+                try:
+                    done()
+                except Exception:  # noqa: BLE001 - a measurement
+                    log.exception("sweep hook failed")
         return monotonic()
 
     last = sweep()

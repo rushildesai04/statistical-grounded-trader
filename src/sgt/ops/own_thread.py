@@ -26,7 +26,9 @@ log = logging.getLogger(__name__)
 GAPS_NAME = "loop_gaps.jsonl"               # next to the ops database
 GAPS_MAX_BYTES, GAPS_MAX_LINES = 1_000_000, 10_000
 RESTART = "listener restart"
+EVENT_LOOP = "event loop"
 DOWN_MIN_S = 60.0                           # a start after a heartbeat silence this long is written down
+FLUSH_S = 600.0                             # the measured intervals of a loop are written down this often
 
 
 class OwnThread:
@@ -56,23 +58,92 @@ def _write(folder: Path, row: dict) -> None:
         log.exception("late pass not recorded")
 
 
+def beat(folder: Path, name: str) -> None:
+    """Touch a loop's liveness file (no database: a heartbeat must not queue for the write lock). Read by the
+    watchdog, a separate process. Never raises."""
+    try:
+        p = Path(folder) / f"beat.{name.replace(' ', '_')}"
+        p.touch()
+    except Exception:  # noqa: BLE001 - a heartbeat that cannot be written is the watchdog's finding, not a crash
+        log.exception("heartbeat of %s not written", name)
+
+
+def beat_age(folder: Path, name: str, now: float | None = None) -> float | None:
+    """Seconds since ``name`` last beat; None when it never did (or the file cannot be read)."""
+    try:
+        return (time.time() if now is None else now) - (Path(folder) / f"beat.{name.replace(' ', '_')}").stat().st_mtime
+    except OSError:
+        return None
+
+
 class Pace:
-    """Call ``start()`` at the beginning of every pass of one loop. A start later than ``late_after(every)`` after
-    the previous one is written down with the gap; returns that gap (None when on time)."""
+    """The OBSERVED timing of one loop's stop checks. ``start()`` at the beginning of every check: beats, measures
+    the time since the check before it, and writes it down at once when it is later than ``late_after(every)``
+    (returns that gap, else None). ``finish()`` at its end measures how long the check itself took. Every FLUSH_S
+    the intervals of the period are written down as counts (within 1.1 x the intended interval, within 1.5 x,
+    within the late limit, later), with the longest interval and the longest single check, so the nightly line can
+    say what the cadence WAS instead of what it was meant to be."""
 
     def __init__(self, folder: Path, name: str, every: float, clock=time.monotonic) -> None:
         self.folder, self.name, self.every, self.clock, self.last = Path(folder), name, float(every), clock, None
+        self._t0, self._flushed = None, None
+        self._reset()
+
+    def _reset(self) -> None:
+        self.counts, self.max_gap, self.max_work, self.n = [0, 0, 0, 0], 0.0, 0.0, 0
 
     def start(self) -> float | None:
         now, last = self.clock(), self.last
-        self.last = now
-        if last is None or now - last <= late_after(self.every):
+        self.last = self._t0 = now
+        beat(self.folder, self.name)
+        if last is None:
             return None
-        gap = round(now - last, 1)
+        gap = now - last
+        e = self.every
+        self.counts[0 if gap <= 1.1 * e else 1 if gap <= 1.5 * e else 2 if gap <= late_after(e) else 3] += 1
+        self.n, self.max_gap = self.n + 1, max(self.max_gap, gap)
+        if self._flushed is None:
+            self._flushed = now
+        elif now - self._flushed >= FLUSH_S:
+            self.flush()
+        if gap <= late_after(e):
+            return None
+        gap = round(gap, 1)
         _write(self.folder, {"at": datetime.now(timezone.utc).isoformat(), "loop": self.name, "gap": gap,
                              "every": self.every})
         log.warning("%s: a pass started %.0f s after the one before it (every %.0f s)", self.name, gap, self.every)
         return gap
+
+    def finish(self) -> None:
+        if self._t0 is not None:
+            self.max_work = max(self.max_work, self.clock() - self._t0)
+
+    def sweep(self):
+        """For a book's ``on_sweep`` hook: start now, and hand back what to call when the check is done."""
+        self.start()
+        return self.finish
+
+    def flush(self) -> None:
+        if self.n:
+            _write(self.folder, {"at": datetime.now(timezone.utc).isoformat(), "loop": self.name, "kind": "summary",
+                                 "n": self.n, "counts": self.counts, "max_gap": round(self.max_gap, 1),
+                                 "max_work": round(self.max_work, 1), "every": self.every})
+        self._flushed = self.clock()
+        self._reset()
+
+
+async def watch_loop(folder: Path, every: float = 1.0, late: float = 3.0, clock=time.monotonic) -> None:
+    """A task that should wake every ``every`` seconds. A wake more than ``late`` seconds after the one before it
+    means the event loop stood still (something did blocking work on it): written down, whatever the cause."""
+    last = clock()
+    while True:
+        await asyncio.sleep(every)
+        now = clock()
+        gap, last = now - last, now
+        if gap > late:
+            log.warning("the event loop stood still for %.1f s", gap)
+            await asyncio.to_thread(_write, Path(folder), {"at": datetime.now(timezone.utc).isoformat(),
+                                                           "loop": EVENT_LOOP, "gap": round(gap, 1), "every": every})
 
 
 def note_restart(folder: Path, heartbeat: str | None, now: datetime | None = None) -> float | None:
@@ -105,11 +176,35 @@ def gaps(folder: Path, day: str) -> list[dict]:
     return out
 
 
+def _measured(rows: list[dict], in_hours) -> str:
+    """What the intervals between stop checks WERE in alert hours, per loop ("" when nothing was measured)."""
+    out = []
+    for name in sorted({r.get("loop") for r in rows if r.get("kind") == "summary"}):
+        n, counts, gap, work, every = 0, [0, 0, 0, 0], 0.0, 0.0, 0.0
+        for r in rows:
+            if r.get("kind") != "summary" or r.get("loop") != name:
+                continue
+            try:
+                if in_hours is not None and not in_hours(datetime.fromisoformat(r["at"])):
+                    continue
+                c = [int(x) for x in r["counts"]]
+                n, counts = n + int(r["n"]), [a + b for a, b in zip(counts, c)]
+                gap, work, every = max(gap, float(r["max_gap"])), max(work, float(r["max_work"])), float(r["every"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        if n:
+            out.append(f"{name} {n:,} checks, {counts[0] / n:.1%} within {1.1 * every:.0f} s, longest gap {gap:.0f} s, "
+                       f"longest single check {work:.0f} s")
+    return ("measured in alert hours: " + "; ".join(out) + "; ") if out else ""
+
+
 def clause(folder: Path, day: str, in_hours=None) -> str:
     """The ``stop checks:`` clause of the nightly health line. ``in_hours(datetime) -> bool``: alert hours of a
     session (a restart inside them is a warning; a deploy at night is not news). Never raises."""
     try:
         rows = gaps(folder, day)
+        measured = _measured(rows, in_hours)
+        rows = [r for r in rows if r.get("kind") != "summary"]
         late = [r for r in rows if r.get("loop") != RESTART]
         down = []
         for r in rows:
@@ -128,7 +223,13 @@ def clause(folder: Path, day: str, in_hours=None) -> str:
         if down:
             at, gap = max(down, key=lambda x: x[1])
             bad.append(f"listener restarted {len(down)}x in alert hours, longest silence {gap:.0f} s (at {at:%H:%M} UTC)")
-        return ("⚠️ stop checks: " + "; ".join(bad)) if bad else "stop checks: none late, no restart in alert hours"
+        try:                                                # a full record stops taking rows: say so, never silently
+            if (Path(folder) / GAPS_NAME).stat().st_size > GAPS_MAX_BYTES:
+                bad.append("the record of stop checks is full (later checks are not in it)")
+        except OSError:
+            pass
+        return ("⚠️ stop checks: " + measured + "; ".join(bad)) if bad else \
+            f"stop checks: {measured}none late, no restart in alert hours"
     except Exception as e:  # noqa: BLE001 - the summary must go out
         log.exception("stop checks clause failed")
         return f"⚠️ stop checks: check failed ({type(e).__name__})"
