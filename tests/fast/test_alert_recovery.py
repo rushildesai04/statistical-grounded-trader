@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -131,13 +132,59 @@ def cursor(db):
     return alert_log.cursor(db, CH)
 
 
+def gaps(db):
+    """The recorded gaps, without the one a book with no record at all writes on its very first start."""
+    return [g for g in alert_log.gaps(db, "2000") if g["reason"] != ar.FIRST_START]
+
+
 # ---- the durable identifiers and the cursor ---------------------------------------------------------------------
 
-def test_the_first_start_only_sets_the_cursor_and_replays_nothing(path, ch):
+def test_a_book_with_no_record_starts_at_the_newest_message_and_writes_down_what_it_did_not_read(path, ch):
     ch.post(10, "AAA:volume_spike", et(9, 41))
     li = Listener(path, ch, et(9, 45))
     out = li.catch_up()
     assert (out.done, out.handled, li.order) == (True, 0, []) and cursor(li.db) == 10 and events(li.db) == []
+    (g,) = alert_log.gaps(li.db, "2000")                    # the interval it chose not to read is on the record
+    assert (g["from_id"], g["to_id"], g["reason"]) == (None, 10, ar.FIRST_START)
+
+
+def test_the_first_start_resumes_after_the_last_message_on_record_so_nothing_posted_meanwhile_is_dropped(path, ch):
+    """Review 2026-11-23: #200 set a missing cursor at the channel's NEWEST message. An alert posted during the very
+    restart that first ran the code (or pushed while the cursor was being set) was then never read, and nothing said
+    so. The anchor is now the last message the book has any record of; what came after it is replayed."""
+    db = OpsStore(path)
+    with db.tx() as c:                                      # handled by the build before identifiers: a row, no cursor
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, reason, "
+                  "created_at) VALUES ('OLD','2026-11-02','volume_spike',?,?,10,'skipped','paused',?)",
+                  (iso(et(9, 50)), CH, iso(et(9, 50))))
+    ch.post(10, "OLD:volume_spike", et(9, 50))
+    ch.post(11, "AAA:volume_spike", POSTED)                 # posted while the new build was starting
+    li = Listener(path, ch, et(10, 0, 40))
+    live = ch.post(12, "BBB:volume_spike", et(10, 0, 41))
+    assert not li.push(live, et(10, 0, 42))                 # pushed while the cursor is being set: waits its turn
+    out = li.catch_up(et(10, 0, 45))
+    assert out.done and cursor(li.db) == 12 and li.order == [(11, "replay"), (12, "poll")]
+    assert [(r["symbol"], r["status"], r["via"]) for r in rows(li.db)] == [
+        ("OLD", "skipped", None), ("AAA", "pending", "replay"), ("BBB", "pending", "poll")]
+    assert alert_log.gaps(li.db, "2000") == []              # nothing was passed, so nothing to write down
+
+
+def test_an_alert_whose_row_was_written_by_a_build_without_identifiers_never_gets_a_second_row(path):
+    """Rolling back to the build before identifiers and forward again (or the first start after the change): the
+    older build's rows have no identifier, and its cursor did not move. The replay must recognise them."""
+    db = OpsStore(path)
+    posted = et(9, 0)                                       # outside the entry window: a FILTERED row, which the
+    with db.tx() as c:                                      # one-row-per-stock index does not protect
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, reason, "
+                  "created_at) VALUES ('AAA','2026-11-02','volume_spike',?,?,20,'filtered','outside 09:30-15:44',?)",
+                  (iso(posted), CH, iso(posted)))
+    a = fade.LiveAlert("AAA", "volume_spike", posted, CH, 20, via="replay", recovered_at=et(9, 30))
+    assert fade.on_alert(db, a, et(9, 30)) == "already handled"
+    assert fade.on_alert(db, a, et(9, 31)) == "already handled (filtered)"          # and from then on by its identifier
+    assert len(rows(db)) == 1 and q(db, "SELECT 1 FROM decisions") == []
+    (e,) = events(db)
+    assert (e["status"], e["fade_id"], e["via"], e["reason"]) == ("filtered", 1, None, alert_log.LEGACY)
+    assert ar.account(db, "2026-11-02", "2026-11-02")["recovered"] == 0             # not counted as recovered
 
 
 def test_the_cursor_moves_only_when_every_alert_of_the_message_is_on_record_and_never_back(path):
@@ -162,6 +209,17 @@ def test_an_unreadable_cursor_is_never_read_as_zero(path, ch):
     assert li.catch_up().done and cursor(li.db) == 9 and li.order == []
     (g,) = alert_log.gaps(li.db, "2000")
     assert g["reason"] == ar.BAD_CURSOR and g["to_id"] == 9  # restarted from the newest message, and written down
+
+
+def test_an_unreadable_cursor_with_alerts_on_record_resumes_after_the_last_of_them(path, ch):
+    a = started(path, ch)
+    a.push(ch.post(10, "AAA:volume_spike", POSTED), POSTED + timedelta(seconds=10))
+    a.catch_up(POSTED + timedelta(seconds=15))
+    a.db.set_flag(alert_log.CURSOR + CH, "garbage")
+    ch.post(11, "BBB:volume_spike", POSTED + timedelta(seconds=30))
+    b = Listener(path, ch, et(10, 2))
+    assert b.catch_up(et(10, 2, 5)).done and cursor(b.db) == 11 and b.order == [(11, "replay")]
+    assert [g["reason"] for g in gaps(b.db)] == [ar.BAD_CURSOR_ANCHORED]             # written down; nothing was passed
 
 
 def test_one_alert_is_handled_once_whatever_is_delivered_twice(path):
@@ -414,7 +472,7 @@ def test_an_alert_that_keeps_failing_is_given_up_on_loudly_and_never_blocks_the_
     out = b.catch_up(et(10, 2, 9))
     assert out.done and out.skipped == 1 and cursor(b.db) == 11
     assert {e["symbol"]: e["status"] for e in events(b.db)} == {"AAA": "pending", "BBB": "failed", "CCC": "pending"}
-    (g,) = alert_log.gaps(b.db, "2000")
+    (g,) = gaps(b.db)
     assert (g["from_id"], g["to_id"]) == (9, 10) and "BBB" in g["detail"] and g["reason"] == ar.GAVE_UP.format(n=ar.TRIES)
     line = ar.clause(b.db, datetime.now(timezone.utc).date().isoformat())
     assert line.startswith("⚠️ alerts:") and "NOT handled" in line
@@ -440,14 +498,14 @@ def test_a_failed_alert_and_its_gap_row_are_written_together_or_not_at_all(path,
     monkeypatch.setattr(alert_log, "_move", lambda *x: (_ for _ in ()).throw(RuntimeError("killed")))
     with pytest.raises(RuntimeError):
         a.catch_up(et(10, 0, 40))                           # dies inside the give-up, after the failed record
-    assert cursor(a.db) == 9 and alert_log.gaps(a.db, "2000") == []
+    assert cursor(a.db) == 9 and gaps(a.db) == []
     assert [e["symbol"] for e in events(a.db)] == ["AAA"]   # BBB's failed record rolled back with the gap row
     monkeypatch.setattr(alert_log, "_move", real)
     b = Listener(path, ch, et(10, 1))
     b.on_alert = broken
     for k in range(ar.TRIES):
         b.catch_up(et(10, 1, 5 + k))
-    assert cursor(b.db) == 10 and len(alert_log.gaps(b.db, "2000")) == 1
+    assert cursor(b.db) == 10 and len(gaps(b.db)) == 1
     assert {e["symbol"]: (e["status"], e["via"]) for e in events(b.db)} == {"AAA": ("pending", "poll"), "BBB": ("failed", "replay")}
     assert "1 alerts failed" in ar.clause(b.db, "2026-11-02")
 
@@ -467,7 +525,7 @@ def test_a_long_backlog_is_read_in_pages_oldest_first_and_new_alerts_wait_their_
     out = b.catch_up(et(10, 2, 9))
     assert out.done and out.handled == 51 and b.state.caught_up and cursor(b.db) == 300
     assert [i for i, _ in b.order] == list(range(10, 260)) + [300]                  # strictly in the channel's order
-    assert len(events(b.db)) == 251 and rows(b.db)[0]["via"] == "poll" and alert_log.gaps(b.db, "2000") == []
+    assert len(events(b.db)) == 251 and rows(b.db)[0]["via"] == "poll" and gaps(b.db) == []
     assert ar.wait_s(b.state, 15, True) == 15 and ar.wait_s(b.state, 15, False) == ar.OFF_EVERY
     assert ar.wait_s(b.state, 0, True) == ar.OFF_EVERY      # the fast check switched off: the cursor still moves
 
@@ -479,7 +537,7 @@ def test_deleted_messages_and_holes_in_the_ids_need_no_special_case(path, ch):
         ch.post(i, f"S{i}:volume_spike", POSTED + timedelta(seconds=i))
     b = Listener(path, ch, et(10, 2))
     assert b.catch_up(et(10, 2, 5)).done and cursor(b.db) == 40
-    assert [e["message_id"] for e in events(b.db)] == [10, 11, 15, 40] and alert_log.gaps(b.db, "2000") == []
+    assert [e["message_id"] for e in events(b.db)] == [10, 11, 15, 40] and gaps(b.db) == []
 
 
 def test_a_backlog_too_old_to_matter_is_passed_in_one_recorded_jump_never_silently(path, ch):
@@ -490,11 +548,11 @@ def test_a_backlog_too_old_to_matter_is_passed_in_one_recorded_jump_never_silent
     b = Listener(path, ch, et(10, 2, day=16))
     out = b.catch_up(et(10, 2, 5, day=16))
     assert out.done and (out.skipped, out.handled) == (1, 1) and cursor(b.db) == 13
-    (g,) = alert_log.gaps(b.db, "2000")
+    (g,) = gaps(b.db)
     assert (g["from_id"], g["to_id"], g["reason"]) == (9, 12, ar.TOO_OLD.format(d=ar.HORIZON.days))
     assert [e["message_id"] for e in events(b.db)] == [13] and b.order == [(13, "replay")]
-    assert "1 stretch of the channel NOT handled (message ids 9..12" in ar.clause(
-        b.db, datetime.now(timezone.utc).date().isoformat())
+    line = ar.clause(b.db, datetime.now(timezone.utc).date().isoformat())
+    assert "of the channel NOT handled (message ids " in line and "9..12: older than 8 days" in line
 
 
 def test_an_unreadable_message_is_written_down_and_the_next_one_is_still_handled(path, ch):
@@ -504,7 +562,7 @@ def test_an_unreadable_message_is_written_down_and_the_next_one_is_still_handled
     b = Listener(path, ch, et(10, 2))
     out = b.catch_up(et(10, 2, 5))
     assert out.done and (out.skipped, out.handled) == (1, 1) and cursor(b.db) == 11
-    (g,) = alert_log.gaps(b.db, "2000")
+    (g,) = gaps(b.db)
     assert (g["to_id"], g["reason"]) == (10, ar.UNREADABLE) and [r["symbol"] for r in rows(b.db)] == ["AAA"]
 
 
@@ -567,6 +625,67 @@ def test_an_open_short_is_still_managed_after_a_restart(path, ch):
     assert r["status"] == "est_closed" and r["est_exit"] == 6.5 and len(sent) == 2  # exits are never held back
 
 
+# ---- position protection does not depend on the alert channel -----------------------------------------------------
+
+def _exit_delay(path, ch, *, fetch=None, slow=0.0, backlog=0):
+    """An open short, its monitor loop running as the listener runs it (a worker thread, every 20 ms), and a catch-up
+    under way. The price goes through the stop: returns (seconds until the exit is booked, catch-up finished?)."""
+    a = started(path, ch)
+    a.push(ch.post(10, "AAA:volume_spike", POSTED), POSTED + timedelta(seconds=10))
+    tape, sent = Tape(5.0, et(10, 1, 2)), []
+    fade.monitor(a.db, sent.append, tape, now=et(10, 1, 5), up_since=a.state.up_since)
+    assert rows(a.db)[0]["status"] == "open"
+    for i in range(backlog):
+        ch.post(100 + i, f"S{i}:halted", et(10, 2) + timedelta(seconds=i))
+    b = Listener(path, ch, et(10, 9))                       # a restart with the short open
+
+    def handle(m, how):
+        time.sleep(slow)                                    # a slow replay: the database is busy, say
+        return b.handle(m, how)
+
+    async def run():
+        async def monitor_loop():
+            while True:
+                await asyncio.to_thread(fade.monitor, b.db, sent.append, tape, et(10, 10), None, None, None, None,
+                                        b.state.up_since)
+                await asyncio.sleep(0.02)
+
+        replay = asyncio.create_task(ar.catch_up(b.db, b.state, fetch or ch.fetch, handle, ch.newest, ch.before,
+                                                 now=lambda: et(10, 9, 5)))
+        mon = asyncio.create_task(monitor_loop())
+        await asyncio.sleep(0.15)                           # the catch-up is under way (or hanging)
+        tape.px, tape.at, t0 = 6.5, et(10, 9, 58), time.monotonic()     # through the 20% stop
+        while rows(b.db)[0]["status"] != "est_closed":
+            assert time.monotonic() - t0 < 5, "the exit was never booked"
+            await asyncio.sleep(0.01)
+        took, done = time.monotonic() - t0, replay.done()
+        for t in (replay, mon):
+            t.cancel()
+        return took, done
+
+    return asyncio.run(run())
+
+
+def test_an_alert_channel_that_never_answers_does_not_hold_an_exit(path, ch):
+    async def hangs(after, limit):
+        await asyncio.Event().wait()
+
+    took, finished = _exit_delay(path, ch, fetch=hangs, backlog=1)
+    assert took < 0.5 and not finished                      # the stop was booked while the channel still hung
+
+
+def test_a_slow_replay_does_not_hold_an_exit(path, ch):
+    """Review 2026-11-23: the replay of #200 handled each alert ON the event loop, so one alert waiting 1 s for the
+    database held back the next stop check by as long. Its work now runs on a thread of its own."""
+    took, finished = _exit_delay(path, ch, slow=1.0, backlog=6)
+    assert took < 0.5 and not finished                      # booked while the replay was still crawling
+
+
+def test_a_large_backlog_does_not_hold_an_exit(path, ch):
+    took, _ = _exit_delay(path, ch, backlog=200)
+    assert took < 0.5
+
+
 # ---- the long book ---------------------------------------------------------------------------------------------------
 
 T1 = pd.Timestamp("2026-11-09 15:01", tz="UTC")
@@ -607,6 +726,9 @@ def test_a_long_fill_from_before_the_listener_was_back_is_missed_never_bought(tm
     lb.tick(db, lambda sym, at: LONG_DAY, sent.append, now=now, up_since=datetime.fromisoformat(up) if up else None)
     (t,) = q(db, "SELECT status, est_entry FROM long_trades")
     assert t["status"] == status and (len(sent) == 1) == (status == "open")        # a missed fill is never texted
+    (d,) = q(db, "SELECT facts FROM decisions WHERE book='long'")
+    why = json.loads(d["facts"]).get("missed_why")                                 # countable in the record
+    assert why == ("fill candle began before the listener was back" if status == "missed" else None)
 
 
 # ---- the accounting ----------------------------------------------------------------------------------------------------

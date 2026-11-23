@@ -66,6 +66,27 @@ def note(db: OpsStore, k: Key, posted_at: datetime, received_at: datetime, via: 
         return False
 
 
+LEGACY = "handled by a build without alert identifiers (its row already exists)"
+
+
+def legacy_row(c: sqlite3.Connection, k: Key):
+    """The alert's own row when one exists WITHOUT an identifier: written before identifiers existed (2026-11-22), or
+    by an older build after a rollback. Such an alert was handled; it must never get a second row."""
+    return c.execute("SELECT id, status, created_at FROM fade_trades WHERE channel=? AND message_id=? AND symbol=? "
+                     "AND alert_type=? ORDER BY id LIMIT 1", k).fetchone()
+
+
+def last_handled(db: OpsStore, channel: str) -> int | None:
+    """The highest message id the book has any record of (a row or an identifier); None when it has none. Where a
+    cursor has to be set without one to resume from, this is the last point known to be handled: everything after
+    it is replayed instead of being assumed handled."""
+    with db.read() as c:
+        a = c.execute("SELECT MAX(message_id) FROM fade_trades WHERE channel=?", (channel,)).fetchone()[0]
+        b = c.execute("SELECT MAX(message_id) FROM alert_events WHERE channel=?", (channel,)).fetchone()[0]
+    got = [int(x) for x in (a, b) if isinstance(x, int) and x > 0]
+    return max(got) if got else None
+
+
 def _cursor(c: sqlite3.Connection, channel: str) -> int | None:
     r = c.execute("SELECT value FROM flags WHERE key=?", (CURSOR + channel,)).fetchone()
     try:
@@ -89,7 +110,7 @@ def _move(c: sqlite3.Connection, channel: str, message_id: int) -> None:
 
 
 def baseline(db: OpsStore, channel: str, message_id: int) -> bool:
-    """Set the cursor for the first time (nothing older is replayed). False when one is already set."""
+    """Set the cursor where none is set (the caller decides where and writes down why). False when one is set."""
     with db.tx() as c:
         if _cursor(c, channel) is not None:
             return False
@@ -142,7 +163,8 @@ def failed(db: OpsStore, since: str, until: str) -> int:
                              (FAILED, since, until)).fetchone()[0])
 
 
-def gaps(db: OpsStore, since: str) -> list[dict]:
-    """The recorded gaps written at or after ``since`` (an ISO time or date prefix compares as text)."""
+def gaps(db: OpsStore, since: str, until: str = "9999") -> list[dict]:
+    """The recorded gaps written in ``since`` .. ``until`` (ISO times or date prefixes; compared as text)."""
     with db.read() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM alert_gaps WHERE at>=? ORDER BY id LIMIT 200", (since,))]
+        return [dict(r) for r in c.execute("SELECT * FROM alert_gaps WHERE at>=? AND at<? ORDER BY id LIMIT 200",
+                                           (since, until))]

@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS trade_insights(
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL, model TEXT NOT NULL, scope TEXT NOT NULL,
   body TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS ix_fade_status ON fade_trades(status, session);
+CREATE INDEX IF NOT EXISTS ix_fade_message ON fade_trades(channel, message_id);
 CREATE TABLE IF NOT EXISTS symbol_beta(
   symbol TEXT NOT NULL, session TEXT NOT NULL, beta REAL, n_obs INTEGER, computed_at TEXT NOT NULL,
   PRIMARY KEY(symbol, session));
