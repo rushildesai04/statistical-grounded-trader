@@ -82,10 +82,11 @@ def check_data(quote_time, now: datetime, cal=None) -> str | None:
 ALERTS_STALE = timedelta(minutes=15)  # outside alert hours the channel is read every 5 minutes
 
 
-def check_alerts(db: OpsStore, now: datetime) -> list[str]:
+def check_alerts(db: OpsStore, now: datetime, since: datetime | None = None) -> list[str]:
     """The alert intake before the open (2026-11-23): is the channel being read, did the catch-up finish, was any
-    stretch of the channel passed unhandled since yesterday. This check runs from the runner's own schedule
-    (09:20 ET), so it does not depend on anyone's session being open. Never raises."""
+    stretch of the channel passed unhandled since the previous pre-open check (``since``; four days when there was
+    none, so a long weekend is covered). This check runs from the runner's own schedule (09:20 ET), so it does not
+    depend on anyone's session being open. Never raises."""
     out: list[str] = []
     try:
         import json
@@ -102,10 +103,10 @@ def check_alerts(db: OpsStore, now: datetime) -> list[str]:
         if st and not st.get("ok", True):
             what = f"stopped at message {st['stuck']}" if st.get("stuck") else st.get("error") or "not finished"
             out.append(f"the alert catch-up is not complete ({what}): alerts may be late or missing")
-        gaps = alert_log.gaps(db, (now - timedelta(hours=20)).isoformat())
+        gaps = alert_log.gaps(db, (since or now - timedelta(days=4)).isoformat())
         if gaps:
             out.append(f"{len(gaps)} stretch{'es' if len(gaps) != 1 else ''} of the alert channel were passed "
-                       f"unhandled since yesterday's close ({gaps[-1]['reason'][:60]})")
+                       f"unhandled since the last pre-open check ({gaps[-1]['reason'][:60]})")
     except Exception as exc:  # noqa: BLE001 - the finding, in plain words; the other checks still report
         out.append(f"the alert intake could not be checked ({type(exc).__name__})")
     return out
@@ -151,8 +152,12 @@ def spy_trade_time() -> datetime | None:
 
 
 def run(db: OpsStore, now: datetime, quote_time=spy_trade_time, disk: Path = Path("."), cal=None) -> list[str]:
+    try:                                         # when the previous pre-open check ran (check_db overwrites it below)
+        last = datetime.fromisoformat(db.flag("preflight_at") or "")
+    except (ValueError, TypeError):
+        last = None
     return [p for p in (check_heartbeat(db, now), check_data(quote_time, now, cal), check_db(db, now),
-                        check_disk(disk), *check_alerts(db, now)) if p]
+                        check_disk(disk), *check_alerts(db, now, last)) if p]
 
 
 def message(problems: list[str], now: datetime, off: list[str] | None = None) -> str:

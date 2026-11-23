@@ -161,3 +161,9 @@ def test_an_event_loop_that_stands_still_is_written_down_whatever_held_it(tmp_pa
     assert g["loop"] == ot.EVENT_LOOP and g["gap"] >= 0.5
     assert ot.clause(tmp_path, day).startswith("⚠️ stop checks: 1 started late, longest gap ") and "(event loop" in \
         ot.clause(tmp_path, day)
+
+
+def test_a_full_record_of_stop_checks_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(ot, "GAPS_MAX_BYTES", 10)
+    (tmp_path / ot.GAPS_NAME).write_text("x" * 50)
+    assert "the record of stop checks is full" in ot.clause(tmp_path, "2026-11-23")

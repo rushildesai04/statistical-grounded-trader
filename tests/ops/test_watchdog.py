@@ -111,13 +111,28 @@ def test_a_dead_alert_intake_is_reported_while_the_stops_still_run_and_the_text_
     _alive(db, tmp_path, NOON - timedelta(seconds=10), alerts=False)                # Telegram connection gone, books fine
     assert list(wd.silent(db, NOON)) == ["alerts"]
     text = wd.check(db, sent.append, NOON)
-    assert "the alert channel has not been read for 15 min: new alerts are NOT reaching the books" in text
+    assert "the alert channel has not been checked for 15 min" in text and "new alerts may NOT be reaching the books" in text
     assert "The short book's stop checks are running." in text and "has not run for" not in text
     db2, sent2 = OpsStore(tmp_path / "b" / "ops.db"), []
     _alive(db2, tmp_path / "b", NOON - timedelta(seconds=10), long=False)           # the long book's thread is stuck
     with db2.tx() as c:
         c.execute("INSERT INTO long_trades(fade_id, symbol, session, status, created_at) VALUES (1,'AAA','2026-11-23','open','x')")
     assert "the long book has not checked its positions for 15 min (1 open on paper)" in wd.check(db2, sent2.append, NOON)
+
+
+def test_the_text_says_alerts_are_not_read_only_when_the_channels_own_sign_is_gone(tmp_path):
+    """Review 2026-11-23: with only the short book's thread stuck (the case its own thread exists to contain) the text
+    said "Alerts are not being read" although the channel was being read."""
+    db, sent = OpsStore(tmp_path / "ops.db"), []
+    _alive(db, tmp_path, NOON - timedelta(seconds=10), short=False)
+    beat(db, NOON - timedelta(minutes=10))                                         # the short book alone is stuck
+    assert list(wd.silent(db, NOON)) == ["short book"]
+    text = wd.check(db, sent.append, NOON)
+    assert "has not run for 10 min" in text and "The alert channel is still being read." in text
+    assert "Alerts are not being read" not in text
+    cold, sent2 = OpsStore(tmp_path / "cold" / "ops.db"), []                       # a start that never got as far as
+    beat(cold, NOON - timedelta(minutes=10))                                       # reading the channel: no sign at all
+    assert "Alerts are not being read." in wd.check(cold, sent2.append, NOON)
 
 
 def test_with_the_fast_channel_check_switched_off_five_minutes_between_reads_is_normal(tmp_path):

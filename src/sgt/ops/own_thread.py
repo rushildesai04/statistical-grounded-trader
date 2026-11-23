@@ -223,6 +223,11 @@ def clause(folder: Path, day: str, in_hours=None) -> str:
         if down:
             at, gap = max(down, key=lambda x: x[1])
             bad.append(f"listener restarted {len(down)}x in alert hours, longest silence {gap:.0f} s (at {at:%H:%M} UTC)")
+        try:                                                # a full record stops taking rows: say so, never silently
+            if (Path(folder) / GAPS_NAME).stat().st_size > GAPS_MAX_BYTES:
+                bad.append("the record of stop checks is full (later checks are not in it)")
+        except OSError:
+            pass
         return ("⚠️ stop checks: " + measured + "; ".join(bad)) if bad else \
             f"stop checks: {measured}none late, no restart in alert hours"
     except Exception as e:  # noqa: BLE001 - the summary must go out

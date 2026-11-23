@@ -195,5 +195,8 @@ def test_the_alert_intake_is_checked_before_the_open_from_the_runners_own_schedu
     assert any("catch-up is not complete (stopped at message 27300)" in g for g in got)
     assert any("1 stretch of the alert channel were passed unhandled" in g for g in got)
     assert pf.check_alerts(db, NOW)[0] == "the alert channel has not been read for 20 min: alerts will be missed"
+    wall = datetime.now(timezone.utc)                        # the window is "since the previous pre-open check":
+    assert not any("passed unhandled" in g for g in pf.check_alerts(db, wall, since=wall + timedelta(seconds=1)))
+    assert any("passed unhandled" in g for g in pf.check_alerts(db, wall, since=wall - timedelta(days=3)))   # a weekend
     src = (Path(__file__).resolve().parents[2] / "deploy" / "fly" / "crontab").read_text()
     assert "job preflight" in src                            # scheduled on the runner, every weekday morning

@@ -81,15 +81,20 @@ def check(db: OpsStore, send: Callable[[str], None], now: datetime, in_hours=Non
             seen = now - timedelta(seconds=quiet["short book"])
             held = (f"Open on paper: {shorts} short, {longs} long. Their stops are NOT being checked."
                     if shorts or longs else "Nothing is open.")
-            read = "Alerts are not being read. " if "alerts" in quiet or len(quiet) == 1 else ""
+            from sgt.ops import own_thread
+
+            # Say only what the signs show (review 2026-11-23): the channel's own sign decides, not the book's.
+            seen_read = own_thread.beat_age(Path(db.path).parent, "alerts", now.timestamp())
+            read = ("Alerts are not being read. " if "alerts" in quiet or seen_read is None
+                    else "The alert channel is still being read. ")
             text = (f"[SGT] ⚠️ The listener has not run for {mins(quiet['short book'])} min "
                     f"(last pass {seen.astimezone(ET):%H:%M} ET). {read}{held} "
                     "It restarts by itself after a crash; if this text repeats, it is stuck.")
         else:
             parts = []
             if "alerts" in quiet:
-                parts.append(f"the alert channel has not been read for {mins(quiet['alerts'])} min: new alerts are "
-                             "NOT reaching the books")
+                parts.append(f"the alert channel has not been checked for {mins(quiet['alerts'])} min (a lost "
+                             "connection, or Telegram asking us to slow down): new alerts may NOT be reaching the books")
             if "long book" in quiet:
                 parts.append(f"the long book has not checked its positions for {mins(quiet['long book'])} min"
                              + (f" ({longs} open on paper)" if longs else ""))
