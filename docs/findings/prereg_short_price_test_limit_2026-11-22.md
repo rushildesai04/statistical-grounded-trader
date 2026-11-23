@@ -164,3 +164,26 @@ depends on a favourable assumption.
 **Passing the threshold permits proposing one independent follow-up, with its own registration, on new events, by
 the owner's decision. It does not establish an edge. It does not authorize a trade, a change to the paper book, or
 real money.**
+
+---
+## Amendment 2 (2026-11-22; before any code for the variant exists and before any outcome is computed)
+Owner, 2026-11-22: "Keep H1's assumed locate charge labeled as an assumption, with sensitivity analysis defined
+before outcomes are read."
+
+**The locate charge of 0.5% is an ASSUMPTION. There is no data behind it for these stocks.** It is the figure the
+backtest and the baseline use. The nightly borrow scan records whether shares are listed, never what a locate costs,
+and no broker has quoted one. Every figure of this variant is to be printed with the words "locate assumed 0.5%".
+
+Defined now, reported at the single read, nothing chosen afterwards:
+
+| Sensitivity | Definition |
+|---|---|
+| Charge level | every reported figure recomputed with the locate at 1%, 2% and 5% of the sale |
+| Break-even charge | the locate charge at which the governing figure (per alert, unfilled at 0) averages exactly 0, and the charge at which its lower bound is exactly 0 |
+| Who pays | (a) charged on shares SOLD (as registered); (b) charged on every ORDER PLACED, filled or not: a locate bought before the order and not refunded. Under (b) an unfilled alert costs the charge instead of counting 0. Which of the two a real broker applies is not known |
+
+One change to the threshold, in the stricter direction only: a follow-up may be proposed only if the registered
+threshold (Amendment 1: under both fill models) also holds with the charge at 1% under (a). Reason: an assumption
+with no data behind it must survive being wrong by a factor of two. Results at 2%, 5% and under (b) are reported
+next to it and must be stated in any proposal; they are not thresholds, because no number for them could be
+justified today. Everything else in the registration and in Amendment 1 is unchanged.

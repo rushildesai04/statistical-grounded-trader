@@ -858,6 +858,18 @@ night it cannot finish is texted and caught up on the next run.
   replayed). Standing: longs are measurement only until a real-time full-tape source exists; shorts are limited to
   H1 and the registered review. Owner review Friday 2026-12-18; final date 2027-02-26. Deploys outside 09:25 to
   16:00 ET from now on.
+- **Operational risks 2026-11-22 (`docs/findings/ops_risks_2026-11-22.md`); owner chose A for a week (longs frozen
+  measurement, shorts H1 + registered review, no new search; revisited Mon 11-30).** (1) Every database block takes
+  the single write lock, reads too; a held lock delays the stop check, the exit and its text one for one (3 s held =
+  3.06 s late, shown locally). Measured on the runner on a quiet Sunday: median wait 0.5 ms, longest 0.33 s, caused
+  by the notes page reading under the write lock. Session hours are NOT yet measured. Fixed separately: reads that
+  take no write lock (`OpsStore.read`), every wait of 0.25 s or more written down, a `database:` clause in the
+  nightly line. (2) An alert posted while the listener is down is never handled (memory-only "seen" state). Design,
+  not built: durable cursor moved in the alert's own transaction, replay on start (200 posts, same day), three
+  layers of deduplication, and expiry: a recovered alert older than 5 minutes is recorded, never traded. Populations:
+  24 trades, 29 recorded setups (24 + 3 seen + 2 missed), 22 = today's rule re-run on all 82 alerts (only 3 were
+  trades). Existing on the tape is not equal risk: 14 of 26 stops differ by more than a quarter of the risk. H1's
+  0.5% locate is an assumption: sensitivity fixed in Amendment 2 (1%, 2%, 5%, break-even, charged per order).
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has
