@@ -31,6 +31,7 @@ WHY = {
     fade.NO_PRINT_REASON: "no trade printed within 5 minutes (halted or no quote)",
     "alert received late": "the alert reached us too late to enter at the tested time",
     fade.RESTART_NO_PRINT: "the stock traded, but not after our listener was back, inside the 5 minutes",
+    fade.RECOVERED_ONLY: "posted while our listener was down: recorded, not shorted",
     "declined": "you declined it",
 }
 _CODE = re.compile(r"\s*\((?:[^()]*(?:amendment|owner|prereg)[^()]*)\)")

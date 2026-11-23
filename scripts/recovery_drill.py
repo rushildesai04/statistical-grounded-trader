@@ -205,6 +205,10 @@ def run(d: Path, speed: float) -> int:
     from sgt.ops import approvals
     from sgt.ops.store import OpsStore
 
+    from sgt.fast import fade
+
+    entries = getattr(fade, "RECOVERED_SHORT_ENTRIES", True)        # False = record only (the drill checks that instead)
+    print(f"recovered short alerts may enter: {entries}", flush=True)
     dr = Drill(d, speed)
     approvals.arm(OpsStore(dr.db), dr.now())
     dr.post(100, "ZZZO halted 9.00", dr.now() - timedelta(minutes=30))
@@ -237,6 +241,7 @@ def run(d: Path, speed: float) -> int:
     dr.wait("the catch-up to reach the newest message", lambda: cursor() == "104")
     dr.wait("the listener to have looked at the prices at least three times", lambda: dr.ticks() >= 3)
     b, c, dd = dr.row("ZZZB"), dr.row("ZZZC"), dr.row("ZZZD")
+    waiting = "pending" if entries else "skipped"           # record only: a recovered alert never waits to enter
     order = [r["message_id"] for r in dr.q("SELECT message_id FROM alert_events WHERE message_id > 101 ORDER BY rowid")]
     dr.check("ordering: the downtime's messages were handled oldest first", order == [102, 103, 104, 104], str(order))
     lab = dr.q("SELECT symbol, via, posted_at, recovered_at FROM alert_events WHERE message_id > 101")
@@ -249,18 +254,27 @@ def run(d: Path, speed: float) -> int:
     dr.check("one trade per stock survives the crash: the second alert of the shorted stock is a duplicate, no row",
              [r["status"] for r in ev(103)] == ["duplicate"] and len(dr.q("SELECT 1 FROM fade_trades WHERE symbol='ZZZA'")) == 1)
     dr.check("current price: a fresh recovered alert is NOT entered on the print from the downtime",
-             (c["status"], c["est_entry"]) == ("pending", None) and datetime.fromisoformat(c["recovered_at"]) > old,
+             (c["status"], c["est_entry"]) == (waiting, None) and datetime.fromisoformat(c["recovered_at"]) > old,
              f"print at {old:%H:%M:%S}, recovered {c['recovered_at'][11:19]}, status {c['status']}")
     n = dr.texts()
     new = dr.print_at("ZZZC", 4.20)
-    dr.wait("the recovered short to open on the new print", lambda: (dr.row("ZZZC") or {}).get("status") == "open")
-    dr.wait("its text (sent right after the entry is booked)", lambda: dr.texts() > n, 10)
-    c = dr.row("ZZZC")
-    dr.check("current price: it enters on the first print AFTER the recovery, at that price, one text",
-             c["est_entry"] == 4.20 and datetime.fromisoformat(c["est_entry_at"]) >= new and dr.texts() == n + 1,
-             f"entry {c['est_entry']} at {c['est_entry_at'][11:19]}")
-    dr.check("both timelines kept: posting time, recovery time and entry time are three different stored times",
-             c["posted_at"] < c["recovered_at"] < c["est_entry_at"])
+    if entries:
+        dr.wait("the recovered short to open on the new print", lambda: (dr.row("ZZZC") or {}).get("status") == "open")
+        dr.wait("its text (sent right after the entry is booked)", lambda: dr.texts() > n, 10)
+        c = dr.row("ZZZC")
+        dr.check("current price: it enters on the first print AFTER the recovery, at that price, one text",
+                 c["est_entry"] == 4.20 and datetime.fromisoformat(c["est_entry_at"]) >= new and dr.texts() == n + 1,
+                 f"entry {c['est_entry']} at {c['est_entry_at'][11:19]}")
+        dr.check("both timelines kept: posting time, recovery time and entry time are three different stored times",
+                 c["posted_at"] < c["recovered_at"] < c["est_entry_at"])
+    else:
+        t = dr.ticks()
+        dr.wait("the listener to look at the new print several times", lambda: dr.ticks() >= t + 4)
+        c = dr.row("ZZZC")
+        dr.check("record only: with a fresh print after the recovery the recovered alert is still not entered, no text",
+                 (c["status"], c["est_entry"]) == ("skipped", None) and dr.texts() == n, f"{c['status']}: {c['reason']}")
+        dr.check("both timelines kept: posting time and recovery time are stored on the recorded alert",
+                 c["posted_at"] < c["recovered_at"])
 
     # 4. the channel becomes unreachable with shorts open: exits must not wait for it
     (d / "channel.down").write_text("x")
@@ -299,8 +313,13 @@ def run(d: Path, speed: float) -> int:
     dr.check("deduplication: re-reading and re-pushing the same alerts adds no row, identifier, decision line or text",
              before == after, f"rows, identifiers, decision lines, texts: {before} -> {after}")
     c2 = dr.row("ZZZC")
-    dr.check("position state survives two crashes: the recovered short is still open at its entry",
-             (c2["status"], c2["est_entry"], c2["recovered_at"]) == ("open", 4.20, c["recovered_at"]))
+    if entries:
+        dr.check("position state survives two crashes: the recovered short is still open at its entry",
+                 (c2["status"], c2["est_entry"], c2["recovered_at"]) == ("open", 4.20, c["recovered_at"]))
+    else:
+        dr.check("state survives two crashes: the recovered alert is still recorded only, the live short's exit stands",
+                 (c2["status"], c2["est_entry"], c2["recovered_at"]) == ("skipped", None, c["recovered_at"])
+                 and dr.row("ZZZA")["status"] == "est_closed")
     dr.kill()
     gaps = dr.q("SELECT reason FROM alert_gaps")
     print(f"\ngap rows: {[g['reason'][:60] for g in gaps]}")

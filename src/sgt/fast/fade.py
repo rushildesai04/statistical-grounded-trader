@@ -94,6 +94,16 @@ NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed bef
 # back (a recovered alert, or a restart with the alert waiting). An operational skip, like "alert received late": the
 # alert stays an event (F8 and the long book count it); it is not evidence of a halt, so it is not in NOT_EVENT_SKIPS.
 RESTART_NO_PRINT = "no trade print after the restart within 5 min of the alert"
+# Record-only for recovered SHORT alerts (docs/findings/recovery_verification_2026-11-23.md, section 1). The registered
+# rule enters at the first bar at or after alert + 10 s; its five minutes bound how late that FIRST bar may be. The
+# live code also tolerates an alert that arrives late, and amendment F5 withdrew late entries on evidence (the edge
+# is front-loaded: +0.97% at the alert, +0.14% two minutes late, -0.21% four minutes late). Nothing in the
+# specification authorizes an entry after the listener was down, so an alert found by the replay is recorded and not
+# entered: an operational skip, like "alert received late", so it stays an event (F8 and the long book count it).
+# False = record only. True = the existing late rule decides (an entry then needs a print from after the recovery,
+# inside the five minutes). Changing it is a decision about the trading rule: the owner's, by a change of its own.
+RECOVERED_SHORT_ENTRIES = False
+RECOVERED_ONLY = "recovered after a restart: recorded, not entered"
 # Owner 2026-11-12 night (option A after the adversarial validation): new shorts OFF. The November forward record lost
 # -3.44%/trade (win 39%, n 61; a 9-session stretch of held-out days is this bad 1.1% of the time) and two independent
 # checks found no code or backtest bias; owner: shorting is deprioritized (borrowed shares, unlimited loss, margin).
@@ -323,6 +333,8 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
         return put("filtered", REPEAT_REASON, "filtered: repeat")
     if now - a.posted_at > MAX_ENTRY_DELAY:
         return put("skipped", "alert received late", "skipped: late")
+    if a.via == "replay" and not RECOVERED_SHORT_ENTRIES:
+        return put("skipped", RECOVERED_ONLY, "skipped: recovered, record only")
     if db.paused():
         reason, status = "paused", "skipped"
     elif (reason := caps(db, session)) is not None:

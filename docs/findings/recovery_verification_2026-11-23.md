@@ -69,6 +69,16 @@ stays an event (the 7-day repeat rule counts it; the long book watches it); noth
 live are untouched. Merging it is the owner's decision on the trading rule; not merging it leaves the code's present
 reading in force.
 
+**If the record-only change is merged** (`fade.RECOVERED_SHORT_ENTRIES = False`, this pull request): from the
+deploy that follows, an alert found by the replay is never a short entry. Older than five minutes it is still "alert
+received late"; a rule's own filter (entry window, news, 7-day repeat) still names it; otherwise it is `skipped`,
+"recovered after a restart: recorded, not entered". It stays an event for the repeat rule and for the long book.
+The nightly clause counts it ("N recorded only"). An alert handled live, and one found by the 15-second check after
+the listener is back, are untouched. The drill in this mode: 12 of 12 (checks 7, 8 and 12 become "with a fresh print
+after the recovery it is still not entered, no text", "posting and recovery time stored", "still recorded only
+after two crashes"). Effect on the cohort: it can only remove a restart-case trade, and each one is on the record
+with its reason. Turning entries back on is a one-word change and, like this one, a decision about the trading rule.
+
 ## 2. The restart corrections of #200: scope, effective version, cohort accounting
 
 Both change what the books do after a restart. Neither changes anything for an alert handled live (test
