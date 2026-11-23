@@ -324,6 +324,7 @@ def account(db: OpsStore, since: str, until: str | None = None, ledger: Path | N
     late = sum(1 for r in rows if r["first_reason"] == "alert received late")
     return {"recovered": len(rows), "eligible": sum(1 for r in rows if r["first"] in ("pending", "ask")),
             "attempted": len(ids), "simulated_filled": priced, "too_old": late,
+            "record_only": sum(1 for r in rows if r["first_reason"] == fade.RECOVERED_ONLY),
             "failed": sum(1 for r in rows if r["first"] == alert_log.FAILED),
             "long_watched": sum(1 for r in rows if r["long_status"] is not None),
             "long_bought": sum(1 for r in rows if r["long_status"] in LONG_BOUGHT),
@@ -361,7 +362,8 @@ def clause(db: OpsStore, session: str, cohort_from: str | None = None, now: date
             bad.append(f"{lost} alerts failed")
         if a["recovered"]:
             rec = (f"{a['recovered']} recovered after a restart ({a['eligible']} eligible, {a['attempted']} entered on "
-                   f"paper, {a['too_old']} too old to trade; longs {a['long_bought']} bought, {a['long_missed']} "
+                   f"paper, {a['too_old']} too old to trade, {a['record_only']} recorded only; longs "
+                   f"{a['long_bought']} bought, {a['long_missed']} "
                    f"missed)")
         else:
             rec = "none recovered"

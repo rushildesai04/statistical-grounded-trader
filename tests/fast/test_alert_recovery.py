@@ -22,6 +22,7 @@ from sgt.ops.store import OpsStore, iso
 
 ET = ZoneInfo("America/New_York")
 CH = "-1"
+SHIPPED_DEFAULT = fade.RECOVERED_SHORT_ENTRIES      # read at import, before any fixture touches it
 
 
 def et(h, m, s=0, day=2):
@@ -92,6 +93,14 @@ class Tape:
 
     def __call__(self, symbol, since=None):
         return None if self.px is None or (since is not None and self.at < since) else self.px
+
+
+@pytest.fixture(autouse=True)
+def recovered_entries_allowed(monkeypatch):
+    """The tests of this file exercise what a recovered short alert must obey IF it may enter at all (a print from
+    after the recovery, inside the window, every gate, once). By default it may not: record-only
+    (``fade.RECOVERED_SHORT_ENTRIES``), tested in tests/fast/test_recovered_record_only.py."""
+    monkeypatch.setattr(fade, "RECOVERED_SHORT_ENTRIES", True)
 
 
 @pytest.fixture()
@@ -763,7 +772,7 @@ def test_recovered_alerts_are_counted_by_stage_and_the_nightly_line_always_says_
     ledger.write_text(json.dumps({"book": "short", "id": aaa, "label": "MODELED", "via": "replay"}) + "\n")
     assert ar.account(b.db, day, day, ledger)["simulated_filled"] == 1
     assert ar.clause(b.db, day) == ("alerts: in order, 4 recovered after a restart (2 eligible, 1 entered on paper, "
-                                    "1 too old to trade; longs 0 bought, 0 missed), no gap")
+                                    "1 too old to trade, 0 recorded only; longs 0 bought, 0 missed), no gap")
     assert ar.clause(b.db, "2026-11-03", "2026-11-02").endswith(
         "(since 11-02: 4 recovered, 2 eligible, 1 entered, 0 priced by the model)")
     line = decision_health.line(b.db, day)
@@ -773,3 +782,52 @@ def test_recovered_alerts_are_counted_by_stage_and_the_nightly_line_always_says_
 def test_the_clause_never_raises_into_the_summary(path, monkeypatch):
     monkeypatch.setattr(ar, "account", lambda *a, **k: 1 / 0)
     assert ar.clause(OpsStore(path), "2026-11-02") == "⚠️ alerts: check failed (ZeroDivisionError)"
+
+
+# ---- record only: a recovered short alert is recorded and never entered (the shipped default) ------------------------
+
+@pytest.fixture()
+def record_only(monkeypatch):
+    monkeypatch.setattr(fade, "RECOVERED_SHORT_ENTRIES", False)
+
+
+def test_record_only_is_what_ships():
+    assert SHIPPED_DEFAULT is False
+
+
+def test_record_only_a_fresh_recovered_alert_is_recorded_with_its_label_and_never_shorted(path, ch, record_only):
+    started(path, ch)
+    ch.post(10, "AAA:volume_spike", POSTED)
+    b = Listener(path, ch, et(10, 2))
+    b.catch_up(et(10, 2, 5))                                # 105 s old: the late rule alone would let it wait
+    (r,) = rows(b.db)
+    assert (r["status"], r["reason"], r["via"], r["recovered_at"]) == (
+        "skipped", fade.RECOVERED_ONLY, "replay", iso(et(10, 2, 5)))
+    sent = []
+    fade.monitor(b.db, sent.append, Tape(5.4, et(10, 2, 20)), now=et(10, 2, 25), up_since=b.state.up_since)
+    fade.monitor(b.db, sent.append, Tape(5.5, et(10, 4)), now=et(10, 4, 5), up_since=b.state.up_since)
+    (r,) = rows(b.db)
+    assert (r["status"], r["est_entry"]) == ("skipped", None) and sent == []        # a fresh print changes nothing
+    assert fade.RECOVERED_ONLY not in fade.NOT_EVENT_SKIPS                          # it stays an event:
+    assert fade.prior_alert(b.db, "AAA", et(10, 0, day=3).astimezone(ET).date()) == "2026-11-02"   # the repeat rule
+    assert [c["symbol"] for c in lb.candidates(b.db, et(10, 2, 30))] == ["AAA"]     # and the long book watches it
+    acc = ar.account(b.db, "2026-11-02", "2026-11-02")
+    assert (acc["recovered"], acc["eligible"], acc["attempted"], acc["record_only"]) == (1, 0, 0, 1)
+    assert ar.clause(b.db, "2026-11-02") == ("alerts: in order, 1 recovered after a restart (0 eligible, 0 entered on "
+                                             "paper, 0 too old to trade, 1 recorded only; longs 0 bought, 0 missed), no gap")
+
+
+def test_record_only_changes_nothing_for_the_other_rules_or_for_an_alert_handled_live(path, ch, record_only):
+    a = started(path, ch)
+    a.push(ch.post(10, "LIVE:volume_spike", POSTED), POSTED + timedelta(seconds=10))   # handled live: waits, enters
+    fade.monitor(a.db, lambda t: None, Tape(5.0, et(10, 1, 2)), now=et(10, 1, 5), up_since=a.state.up_since)
+    ch.post(11, "OLD:volume_spike", et(10, 1))              # then the listener is down for seven minutes
+    ch.post(12, "NWS:news", et(10, 7, 30))
+    ch.post(13, "NEW:volume_spike", et(10, 8, 10))          # posted after it is back: found by the 15-second check
+    b = Listener(path, ch, et(10, 8))
+    b.catch_up(et(10, 8, 20))
+    got = {r["symbol"]: (r["status"], r["reason"], r["via"]) for r in rows(b.db)}
+    assert got["LIVE"][0] == "open" and got["LIVE"][2] == "push"
+    assert got["OLD"] == ("skipped", "alert received late", "replay")               # the late rule still names it
+    assert got["NWS"] == ("filtered", fade.NEWS_REASON, "replay")                   # a rule's filter still names it
+    assert got["NEW"][0] == "pending" and got["NEW"][2] == "poll"                   # not a replay: untouched

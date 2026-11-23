@@ -894,6 +894,11 @@ night it cannot finish is texted and caught up on the next run.
   recognised by its row). (3) Controlled drill, `scripts/recovery_drill.py`: a real process killed and restarted
   with alerts posted meanwhile, 12 of 12 checks. (4) The restart corrections (no stretched short window, no long
   fill from before the listener was back) apply to the whole cohort and can only remove a restart-case trade.
+- **Recovered SHORT alerts are record-only (`fade.RECOVERED_SHORT_ENTRIES = False`), by the owner's merge of the
+  safeguard change.** An alert found by the replay after a restart is recorded with its label and never shorted;
+  reason "recovered after a restart: recorded, not entered". It stays an event (repeat rule, long book). Why: the
+  registered rule enters at the first bar after the alert; nothing authorizes an entry after downtime, and F5 showed
+  late entries are a worse bet. Alerts handled live are untouched. Changing it back is a trading-rule decision.
 - **Watch after the red day of 2026-11-19 (`red_day_2026-11-19.md`).** (1) The long-calls forward record: 12 calls, 2 won,
   ledger -1.28% in three sessions (a fall that size is 1.4% of the three-session windows of its record); stop -5% on
   the ledger, while the paper book moves about twice the ledger. (2) The repeat gate (F8): the 9 alerts it has
