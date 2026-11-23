@@ -118,8 +118,11 @@ def line(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:
     and the database's write lock."""
     from sgt.fast import alert_recovery, exec_book
 
+    from sgt.fast import chan_poll
+    from sgt.ops import own_thread
+
     return (_record(db, session, alerts_db) + "; " + alert_recovery.clause(db, session, exec_book.REVIEW_FROM) + "; "
-            + database(db, session))
+            + own_thread.clause(Path(db.path).parent, session, chan_poll.active) + "; " + database(db, session))
 
 
 def _record(db: OpsStore, session: str, alerts_db: Path | None = None) -> str:

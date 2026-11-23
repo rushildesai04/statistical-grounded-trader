@@ -192,4 +192,4 @@ def test_without_a_borrow_source_the_rule_is_not_applied_and_the_listener_always
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[2] / "scripts" / "fade_live.py").read_text()
-    assert "fade.monitor, db, send, quote, None, book.lookup," in src
+    assert "fade.monitor(db, send, quote, None, book.lookup," in src

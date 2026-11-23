@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime, timedelta
+from time import monotonic
 from typing import Callable
 
 import pandas as pd
@@ -56,7 +57,9 @@ TESTED_WIN = {"L8": 0.37}     # share of those 255 trades that made money; no wi
 LIVE_KINDS = ("L8", "L5v2")
 # The rule set a decision was made under, on every line of the decision record (audit 2026-11-22). Change it whenever
 # a setup, the entry moment, a gate, the stop, the target or the hold changes.
-RULE_VERSION = "long 2026-11-20: base break L8 + bull flag L5v2, bought at the break candle's close, cost cap 1%, no long while our short is open, 2R, 30 min"
+RULE_VERSION = ("long 2026-11-20: base break L8 + bull flag L5v2, bought at the break candle's close, cost cap 1%, no long "
+                "while our short is open, 2R, 30 min | restart rule 2026-11-22: a fill on a candle that began before the "
+                "listener was back is missed")      # live rule unchanged since 2026-11-20; see fade.RULE_VERSION's note
 RULES_BASE = "B1"                    # long_trades.rules of a base-break long: stop under the base, 2R, HOLD; no red-candle
                                      # exit (that exit belongs to the one-minute setups it was tested on)
 LIVE_WATCH = max(pt.WATCH, pt.BASE_WATCH)   # how long after its start bar an alert can still produce a setup
@@ -340,16 +343,35 @@ def live_from(row: dict, up_since: datetime | None) -> pd.Timestamp | None:
     return max(m if m.tzinfo else m.tz_localize("UTC") for m in marks) if marks else None
 
 
+SWEEP_EVERY = 15.0      # seconds: while candidates are being read, open longs are re-checked at least this often
+
+
 def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None,
-         up_since: datetime | None = None) -> int:
-    """One pass: open new longs, then advance open ones. Returns the number of longs opened. A base break is opened
+         up_since: datetime | None = None, on_sweep=None) -> int:
+    """One pass: advance the open longs FIRST, then look for new ones, then advance again when one was opened (its
+    first exit check, in the pass that opened it, as before). Open longs first (operational risk review 2026-11-23):
+    each candidate costs a bar request (up to MAX_LOOKS a pass, 5 s timeout each) and the exit check of the open
+    longs used to wait behind all of them; they are also re-checked whenever SWEEP_EVERY has gone by meanwhile.
+    ``on_sweep()`` is called at each exit check. Returns the number of longs opened. A base break is opened
     when its candle closes (``at_close``, owner 2026-11-20), any other fill when the feed shows it. ``arm`` (a text
     sender, owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills
     (``sgt.fast.long_armed``); None = no armed texts. ``rule`` (a text sender): the trader's rule is texted when it would leave a long
     (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way."""
-    now = now or utcnow()
-    opened = 0
+    fixed, now = now, now or utcnow()
+
+    def sweep(when: datetime) -> float:
+        if on_sweep is not None:
+            try:
+                on_sweep()
+            except Exception:  # noqa: BLE001 - a measurement; the check itself goes on
+                log.exception("sweep hook failed")
+        _advance(db, bars, send, when)
+        return monotonic()
+
+    last, opened = sweep(now), 0
     for row in _turn(candidates(db, now), now):
+        if monotonic() - last >= SWEEP_EVERY:
+            last = sweep(fixed or utcnow())
         try:
             if db.paused() or approvals.disarmed(db, now):
                 continue
@@ -398,7 +420,8 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 send(entry_text(db, row["symbol"], s, t, now_line + matrix_line(raw, now) + context_line(db, row["id"])))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
-    _advance(db, bars, send, now)
+    if opened:                                 # a long opened in this pass gets its first exit check in it, as before
+        sweep(now)
     try:                                       # owner 2026-11-18: the trader's rule, tracked beside every long
         from sgt.fast import trader_rule
 

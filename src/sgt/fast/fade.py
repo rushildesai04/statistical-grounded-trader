@@ -25,6 +25,7 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 from typing import Callable
 
 import pandas as pd
@@ -180,7 +181,13 @@ class LiveAlert:
 
 # The rule set a decision was made under, stored on every line of the decision record (audit 2026-11-22). Change it
 # whenever a gate, the entry, the stop or the hold changes.
-RULE_VERSION = "fade 2026-11-21: F6 no-news, F7 beta<3 (unknown = no short), F8 no repeat 7d, borrow listed, $1-50, 20% stop, 60 min"
+# 2026-11-23: the rules for an alert handled live are those of 2026-11-21, unchanged. The restart rules were added on
+# 2026-11-22/23 without a new label (found in the post-merge check): decision lines written by runner v108 and v109
+# (2026-11-22 23:24 ET to the deploy of this change) carry the label without the restart part; the effective versions
+# are tabled in docs/findings/ops_risk_register_2026-11-23.md, section 2.
+RULE_VERSION = ("fade 2026-11-21: F6 no-news, F7 beta<3 (unknown = no short), F8 no repeat 7d, borrow listed, $1-50, 20% stop, "
+                "60 min | restart rules 2026-11-23: a recovered alert is recorded, not entered; no entry on a print from "
+                "before the listener was back; the 5 min entry limit is not stretched by downtime")
 RECORDED = ("status", "reason", "news_own", "beta")     # a row update that touches one of these is a decision
 
 
@@ -353,19 +360,50 @@ def on_alert(db: OpsStore, a: LiveAlert, now: datetime | None = None) -> str:
     return f"skipped: {reason}" if status == "skipped" else f"{status} #{rid}"
 
 
+SWEEP_EVERY = 10.0      # seconds: while entries are being worked on, open positions are re-checked at least this often
+
+
 def monitor(db: OpsStore, send, quote: Quote, now: datetime | None = None, borrow: Borrow | None = None,
             context: Callable[[str], dict] | None = None, news: NewsCheck | None = None,
-            beta: BetaCheck | None = None, up_since: datetime | None = None) -> None:
-    """Advance live estimates: ask -> pending (approval), pending -> open (first quote, price filter),
-    open -> est_closed (stop / 60 min). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per event.
-    ``up_since``: when this listener came up; an entry never uses a print older than it (``_floor``)."""
-    now = now or utcnow()
+            beta: BetaCheck | None = None, up_since: datetime | None = None, on_sweep=None) -> None:
+    """Advance live estimates: open -> est_closed (stop / 60 min) FIRST, then ask -> pending (approval) and
+    pending -> open (first quote, price filter). ``borrow(symbol, now)`` stamps IBKR/Alpaca borrow facts once per
+    event. ``up_since``: when this listener came up; an entry never uses a print older than it (``_floor``).
+
+    Open positions first (operational risk review 2026-11-23, reproduced): the pass used to walk every row in id
+    order on one thread, and a row waiting to enter makes up to four network calls a pass (news, beta, quote, the
+    halt check: 5 s timeouts each) for up to five minutes when its stock is halted. The stop check of an open
+    position later in the list waited behind all of them, and the next pass started only 10 s after that. Now the
+    open positions are checked at the start of every pass and again whenever SWEEP_EVERY has gone by while entries
+    are being worked on. ``on_sweep()`` is called at each such check (the listener records late ones)."""
+    fixed, now = now, now or utcnow()
+
+    def sweep() -> float:
+        if on_sweep is not None:
+            try:
+                on_sweep()
+            except Exception:  # noqa: BLE001 - a measurement; the check itself goes on
+                log.exception("sweep hook failed")
+        when = fixed or utcnow()
+        with db.read() as c:                                # a read: it does not wait for a writer
+            held = c.execute("SELECT * FROM fade_trades WHERE status='open' ORDER BY id").fetchall()
+        for r in held:
+            try:
+                _advance(db, send, quote, r, when, context, news, beta, need_borrow=borrow is not None,
+                         up_since=up_since)
+            except Exception:  # noqa: BLE001 - one bad row must not stall the book; logged with its id
+                log.exception("fade row %s failed", r["id"])
+        return monotonic()
+
+    last = sweep()
     db.set_flag("fade_heartbeat", iso(now))
-    with db.tx() as c:
-        rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('ask','pending','open') ORDER BY id").fetchall()
+    with db.read() as c:
+        rows = c.execute("SELECT * FROM fade_trades WHERE status IN ('ask','pending') ORDER BY id").fetchall()
     for r in rows:
+        if monotonic() - last >= SWEEP_EVERY:
+            last = sweep()
         try:
-            if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None and r["status"] != "open":
+            if borrow is not None and r["ib_snap"] is None and r["alp_etb"] is None:
                 r = _stamp(db, r, borrow(r["symbol"], now))
             _advance(db, send, quote, r, now, context, news, beta, need_borrow=borrow is not None,
                      up_since=up_since)
