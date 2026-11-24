@@ -943,17 +943,17 @@ night it cannot finish is texted and caught up on the next run.
   after the other (-$438.14); the summary took each on the evening-before value (-$438.72). Both now come from the
   book's value. The drift line read "105 trades, win 50% ... win rate 0.418 ... p=0.0076": 0.418 was the forward
   record's win rate at its 67th alert, the last time the test tripped (11-16); 57.3% is the tested (held-out, 764
-  trades) rate; over all 105 the test did not trip (p about 0.06; 0.04 at 113). The line now says which trade an
+  trades) rate; over all 105 the test did not trip (p above 0.05; 0.04 at 113 the next night). The line now says which trade an
   alarm tripped on. The cut to 25% stands: an alarm latches, nothing restores size but the owner's explicit word,
   and the texts no longer say "ask Claude to restore". The monitor looks after every trade with no allowance for
-  repeated looks, and its +/- treats trades as independent (17 sessions, up to 11 alerts in one): read both as rough.
+  repeated looks, and its +/- treats trades as independent (16 sessions, up to 11 alerts in one): read both as rough.
   Stale labels corrected: scanner "decide at 300" (paused, 5 trades, none added); long book "until 300 live trades
   prove it" (that is the SIZE rule; the paper review is 15 / 30 / 60); the long drift sample (13 trades of the A2
   rules, ended 11-19); the fade card's count (1,238, its cited source; 1,335 is another no-news file, same +1.70%);
   the long-calls book (-1.2%) against its ledger (-0.1%): sized by risk until the 11-20 close, 1/N since. Samples
   that differ for a reason: 32 settled shorts = 29 before the cohort + 3 on 11-23; 21 = those with a decision-minute
   price (from 11-09); 16 = no-news rule since 11-10. The 20:50 digest is sent BEFORE the 21:25 ledger: its ledger
-  line is a session behind and now says through which session. The long calls' +$4,213 (a +2% to +3% market day,
+  line is a session behind and now says through which session. The long calls' +$4,213 (SPY +2.4%, QQQ +3.4% that day;
   16 calls) says nothing about the alert books, which lost on the day.
 - **Strategy review 2026-11-23 (`docs/findings/strategy_review_2026-11-23.md`; owner: "the rule was followed is not
   sufficient ... stop allocating effort to approaches that cannot justify themselves").** Three losses rebuilt on the
