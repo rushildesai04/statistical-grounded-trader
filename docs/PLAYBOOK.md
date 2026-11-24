@@ -940,6 +940,23 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Research drift monitor registered (2026-11-24, `prereg_fade_drift_monitor_2026-11-24.md`, `fade-drift-monitor-v1`;
+  owner: "must not replace the existing guard, change sizing, or modify the frozen reviews").** Forward only, from
+  the session of 2026-11-25, on the every-alert record. Primary: net expectancy against the tested +1.12%; second:
+  share of losses of 20% or more against 25.4%; win rate reported only. Three looks, at 20 / 40 / 60 sessions with
+  alerts (about 12-23, 01-25, 02-23), nothing computed before the 20th; sessions as clusters, cluster-robust t; 5%
+  one-sided in all, split 0.8 / 1.2 / 2.0 points for expectancy and 0.2 / 0.3 / 0.5 for severity. A warning is a
+  line under NEEDS YOU and ends the monitor; no warning after look 3 is NOT evidence of an edge (it cannot tell
+  +1.1% from zero in 60 sessions). It controls nothing and restores nothing; the fade stays at 25% by the old guard
+  and the owner's word. Limits written into it: few and unequal clusters, heavy tails, sessions not independent.
+- **Long calls, what is left of "ledger against book" (2026-11-24; nothing changed).** Costs: the ledger charges a
+  round trip every day a call is on, the book when a weight changes: REGISTERED (amendment A2 says so), not a
+  defect; the ledger is the stricter one. Batch days: the ledger counts sessions marked in both files, the book
+  trades only on a live 15:50 decision: as registered; NONE has occurred since 11-16 (every decision of both sets
+  was live). Breach timing: a breach exists at a close, is written that night, read at 15:50 the next session and
+  the book is flat at THAT close: one session after the breach, the earliest a close-only book can act. Two points
+  put to the owner, neither built: whether a future batch-decided day should count in the deciding ledger, and
+  whether "stop at any time" is met by the next close.
 - **Long-calls stop: which source it reads (2026-11-24, control path; -5% and the record unchanged).** Registered
   (`prereg_megacap_long_forward_2026-11-13`, Evaluation): "Stop at any time if the LEDGER's cumulative net falls
   below -5%"; the paper book "is shown, does not decide". Traced: (1) the only path that changes positions,
