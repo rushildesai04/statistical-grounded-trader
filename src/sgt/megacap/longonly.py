@@ -58,7 +58,36 @@ def ledger(root: Path, start: str = START) -> dict:
     out = {"sessions": len(days), "calls": len(calls), "wins": sum(x > 0 for x in calls)}
     if days:
         out.update(since=days[0], last=days[-1], total=long_v - 1, long_short=full_v - 1, holding=hold_v - 1,
-                   avg_call=sum(calls) / len(calls) if calls else None, stop=long_v - 1 < STOP)
+                   avg_call=sum(calls) / len(calls) if calls else None, stop=long_v - 1 < STOP,
+                   batch=batch_days(root, days))
+    return out
+
+
+DECISIONS = ("megacap_forward/decisions", "megacap_ext/decisions")
+MAX_DECISION_BYTES = 1_000_000
+
+
+def batch_days(root: Path, days: list[str]) -> list[str]:
+    """The ledger sessions whose decision, in either set, was written after the close (``mode`` not "realtime").
+
+    Owner, 2026-11-24: such a day stays in the deciding ledger, as registered ("sessions ... marked in BOTH files"),
+    and is labelled; nothing is removed after the fact. The paper book never trades it (it needs a live 15:50
+    decision), so on that day the ledger holds a result the book could not have had. A decision file that is missing
+    or unreadable is not called a batch day (it is not known to be one). Decision files are our own output; each is
+    still size-bounded and strictly read."""
+    out = []
+    for d in days:
+        for sub in DECISIONS:
+            p = root / sub / f"{d}.json"
+            try:
+                if not p.exists() or p.stat().st_size > MAX_DECISION_BYTES:
+                    continue
+                mode = json.loads(p.read_text()).get("mode")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if isinstance(mode, str) and mode != "realtime":
+                out.append(d)
+                break
     return out
 
 

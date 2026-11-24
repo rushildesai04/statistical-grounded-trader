@@ -111,3 +111,107 @@ A module that computes exactly sections 1 to 5 from the record and the looks fil
 alert minimums, one evaluation per look, the three critical values, the union of the two tests, terminal states, an
 unreadable record, and a source check that the module writes no flag and is imported by no trading path. No
 historical run: the code is exercised on synthetic records only, never on the 113 excluded alerts.
+
+## Amendment A1 (2026-11-24, the same day; before any session of the population exists)
+Post-merge verification on the owner's instruction: "If these checks expose a material ambiguity or mismatch,
+prepare a dated amendment before examining new outcomes. Do not silently reinterpret the merged registration."
+One mismatch and one ambiguity were found. Nothing of the population had been written when this was committed (its
+first session is 2026-11-25). Where A1 differs from the text above, A1 holds.
+
+**Status: registered, NOT implemented, NOT active.** No code computes it. See A1.7 for the recommendation.
+
+### A1.1 Comparability of the reference and the monitored returns (checked, sound)
+| | Reference (+1.12%, 764 held-out alerts) | Monitored |
+|---|---|---|
+| Events | first parsed alert per stock and day, tested kinds, entry 09:30 to 15:44 ET, price $1 to $50 | the same builder (amendment F1 of `prereg_alert_fade_2026-11-01`: "built exactly like") |
+| Execution | short at the alert test's entry; first bar with high >= entry x 1.20 covers at max(entry x 1.20, that bar's open); otherwise the last close of 60 minutes; official bars | identical ("Trade, stop, window and costs: identical") |
+| Costs | `cost_rt` of the gapper cost model + 0.50% locate, flat | identical |
+| Return | net = (entry - cover) / entry - cost_rt - 0.50% | identical |
+| Not in either | borrow availability, the price test, real quotes, real stop fills (with real stop fills the held-out mean is +0.91%, not +1.12%) | the same omissions |
+
+Both sides are the backtest's definition, equally optimistic. The source file is fixed as
+`reports/alert_fade/forward.csv` (the F1 record: columns `session`, `net`, `gross`), the file the reference test's
+own code writes; `shadow.csv` holds the same events and the same net and is not read.
+
+### A1.2 Loss severity: MISMATCH, corrected
+As merged, the event was "net at or under -20%" and its reference the count of STOP-OUTS (194 of 764). Those are
+not the same thing: a stop-out is defined before costs (gross at or under -20%), while a trade that was not stopped
+but lost 19% before costs is under -20% after them. The reference would have understated its own event.
+
+Corrected: **the severity event is a stop-out: `gross` at or under -20%** (in the frozen rule this is exactly "the
+stop was hit", and nothing else can reach it). The reference count (194 of 764 = 25.4%,
+`prereg_fade_stop_slippage_2026-11-09`) is the same event. No cost enters either side. The held-out file is not
+opened. In code the comparison is `gross <= -0.20 + 1e-9`: a cover exactly at the stop is stored
+as -0.19999999999999993, and an exact comparison would miss precisely the stop-outs.
+
+### A1.3 Hypotheses, direction, weighting, small-sample correction
+| | Expectancy | Severity |
+|---|---|---|
+| Null | forward mean net >= +1.12% | forward stop-out share <= 25.4% |
+| Alternative (the warning) | mean net < +1.12% | share > 25.4% |
+| Direction | one-sided, lower tail | one-sided, upper tail |
+| Weighting | every alert weighs the same (the reference is a per-alert mean), so a session with eleven alerts weighs eleven times a session with one. Not session-equal | the same |
+| Standard error | sessions as clusters, linearized ratio estimator, with the G / (G - 1) small-sample factor | the same |
+| Reference distribution | Student's t with G - 1 degrees of freedom (not the normal) | the same |
+| Not used | no further small-sample correction (no bias-reduced variance, no wild bootstrap). With 20 clusters of unequal size this is known to reject too often; section 3 says so and the allocation below is kept small at look 1 for that reason | |
+
+### A1.4 Error allocation, in percentage points of false-warning probability
+| | Look 1 | Look 2 | Look 3 | Sum |
+|---|---|---|---|---|
+| Expectancy | 0.8 | 1.2 | 2.0 | 4.0 |
+| Severity | 0.2 | 0.3 | 0.5 | 1.0 |
+| Sum | 1.0 | 1.5 | 2.5 | **5.0** |
+
+Added, never multiplied or re-spent. A share that is not used is lost.
+
+### A1.5 The reference's own uncertainty
+The +1.12% and the 25.4% are estimates from 764 alerts (standard error of the mean about 0.6 points if alerts
+were independent, more when clustered by session). They are used as FIXED thresholds chosen in advance, so the
+false-warning rate concerns the statement "the forward record is below the number the test reported" and nothing
+more. It is NOT a test that the edge changed: if the true historical edge was lower than +1.12%, a warning would
+be more likely with no deterioration at all. A two-sample comparison would need the held-out file by session; that
+file stays closed, so none is made, and no warning may be worded as "the edge has deteriorated".
+
+### A1.6 Looks: the exact rule (replaces the last three bullets of section 2)
+Let G = sessions with an alert so far, N = alerts so far, on the night a session is written.
+
+1. Look k has a session count c_k = 20, 40, 60.
+2. A look is DUE on a night when N >= 60 and at least one unmade look has c_k <= G. The look made is the unmade
+   one with the LARGEST such c_k; every unmade look below it is forfeited (never made, its share lost).
+3. At most one look a night; a look is made once, stored, never recomputed. Its critical value is its own share
+   (A1.4) at that night's G - 1.
+4. The monitor ends at the first of: a warning; look 3 made; 2027-03-31. On 2027-03-31, if a look is unmade and
+   G >= 20 and N >= 60 and G is larger than at the last look made, ONE final look is made with the share of the
+   lowest unmade look; otherwise it ends "not evaluable" (if no look was ever made) or with the looks it has.
+5. An unreadable record postpones; it never skips and never fills in.
+6. There is no other look: not on request, not after a bad week, not to "check".
+
+So a look that lacks 60 alerts simply is not due; when the count is reached the rule above decides which look it
+is. Three looks at most, in every case.
+
+### A1.7 What it adds beyond what is already registered, and the recommendation
+| Already registered | Decides | When |
+|---|---|---|
+| F1 of the fade's registration, on this same every-alert record | KEEP if mean net > 0 and the session-bootstrap 95% lower bound > 0; DROP if mean <= 0; otherwise on to 600 | the first month-end with 300 forward alerts (113 on 11-23; about 2026-12-31), then 600 |
+| The executable baseline, shorts | pause / retire / keep on real quotes, no exclusion flag | 25, 50, 100 trades or 2027-02-26 |
+| The existing guard | holds the fade at 25% until the owner's word | standing |
+
+What this monitor would add: (a) a test on alerts none of which has been seen, where F1's sample includes the 113
+already looked at many times; (b) the tested +1.12% as the bar instead of zero; (c) stop-out frequency as a tested
+quantity; (d) a stated allowance for its three looks. What it would NOT add: any decision. Sizing is the owner's
+word, the signal is F1's, the books are the baseline's. By its own power statement (section 3) it warns only when
+the forward mean is about -3% (look 1) to -1% (look 3) or worse, and in those cases F1 fails on its own a week
+later and the baseline's lines are in sight.
+
+**Recommendation: leave it unimplemented.** It was proposed (2026-11-24, as "option A") without first checking F1,
+which already is a fixed-look, pre-registered decision on this record. If the owner still wants it, A1 makes its
+definitions sound and it can be built exactly as written; it needs the owner's word, and:
+
+- **No prospective data capture is needed.** `forward.csv` is rebuilt every night from the stored alerts and the
+  stored 1-minute bars for every session since 2026-10-30, so the rows from 2026-11-25 exist whether or not this
+  monitor does. It depends on those alerts and bars being kept through the horizon (nothing is deleted today), and
+  a rebuilt row can differ from an earlier night's if a bar is corrected: a look reads the file as it stands that
+  night and stores the counts it read.
+- The definitions are fixed before 2026-11-25 only if A1 is merged before that session's record is written
+  (21:05 ET that day). Merged later, the population starts at the first session after the merge instead.
+- With no word to build it, nothing is ever computed and the registration lapses unused on 2027-03-31.
