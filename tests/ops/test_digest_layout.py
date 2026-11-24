@@ -307,6 +307,21 @@ def test_long_calls_ledger_line(tmp_path, monkeypatch):
     with db.tx() as c:
         c.execute("UPDATE book_nav SET nav=100650")                       # the two agree: nothing to explain
     assert [x for x in digest.hold_lines(db) if " ledger, " in x][0].endswith("holding +2.0%")
+    # owner 2026-11-24: a session decided after the close stays in the deciding ledger, as registered, and is labelled
+    from sgt.megacap import longonly
+
+    for sub, mode in (("megacap_forward", "realtime"), ("megacap_ext", "realtime")):
+        (tmp_path / sub / "decisions").mkdir()
+        (tmp_path / sub / "decisions" / "2026-11-16.json").write_text('{"date": "2026-11-16", "mode": "%s"}' % mode)
+    assert longonly.ledger(tmp_path)["batch"] == [] and "after the close" not in digest.hold_lines(db)[-1]
+    (tmp_path / "megacap_ext" / "decisions" / "2026-11-16.json").write_text('{"date": "2026-11-16", "mode": "batch"}')
+    lo = longonly.ledger(tmp_path)
+    assert lo["batch"] == ["2026-11-16"] and lo["sessions"] == 1 and lo["calls"] == 1      # labelled, still counted
+    line = [x for x in digest.hold_lines(db) if " ledger, " in x][0]
+    assert line.endswith("holding +2.0%; 1 of its sessions decided after the close (11-16): counted as registered, never "
+                         "traded by the paper book")
+    (tmp_path / "megacap_ext" / "decisions" / "2026-11-16.json").write_text("not json")    # unreadable: not called batch
+    assert longonly.ledger(tmp_path)["batch"] == []
 
 
 def test_long_calls_ledger_line_says_how_unusual_the_live_record_is(tmp_path, monkeypatch):

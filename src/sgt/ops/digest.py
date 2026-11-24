@@ -232,13 +232,22 @@ def hold_lines(db: OpsStore) -> list[str]:
                    f"{lo['total']:+.1%} ({lo['calls']} calls, {lo['wins']} winners, avg {avg}; tested "
                    f"{longonly.TESTED_AVG:+.2%}, {longonly.TESTED_WIN:.0%}); long and short {lo['long_short']:+.1%}, "
                    f"holding {lo['holding']:+.1%}" + _rarity(lo) + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else "")
-                   + _long_book_note(db, lo["total"]))
+                   + _batch_note(lo.get("batch") or []) + _long_book_note(db, lo["total"]))
     from sgt.megacap import downday
 
     dl = downday.line(root)                             # owner 2026-11-19: a second ledger, recorded beside the registered one
     if dl:
         out.append(dl)
     return out
+
+
+def _batch_note(days: list[str]) -> str:
+    """Ledger sessions decided after the close: counted as registered, labelled every night (owner 2026-11-24)."""
+    if not days:
+        return ""
+    shown = ", ".join(d[5:] for d in days[:5]) + (f" and {len(days) - 5} more" if len(days) > 5 else "")
+    return (f"; {len(days)} of its sessions decided after the close ({shown}): counted as registered, never traded by "
+            "the paper book")
 
 
 def _long_book_note(db: OpsStore, ledger_total: float) -> str:

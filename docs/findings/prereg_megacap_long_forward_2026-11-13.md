@@ -59,3 +59,30 @@ the ledger first reached its -5% stop (`red_day_fixes_2026-11-20.md` section 5; 
 1/21, 2/21 or keep; the owner chose 1/21. The book's sessions before that stay as traded at the
 old size; they are not restated. The book and the ledger still differ in small ways (the book pays costs when a weight
 changes, the ledger every day a call is on), so they move alike, not identically.
+
+## Note N1 (2026-11-24): what the stop does, described as implemented. No rule, threshold or record changes
+Owner, 2026-11-24: "Preserve current breach behavior, but describe it accurately: 'breach determined at close;
+liquidation at the next eligible session close.' Do not equate that with 'stop at any time.'"
+
+The Evaluation section says "Stop at any time if the ledger's cumulative net falls below -5%". What exists, and
+stays, is narrower:
+
+| Step | When | What |
+|---|---|---|
+| The breach is DETERMINED | at a session's close | the ledger is a close-to-close record; it has no value inside a session |
+| It is WRITTEN | that evening (the 20:30 ET marking run) | the day's marks; the 20:50 summary shows "BELOW THE -5% STOP RULE" |
+| It is ACTED on | 15:50 ET of the next session | the order job reads the ledger and sets every target flat |
+| LIQUIDATION | that next session's close ("the next eligible session close") | the paper book fills at closes only. If that session has no live decision in both sets, the book is closed at the same close by the no-decision rule |
+
+**This is not "stop at any time".** Between the close at which the breach is determined and the close at which the
+book is flat lies one full session, with the calls that were filled at the breach close (they were decided ten
+minutes before it, when the breach was not yet known): up to 21 calls of 1/21 each, the whole book. On the tested
+record (2,218 ledger days, `config/models/long_ledger_history.json`) one session moved the ledger by less than 1% on
+99 days in 100 and by -2.4% at worst; the live ledger has already had a worse one (-3.2% on the session marked
+2026-11-19). So the ledger can end well under -5% before the book is flat. That exposure is accepted as is by the
+owner's word above; any change to how or when the book exits is a separate proposal and review.
+
+Batch-decided days (owner, the same day: "Keep future batch-decided days counted as registered, with explicit
+labels. Do not remove observations retrospectively"): a session whose decision in either set was written after the
+close stays in the ledger exactly as the Ledger section defines, and the nightly line names it. The paper book
+never trades such a day. None has occurred from 2026-11-16 to 2026-11-23: every decision of both sets was live.
