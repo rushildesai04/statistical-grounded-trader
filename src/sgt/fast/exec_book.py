@@ -161,5 +161,9 @@ def line(path: Path = LEDGER, today: str | None = None) -> str | None:
               "minute" if b["modeled"] else "none priced yet"
         parts.append(f"{name} {b['modeled']} of {REVIEW_N[book]} with no exclusion flag: {avg}; {b['unresolved']} flagged "
                      f"(no listed shares or price test) and not counted; review: {v['state']}")
-    return f"executable baseline since {REVIEW_FROM[5:]} (a model, not fills; a research ledger, not stop protection): " \
-        + "; ".join(parts) if parts else None
+    # 2026-11-24: the ledger is written at 21:25 ET, after the 20:50 summary that shows this line, so the line is one
+    # session behind the day's settled results beside it. It says which session it runs through.
+    last = max((s[b]["span"][1] for b in BOOKS if s[b]["span"]), default=None)
+    through = f", trades through {last[5:]}" if last else ""
+    return f"executable baseline since {REVIEW_FROM[5:]}{through} (a model, not fills; a research ledger, not stop " \
+        "protection): " + "; ".join(parts) if parts else None

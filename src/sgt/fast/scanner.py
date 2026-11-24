@@ -188,6 +188,15 @@ def book(db: OpsStore, rid: int, expect: str, res: dict | None, now: datetime) -
     return _set(db, rid, expect, status="settled", settled_at=iso(now), **res)
 
 
+def _decision(n: int) -> str:
+    """Where the registered decision stands (prereg_scanner_book_2026-11-09: at 300 settled trades). 2026-11-24: the
+    line said "decide at 300" while the scanner has been paused since 2026-11-10 and settles no trade: the count
+    cannot move, and the audits of 2026-11-21 list the scanner as retired (its rule failed its test)."""
+    if ACTIVE:
+        return "decide at 300"
+    return f"paused by the owner, so no decision is coming: {n} of the 300 trades its rule needs and none is added"
+
+
 def record_line(db: OpsStore) -> str | None:
     """Digest RECORD line for the experiment (prereg_scanner_book_2026-11-09)."""
     with db.tx() as c:
@@ -199,7 +208,7 @@ def record_line(db: OpsStore) -> str | None:
     if not nets and not hb and not ps:
         return None
     line = (f"scanner {len(nets)} trade{'s' * (len(nets) != 1)}, avg {sum(nets) / len(nets):+.2%}/trade, "
-            f"book ${nav(db):,.0f}; tested -1.2%/trade, decide at 300") if nets else "scanner 0 trades"
+            f"book ${nav(db):,.0f}; tested -1.2%/trade, {_decision(len(nets))}") if nets else "scanner 0 trades"
     if hb:                                      # amendment A1: what the skipped high-beta shorts would have made
         line += f"; skipped at beta >= 3: {len(hb)}, would have avg {sum(hb) / len(hb):+.2%}"
     if ps:                                      # amendment A2: the paused scanner's spikes, scored for the record
@@ -223,4 +232,4 @@ def summary(db: OpsStore, session: str) -> str | None:
         line += f", {len(s)} settled avg {sum(s) / len(s):+.1%}"
     if nets:
         line += f"; all {len(nets)} avg {sum(nets) / len(nets):+.2%}, book ${nav(db):,.0f}"
-    return line + " (tested -1.2%/trade; decide at 300)"
+    return line + f" (tested -1.2%/trade; {_decision(len(nets))})"

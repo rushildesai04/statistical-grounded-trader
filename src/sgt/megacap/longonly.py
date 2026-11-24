@@ -11,6 +11,10 @@ from pathlib import Path
 
 START = "2026-11-16"                                # first long-only session (prereg)
 STOP = -0.05                                        # prereg stop rule: cumulative net below -5%
+# The paper book 'megacap_long' fills each call at the ledger's weight (1/N) from this session's close (owner decision
+# 2026-11-20, amendment A2; sms_control.long_call_targets). Its earlier sessions were sized by risk, up to 25% a stock,
+# so the book's value since START is not the ledger's and never will be: the ledger is the deciding record.
+BOOK_AS_LEDGER_FROM = "2026-11-20"
 TESTED_AVG, TESTED_WIN = 0.0023, 0.538              # 2018-2026 out of sample, 4,724 long calls (motivation only)
 SETS = ("megacap_forward/marks.csv", "megacap_ext/marks.csv")
 MAX_BYTES = 5_000_000

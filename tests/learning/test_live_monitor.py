@@ -81,7 +81,10 @@ def test_long_book_judged_against_its_tested_rule(db):
     add_longs(db, [0.04, -0.03, -0.02, -0.05, 0.05, -0.04, -0.03, -0.02] * 4)       # about the tested mean
     r = lm.check_trade_book(db, book)
     assert r["n"] == 32 and r["alarms"] == []
-    assert lm.lines([r])[0].startswith("long book (paper): 32 live trades") and "tested -2.09%" in lm.lines([r])[0]
+    # 2026-11-24: the count is of trades under the A2 rules only, and the line says so (it read "live trades" while
+    # the live book had moved to the base-break rules and this sample no longer grew)
+    assert lm.lines([r])[0].startswith("long book (paper): 32 trades under the earlier A2 rules (to 11-19; the base-break "
+                                       "longs since are not judged here), ") and "tested -2.09%, win 14%" in lm.lines([r])[0]
 
 
 def test_long_book_drift_alarm_when_far_worse(db):
@@ -130,10 +133,14 @@ def test_guard_lines_announce_a_cut_once_then_keep_a_standing_line(db):
     res = [{"book": "long book (paper)", "n": 40, "alarms": ["CUSUM 5.20 > h=5 (first)"]},
            {"book": "scanner (experiment)", "n": 30, "alarms": ["CUSUM 6 > h=5"]}]
     first = lm.guard_lines(db, res, date(2026, 11, 13))
-    assert len(first) == 1 and "cut to 50% (was 100%). Ask Claude to restore it." in first[0]
+    # 2026-11-24: the texts said "ask Claude to restore": an invitation to resize on request. They state the rule.
+    assert len(first) == 1 and f"cut to 50% (was 100%). {lm.RESTORE.capitalize()}." in first[0]
+    assert lm.RESTORE == ("it never restores itself and no result restores it: full size returns only on the owner's "
+                          "explicit word")
     assert lm.guard_lines(db, res, date(2026, 11, 14)) == [
-        "long book (paper): drift guard holds new trades at 50% of size (ask Claude to restore)"]
-    assert lm.guard_lines(db, [], date(2026, 11, 15))[0].endswith("(ask Claude to restore)")
+        f"long book (paper): drift guard holds new trades at 50% of size ({lm.RESTORE})"]
+    assert lm.guard_lines(db, [], date(2026, 11, 15))[0].endswith(f"({lm.RESTORE})")
+    assert "claude" not in " ".join(first + lm.guard_lines(db, [], date(2026, 11, 15))).lower()
     db.set_flag(lm.SCALE_FLAG + "long book (paper)", "1")
     assert lm.guard_lines(db, [], date(2026, 11, 16)) == []
 
@@ -178,13 +185,31 @@ def test_real_november_record_alarms_and_cuts_the_fade_book(fdb):
     assert len(msgs) == 1 and "size for new trades of alert fade (no-news) cut to 50% (was 100%)" in msgs[0]
     assert lm.scale(fdb, "alert fade (no-news)") == 0.5 and lm.scale(fdb, "long book (paper)") == 1.0
     assert lm.guard_lines(fdb, [r], date(2026, 11, 14)) == [   # same alarm: no second cut, a standing line
-        "alert fade (no-news): drift guard holds new trades at 50% of size (ask Claude to restore)"]
+        f"alert fade (no-news): drift guard holds new trades at 50% of size ({lm.RESTORE})"]
 
 
 def test_forward_record_matching_the_test_is_quiet(fdb):
     write_forward(fdb, [0.04, -0.03, 0.05, 0.02, -0.06, 0.03, 0.01] * 10)     # win 71%, mean +0.86%
     r = lm.check_forward(fdb)
-    assert r["n"] == 70 and r["alarms"] == [] and "tested +1.12%" in lm.line(r)
+    assert r["n"] == 70 and r["alarms"] == [] and "tested +1.12%, win 57%" in lm.line(r) and "tripped" not in lm.line(r)
+
+
+def test_the_drift_line_says_which_trade_its_alarm_tripped_on(fdb):
+    """2026-11-24. The digest read "105 forward trades ... win 50% ... -> win rate 0.418 vs validated 0.573, binomial
+    p=0.0076": 0.418 was the win rate at the 67th alert, the last time the test tripped, and at the 105th it did not.
+    The alarm's own text is the key of the "already texted" flag and must not change; the line adds when it tripped."""
+    early = ([-0.05] * 13 + [0.04] * 7) * 2                    # 40 alerts, 35% winners: the win-rate test trips
+    write_forward(fdb, early)
+    r = lm.check_forward(fdb)
+    detail = r["alarms"][-1]
+    assert r["tripped_at"] == 40 and lm.line(r).endswith(f"-> {detail} [tripped at trade 40 of 40]")
+    write_forward(fdb, early + [0.04] * 40)                    # 40 winners later: 68% over all 80, the test is quiet
+    r = lm.check_forward(fdb)
+    assert r["win"] == pytest.approx(54 / 80) and r["alarms"][-1] != "" and r["tripped_at"] < 80
+    line = lm.line(r)
+    assert f"80 forward trades" in line and "win 68%; tested +1.12%, win 57%" in line
+    assert line.endswith(f"[tripped at trade {r['tripped_at']} of 80; not tripped since]")
+    assert detail in r["alarms"]                               # the flag key of the first text is unchanged
 
 
 @pytest.mark.parametrize("body", ["symbol,session,other\nA,2026-11-02,0.1\n", "symbol,session,net_champion\nA,x,abc\n"])

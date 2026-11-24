@@ -838,7 +838,15 @@ def record_line(db: OpsStore) -> str | None:
     if not n:
         return None
     cap = probe_usd(db)
-    size = "" if cap is None else f"; test size ${cap:,.0f} a long until {PROOF_N} live trades prove it"
+    # 2026-11-24: "until 300 live trades prove it" read as the book's review schedule. Two different rules: the SIZE
+    # stays at the test amount until the owner's proof standard is met (``proven``); the paper REVIEW of the book is
+    # the registered one (exec_baseline_2026-11-21 section 6), at its own counts.
+    from sgt.fast import exec_book
+
+    size = "" if cap is None else (
+        f"; test size ${cap:,.0f} a long (size rule: until {PROOF_N} settled live trades with a 95% interval above "
+        f"zero; the registered paper review is separate: early look at {exec_book.EARLY['long'][0]}, review at "
+        f"{exec_book.REVIEW_N['long']} trades with no exclusion flag from {exec_book.REVIEW_FROM[5:]})")
     return (f"long book (paper) {n} trades, avg {m:+.2%}/trade, book ${nav(db):,.0f}; "
             f"tested {min(_live_tested()):+.1%} to {max(_live_tested()):+.1%}{size}")
 

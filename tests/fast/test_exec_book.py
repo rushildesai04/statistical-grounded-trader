@@ -54,7 +54,11 @@ def test_trades_before_the_forward_sample_never_count_for_the_line_or_the_review
                                                               "sessions": 0}
     write(p, old + [row("short", 100, -0.10, -0.09), row("short", 101, 0.20, 0.1, "UNRESOLVED")])
     t = eb.line(p)
-    assert t.startswith("executable baseline since 11-23 (a model, not fills; a research ledger, not stop protection): ")
+    # 2026-11-24: the line names the last session it covers (the ledger is written after the summary that shows it)
+    assert t.startswith("executable baseline since 11-23, trades through 11-23 (a model, not fills; a research ledger, "
+                        "not stop protection): ")
+    write(p, old + [row("short", 100, -0.10, -0.09), row("long", 7, 0.01, session="2026-11-25")])
+    assert eb.line(p).startswith("executable baseline since 11-23, trades through 11-25 (")
     assert "shorts 1 of 50 with no exclusion flag: -10.0% a trade at real quotes (original record -9.0%)" in t
     assert "1 flagged (no listed shares or price test) and not counted; review: collecting" in t
 

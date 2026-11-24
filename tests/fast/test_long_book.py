@@ -648,14 +648,17 @@ def test_an_unproven_book_trades_at_test_size_and_a_proven_one_at_full_size(db):
     assert lb.weight(db, s, t, v) * v == pytest.approx(500.0 * lb.risk_weight(10.55, 10.2))
     assert lb.full_weight(db, tight, tt, v) * v == pytest.approx(5_000.0)
     assert "$500 (paper, test size; full size $5,000)\n" in lb.entry_text(db, "ABCD", tight, tt)
-    assert "test size $500 a long until 300 live trades prove it" not in (lb.record_line(db) or "")   # no trades yet: no line
+    assert "test size" not in (lb.record_line(db) or "")                                # no trades yet: no line
     for flag, want in (("250", 250.0), ("20000", 5_000.0), ("abc", 500.0), ("-5", 500.0), ("0", 500.0), ("nan", 500.0), ("", 500.0)):
         db.set_flag(lb.PROBE_FLAG, flag)                                                 # the owner's amount; junk never raises size
         assert lb.weight(db, tight, tt, v) * v == pytest.approx(want), flag
     db.set_flag(lb.PROBE_FLAG, "")
     settled(db, 299, lambda i: 0.02 if i % 3 else -0.01)
     assert not lb.proven(db)                                                             # winning, but 299 trades
-    assert "test size $500 a long until 300 live trades prove it" in lb.record_line(db)
+    # 2026-11-24: the size rule and the registered paper review are two rules, and the line names both
+    assert ("; test size $500 a long (size rule: until 300 settled live trades with a 95% interval above zero; the "
+            "registered paper review is separate: early look at 15, review at 30 trades with no exclusion flag from "
+            "11-23)") in lb.record_line(db)
     settled(db, 1, lambda i: 0.02, start=5000)
     assert lb.proven(db) and lb.probe_usd(db) is None                                    # 300 trades, interval above zero
     v = lb.nav(db)
