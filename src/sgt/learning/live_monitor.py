@@ -56,6 +56,14 @@ BOOKS = (
 )
 MODEL_BOOKS = ("megacap", "megacap_overlay", "megacap_ext", "megacap_long")
 MODEL_STOP = -0.05                   # prereg_megacap_forward: cumulative net below -5% -> stop rule
+# The long-calls book's stop is registered on its LEDGER, not on the paper book's value
+# (prereg_megacap_long_forward_2026-11-13, Evaluation: "Stop at any time if the ledger's cumulative net falls below
+# -5%"; the paper book is "shown, does not decide"). The path that changes positions already reads the ledger
+# (sms_control.cmd_megacap_long); this monitor read the book's value, and on 2026-11-20 it texted "megacap_long:
+# cumulative -5.4% below the pre-registered stop -5%" while the ledger stood at -4.4% and nothing was stopped (the
+# book had been sized by risk until that close: playbook, amendment A2). 2026-11-24: for this book the monitor reads
+# the ledger too, with the same function, and shows the book's value as what it is. Nothing here changes a position.
+LEDGER_STOP_BOOK = "megacap_long"
 
 
 def _ci(nets: list[float]) -> tuple[float, float]:
@@ -148,6 +156,14 @@ def check_model_book(db: OpsStore, strategy: str) -> dict:
     cum = navs[-1] / 100_000.0 - 1
     peak = max(navs)
     out.update(cum=cum, drawdown=navs[-1] / peak - 1, last=rows[-1]["session"])
+    if strategy == LEDGER_STOP_BOOK:
+        from sgt.megacap import longonly
+
+        lo = longonly.ledger(Path(db.path).resolve().parent.parent)      # reports/: the ledger the stop is registered on
+        out["ledger"] = lo.get("total") if lo.get("sessions") else None
+        if lo.get("stop"):
+            out["alarms"].append(f"ledger {lo['total']:+.1%} below the pre-registered stop {longonly.STOP:.0%}")
+        return out
     if cum < MODEL_STOP:
         out["alarms"].append(f"cumulative {cum:+.1%} below the pre-registered stop {MODEL_STOP:.0%}")
     return out
@@ -171,6 +187,10 @@ def line(r: dict) -> str | None:
                 + (f", win {r['tested_win']:.0%}" if r.get("tested_win") is not None else ""))
     else:
         body = f"{r['book']}: {r['n']} days, {r['cum']:+.1%} total, drawdown {r['drawdown']:+.1%}"
+        if "ledger" in r:            # the long calls: the stop reads the ledger; the book's value is shown, not judged
+            body += ("; its stop reads the ledger, not this book value: ledger "
+                     + (f"{r['ledger']:+.1%}" if r["ledger"] is not None else "not readable (no stop is read from it)")
+                     + f", stop at {MODEL_STOP:.0%}")
     return ("! DRIFT " if r["alarms"] else "") + body + (f" -> {r['alarms'][-1]}{_when(r)}" if r["alarms"] else "")
 
 

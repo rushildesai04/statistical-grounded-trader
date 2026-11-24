@@ -154,6 +154,47 @@ def fdb(tmp_path):
     return OpsStore(tmp_path / "ops" / "ops.db")          # forward record at tmp_path / fade_challengers / shadow.csv
 
 
+def _long_calls(fdb, book_navs, ledger_net):
+    """A long-calls book with these values and a one-session ledger at ``ledger_net`` (None: no ledger files)."""
+    with fdb.tx() as c:
+        c.execute("DELETE FROM book_nav")
+        for i, nav in enumerate(book_navs):
+            c.execute("INSERT INTO book_nav(strategy, session, nav, ret, holdings) VALUES (?,?,?,?,?)",
+                      ("megacap_long", f"2026-11-1{6 + i}", nav, 0.0, "{}"))
+    root = Path(fdb.path).parent.parent
+    for sub in ("megacap_forward", "megacap_ext"):
+        (root / sub).mkdir(exist_ok=True)
+        f = root / sub / "marks.csv"
+        f.unlink(missing_ok=True)
+        if ledger_net is not None:
+            f.write_text(f"date,symbol,position,ret,void,net\n2026-11-16,{sub[:3].upper()},1,{ledger_net},False,{ledger_net}\n")
+
+
+def test_the_long_calls_stop_is_read_from_the_ledger_not_from_the_paper_book(fdb):
+    """2026-11-24. The stop of the long calls is registered on the LEDGER ("Stop at any time if the ledger's cumulative
+    net falls below -5%"); the paper book is shown and does not decide. The path that changes positions reads the
+    ledger. This monitor read the book's value: on 2026-11-20 it texted "cumulative -5.4% below the pre-registered
+    stop -5%" with the ledger at -4.4% and nothing stopped. Both now read the same ledger; the -5% is unchanged."""
+    from sgt.megacap import longonly
+
+    _long_calls(fdb, [100_000, 97_459, 94_578], -0.044)                 # the night of 11-20: book -5.4%, ledger -4.4%
+    r = lm.check_model_book(fdb, "megacap_long")
+    assert r["cum"] == pytest.approx(-0.05422) and r["ledger"] == pytest.approx(-0.044) and r["alarms"] == []
+    assert lm.line(r) == ("megacap_long: 3 days, -5.4% total, drawdown -5.4%; its stop reads the ledger, not this book "
+                          "value: ledger -4.4%, stop at -5%")
+    assert lm.new_alarms(fdb, [r], date(2026, 11, 20)) == []            # no text names a stop that did not trip
+    _long_calls(fdb, [100_000, 99_000], -0.06)                          # the ledger below -5%, the book above it
+    r = lm.check_model_book(fdb, "megacap_long")
+    assert longonly.ledger(Path(fdb.path).parent.parent)["stop"]        # what sms_control.cmd_megacap_long flattens on
+    assert r["alarms"] == ["ledger -6.0% below the pre-registered stop -5%"] and lm.line(r).startswith("! DRIFT megacap_long")
+    _long_calls(fdb, [100_000, 94_000], None)                           # no ledger: no stop is read, as in the trading path
+    r = lm.check_model_book(fdb, "megacap_long")
+    assert r["alarms"] == [] and r["ledger"] is None and "ledger not readable (no stop is read from it)" in lm.line(r)
+    with fdb.tx() as c:                                                 # every other model book: its own value, as before
+        c.execute("UPDATE book_nav SET strategy='megacap'")
+    assert lm.check_model_book(fdb, "megacap")["alarms"] == ["cumulative -6.0% below the pre-registered stop -5%"]
+
+
 def write_forward(db, nets, column="net_champion"):
     p = lm.forward_path(db)
     p.parent.mkdir(parents=True, exist_ok=True)
