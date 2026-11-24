@@ -53,7 +53,9 @@ KINDS = {k.key: k for k in (
          "3,405 short calls 2020 to mid-2026 (prereg_record_score_2026-11-14)", per="day",
          caveat="Backtest on stocks chosen with hindsight, not yet proven live."),
     _alert("alert_long", "alert long", "long book (paper)", 2242),
-    _alert("fade", "alert fade (short)", "alert fade (no-news)", 1335),
+    # 2026-11-24: 1,238 = the no-news training fades of the cited source (real stop fills, +1.70%, win 57.8%). The card
+    # said 1,335: the count of a different no-news file (prereg_fade_news_2026-11-05, backtest stop fills, also +1.70%).
+    _alert("fade", "alert fade (short)", "alert fade (no-news)", 1238),
     Kind("yardstick", "yardstick holding", None, None, None, None, "a basket held for comparison, not a call"),
 )}
 MODEL_STRATEGIES = ("megacap", "megacap_ext", "megacap_long")

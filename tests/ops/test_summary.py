@@ -43,10 +43,41 @@ def test_counts_money_and_traded_with_official_and_estimated_results(db):
         at = c.execute("SELECT est_entry_at FROM fade_trades WHERE symbol='LATE'").fetchone()[0]
     cost = est_costs.cost("short", "LATE", at, 10.0)                    # 2026-11-16: the estimate is after est. costs
     assert cost > 0.009
-    assert f["usd"] == pytest.approx(0.05 * base * (0.10 - 0.04 - 0.05 - cost))
+    # 2026-11-24: dollars the way the book counts them: each official trade on the value the book had reached, the
+    # estimate on the value after them (it was every trade on the evening-before value: $1 off the digest on 11-23)
+    win = 0.05 * base * 0.10
+    dnut = 0.05 * (base + win) * -0.04
+    assert f["usd"] == pytest.approx(win + dnut + 0.05 * (base + win + dnut) * (-0.05 - cost))
     text = plain(summary.build(db, DAY))
     assert "Thu Nov 5 summary" in text and "3 trades · 1 won, 2 lost" in text
-    assert "DNUT -$205" in text and "(some estimated)" in text and "traded" in text
+    assert "DNUT -$206" in text and "(some estimated)" in text and "traded" in text
+
+
+def test_the_summary_and_the_digest_take_a_day_from_the_same_book_value(db):
+    """2026-11-24: for 11-23 the digest said fade -$438 and the summary -$439, from the same three official results
+    (BRAI -6.51%, BUUU -8.98%, SCAG -21.23% at 1.25% of the book each). The digest's figure is the change of the
+    book's value, which compounds trade after trade; the summary took every trade on the evening-before value. Both
+    now come from the book's value, to the cent, and the summary's per-trade dollars add up to it."""
+    from sgt.fast import fade as fb
+    from sgt.ops import digest
+
+    nets = (("BRAI", -0.06507042957393482), ("BUUU", -0.08980605562130183), ("SCAG", -0.21233859999999993))
+    with db.tx() as c:
+        c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, weight, net, "
+                  "settled_at, created_at) VALUES ('OLD','2026-11-04','new_high','x','c',1,'settled',-0.3539,0.125,'2026-11-05T01:40','x')")
+        for i, (sym, net) in enumerate(nets):
+            c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, weight, net, "
+                      "settled_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (sym, DAY.isoformat(), "new_high", "x", "c", 10 + i, "settled", 0.0125, net, "2026-11-06T01:40", "x"))
+    base = fb.nav(db, through=DAY - timedelta(days=1))
+    assert base == pytest.approx(95_576.25)                                    # about the book's value that evening
+    f = summary.fade_day(db, DAY)
+    book = fb.nav(db, DAY) - base
+    assert f["usd"] == pytest.approx(book, abs=1e-6) and digest.fade_today(db, DAY)[1] == pytest.approx(book, abs=1e-9)
+    assert round(book) == -438 and round(sum(0.0125 * base * n for _, n in nets)) == -439      # the two old figures
+    assert sum(t["usd"] for t in f["trades"]) == pytest.approx(f["usd"]) and f["traded"] == pytest.approx(3 * 0.0125 * base)
+    text = plain(summary.build(db, DAY))
+    assert "0 won, 3 lost · -$438 ·" in text and "Paper total (trading books): -$438" in text
 
 
 def test_quiet_day_says_so_and_books_are_included(db):
@@ -84,7 +115,9 @@ def test_the_long_book_is_in_the_summary_and_in_the_total(db):
     assert [t["symbol"] for t in lg["trades"]] == ["SLSN", "FCUV", "LIVE"] and lg["estimate"]      # void is no trade
     cost = est_costs.cost("long", "LIVE", None, 2.0)                    # no entry time on the row: the widest spread
     assert cost == pytest.approx(0.0125, abs=5e-5)
-    assert lg["usd"] == pytest.approx(base * (0.05 * -0.04 + 0.015 * -0.095 + 0.05 * (0.05 - cost)))
+    slsn = base * 0.05 * -0.04
+    fcuv = (base + slsn) * 0.015 * -0.095
+    assert lg["usd"] == pytest.approx(slsn + fcuv + (base + slsn + fcuv) * 0.05 * (0.05 - cost))    # along the book
     text = plain(summary.build(db, DAY))
     assert "Longs (paper): 3 trades · 1 won, 2 lost" in text and "SLSN -$200, FCUV -$142, LIVE +$187 (some estimated)" in text
     assert "megacap 15 -$1,000" in text and "megacap_ext" not in text                               # the digest's names
@@ -93,4 +126,4 @@ def test_the_long_book_is_in_the_summary_and_in_the_total(db):
     assert f"Paper total (trading books): {summary._usd(lg['usd'])}" in text
     with db.tx() as c:                                    # once all are official the long dollars equal the digest's
         c.execute("DELETE FROM long_trades WHERE symbol='LIVE'")
-    assert summary.long_day(db, DAY)["usd"] == pytest.approx(digest.long_today(db, DAY)[1], abs=1.0)
+    assert summary.long_day(db, DAY)["usd"] == pytest.approx(digest.long_today(db, DAY)[1], abs=1e-6)   # was within $1

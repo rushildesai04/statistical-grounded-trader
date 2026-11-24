@@ -34,6 +34,7 @@ class TradeBook:
     std: float
     win_rate: float
     source: str                      # where the expectation comes from
+    unit: str = "live trades"        # what the count is a count of, when it is not every live trade of the book
 
 
 BOOKS = (
@@ -44,8 +45,11 @@ BOOKS = (
     # expectation = the E exit on the 2,242 training trades of prereg_long_risk_2026-11-12 (R changes size, not the
     # per-trade return). Expected NEGATIVE: the monitor alarms if live is even worse. Before A2 (2026-11-10 option A,
     # first-fill rule -2.29%): those trades are not judged against the new rule.
+    # 2026-11-24: the book moved to the base-break rules (rules 'B1') on 2026-11-20, so this sample stopped growing at
+    # 13 trades while its line went on saying "live trades". ``unit`` now says which trades it judges.
     TradeBook("long book (paper)", "SELECT net FROM long_trades WHERE status='settled' AND rules='A2' "
-              "ORDER BY session, id", -0.0209, 0.0626, 0.137, "prereg_long_risk_2026-11-12 (A2, E per trade)"),
+              "ORDER BY session, id", -0.0209, 0.0626, 0.137, "prereg_long_risk_2026-11-12 (A2, E per trade)",
+              unit="trades under the earlier A2 rules (to 11-19; the base-break longs since are not judged here)"),
     # Scanner experiment: the self-spike rule's training result (it failed: expected NEGATIVE).
     TradeBook("scanner (experiment)", "SELECT net FROM scan_trades WHERE status='settled' ORDER BY session, id",
               -0.0118, 0.1201, 0.532, "prereg_self_fade_2026-11-06"),
@@ -95,11 +99,13 @@ def _judge(out: dict, nets: list[float], expectancy: float, std: float, win_rate
     if not nets:
         return out
     cusum, wins = CusumMonitor(expectancy, std), WinRateMonitor(win_rate)
-    for x in nets:
+    for i, x in enumerate(nets, 1):
         for mon in (cusum, wins):
             sig = mon.update(x)
             if sig is not None and sig.action in (Action.DEMOTE, Action.HALT, Action.DISABLE):
-                out["alarms"].append(sig.detail)
+                out["alarms"].append(sig.detail)             # the text is also the key of the "already texted" flag:
+                out["tripped_at"] = i                        # never reworded here; the trade it tripped on is kept apart
+    out["tested_win"] = win_rate
     out["mean"], out["half_width"] = _ci(nets)
     out["win"] = sum(x > 0 for x in nets) / len(nets)
     return out
@@ -108,7 +114,8 @@ def _judge(out: dict, nets: list[float], expectancy: float, std: float, win_rate
 def check_trade_book(db: OpsStore, b: TradeBook) -> dict:
     with db.tx() as c:
         nets = [float(r[0]) for r in c.execute(b.sql) if r[0] is not None]
-    return _judge({"book": b.name, "expected": b.expectancy, "alarms": []}, nets, b.expectancy, b.std, b.win_rate)
+    return _judge({"book": b.name, "expected": b.expectancy, "alarms": [], "unit": b.unit}, nets, b.expectancy, b.std,
+                  b.win_rate)
 
 
 def check_forward(db: OpsStore, b: ForwardBook = FORWARD) -> dict:
@@ -160,10 +167,23 @@ def line(r: dict) -> str | None:
     if "expected" in r:
         body = (f"{r['book']}: {r['n']} {r.get('unit', 'live trades')}, {r['mean']:+.2%}/trade"
                 + (f" (±{r['half_width']:.1%})" if not math.isnan(r["half_width"]) else "")
-                + f", win {r['win']:.0%}; tested {r['expected']:+.2%}")
+                + f", win {r['win']:.0%}; tested {r['expected']:+.2%}"
+                + (f", win {r['tested_win']:.0%}" if r.get("tested_win") is not None else ""))
     else:
         body = f"{r['book']}: {r['n']} days, {r['cum']:+.1%} total, drawdown {r['drawdown']:+.1%}"
-    return ("! DRIFT " if r["alarms"] else "") + body + (f" -> {r['alarms'][-1]}" if r["alarms"] else "")
+    return ("! DRIFT " if r["alarms"] else "") + body + (f" -> {r['alarms'][-1]}{_when(r)}" if r["alarms"] else "")
+
+
+def _when(r: dict) -> str:
+    """Which trade the quoted alarm tripped on (2026-11-24). The monitors look after every trade and the line quotes
+    the LAST time one tripped, so the figures inside an alarm are the record as it stood THEN: on 11-23 the line read
+    "105 forward trades ... win 50% ... win rate 0.418 ... p=0.0076", where 0.418 was the win rate at the 67th trade
+    and the test no longer tripped at the 105th. A cut made by an alarm stays whatever the record does later
+    (``guard_lines``); the line must not make an old trip read as tonight's."""
+    k = r.get("tripped_at")
+    if k is None:
+        return ""
+    return f" [tripped at trade {k} of {r['n']}" + ("]" if k == r["n"] else "; not tripped since]")
 
 
 def lines(results: list[dict]) -> list[str]:
@@ -172,6 +192,10 @@ def lines(results: list[dict]) -> list[str]:
 
 
 AUTO_BOOKS = ("alert fade (no-news)", "long book (paper)")   # the live books whose size the alarm halves
+# The one restoration rule there is (playbook section 2, owner 2026-11-12): the owner's explicit word. No count, date
+# or later result restores size, and the monitor never raises it. 2026-11-24: the texts said "ask Claude to restore",
+# which read as an invitation to resize on request; they now state the restriction and the rule.
+RESTORE = "it never restores itself and no result restores it: full size returns only on the owner's explicit word"
 
 
 def scale(db: OpsStore, book: str) -> float:
@@ -207,7 +231,7 @@ def _new_alarms(db: OpsStore, results: list[dict], today: date) -> list[tuple[st
                     db.set_flag(SCALE_FLAG + target, f"{now:g}")
                     whose = "" if target == r["book"] else f" of {target}"
                     msg += (f" -> results are below the tested expectation: size for new trades{whose} cut to "
-                            f"{now:.0%} (was {was:.0%}). Ask Claude to restore it.")
+                            f"{now:.0%} (was {was:.0%}). {RESTORE.capitalize()}.")
                     out.append((target, msg))
                 else:
                     out.append((None, msg))
@@ -227,5 +251,5 @@ def guard_lines(db: OpsStore, results: list[dict], today: date) -> list[str]:
     for book in AUTO_BOOKS:
         k = scale(db, book)
         if k < 1 and not any(t == book for t, _ in new):
-            out.append(f"{book}: drift guard holds new trades at {k:.0%} of size (ask Claude to restore)")
+            out.append(f"{book}: drift guard holds new trades at {k:.0%} of size ({RESTORE})")
     return out

@@ -20,24 +20,50 @@ def _usd(x: float) -> str:
     return f"{'+' if x >= 0 else '-'}${abs(x):,.0f}"
 
 
+def _along_the_book(base: float, trades: list[dict]) -> None:
+    """Dollars of each trade the way the BOOK counts them (2026-11-24: the 20:50 digest said the fade lost $438 on
+    11-23 and this summary $439, from the same three official results).
+
+    A book's value compounds its settled trades one after the other (``fade.nav`` / ``long_book.nav``), so the second
+    loss of a day is taken on a slightly smaller book. The summary used to take every trade on the value of the
+    evening before: the same results, $0.58 apart. The book's value is the one settlement record, and the digest's day
+    figure is its change, so the summary now walks the same path: official trades in the book's own order
+    (``order``), each on the value the book had reached. An estimate is not in the book yet: it is taken on the value
+    after the day's official trades. ``size`` stays the dollars actually put to work (the entry's own sizing)."""
+    v = base
+    for t in sorted((t for t in trades if t["official"]), key=lambda t: t["order"]):
+        t["usd"] = v * t["weight"] * t["ret"]
+        v += t["usd"]
+    for t in trades:
+        if not t["official"]:
+            t["usd"] = v * t["weight"] * t["ret"]
+
+
+def _day(trades: list[dict], est: bool) -> dict:
+    return {"trades": trades, "n": len(trades), "wins": sum(t["usd"] > 0 for t in trades),
+            "usd": sum(t["usd"] for t in trades), "traded": sum(t["size"] for t in trades), "estimate": est}
+
+
 def fade_day(db: OpsStore, day: date) -> dict:
     """Paper fade trades entered on ``day``: count, wins, $ result (official where settled), $ shorted."""
     base = fade.nav(db, through=day - timedelta(days=1))
     with db.tx() as c:
-        rows = c.execute("SELECT symbol, status, weight, net, est_entry, est_entry_at, est_exit FROM fade_trades WHERE session=? "
-                         "AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
+        rows = c.execute("SELECT id, symbol, status, weight, net, settled_at, est_entry, est_entry_at, est_exit FROM "
+                         "fade_trades WHERE session=? AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
     trades, est = [], False
     for r in rows:
-        size = (r["weight"] or fade.WEIGHT) * base
-        if r["status"] == "settled" and r["net"] is not None:
+        w = r["weight"] or fade.WEIGHT
+        official = r["status"] == "settled" and r["net"] is not None
+        if official:
             ret = r["net"]
         elif (n := est_costs.net("short", r["symbol"], r["est_entry_at"], r["est_entry"], r["est_exit"])) is not None:
             ret, est = n, True                                     # 2026-11-16: live estimate after estimated costs
         else:
             ret, est = 0.0, True                                   # still open: counted at zero, flagged
-        trades.append({"symbol": r["symbol"], "usd": ret * size, "ret": ret, "size": size})
-    return {"trades": trades, "n": len(trades), "wins": sum(t["usd"] > 0 for t in trades),
-            "usd": sum(t["usd"] for t in trades), "traded": sum(t["size"] for t in trades), "estimate": est}
+        trades.append({"symbol": r["symbol"], "ret": ret, "size": w * base, "weight": w, "official": official,
+                       "order": (r["settled_at"] or "", r["id"])})     # fade.nav: ORDER BY settled_at, id
+    _along_the_book(base, trades)
+    return _day(trades, est)
 
 
 def long_day(db: OpsStore, day: date) -> dict:
@@ -48,20 +74,22 @@ def long_day(db: OpsStore, day: date) -> dict:
 
     base = long_book.nav(db, through=day - timedelta(days=1))
     with db.tx() as c:
-        rows = c.execute("SELECT symbol, status, weight, net, entry_ts, est_entry, est_exit FROM long_trades WHERE session=? "
-                         "AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
+        rows = c.execute("SELECT id, symbol, status, weight, net, entry_ts, est_entry, est_exit FROM long_trades WHERE "
+                         "session=? AND status IN (?,?,?) ORDER BY id", (day.isoformat(), *ENTERED)).fetchall()
     trades, est = [], False
     for r in rows:
-        size = (r["weight"] or fade.WEIGHT) * base
-        if r["status"] == "settled" and r["net"] is not None:
+        w = r["weight"] or fade.WEIGHT
+        official = r["status"] == "settled" and r["net"] is not None
+        if official:
             ret = r["net"]
         elif (n := est_costs.net("long", r["symbol"], r["entry_ts"], r["est_entry"], r["est_exit"])) is not None:
             ret, est = n, True
         else:
             ret, est = 0.0, True                                   # still open: counted at zero, flagged
-        trades.append({"symbol": r["symbol"], "usd": ret * size, "ret": ret, "size": size})
-    return {"trades": trades, "n": len(trades), "wins": sum(t["usd"] > 0 for t in trades),
-            "usd": sum(t["usd"] for t in trades), "traded": sum(t["size"] for t in trades), "estimate": est}
+        trades.append({"symbol": r["symbol"], "ret": ret, "size": w * base, "weight": w, "official": official,
+                       "order": r["id"]})                              # long_book.nav: ORDER BY id
+    _along_the_book(base, trades)
+    return _day(trades, est)
 
 
 def books_day(db: OpsStore, day: date) -> list[tuple[str, float]]:

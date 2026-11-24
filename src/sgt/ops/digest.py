@@ -231,13 +231,31 @@ def hold_lines(db: OpsStore) -> list[str]:
         out.append(f"{bold('megacap long calls')} ledger, {lo['sessions']} sessions since {lo['since'][5:]}: "
                    f"{lo['total']:+.1%} ({lo['calls']} calls, {lo['wins']} winners, avg {avg}; tested "
                    f"{longonly.TESTED_AVG:+.2%}, {longonly.TESTED_WIN:.0%}); long and short {lo['long_short']:+.1%}, "
-                   f"holding {lo['holding']:+.1%}" + _rarity(lo) + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else ""))
+                   f"holding {lo['holding']:+.1%}" + _rarity(lo) + (" -> BELOW THE -5% STOP RULE" if lo["stop"] else "")
+                   + _long_book_note(db, lo["total"]))
     from sgt.megacap import downday
 
     dl = downday.line(root)                             # owner 2026-11-19: a second ledger, recorded beside the registered one
     if dl:
         out.append(dl)
     return out
+
+
+def _long_book_note(db: OpsStore, ledger_total: float) -> str:
+    """Why the paper book's value is not the ledger's (2026-11-24: the TODAY line read "month -1.2%" and this line
+    "-0.1%" for the same calls, with nothing between them). "" when the book has no value yet or the two agree."""
+    from sgt.megacap import longonly
+
+    try:
+        with db.tx() as c:
+            r = c.execute("SELECT nav FROM book_nav WHERE strategy='megacap_long' ORDER BY session DESC LIMIT 1").fetchone()
+    except Exception:  # noqa: BLE001 - informational clause
+        return ""
+    if r is None or abs(r["nav"] / 100_000.0 - 1 - ledger_total) < 0.0005:
+        return ""
+    return (f"; the paper book reads {r['nav'] / 100_000.0 - 1:+.1%} over the same sessions: it sized a call by risk (up "
+            f"to 25% a stock) before the {longonly.BOOK_AS_LEDGER_FROM[5:]} close and at the ledger's 1/N since. The "
+            "ledger decides")
 
 
 def _rarity(lo: dict) -> str:

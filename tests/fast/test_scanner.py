@@ -92,7 +92,7 @@ def test_book_entry_stop_exit_caps_and_first_event(db, monkeypatch):
         assert c.execute("SELECT status, reason FROM scan_trades WHERE symbol='CAP'").fetchone()[:] == ("skipped", "runaway guard")
 
 
-def test_official_result_and_void_and_summary(db):
+def test_official_result_and_void_and_summary(db, monkeypatch):
     f = tape(n=100)
     r = {"symbol": "SPK", "bar_ts": f.ts.iloc[29].isoformat()}
 
@@ -111,6 +111,11 @@ def test_official_result_and_void_and_summary(db):
     assert len(scanner.due(db, now)) == 1 and scanner.book(db, 1, "est_closed", res, now)
     line = scanner.summary(db, "2026-11-09")
     assert line.startswith("scanner (experiment, 0.5%/trade): today 1 signals, 1 settled") and "decide at 300" in line
+    # 2026-11-24: paused, the scanner settles no trade, so "decide at 300" named a decision that cannot come
+    monkeypatch.setattr(scanner, "ACTIVE", False)
+    want = "paused by the owner, so no decision is coming: 1 of the 300 trades its rule needs and none is added"
+    assert want in scanner.summary(db, "2026-11-09") and want in scanner.record_line(db)
+    assert "decide at 300" not in scanner.summary(db, "2026-11-09") + scanner.record_line(db)
 
 
 def test_scan_tick_universe_bars_detect_and_step(db):

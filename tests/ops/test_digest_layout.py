@@ -170,7 +170,8 @@ def test_needs_you_leads_and_lists_everything(db, monkeypatch, tmp_path):
     assert bold("NEEDS YOU") in needs and "PAUSED" in needs and "\u2022 jobs FAILED: megacap " in needs
     assert "\u2022 x: missing close" in needs and "DRIFT" in needs and "alert fade (no-news)" in needs
     from sgt.fast import fade                                              # 2026-11-12: the alarm halves new fades
-    assert "size for new trades cut to 50% (was 100%). Ask Claude to restore it." in needs   # and says so (F-1)
+    assert ("size for new trades cut to 50% (was 100%). It never restores itself and no result restores it: full size "
+            "returns only on the owner's explicit word.") in needs                    # and says so (F-1; rule stated 2026-11-24)
     assert fade.drift_scale(db) == 0.5
     code = ap.pending(db)[0]["code"]
     assert f"\u2022 pending tom: OK {code} by " in needs                    # reply code stays plain ASCII digits
@@ -297,6 +298,15 @@ def test_long_calls_ledger_line(tmp_path, monkeypatch):
     line = [x for x in digest.hold_lines(db) if " ledger, " in x]
     assert line == [f"{bold('megacap long calls')} ledger, 1 sessions since 11-16: +0.7% (1 calls, 1 winners, avg +1.96%; "
                     "tested +0.23%, 54%); long and short -0.4%, holding +2.0%"]
+    # 2026-11-24: the book's own value differs from the ledger (it was sized differently until the 11-20 close): labelled
+    with db.tx() as c:
+        c.execute("INSERT INTO book_nav VALUES ('megacap_long', '2026-11-16', 98790.84, 0.0445, '{}')")
+    line = [x for x in digest.hold_lines(db) if " ledger, " in x]
+    assert line[0].endswith("holding +2.0%; the paper book reads -1.2% over the same sessions: it sized a call by risk (up "
+                            "to 25% a stock) before the 11-20 close and at the ledger's 1/N since. The ledger decides")
+    with db.tx() as c:
+        c.execute("UPDATE book_nav SET nav=100650")                       # the two agree: nothing to explain
+    assert [x for x in digest.hold_lines(db) if " ledger, " in x][0].endswith("holding +2.0%")
 
 
 def test_long_calls_ledger_line_says_how_unusual_the_live_record_is(tmp_path, monkeypatch):
