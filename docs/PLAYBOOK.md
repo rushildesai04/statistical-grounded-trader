@@ -966,7 +966,13 @@ night it cannot finish is texted and caught up on the next run.
   check on the feed's last trade exists as a proposal (same stop level, earlier detection, no change to a registered
   figure) and would gain at most one candle; it does not remove the blocker (section 0). The entry rule has no
   maximum price and no "market moved away" condition, so nothing existing was enforced; the booked price is now
-  recorded and texted as a reference with its age and the feed's last trade. Both are put to the owner. Wording
+  recorded and texted as a reference with its age and the feed's last trade. Owner the same day: keep the
+  registered reference and put a quote beside it. Built: one exchange's offer at the booking (IEX; a BOUND, since
+  the national best offer is at or under it and is not available live without paid data), with its age, its size
+  against the order and its distance from the booked price; and the official offer at the booking instant, read
+  nightly into the ledger and reported in one line. A last trade is never called a price on offer. OPEN, a policy
+  question: a trigger setup seen only after its fill candle closed and its exit was determined (FCUV 11-25, booked
+  66 s late); three options in the findings document, none adopted. Wording
   tightened: "valid on the free feed" is not "valid on the tape"; "no enhancement supported" covers only the
   candidates and definitions reviewed; the source-price check is an observation on six symbol-days, repeated before
   any further consumer is wired.
