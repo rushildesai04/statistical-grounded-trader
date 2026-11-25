@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from sgt.fast import long_book, text_px
+from sgt.fast import calc_v1, long_book, text_px
 from sgt.fast import patterns as pt
 from sgt.fast.fade import ET
 from sgt.ops.store import OpsStore, iso, utcnow
@@ -147,6 +147,9 @@ def _one(db: OpsStore, r: dict, prints: text_px.Prints, bars: long_book.SipBars,
     net = gross - rt
     if not long_book._set(db, r["id"], "est_closed", status="settled", entry=px, fill_ts=iso(ts.to_pydatetime()),
                           exit=res["exit"], exit_ts=iso(pd.Timestamp(res["exit_ts"]).to_pydatetime()), exit_reason=res["how"],
-                          gross=gross, cost_rt=rt, net=net, settled_at=iso(now), reason=REASON):
+                          gross=gross, cost_rt=rt, net=net, settled_at=iso(now), reason=REASON,
+                          # 2026-11-25: this result is not a threshold replay; the parallel figure says so explicitly
+                          calc=calc_v1.PRIMARY,
+                          calc_v1=calc_v1.not_computed("scored as the order sent at the text")["calc_v1"]):
         return None
     return f"{r['symbol']} {r['kind']} {net:+.2%} (bought at the text ${px:.2f}; {res['how']})"

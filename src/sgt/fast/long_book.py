@@ -15,6 +15,7 @@ that holds. Respects PAUSE / DISARM; no entry after the last entry minute; at mo
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 from datetime import date, datetime, timedelta
@@ -23,8 +24,9 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import est_costs, fade, long_shadow, news
+from sgt.fast import calc_v1, est_costs, fade, long_shadow, news
 from sgt.fast import patterns as pt
+from sgt.fast.fade_texts import live_note, stop_lines
 from sgt.fast.fade import ET
 from sgt.ops import approvals, chartserver
 from sgt.ops.sms_style import bold, italic
@@ -480,13 +482,14 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
     v = nav(db)
     w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
     rules = RULES_BASE if s is not None and s.kind == "L8" else RULES
+    seen = setup_seen(s)
     with db.tx() as c:
         cur = c.execute(
             "INSERT OR IGNORE INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
-            "entry_ts, est_entry, est_last, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "entry_ts, est_entry, est_last, created_at, rules, setup_info) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
              s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
-             t.entry if t else None, t.entry if t else None, iso(now), rules))
+             t.entry if t else None, t.entry if t else None, iso(now), rules, seen))
         done, rid = cur.rowcount == 1, cur.lastrowid
     if done:       # audit 2026-11-22: the decision record (what the book did with this alert, and on what facts)
         db.decide("long", rid, row["symbol"], None, status, None, f"{RULE_VERSION}; rules {rules}", fade_id=row["id"],
@@ -494,8 +497,24 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
                   trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
                   entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
                   decided_at=iso(now), posted_at=row.get("posted_at"), via=row.get("via"),
-                  recovered_at=row.get("recovered_at"), **facts)
+                  recovered_at=row.get("recovered_at"), setup=seen, **facts)
     return done
+
+
+def setup_seen(s: pt.Setup | None) -> str | None:
+    """The setup as the book saw it when it decided, for the row and its decision line (2026-11-25): what the detector
+    itself recorded (for a base break: the base's high and low, the break candle, VWAP at its close) plus the base's
+    width, and the feed it was read from. JSON, bounded. None when there is nothing to record."""
+    info = getattr(s, "info", None) if s is not None else None
+    if not isinstance(info, dict) or not info:
+        return None
+    out = {k: (v.isoformat() if hasattr(v, "isoformat") else round(float(v), 6) if isinstance(v, (int, float)) else str(v))
+           for k, v in list(info.items())[:12]}
+    lo, hi = info.get("base_low"), info.get("base_high")
+    if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and lo > 0:
+        out["base_width"] = round((hi - lo) / lo, 6)
+    out["feed"] = "free feed (the live candles)"
+    return json.dumps(out)[:700]
 
 
 def target(s: pt.Setup, t: pt.Trade) -> float:
@@ -629,6 +648,21 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
     return out
 
 
+def _parallel(db: OpsStore, rid: int, v: dict) -> None:
+    """Store the price-decimal-v1 figure of a long the settle has just booked (owner 2026-11-25, option A): its own
+    columns, written once, after the registered result and in a statement that touches nothing else. Read only by
+    the nightly arithmetic line. A failure here is logged and changes nothing about the settled trade."""
+    cols = {k: v[k] for k in calc_v1.LONG_COLS if v.get(k) is not None}
+    if not cols:
+        return
+    try:
+        with db.tx() as c:
+            c.execute(f"UPDATE long_trades SET {', '.join(k + '=?' for k in cols)} WHERE id=? AND status='settled' "  # noqa: S608
+                      "AND calc_v1 IS NULL", (*cols.values(), rid))
+    except Exception:  # noqa: BLE001 - a parallel figure only
+        log.exception("price-decimal-v1 figure of long %s not stored", rid)
+
+
 def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, stale: str) -> str | None:
     """One long's official result (see settle). None = nothing changed (bars not there yet)."""
     f = bars(r["symbol"], r["session"])
@@ -654,8 +688,14 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
     net = t.gross - rt
     if not _set(db, r["id"], r["status"], status=r["status"] if seen else "settled", entry=t.entry,
                 fill_ts=iso(t.entry_ts.to_pydatetime()), exit=t.exit, exit_ts=iso(t.exit_ts.to_pydatetime()),
-                exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now)):
+                exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now),
+                **({} if seen else {"calc": calc_v1.PRIMARY})):
         return None
+    if not seen and r["status"] != "settled":        # a fresh settle only (review 2026-11-25): the one-time re-score
+        #                                                  of a row settled long ago must not give that old trade a v1
+        #                                                  figure: nothing settled before the parallel figure is restated
+        _parallel(db, r["id"], calc_v1.long(f, s, t, rt, latest=long_shadow._latest(r["session"]),
+                                            red_exit=r.get("rules") == RULES))
     if r["status"] == COSTLY:
         return f"{r['symbol']} {r['kind']} not bought (cost above {COST_CAP:.0%}): would have made {net:+.2%}"
     if r["status"] == SHORT_OPEN:
@@ -688,13 +728,17 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade, extra: str =
              "🎲 " + (f"Past win rate {bold(f'{win:.0%}')} · " if win is not None else "") + f"{name}: "
              + italic(f"avg {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} past trades")
              + " (live paper test)",
+             "    " + italic("Past figures: a replay of past alerts on candles, no real fills. Averages, not a forecast "
+                             "for this trade."),
              f"💵 ${usd:,.0f} {paper}{sized}",
-             f"🛑 stop ${s.stop:.2f} ({-risk:.1%}) ≈ {_usd(-usd * (risk + cost))} · 🎯 target ${target(s, t):.2f} "
+             f"🛑 stop ${s.stop:.2f} ({-risk:.1%}; a trigger, not a cap) ≈ {_usd(-usd * (risk + cost))} · "
+             f"🎯 target ${target(s, t):.2f} "
              f"(+{pt.RR * risk:.1%}) · ⏰ out {out.tz_convert(ET):%H:%M} ET"]
     with db.tx() as c:
         n, m = c.execute("SELECT COUNT(*), AVG(net) FROM long_trades WHERE status='settled'").fetchone()
     if n and m is not None:
-        lines.append(f"📈 Live: {n} trades, avg {m:+.1%}" + (" " + italic("(too few to judge)") if n < PROOF_N else ""))
+        lines.append(f"📈 Live paper record: {n} trades, avg {m:+.1%}" + (" " + italic(live_note(m, "long"))
+                                                                           if n < PROOF_N else ""))
     chart = news.chart_url(symbol)
     return "\n".join(lines) + extra + (f"\n🔗 {chart}" if chart else "")
 
@@ -711,7 +755,7 @@ def seen_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
             f"{TESTED_N.get(s.kind, 0):,} trades")
 
 
-EXIT_WHY = {"stop": "🛑 stop hit, loss capped", "target": "🎯 target hit", "time": "⏰ time exit",
+EXIT_WHY = {"stop": "🛑 stop triggered", "target": "🎯 target hit", "time": "⏰ time exit",   # 2026-11-25: never "capped"
             "red": "🔻 fill candle closed red, out at the next open"}
 
 
@@ -742,6 +786,8 @@ def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
     move = t.exit / t.entry - 1
     lines.append("💡 Why: " + (f"price rose {move:.1%} while we were long" if move > 0 else
                               f"price fell {abs(move):.1%} while we were long" if move < 0 else "price did not move"))
+    if t.reason == "stop" and dict(r).get("stop"):     # owner 2026-11-25: the stop's loss in its parts, never "capped"
+        lines += stop_lines("long", t.entry, float(r["stop"]), t.exit, cost)
     session = dict(r).get("session")
     n_day, day_usd = _day(db, session) if session else (0, 0.0)
     if n_day:

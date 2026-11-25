@@ -79,8 +79,10 @@ def test_first_long_to_fill_with_tie_order_and_honest_text(db):
         f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.55')}",
         "💬 Bought $404 of ABCD: we make money if it rises",
         "🎲 red-candle break: " + italic("avg -2.4%/trade over 754 past trades") + " (live paper test)",
+        "    " + italic("Past figures: a replay of past alerts on candles, no real fills. Averages, not a forecast for "
+                        "this trade."),
         "💵 $404 (paper, test size; full size $4,038) (sized to the stop)",
-        "🛑 stop $10.20 (-3.3%) ≈ -$17 · 🎯 target $11.25 (+6.6%) · ⏰ out 10:33 ET",
+        "🛑 stop $10.20 (-3.3%; a trigger, not a cap) ≈ -$17 · 🎯 target $11.25 (+6.6%) · ⏰ out 10:33 ET",
         "🔗 https://www.tradingview.com/chart/?symbol=ABCD"]
     assert lb.tick(db, feed(DAY), sent.append, now=at(3, 30)) == 0 and len(trades(db)) == 1      # one long per alert
 
@@ -476,15 +478,20 @@ def test_a_stopped_long_card_reads_like_fade_out_and_adds_up_the_day(db, monkeyp
                       "est_exit, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                       (fid, sym, "2026-11-10" if sym == "OTHR" else "2026-11-09", "L8", status, 1.19, 0.002, at3, entry,
                        exit_px, POSTED.isoformat()))
-    r = {"symbol": "LOSR", "weight": 0.002, "session": "2026-11-09", "entry_ts": at3}
+    r = {"symbol": "LOSR", "weight": 0.002, "session": "2026-11-09", "entry_ts": at3, "stop": 1.20}
     t = pt.Trade("L8", "long", T1 + 2 * pt.BAR, 1.28, T1 + 4 * pt.BAR, 1.19, "stop", 1.19 / 1.28 - 1)
     c_lo, c_hi = (est_costs.cost("long", sym, at3, px) for sym, px in (("LOSR", 1.28), ("WINR", 10.0)))
     net = 1.19 / 1.28 - 1 - c_lo
     usd = 0.002 * lb.nav(db) * net
     day = usd + 0.002 * lb.nav(db) * (0.05 - c_hi)                          # the open long and another day's are not in it
+    # owner 2026-11-25: never "loss capped". The stop's loss in its parts (the row's stop is 1.20: the sale at 1.19 is
+    # 0.8 points past it), and a stop that is a trigger, not a cap.
+    stop_part = [f"🛑 Stop $1.20 triggered: intended price risk {(1.20 - 1.28) / 1.28:+.1%}. A stop is a trigger, not a cap.",
+                 f"    Estimated exit $1.19: 0.8 points beyond the stop · about {c_lo * 100:.1f} points of costs"]
     assert lb.exit_text(db, r, t).split("\n") == [
         f"[SGT] 🛑 {bold('LONG OUT')} · {bold('LOSR')} · lost {bold(f'-${abs(usd):,.0f} ({net:+.1%})')}",
-        "Bought $1.28 → sold $1.19 · 🛑 stop hit, loss capped", "💡 Why: price fell 7.0% while we were long",
+        "Bought $1.28 → sold $1.19 · 🛑 stop triggered", "💡 Why: price fell 7.0% while we were long",
+        *stop_part,
         f"📅 Today: 2 longs, {bold(lb._usd(day))}", "📈 https://www.tradingview.com/chart/?symbol=LOSR",
         "🖼 All trades: https://example.invalid/page/",
         italic(f"Paper, estimate after about {c_lo:.1%} costs (spread); official numbers in the midnight summary.")]
@@ -673,4 +680,16 @@ def test_three_hundred_losing_or_noisy_trades_prove_nothing(db):
         c.execute("DELETE FROM long_trades")
     settled(db, 300, lambda i: 0.30 if i % 50 == 0 else -0.005)                          # mean just above zero, interval not
     assert not lb.proven(db)
+
+
+def test_the_setup_as_the_book_saw_it_is_kept_on_the_row_and_the_decision_line():
+    """BNAI 2026-11-25: to learn which base the book had bought, the free feed had to be fetched again. The detector's
+    own record of the setup (base high and low, break candle, VWAP) and its width now stay with the trade."""
+    import json
+
+    s = pt.Setup("L8", "long", T1, None, 7.89, {"base_high": 8.18, "base_low": 7.89, "break_ts": T1 - pt.BAR, "vwap": 8.1741})
+    seen = json.loads(lb.setup_seen(s))
+    assert seen == {"base_high": 8.18, "base_low": 7.89, "break_ts": (T1 - pt.BAR).isoformat(), "vwap": 8.1741,
+                    "base_width": round((8.18 - 7.89) / 7.89, 6), "feed": "free feed (the live candles)"}
+    assert lb.setup_seen(None) is None and lb.setup_seen(pt.Setup("L4b", "long", T1, 1.1, 1.0)) is None
 

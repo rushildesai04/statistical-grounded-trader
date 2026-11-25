@@ -189,6 +189,20 @@ def reddit_line(rd: dict) -> str:
     return f"👽 Reddit: #{rd['rd_rank']} most-mentioned, {rd['rd_mentions']} mentions in 24h{was}"
 
 
+PAST_NOTE = ("Past figures: a bar replay of every alert, with no borrow check and no real fills. Averages of past "
+             "trades, not a forecast for this one.")
+
+
+def live_note(mean: float, side: str) -> str:
+    """Beside a live record that is still short of its registered decision (owner 2026-11-25: "too few to judge"
+    must not obscure existing unfavourable evidence). It says which way the record stands, that this is not yet
+    decisive, and which registered reviews decide."""
+    way = "losing so far" if mean < 0 else "ahead so far" if mean > 0 else "flat so far"
+    review = ("the forward record at 300 alerts and the real-quote review at 50 trades" if side == "short" else
+              "the real-quote review at 30 trades, and 300 settled trades for size")
+    return f"({way}; not yet decisive: decided by {review})"
+
+
 def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: dict, borrow: str,
              live: tuple[int, float | None] = (0, None), out_at: datetime | None = None,
              at: datetime | None = None, forward: dict | None = None) -> str:
@@ -249,12 +263,17 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
         lines.append(sig_line)
     stop = f"${_fmt(px * (1 + STOP))}" if px else "+20%"
     hold = f"⏰ out {out_at.astimezone(ET):%H:%M} ET" if out_at else "⏳ 60 min"
-    lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} ≈ {_usd(size * STOPPED_NET)} · {hold}",
+    # Owner 2026-11-25: the stop is a trigger (past stopped trades averaged STOPPED_NET, worse than the 20%); the
+    # past figures are a bar replay of every alert, not a forecast; and "too few to judge" hid a losing live record.
+    lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} (a trigger, not a cap: past stopped trades averaged "
+              f"{STOPPED_NET:+.1%}) ≈ {_usd(size * STOPPED_NET)} · {hold}",
               f"🎯 Tested ({BASE_N} unseen): win {BASE_WIN:.0%}, avg {bold(_usd(size * BASE_EV))}",
-              f"    wins {_usd(size * AVG_WIN)} · losses {_usd(size * AVG_LOSS)} · {STOP_RATE:.0%} stopped"]
+              f"    wins {_usd(size * AVG_WIN)} · losses {_usd(size * AVG_LOSS)} · {STOP_RATE:.0%} stopped",
+              "    " + italic(PAST_NOTE)]
     n, mean = live
     if n and mean is not None:
-        lines.append(f"📈 Live: {n} trades, avg {mean:+.1%}" + (" " + italic("(too few to judge)") if n < JUDGE_N else ""))
+        lines.append(f"📈 Live paper record: {n} trades, avg {mean:+.1%}" + (" " + italic(live_note(mean, "short"))
+                                                                              if n < JUDGE_N else ""))
     if forward and forward.get("n"):             # the drift guard is in alarm: the tested figures are not being met
         lines.append(f"⚠️ Forward record, {forward['n']} alerts: {forward['win']:.0%} won, avg {forward['mean']:+.1%}. "
                      + italic("Below the test: the past figures above are not holding live."))
@@ -266,11 +285,29 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     return "\n".join(lines)
 
 
-EXIT_WHY = {"stop": "🛑 stop hit: price jumped 20% over our short, loss capped", "60 min": "⏰ 60 minutes up",
+# Owner 2026-11-25 (ALGS: stop $2.316, estimated exit $2.35, -23.5% after costs under "loss capped"): a stop is a
+# trigger, not a cap. The exit says that the stop triggered; ``stop_lines`` then gives the intended price risk, the
+# estimated exit price, what was lost beyond the stop and the costs, each as its own number.
+EXIT_WHY = {"stop": "🛑 stop triggered: price rose 20% over our short", "60 min": "⏰ 60 minutes up",
             "close": "🔔 market close", VETO_EXIT: "👋 you texted NO",
             # sgt.fast.tape_check (2026-11-17): the official tape crossed the stop and the free live feed did not show it
-            "stop (official tape, seen late)": "🛑 stop hit on the official tape about 15 minutes ago (the free live "
-                                               "feed did not show it), loss capped at the stop"}
+            "stop (official tape, seen late)": "🛑 stop triggered on the official tape about 15 minutes ago (the free "
+                                               "live feed did not show it); booked at the stop level, or at that "
+                                               "minute's open when it opened above it"}
+
+
+def stop_lines(side: str, entry: float, stop: float, exit_px: float, cost: float) -> list[str]:
+    """What a stop exit actually cost, in parts (owner 2026-11-25): the stop level and the price risk it stood for,
+    the estimated exit price and how far past the stop that is, and the estimated costs. ``side`` "short" | "long".
+    An estimate from the free feed: a real stop order becomes a market order when it triggers and fills where the
+    market then is, so the loss can be larger than the intended risk. Nothing here is a fill."""
+    sign = -1.0 if side == "short" else 1.0
+    risk = sign * (stop - entry) / entry                       # negative: the loss at exactly the stop
+    got = sign * (exit_px - entry) / entry
+    beyond = got - risk                                        # <= 0 when the exit is worse than the stop
+    past = (f"{abs(beyond) * 100:.1f} points beyond the stop" if beyond < -0.00005 else "at the stop level")
+    return [f"🛑 Stop ${_fmt(stop)} triggered: intended price risk {risk:+.1%}. A stop is a trigger, not a cap.",
+            f"    Estimated exit ${_fmt(exit_px)}: {past}" + (f" · about {cost * 100:.1f} points of costs" if cost > 0 else "")]
 
 
 def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: float, n_day: int,
@@ -292,7 +329,10 @@ def out_text(r, entry: float, exit_px: float, why: str, usd: float, day_usd: flo
                    "), where fades only break even on average"
     if r.get("filing_dilution"):
         because += f" · an offering was filed ({r.get('filing_form') or 'S-1/424B'}) in the last 30 days"
-    lines += [f"💡 Why: {because}", f"📅 Today: {n_day} trades, {bold(_usd(day_usd))}"]
+    lines.append(f"💡 Why: {because}")
+    if why.startswith("stop"):                       # owner 2026-11-25: the stop's loss in its parts, never "capped"
+        lines += stop_lines("short", entry, entry * (1 + STOP), exit_px, cost)
+    lines.append(f"📅 Today: {n_day} trades, {bold(_usd(day_usd))}")
     chart = news.chart_url(r["symbol"])
     if chart:
         lines.append(f"📈 {chart}")

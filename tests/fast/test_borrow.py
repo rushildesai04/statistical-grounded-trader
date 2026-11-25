@@ -204,3 +204,30 @@ def test_without_a_borrow_source_the_rule_is_not_applied_and_the_listener_always
 
     src = (Path(__file__).resolve().parents[2] / "scripts" / "fade_live.py").read_text()
     assert "fade.monitor(db, send, quote, None, book.lookup," in src
+
+
+def test_the_nightly_says_how_many_alerts_were_recorded_under_the_entry_rule_and_on_what_evidence(tmp_path):
+    """Owner 2026-11-25: a substitute short entry is record-only. The nightly counts them and never calls one a halt."""
+    from datetime import date
+
+    from sgt.fast import exec_check
+    from sgt.ops import digest
+    from sgt.ops.sms_style import italic
+    from sgt.ops.store import OpsStore
+
+    db = OpsStore(tmp_path / "ops.db")
+    rows = [("AAA", fade.ELIG_SUBSTITUTE, exec_check.OFF_SUBSTITUTE), ("BBB", fade.ELIG_UNKNOWN, None),
+            ("CCC", fade.ELIG_UNKNOWN, exec_check.OFF_DELAYED.format(at="10:03"))]
+    with db.tx() as c:
+        for i, (sym, elig, off) in enumerate(rows):
+            c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, reason, "
+                      "entry_elig, entry_official, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (sym, "2026-11-02", "new_high", "2026-11-02T15:00:00+00:00", "-1", i, "skipped",
+                       fade.SUBSTITUTE_REASON, elig, off, "2026-11-02T15:00:01+00:00"))
+    head, usd = digest.fade_today(db, date(2026, 11, 2))
+    assert usd == 0.0 and len(head) == 1
+    assert ("3 alerts recorded, not shorted: the registered entry minute passed before our free feed showed a price "
+            "(earlier trading confirmed 1, not knowable in time 2; official bars since: 1 had a genuinely later first "
+            "trade; " + italic("no replacement entry") + ")") in head[0]
+    assert "halt" not in head[0]
+

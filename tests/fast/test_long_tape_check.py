@@ -57,7 +57,7 @@ def test_an_open_long_whose_stop_the_tape_crossed_is_closed_there_with_its_exit_
     r = row(db, rid)
     assert n == 1 and (r["status"], r["reason"], r["est_exit"]) == ("est_closed", LATE, STOP)
     assert pd.Timestamp(r["est_exit_at"]) == pd.Timestamp("2026-11-12 10:05", tz="America/New_York")
-    assert len(sent) == 1 and bold("LONG OUT") in sent[0] and "stop hit" in sent[0]
+    assert len(sent) == 1 and bold("LONG OUT") in sent[0] and "stop triggered" in sent[0] and "A stop is a trigger, not a cap." in sent[0] and "capped" not in sent[0]
     assert "Seen late: the stop traded at 10:05 ET on the official tape" in sent[0]
     assert lt.check(db, sent.append, tape(("10:05", 5.20, 5.22, 5.10)), now=LATER) == 0 and len(sent) == 1   # once
 

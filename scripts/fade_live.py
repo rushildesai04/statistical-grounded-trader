@@ -126,8 +126,38 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
             log.warning("quote %s failed: %s", symbol, type(exc).__name__)
             note["why"] = f"the quote request failed ({type(exc).__name__})"
             return None
+    def traded_between(symbol: str, start: datetime, end: datetime) -> tuple[str, str]:
+        """Did the FREE feed print any trade of ``symbol`` in [start, end), odd lots included (they do not move its
+        "latest trade")? ("yes", when and how much) / ("no", "") / ("unknown", why). "no" is this feed's silence
+        and nothing more: IEX carries a small share of a stock's trades, so it is never evidence of a halt or of an
+        untraded minute. The answer is external data: anything not exactly as expected is "unknown"."""
+        if not _SYMBOL.match(symbol) or not end > start:
+            return "unknown", "nothing to look at"
+        try:
+            r = client.get(f"/v2/stocks/{symbol}/trades", params={"feed": "iex", "start": start.isoformat(),
+                                                                 "end": end.isoformat(), "limit": 5})
+            if r.status_code != 200:
+                return "unknown", f"HTTP {r.status_code}"
+            body = r.json()
+            rows = body.get("trades") if isinstance(body, dict) else None
+            if rows is None:
+                return "no", ""
+            if not isinstance(rows, list):
+                return "unknown", "unexpected answer"
+            for t in rows[:5]:
+                if not isinstance(t, dict):
+                    continue
+                at = pd.Timestamp(str(t.get("t", ""))).to_pydatetime(warn=False)
+                px, size = float(t.get("p", 0)), float(t.get("s", 0))
+                if at.tzinfo is not None and start <= at < end and px > 0 and size > 0:
+                    return "yes", f"traded {at.astimezone(fade.ET):%H:%M:%S} ET, {size:g} shares at ${px:g}"
+            return "no", ""
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            log.warning("trade list %s failed: %s", symbol, type(exc).__name__)
+            return "unknown", type(exc).__name__
     quote.since_aware = True
     quote.seen = seen
+    quote.traded_between = traded_between
     return quote
 
 
@@ -852,6 +882,41 @@ def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
                 if c is not None:
                     g = (r.entry - c) / r.entry
                     out.at[i, "cover"], out.at[i, "gross"], out.at[i, "net"] = c, g, g - r.cost_rt - LOCATE
+    return with_v1(out, due, store)
+
+
+def with_v1(out: pd.DataFrame, due: pd.DataFrame, store: ParquetBarStore) -> pd.DataFrame:
+    """Beside each registered result, the same replay under price-decimal-v1 (owner 2026-11-25, option A): columns
+    ``cover_v1`` / ``net_v1`` / ``calc_v1``, read by nothing but the nightly arithmetic line. Computed AFTER every
+    registered number is final and from copies, so no registered value can move; a result that was not made the
+    tested way (scored at the live entry, the owner's NO) gets a note instead of a figure. Never raises."""
+    from alert_fade_test import HOLD_MIN, window
+    from sgt.fast import calc_v1
+
+    out = out.copy()
+    for k in calc_v1.SHORT_COLS:
+        out[k] = None
+    try:
+        info = due.set_index("id")
+        for i, r in out.iterrows():
+            if not bool(r.qualifies) or pd.isna(r.net):
+                continue
+            d = info.loc[r.id]
+            if isinstance(r.why, str) and r.why:
+                v = calc_v1.not_computed("the result was scored at the live entry, not the tested way")
+            elif "reason" in info.columns and d.reason == fade.VETO_EXIT:
+                v = calc_v1.not_computed("the owner's NO exit")
+            else:
+                try:
+                    w = window(store, d.symbol, str(d.session)[:10], pd.Timestamp(r.entry_ts), HOLD_MIN)
+                    v = calc_v1.short(w, r.entry, r.cost_rt, LOCATE)
+                except Exception as exc:  # noqa: BLE001 - one trade's bars failing is said on that trade, not hidden
+                    log.exception("price-decimal-v1 figure for fade %s failed", r.id)
+                    v = calc_v1.not_computed(f"error: {type(exc).__name__}")
+            for k, x in v.items():
+                out.at[i, k] = x
+    except Exception:  # noqa: BLE001 - the parallel figure never blocks the settle
+        log.exception("price-decimal-v1 figures not attached")
     return out
 
 

@@ -30,7 +30,7 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import est_costs
+from sgt.fast import calc_v1, est_costs
 from sgt.fast.fade_rule import (AVG_LOSS, AVG_WIN, BASE_EV, BASE_N, BASE_WIN, BASE_WIN_CI, ET, HOLD,  # noqa: F401
                                 JUDGE_N, STOP, STOP_RATE, STOPPED_NET, VETO, VETO_EXIT)
 from sgt.fast.fade_texts import (CONF, CONF_LABEL, CONF_MAX, EXIT_WHY, FILING_HIST, PLAIN, TOD_HIST, _fmt,  # noqa: F401
@@ -95,6 +95,35 @@ NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed bef
 # back (a recovered alert, or a restart with the alert waiting). An operational skip, like "alert received late": the
 # alert stays an event (F8 and the long book count it); it is not evidence of a halt, so it is not in NOT_EVENT_SKIPS.
 RESTART_NO_PRINT = "no trade print after the restart within 5 min of the alert"
+# Owner 2026-11-25: "Substitute short entries are record-only. If the registered entry opportunity has already
+# passed, a later free-feed print does not authorize a replacement trade. This decision follows the specification,
+# not the outcomes of BUUU or GLXG." The registration enters at ONE bar, the first official minute at or after alert +
+# 10 s; its five minutes bound how late that FIRST bar may be (recovery_verification_2026-11-23.md, section 1). The
+# live book reads a free feed and used to enter on its first print inside those five minutes, also when that print
+# came in a later minute than the registered one (4 of 34 live entries; in 2 the official tape had traded in the
+# registered minute: BUUU 11-23, GLXG 11-24).
+#
+# What can be known at the moment of the entry (docs/findings/entry_eligibility_2026-11-25.md):
+# - that the stock DID trade earlier: yes, when the free feed shows any trade (odd lots included) between the start of
+#   the registered minute and the start of the current one. Its trades are on the official tape too.
+# - that it did NOT trade earlier (a halt, a genuinely delayed first print: the case the registration still enters):
+#   no. The free feed's silence is not the official tape's, and the official tape is free only 15 minutes later.
+# So a live entry is decided INSIDE the registered minute or not at all. Later than that the alert is recorded,
+# never shorted: "substitute" when earlier trading is confirmed, "unknown" when it cannot be (never called a halt).
+# What the official bars showed is written the same night (``entry_official``), so the count of genuinely delayed
+# first prints the live book could not confirm is known. Unchanged: the registered replay (settle, forward record,
+# would-have: all from official bars, the first bar within five minutes); an alert with no free-feed print for five
+# minutes (NO_PRINT_REASON, as before); approved / auto entries of the old ask-first mode; and the restart rules.
+# An alert that itself ARRIVED after its registered minute had ended (delivery delay) is record-only too: the owner
+# closed that question the same day ("record-only under the same registered-minute eligibility principle").
+ENTRY_MINUTE = timedelta(minutes=1)
+ENTRY_RULE = ("live-entry-v2 2026-11-25: decided inside the registered entry minute, else record-only "
+              "(an alert delivered late included)")
+SUBSTITUTE_REASON = "registered entry minute passed: no substitute entry on a later free-feed print (record-only)"
+ELIG_REGISTERED = "inside the registered entry minute"
+ELIG_SUBSTITUTE = "substitute: the stock traded earlier, in or after its registered entry minute"
+ELIG_UNKNOWN = "unknown: earlier official trading cannot be confirmed or ruled out in time"
+ELIG_EXEMPT = "later minute, outside this rule: "       # + approved entry / restart rules
 # fade_trades.entry_wait (2026-11-24): why an entry had no price on its first pass, when the quote itself gave no reason
 NO_PRICE_YET = "no price from the live quote yet"
 RESTART_WAIT = "the listener restarted inside or after the entry bar: no entry on a print it cannot date"
@@ -190,7 +219,9 @@ class LiveAlert:
 # are tabled in docs/findings/ops_risk_register_2026-11-23.md, section 2.
 RULE_VERSION = ("fade 2026-11-21: F6 no-news, F7 beta<3 (unknown = no short), F8 no repeat 7d, borrow listed, $1-50, 20% stop, "
                 "60 min | restart rules 2026-11-23: a recovered alert is recorded, not entered; no entry on a print from "
-                "before the listener was back; the 5 min entry limit is not stretched by downtime")
+                "before the listener was back; the 5 min entry limit is not stretched by downtime | entry 2026-11-25: "
+                "decided inside the registered entry minute, else record-only, late delivery included (not: approved, "
+                "restart)")
 RECORDED = ("status", "reason", "news_own", "beta")     # a row update that touches one of these is a decision
 
 
@@ -567,8 +598,13 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     saw = (getattr(quote, "seen", None) or {}).get(r["symbol"]) or {}     # what the quote saw (a record, not a rule)
     if px is None or not px > 0:
         if "entry_wait" in r.keys() and r["entry_wait"] is None:
-            # 2026-11-24: the FIRST pass without a price writes down why, once. The rule is unchanged: the entry waits
-            # for a print at or after the tested bar, up to 5 minutes after the alert, then the alert is skipped.
+            # 2026-11-24: the FIRST pass without a price writes down why, once. What the live CODE does is unchanged:
+            # it waits for a free-feed print at or after the tested bar, up to 5 minutes after the alert, then skips.
+            # That is not the registered rule's wording (2026-11-25): the registration enters at ONE bar, the first
+            # official minute at or after alert + 10 s, and its five minutes only bound how late that first bar may
+            # be (recovery_verification_2026-11-23.md, section 1). A live entry AFTER that bar, because the free feed
+            # had no print while the official tape did, is a later entry the registration does not define: the open
+            # late-entry question (ops_risk_register_2026-11-23.md), recorded here, decided by the owner, not by code.
             why = (RESTART_WAIT if late and (over or not aware) else saw.get("why")) or NO_PRICE_YET
             try:
                 with db.tx() as c:
@@ -594,7 +630,26 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         _set(db, r["id"], "pending", status="filtered", reason=OFF_REASON)
         return
     when = {"est_print_at": saw["at"]} if saw.get("at") else {}      # the print the price came from (data age)
-    if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), **when):
+    elig = ELIG_REGISTERED
+    if now >= start + ENTRY_MINUTE:                   # owner 2026-11-25: the registered entry minute has passed
+        got = datetime.fromisoformat(r["created_at"]) if r["created_at"] else posted
+        exempt = ("an approved entry (ask-first mode)" if r["reason"] in ("approved", "auto") else
+                  "the restart rules decide it" if late else None)
+        if exempt is None:
+            what, evidence = _earlier_trading(quote, r["symbol"], start, now)
+            # Owner 2026-11-25 (second decision): "Delivery-late short alerts are record-only under the same
+            # registered-minute eligibility principle." An alert that itself reached the book after its registered
+            # minute had ended is not shorted either; the record says that it arrived late, and how late.
+            arrived = (f"the alert reached the book {got.astimezone(ET):%H:%M:%S} ET, "
+                       f"{int((got - start).total_seconds())} s after its registered minute began; "
+                       if got >= start + ENTRY_MINUTE else "")
+            _set(db, r["id"], "pending", status="skipped", reason=SUBSTITUTE_REASON, entry_elig=what,
+                 entry_evidence=(arrived + evidence + f"; the print not used: ${_fmt(px)}")[:400],
+                 entry_rule=ENTRY_RULE, **when)
+            return                                    # recorded, never shorted; no text (as every skip)
+        elig = ELIG_EXEMPT + exempt
+    if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), entry_elig=elig,
+            entry_rule=ENTRY_RULE, **when):
         out = _exit_at(r["session"], now)[0].astimezone(ET)
         if r["reason"] == VETO:
             _veto_text(db, send, r, px, now, out, context)
@@ -605,6 +660,29 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         how = " " + italic("(auto: no reply in time)") if r["reason"] == "auto" else ""
         send("[SGT] " + ask_text(r["symbol"], r["alert_type"], px, entry_notional(db), ctx, borrow_note(r), record(db),
                                  out_at=out, at=now, forward=forward_alarm(db)) + how)
+
+
+def _earlier_trading(quote, symbol: str, start: datetime, now: datetime) -> tuple[str, str]:
+    """(eligibility label, evidence) for a would-be entry after its registered minute. ``quote.traded_between`` (the
+    live feed's own trade list, odd lots included) can CONFIRM that the stock traded between the start of the
+    registered minute and the start of the current one. Nothing available in time can confirm that it did not: a
+    feed without that list, a failed request and a silent feed all end as "unknown", never as "no trading"."""
+    upto = now.replace(second=0, microsecond=0)
+    span = f"{start.astimezone(ET):%H:%M:%S} to {upto.astimezone(ET):%H:%M:%S} ET"
+    look = getattr(quote, "traded_between", None)
+    if look is None:
+        return ELIG_UNKNOWN, f"the live quote has no trade list to look at ({span})"
+    try:
+        state, detail = look(symbol, start, upto)
+    except Exception as exc:  # noqa: BLE001 - evidence only: its failure is "unknown", never an entry
+        log.warning("earlier-trading lookup for %s failed: %s", symbol, type(exc).__name__)
+        return ELIG_UNKNOWN, f"the free feed's trade list could not be read ({type(exc).__name__}; {span})"
+    if state == "yes":
+        return ELIG_SUBSTITUTE, f"free feed: {detail}"
+    if state == "no":
+        return ELIG_UNKNOWN, (f"no free-feed trade from {span}; that is the free feed's silence only: the official tape "
+                              "is 15 minutes behind, so a halt or an untraded minute is NOT confirmed")
+    return ELIG_UNKNOWN, f"the free feed's trade list gave no answer ({detail}; {span})"
 
 
 def _context(db: OpsStore, r, context) -> dict:
@@ -785,6 +863,12 @@ def settle(db: OpsStore, official: Official, now: datetime | None = None) -> lis
         why = o.get("why")
         if isinstance(why, str) and why and getattr(r, "reason", None) != VETO_EXIT:
             rule["reason"] = why                             # how this result was made, when not the tested way
+        # 2026-11-25 (option A): the settled figures are the registered arithmetic's and say so; the same replay
+        # under price-decimal-v1 goes into its own columns when the scorer hands it over. Nothing reads those back.
+        rule["calc"] = calc_v1.PRIMARY
+        for k in calc_v1.SHORT_COLS:
+            if k in o and pd.notna(o[k]):
+                rule[k] = str(o[k]) if k == "calc_v1" else float(o[k])
         if _set(db, r.id, r.status, status="settled", entry_ts=str(o["entry_ts"]), entry=float(o["entry"]),
                 cover=float(o["cover"]), cost_rt=float(o["cost_rt"]), gross=float(o["gross"]), net=float(o["net"]),
                 settled_at=iso(now), **rule):

@@ -168,3 +168,78 @@ def test_a_second_writer_never_overwrites_a_recorded_figure(db):
     first = one(db, "fade_trades", rid)["dec_net"]
     assert ec._short(db, r, lambda sym, session: rth({32: (20.0, 20.0, 20.0, 20.0)}), cost) is None
     assert one(db, "fade_trades", rid)["dec_net"] == first
+
+
+def test_an_alert_recorded_under_the_entry_rule_gets_what_the_official_bars_showed(db):
+    """2026-11-25: the live book records, and does not short, an alert whose registered entry minute passed without a
+    free-feed print. It cannot know in time whether the stock traded; the official bars say so the same night."""
+    from sgt.fast import fade
+
+    def recorded(sym):
+        rid = short(db, sym=sym, status="skipped")              # posted 10:00:20 -> registered minute 10:01
+        with db.tx() as c:
+            c.execute("UPDATE fade_trades SET reason=?, est_entry=NULL, est_entry_at=NULL, entry_ts=NULL, entry=NULL, "
+                      "net=NULL WHERE id=?", (fade.SUBSTITUTE_REASON, rid))
+        return rid
+
+    traded, delayed, never, nobars = recorded("TRD"), recorded("DLY"), recorded("NVR"), recorded("NOB")
+    full = rth()
+    cut = lambda a, b: full[(full.ts < OPEN + pd.Timedelta(minutes=a)) | (full.ts >= OPEN + pd.Timedelta(minutes=b))]  # noqa: E731
+    days = {"TRD": full, "DLY": cut(31, 33), "NVR": cut(31, 40)}       # 10:01 is minute 31 of the session
+    lines = run(db, days)
+    assert one(db, "fade_trades", traded)["entry_official"] == ec.OFF_SUBSTITUTE
+    assert one(db, "fade_trades", delayed)["entry_official"] == ec.OFF_DELAYED.format(at="10:03")
+    assert one(db, "fade_trades", never)["entry_official"] == ec.OFF_NONE
+    assert one(db, "fade_trades", nobars)["entry_official"] is None                # no bars yet: retried, not guessed
+    assert sorted(x for x in lines if "recorded, not shorted" in x) == [
+        "DLY recorded, not shorted: the official tape first traded in a later minute",
+        "NVR recorded, not shorted: no official bar within 5 minutes",
+        "TRD recorded, not shorted: the official tape traded in its registered minute"]
+    assert not [x for x in run(db, days) if "recorded, not shorted" in x]          # written once
+    assert all(one(db, "fade_trades", i)["status"] == "skipped" for i in (traded, delayed, never))   # nothing else moves
+
+
+def test_a_base_break_taken_on_the_free_feed_gets_what_the_official_candles_show(db):
+    """BNAI 2026-11-25: on the free feed the base was 7.89 to 8.18 (3.7% wide: a base); on the official tape the same
+    ten minutes ran 7.85 to 8.1899 (4.3%: not a base), so the long existed only on the thin feed. A known limit of
+    the data source (prereg_long_setup_tape_2026-11-22); now each trade says so the same night."""
+    quiet = [(8.0, 8.0, 8.0, 8.0)] * 6                               # 10:15 to 10:20: flat, so VWAP sits at 8.0
+    tape_base = [(8.0703, 8.1799, 7.9201, 8.17), (8.1622, 8.1899, 8.0401, 8.0599), (8.0622, 8.1094, 7.93, 7.96),
+                 (7.9504, 8.0499, 7.85, 7.98), (7.9601, 8.0399, 7.9217, 7.98), (8.01, 8.0284, 7.9343, 7.9811),
+                 (7.98, 8.04, 7.91, 7.9315), (7.95, 8.17, 7.92, 8.15), (8.13, 8.1585, 7.94, 7.9501), (7.95, 8.15, 7.9201, 8.1)]
+    brk = (8.09, 8.32, 8.03, 8.255)
+    t0 = pd.Timestamp("2026-11-18 15:15", tz="UTC")
+
+    def frame(rows):
+        return pd.DataFrame([{"ts": t0 + pd.Timedelta(minutes=i), "segment": "rth", "open": o, "high": h, "low": lo,
+                              "close": c, "volume": 1000.0} for i, (o, h, lo, c) in enumerate(rows)])
+
+    posted, ready = pd.Timestamp("2026-11-18 15:14:40", tz="UTC"), t0 + pd.Timedelta(minutes=17)
+    wide = frame(quiet + tape_base + [brk])
+    assert ec.base_on(wide, posted, ready) == ("official tape: no base break at 10:31: the 10 minutes before it span 4.33% "
+                                               "(7.85 to 8.1899; limit 4%)")
+    narrow = frame(quiet + [(o, min(h, 8.18), max(lo, 7.89), c) for o, h, lo, c in tape_base] + [brk])
+    assert ec.base_on(narrow, posted, ready) == "official tape: the same base break at 10:31 (base 7.89 to 8.18, 3.68% wide)"
+    low_close = frame(quiet + [(o, min(h, 8.18), max(lo, 7.89), c) for o, h, lo, c in tape_base] + [(8.09, 8.32, 8.03, 8.15)])
+    assert "its close 8.15 is not above their high 8.18" in ec.base_on(low_close, posted, ready)
+    fid = short(db, sym="BNAI", posted=posted.isoformat(), status="filtered")
+    with db.tx() as c:
+        lid = c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, entry_ts, est_entry, "
+                        "created_at) VALUES (?,?,?,?,?,?,?,?,?)", (fid, "BNAI", DAY, "L8", "est_closed", 7.89,
+                                                                  ready.isoformat(), 8.255, "x")).lastrowid
+    lines = run(db, {"BNAI": wide})
+    assert one(db, "long_trades", lid)["setup_official"].startswith("official tape: no base break at 10:31: the 10 minutes")
+    assert [x for x in lines if x.startswith("BNAI base break: official tape: no base break at 10:31")]
+    assert not [x for x in run(db, {"BNAI": narrow}) if "base break" in x]            # written once, never rewritten
+    assert one(db, "long_trades", lid)["status"] == "est_closed"                      # evidence only: nothing else moves
+    # a long booked a minute AFTER its setup was ready (the feed had no candle in between): the break candle comes from
+    # the setup the row kept, not from the entry time
+    f2 = short(db, sym="LATE", posted=posted.isoformat(), status="filtered")
+    with db.tx() as c:
+        l2 = c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, entry_ts, est_entry, "
+                       "setup_info, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (f2, "LATE", DAY, "L8", "est_closed", 7.89, (ready + pd.Timedelta(minutes=2)).isoformat(), 8.3,
+                        '{"break_ts": "' + (ready - pd.Timedelta(minutes=1)).isoformat() + '"}', "x")).lastrowid
+    run(db, {"LATE": narrow})
+    assert one(db, "long_trades", l2)["setup_official"] == "official tape: the same base break at 10:31 (base 7.89 to 8.18, 3.68% wide)"
+

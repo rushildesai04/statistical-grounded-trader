@@ -44,6 +44,13 @@ booked by the settle): bought $1.835 at the text (not the texted $1.785), target
 trade that could not have happened: no trade at all on the full tape after the text. Nothing is switched off without
 the owner saying so in the moment.
 
+**Price arithmetic of a registration (owner 2026-11-25).** Every NEW registration names its price arithmetic, and
+that is `price-decimal-v1` (`sgt.fast.exact_price`: exact decimal levels, never rounded to a tick, exact comparison,
+no tolerance). Records registered before that date keep `binary-v0` as their primary calculation to their
+registered end; `price-decimal-v1` runs beside them in separate, labelled fields. Never restate a record, never mix
+the two inside one, never let the parallel figure change a registered review decision. The live paper checks follow
+the version of the record that settles them.
+
 ## 1. What we trade and why it works
 Short small caps ($1-50) right after a MetaTradings momentum alert. Mechanism: retail-attention buying sprees in small
 caps are followed by falling prices (Barber, Huang, Odean, Schwarz, "Attention Induced Trading and Returns"); the alert
@@ -53,6 +60,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | step | rule | source |
 |---|---|---|
 | entry | first 1-min bar at or after alert + 10 s (live: latest IEX trade; a print older than 90 s after a >= 10% move in 5 min looks like a halt and is not a price; without such a move it is a thin-on-IEX stock and is used) | prereg_alert_fade; RAYA / SNT fixes 2026-11-06 |
+| entry minute (2026-11-25, owner) | a live short is decided inside its registered entry minute (the first minute at or after alert + 10 s) or not at all. Later than that the alert is recorded, never shorted, no text: "substitute" when the free feed's trade list shows an earlier trade, "unknown" when nothing can confirm or rule out earlier official trading in time (the official feed refuses data younger than about 15 minutes; a silent free feed is never read as a halt). The official bars are read the same night and say which it was. Not covered, unchanged: no free-feed print for 5 minutes (skipped as before), approved / auto entries, restart rules, and an alert that itself arrives after its minute (delivery, open) | `entry_eligibility_2026-11-25.md`, `live-entry-v2` |
 | filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
 | stop | 20% above entry (worst case inside a bar). Live, the free feed can miss a move on a thin name, so since 2026-11-17 (owner decision 3A, `sgt.fast.tape_check`) the official one-minute bars, free once about 16 minutes old, are read every minute for each live short: an open trade whose stop the official tape crossed is closed there, and a trade covered later on the timer is corrected to the stop with one CORRECTION text. Estimates and texts only: the nightly official result was always computed from that tape | prereg_alert_fade (10/20/30/none explored on train); MPU 11-17 |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
@@ -250,6 +258,8 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | BUUU 2026-11-23 short, live est -8.7% (about -$109); carries an exclusion flag (price test in force: a short may not be sold at the bid), 5.6% spread, three halts; -25% if it could have been sold at the bid; labelled unresolved, not in the registered sample | "resumed" alert 10:42:06 after a halt 10:14 to 10:42 at 4.45 (+34% in 44 minutes); first usable print on the free feed 10:45:08, short 4.14 while the tape traded 4.08 to 4.54 that minute; halted again 10:46 and 10:52; tape high 4.84; cover 4.50 at 11:45 | execution: the booked trade could not have been made; the price test is not applied by the paper book (that is H1) | on past data halt reopenings are a strong kind for the backtest's fills (+5.7%, 155 trades; the best kind in 2026, not in 2025) and the kind most often carrying an exclusion flag on real quotes (of 12 forward ones, 9 flagged, 1 priced). A label in the accounting, not a filter. H1 is the test of whether such shorts can be sold at all |
 | SCAG 2026-11-23 short, official -21.2% (-$253 at a quarter of full size); on real quotes -21.6% with the ASSUMED 0.5% locate; carries an exclusion flag (price test in force since the prior day: low 0.658 against a 0.75 close), so labelled unresolved: kept in the ledger, not in the registered sample | opened 0.64, ran to 1.19 by 12:24 (+81% from the low); "volume increasing" alert 12:24:26, received in 3.8 s, decided 12:25:23 on the first free-feed print. Three records, three stop levels: MODEL sold at the bid 1.14 (1,500 shown, order 1,092), stop 1.368, first crossed 13:11:23.6 by a 650-share print at 1.37, 11 s after a 5-minute halt ended; cover 1 s later at the ask 1.38 (400 shown: thin); halted again 14 s after the crossing until 13:16:38. LIVE (free feed) entry 1.145, stop 1.374, never printed before that second halt (tape high 1.37): seen 13:16:48.9 at 1.43, within one 10 s check of the reopening. OFFICIAL entry 1.1613 (minute open), stop 1.3936, first minute at or above it 13:16, booked at the stop. Tape high 1.50 at 13:19; 1.22 an hour after entry; close 1.09 | a stop-out after a late alert (the move was 81% old), between two halts. Costs are not the story: official 1.2% (0.73% round trip + 0.5% locate), model the spread plus the assumed locate; IBKR listed 100,000 shares at a 92.6% yearly fee, Alpaca not shortable (borrow conflict). Detection was not late against the book's own level; the 5 min 25 s between the model's crossing and the live exit is the halt plus a stop level 0.6 cents higher | none adopted. Under the price test the modeled sale at the bid is not allowed, so neither the official nor the modeled figure is a result a real account could have had: that question belongs to H1 (sealed; its outcome for this trade was not computed). A cover of 1,092 shares into 400 shown, 14 s before a halt, is an optimistic fill: the model flags it "thin" and does not price it worse |
 | GLXG 2026-11-24 short, official -21.2% (-$253 at a quarter of full size); the texted estimate was +4.7% (+$56) and was replaced at the settle; on real quotes -20.5% with the ASSUMED 0.5% locate; no exclusion flag, so it is in the registered sample; borrow conflict (IBKR listed 50,000 shares at a 40.6% yearly fee at 12:34, Alpaca listed it not shortable) | opened 0.67, up 49% by the alert ("gaining momentum" 12:57:40, received in 2.1 s; our lookup found no company news at 12:58:02; the channel's own news alert came at 12:58:43, a case tested and closed on 11-20). Three records, two stop levels. OFFICIAL (tested timing): the open of the first minute after alert + 10 s, 12:58, $1.00 (first print 12:58:00.385), stop 1.20. The day's high was 1.2000 exactly: 7 prints, 9,011 shares, 13:08:50.293 to 13:08:51.661, with 26,400 shares offered at 1.20; booked at the stop. LIVE (free feed): no round-lot print from 12:58:00 to 13:00:26 (three odd lots, which do not move that feed's last price), so the entry came at 13:00:32.5 on a 1.02 print of 13:00:29; stop 1.224, never printed on either feed (official high 1.20, free feed 1.195); out on the timer at 14:00:37, 0.9598, +5.9% before 1.2% estimated costs. MODEL: sold at the bid 1.00 one second after the decision (quote 1.00 x 1.03, 11,100 on the bid; order about 1,190 shares), stop 1.20, covered 1.20 at 13:08:51.3. Price 0.91 six minutes after the crossing, 0.94 at the hour, close 1.04 | the expected replacement of a free-feed estimate by the official record: not a reporting error, not a late stop. Every stop check of the hour was on time (longest gap 11.0 s) and the live level was never reached. The live estimate was the outlier: its entry was a last print 2 cents above the bid a market sell would have hit. Knife-edge: the stop was touched to the cent; the same model with a 5 s delay sells at 1.01, is not stopped and makes +6.0%; the decision-minute check (13:01 open, 1.025) reads +6.2% | none adopted, no variant (owner 11-24). One trade says nothing about the 20% stop or the entry timing. The daytime official-tape check applies the trade's own (live) level, so it had nothing to correct: a gap between a texted result and the official one closes only at the settle. A nightly line naming any trade revised by 5 points or more is proposed, not built |
+| ALGS 2026-11-25 short, live estimate -23.5% (about -$280 at a quarter of full size); on real quotes -23.3% with the ASSUMED 0.5% locate (5 s delay: -21.7%); settled tonight; no exclusion flag; borrow conflict (IBKR listed 9,000 shares at 8.2% a year 16 minutes earlier, Alpaca listed it not shortable) | "volume increasing" 09:57:16, received in 2.8 s; no company news (the feed still has none hours later); entry 1.93 at 09:58:18.8, inside the registered minute (official open 1.905), quote 1.93 x 1.97 with 500 bid for about 648 shares. Before it: prior close 1.49, volume from 10 to 245 thousand shares a minute between 09:48 and 09:55, high 2.12 at 09:55, a one-minute fall to 1.70 and back. After it: 1.81 at 10:03, then the 10:12 minute ran 1.95 to 2.41; the stop 2.316 first printed 10:12:48.2, the free feed showed it 0.7 s later, closed 10:12:53.0 at 2.35; halted 10:15 to 10:20, high 3.25 | a stop-out in continuous fast trading, two minutes before a halt: 20.0 points to the stop, 1.8 beyond it, about 1.7 of estimated costs. Not a missed stop, not a gap, not mainly slippage. The entry was the first pullback after a first leg, nine minutes into a volume expansion; nothing but the rule's average supported fading it | none adopted, no hypothesis proposed (`loss_audit_2026-11-25.md`): chart reads are tested and carry no edge; where in the move the alert arrives is already a registered forward test, sealed to 300; waiting is tested and worse. Fixed: the exit text no longer says "loss capped" |
+| BNAI 2026-11-25 long, live estimate -5.1% (about -$15 at the test size, $303); on real quotes -6.1%; settled tonight | "new high" 09:30:09 with company news (a deal); two halts to 09:52, high 9.42, reopened 6.50 to 7.75, back to 8.80 at 10:16, down to 7.85. FREE FEED: base 10:22 to 10:30, 7.89 to 8.18, 3.68% wide; the 10:31 candle closed 8.255 over it and over VWAP. OFFICIAL TAPE: the same ten minutes ran 7.85 to 8.1899, 4.33% wide: not a base, no base break through 10:45. Booked 8.255 at 10:32:13.6 (the candle's close; the quote was 8.34 x 8.39), stop 7.89, target 8.985; high 8.41 three seconds later; the stop first printed 10:38:20, the free feed's next candle closed it at 10:41 at 7.87 | a base break that existed only on the thin feed, under a lower high after a 31% fall, and failed at once. The rule was applied as written ("as the free feed shows it"); that the feed accepts bases the tape refuses is known and registered (`prereg_long_setup_tape_2026-11-22`: 4 of 22 agree). The booked entry was 1.6% under the offer: the 2026-11-20 rule, measured nightly | none adopted, no hypothesis proposed: continuation-only breaks are tested and worse; no base length, width, target or hold is positive on the tape; the tape cannot be a live condition (15 minutes behind). Added: the setup as seen stays with the trade, and the official candles are read the same night |
 **Owner notes review (2026-11-11; all 20 notes, trades 11-06 to 11-11).** The notes keep proposing the same five ideas.
 Each one is matched to evidence below:
 | idea in the notes | trades | evidence |
@@ -941,6 +951,63 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Two losses audited, 2026-11-25 (ALGS short, BNAI long; `loss_audit_2026-11-25.md`; owner: no "normal variance",
+  no new rule made to fit).** Both were rebuilt from the decision record, the tape and the free feed, with the three
+  records apart. ALGS: an eligible entry, a correct no-news read, a stop detected 4.8 s after the tape in continuous
+  trading; the loss is the 20% to the stop plus 1.8 points beyond it plus costs. BNAI: a base that qualified on the
+  free feed and not on the tape, a known limit of the data source. No enhancement hypothesis is proposed: each
+  candidate is already tested (chart reads, waiting, continuation breaks, base shape) or already registered forward
+  (where in the move the alert arrives). Corrected the same day: "loss capped" is gone from every text (a stop is a
+  trigger, not a cap; the exit gives the intended price risk, the estimated exit, the points beyond the stop and the
+  costs); entry texts say their past figures are a bar replay with no borrow check or fills, not a forecast; "too
+  few to judge" now says which way the live record stands and which registered reviews decide; each long keeps the
+  setup as the book saw it and, the same night, what the official candles show. Delivery-late short alerts are
+  record-only too (owner, same day). Source prices were checked from the vendor's text to our stored value: 11,592
+  of 11,592 identical. Put to the owner: whether the longs keep trading setups the free feed cannot confirm (kept
+  as is unless he says otherwise).
+- **Arithmetic, option A adopted (owner 2026-11-25): `price-decimal-v1` beside the registered `binary-v0`.** Wired
+  for two consumers only, the live short book's settle and the live long book's settle: each settled trade keeps its
+  registered figures (labelled `calc` = binary-v0) and gets the same replay under exact decimals in its own columns
+  (`*_v1`, `calc_v1`: "same decision", "DIFFERS ..." with both exits, or "not computed ..." with the reason). One
+  nightly line counts the trades computed both ways and names every difference with both results; nothing else reads
+  the parallel columns. Isolation: the registered long simulator's walk is untouched (a frozen copy is compared with
+  it on 20,000 random setups); a value that is not a reported price is said on that trade, never rounded, never a
+  crash. Nothing before 11-25 is restated. Not enabled until validated separately: the forward and would-have
+  records, the long shadow, the nightly studies, the execution model, every research file.
+- **Substitute short entries are record-only (owner 2026-11-25; `live-entry-v2`).** "If the registered entry
+  opportunity has already passed, a later free-feed print does not authorize a replacement trade. This decision
+  follows the specification, not the outcomes of BUUU or GLXG." What the book can know at the moment: earlier
+  trading can be CONFIRMED (the free feed's trade list, odd lots included: GLXG's three odd lots were there);
+  absence of trading cannot (the official feed answers 403 for the last 15 minutes; BUUU's registered minute traded
+  officially while the free feed showed nothing for two minutes). So a live entry is decided inside the registered
+  minute or the alert is recorded with its eligibility ("substitute" or "unknown"), its evidence and the rule's
+  version; the official bars are read that night. The registered replay, the forward record, the cohort and every
+  stored trade are unchanged. A genuinely delayed first print stays entered where it is registered (official bars);
+  live it is "unknown" and not entered, which has cost no trade so far (0 of 34 live entries were one). Still open:
+  an alert that itself arrives late (delivery), and a timely halt source that could confirm a delay (not built).
+- **Stop arithmetic and entry timing: two corrections prepared, nothing registered changed (owner 2026-11-25).**
+  (1) Arithmetic. Every price threshold is computed in binary floating point (`binary-v0`), so whether an exact
+  touch counts depends on the entry price. The owner does not accept that as the permanent definition. Prepared,
+  with no caller yet: `sgt.fast.exact_price` (`price-decimal-v1`): a price is the decimal its source sent (at most 6
+  places, else refused), a level is exact and never rounded to a tick, the comparison is exact, no tolerance.
+  Measured on the stored history (counts of decisions, no return used): shorts 0 of 34 settled and 0 of 126 alerts
+  differ; the price test 0 of 34; longs 1 of 26 settled (RAIN 11-17: registered -3.9% at the stop; under v1 the fill
+  minute's 1.17 high reaches the 1.17 target. Replayed on the tape: the touch came 8.3 s after the trigger and 11
+  minutes before the stop, but neither the 1.10 entry nor a fill of the order at 1.17 is established, so no v1
+  figure is claimed; the execution model reads -8.7%) and 3 of 163 in the long shadow (the target minute only).
+  The proposal and the cohort options are in `amendment_stop_arithmetic_2026-11-25.md`; recommended: v1 beside v0
+  for every running record, adopted only at a record's next registration, never part-way. (2) Entry timing. The
+  registered short enters at ONE bar, the first official minute at or after alert + 10 s; its five minutes bound how
+  late that first bar may be. WAITING for the first qualifying print (a halt) is that rule. Entering LATER although
+  the official tape already traded in the registered minute is a substitute entry the registration does not define;
+  the live code cannot tell the two apart, because it waits for a round-lot print on the free feed. Of 34 live short
+  entries 4 came in a later minute: 2 were approved / auto entries of the withdrawn ask-first mode (CRIS, PMAX
+  11-04; first written here as waits on a delayed tape: wrong, corrected 11-25), 2 were substitutes (BUUU 11-23,
+  GLXG 11-24), both with the alert received in under 3 s. That is neither delivery delay (open, unchanged) nor
+  restart recovery (record-only since 11-23). My 11-24 wording that the five-minute wait "is the rule" described
+  the code and is withdrawn; the question is the owner's (`ops_risk_register_2026-11-23.md`), to be taken on the
+  specification and F5, not on the cohort's returns. The labels "filled against a quote smaller than the order" and
+  "changes sign with a 5 s delay" on the ledger line disclose limits of the model; they establish no fill.
 - **Three records of one trade, and the revision block (owner 2026-11-24 night; reporting and records only, no
   rule, size, sample or criterion changed).** A trade has three records and none is a broker fill: the LIVE paper
   path (the listener on the free feed: its own entry print, its own stop level), the SETTLED rule replay (the

@@ -127,8 +127,18 @@ COLUMNS = {
         "via": "TEXT", "recovered_at": "TEXT",
         # 2026-11-24 (GLXG: the live entry came 2 min 32 s after the tested bar and nothing on record said why): the
         # time of the print the live entry price came from, and why the entry waited the first time it had no price.
-        # A record only: the entry rule (first print at or after the tested bar, inside 5 minutes) is unchanged.
+        # A record only: what the live code does at entry is unchanged. Whether a live entry that comes after the
+        # registered entry bar is eligible is NOT settled by this (see the note in ``fade._enter``).
         "est_print_at": "TEXT", "entry_wait": "TEXT",
+        # 2026-11-25 (owner: a substitute short entry is record-only): what the entry rule decided about this alert
+        # (``entry_elig``), on what evidence at that moment (``entry_evidence``), under which version of the live
+        # entry rule (``entry_rule``), and what the official bars showed afterwards (``entry_official``, nightly).
+        "entry_elig": "TEXT", "entry_evidence": "TEXT", "entry_rule": "TEXT", "entry_official": "TEXT",
+        # 2026-11-25 (amendment_stop_arithmetic, option A): ``calc`` names the arithmetic that made the settled
+        # figures of this row ("binary-v0", the registered one; empty on rows settled before the label existed, which
+        # are binary-v0 too). The ``*_v1`` columns hold the SAME replay under price-decimal-v1, written beside it by
+        # the settle and read by nothing but the nightly arithmetic line (sgt.fast.calc_v1).
+        "calc": "TEXT", "cover_v1": "REAL", "net_v1": "REAL", "calc_v1": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
@@ -141,7 +151,14 @@ COLUMNS = {
         "tr_exit_px": "REAL", "tr_exit_at": "TEXT", "tr_why": "TEXT",
         # audit 2026-11-21 (sgt.fast.exec_check): the low of the official minute of a stop exit (the official result
         # books the stop price; a real stop order in a falling thin stock fills between the two). A measurement.
-        "stop_low": "REAL"},
+        "stop_low": "REAL",
+        # 2026-11-25: as on fade_trades (the primary arithmetic's name, and the parallel price-decimal-v1 figure)
+        "calc": "TEXT", "exit_v1": "REAL", "exit_reason_v1": "TEXT", "net_v1": "REAL", "calc_v1": "TEXT",
+        # 2026-11-25 (BNAI: the base that qualified on the free feed, 3.7% wide, was 4.3% wide on the official tape and
+        # nothing on the row said what the book had seen): the setup as the book saw it when it decided (JSON: the
+        # base's high, low, width, the break candle, VWAP, the feed), and what the official bars show for the same
+        # minute, written the same night. Evidence only: the rule stays "as the free feed shows it".
+        "setup_info": "TEXT", "setup_official": "TEXT"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

@@ -27,6 +27,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 
 from sgt.fast import est_costs
 from sgt.fast.fade_rule import ET, STOP
@@ -35,6 +36,7 @@ from sgt.ops.store import OpsStore
 
 log = logging.getLogger(__name__)
 MIN_POINTS = 0.05                       # owner 2026-11-24: 5 percentage points of net return, or a change of sign
+RETURN_DP = 6                           # the precision returns are compared at (see ``large``)
 LOOKBACK_DAYS = 7                       # how far back a late settle or a stuck trade is still listed
 MAX_ITEMS = 12                          # a bounded block: more than this is counted, not listed
 WATERMARK = "revisions_through"         # flag prefix; value = the latest settled_at the report of that day saw
@@ -80,10 +82,15 @@ class Report:
 
 
 def large(live: float | None, settled: float | None) -> bool:
-    """The owner's rule: the net return moved by MIN_POINTS or more, or changed sign."""
+    """The owner's rule: the net return moved by MIN_POINTS or more, or changed sign.
+
+    Precision (2026-11-25, explicit; this replaced a ``- 1e-12`` tolerance): both returns are taken at RETURN_DP = 6
+    decimal places (a ten-thousandth of a percentage point, far finer than the 0.1 point they are shown at) and the
+    difference is then exact decimal arithmetic: +4.7% against -0.3% is 5.0 points and is listed, 4.9999 is not."""
     if live is None or settled is None:
         return False
-    return abs(settled - live) >= MIN_POINTS - 1e-12 or (live > 0 > settled) or (live < 0 < settled)
+    a, b = Decimal(repr(round(float(live), RETURN_DP))), Decimal(repr(round(float(settled), RETURN_DP)))
+    return abs(b - a) >= Decimal(repr(MIN_POINTS)) or (a > 0 > b) or (a < 0 < b)
 
 
 def _kind(reason: str | None) -> str:
