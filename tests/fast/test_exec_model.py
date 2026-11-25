@@ -194,3 +194,35 @@ def test_a_trade_at_the_entry_instant_is_not_a_trigger():
     t = tape(trades, [(0, 9.9, 10.0)])
     r = em.long(t, "A", s(29), 12.0 * 0.99)                      # buys 12.0 at the 300 s trade (no trade for 60 s after 30 s)
     assert r["entry"] == 12.0 and r["entry_how"] == "trade" and r["reason"] == "time"
+
+
+# ---- an exact touch of the stop (GLXG 2026-11-24: the day's high was the stop level to the cent) ----
+def test_an_exact_touch_is_a_stop_and_one_cent_of_entry_price_decides_it():
+    """Sold at the 1.00 bid, stop 1.20; the only prints at the level are AT it. A stop triggers at the first trade at
+    or above its level, so the touch is a stop: covered at the ask one second later, never better than the level. The
+    same tape with a 1.01 entry (stop 1.212) is never stopped. Both are results of the model; neither is "the" one."""
+    trades = every(0, 3700, 1.0) + [(600, 1.2), (601.2, 1.2), (640, 1.05)]
+    quotes = [(0, 1.0, 1.03), (599, 1.19, 1.2, 5600, 20500), (605, 1.05, 1.06), (3600, 0.94, 0.95)]
+    hit = em.short(tape(trades, quotes), "A", s(10), shares=1190)
+    assert (hit["entry"], hit["reason"], hit["exit"], hit["exit_at"]) == (1.0, "stop", 1.2, s(601))
+    assert hit["net"] == pytest.approx(-0.2 - LOCATE) and "thin" not in hit["flags"]
+    assert hit["stress_extreme_net"] == pytest.approx(-0.2 - LOCATE)      # the minute's high IS the level: no worse price
+    miss = em.short(tape(trades, [(0, 1.01, 1.03)] + quotes[1:]), "A", s(10), shares=1190)
+    assert (miss["entry"], miss["reason"]) == (1.01, "60 min") and miss["net"] > 0
+
+
+def test_a_cover_larger_than_the_quote_is_flagged_and_still_priced_at_that_quote():
+    """The model's stated assumption, not a finding: the whole order fills at the top of the book. When the quote
+    shows fewer shares than the order the fill carries "thin" (the nightly line counts those) and the price is the
+    same. A real cover of that size would walk the book: the figure is an optimistic one, and says so."""
+    trades = every(0, 3700, 1.0) + [(600, 1.2), (640, 1.05)]
+    quotes = [(0, 1.0, 1.03), (599, 1.19, 1.2, 5600, 400), (605, 1.05, 1.06), (3600, 0.94, 0.95)]
+    r = em.short(tape(trades, quotes), "A", s(10), shares=1190)
+    assert (r["reason"], r["exit"]) == ("stop", 1.2) and "thin" in r["flags"]
+
+
+def test_a_gap_through_the_stop_with_no_quote_fills_at_the_next_trade_never_at_the_level():
+    trades = every(0, 3700, 1.0) + [(600, 1.35), (602, 1.4)]
+    quotes = [(0, 1.0, 1.03), (599, 0.0, 0.0)]                           # the quote is gone when the stop triggers
+    r = em.short(tape(trades, quotes), "A", s(10))
+    assert (r["reason"], r["exit"], r["exit_how"]) == ("stop", 1.4, "trade") and "halt" in r["flags"]
