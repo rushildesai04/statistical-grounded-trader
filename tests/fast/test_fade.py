@@ -629,6 +629,32 @@ def test_stale_print_is_no_price_only_when_it_looks_halted():
     assert tb("bad sym", a, b)[0] == "unknown" and tb("ODD", b, a)[0] == "unknown"
 
 
+def test_the_free_feeds_raw_last_print_is_one_request_and_strict():
+    import httpx
+
+    seen = []
+    trades_ = {"/v2/stocks/OK/trades/latest": (200, {"trade": {"p": 10.15, "s": 100, "t": "2026-11-09T15:04:20.123456789Z"}}),
+               "/v2/stocks/DOWN/trades/latest": (503, {}),
+               "/v2/stocks/JUNK/trades/latest": (200, ["trade"]),
+               "/v2/stocks/ZERO/trades/latest": (200, {"trade": {"p": 0, "t": "2026-11-09T15:04:20Z"}}),
+               "/v2/stocks/TEXT/trades/latest": (200, {"trade": {"p": "10.15", "t": "2026-11-09T15:04:20Z"}}),
+               "/v2/stocks/NOTM/trades/latest": (200, {"trade": {"p": 10.15, "t": "2026-11-09T15:04:20"}})}
+
+    def handler(req):
+        seen.append(req.url.path)
+        assert req.url.params["feed"] == "iex"
+        code, body = trades_[req.url.path]
+        return httpx.Response(code, json=body)
+
+    last = fl.iex_last(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)))
+    assert last("OK") == {"px": 10.15, "at": "2026-11-09T15:04:20.123456+00:00"} and len(seen) == 1   # one request
+    assert last("DOWN") == {"why": "the request failed (HTTP 503)"}
+    assert last("JUNK") == {"why": "the answer carries no trade"}
+    assert last("ZERO") == {"why": "the print has no price"} == last("TEXT")
+    assert last("NOTM") == {"why": "the print carries no time"} and last("bad sym") == {"why": "not a symbol"}
+    assert len(seen) == 6                                       # never a second request for a quiet or stale print
+
+
 def test_the_free_feeds_standing_quote_is_read_strictly_one_exchange_and_never_guessed():
     quotes = {"/v2/stocks/OK/quotes/latest": (200, {"quote": {"bp": 6.5, "bs": 100, "ap": 6.59, "as": 40,
                                                                "t": "2026-11-25T17:52:04.890123456Z"}}),

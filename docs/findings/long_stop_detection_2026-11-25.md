@@ -83,6 +83,7 @@ always a stop the candles would also have booked.
 | As built | |
 |---|---|
 | Print used | the free feed's last trade, only if it printed at or after the long was BOOKED and not after the look |
+| Cost, bounded | ONE request per look (the raw last print; no staleness or halt probe is needed, since a print is used only if it came after the booking). At most 10 looks per exit check, the longs looked at longest ago first, whatever number is open (the book allows 40). The first draft reused the short book's quote reader, which makes a second request whenever the print is over 90 s old, the usual case in these stocks: found in own review and replaced before any review |
 | Comparison | `price <= stop`, the live book's own (binary-v0; the live checks follow their record's version) |
 | Live estimated exit | the lower of the stop and the print; its time is the print's time |
 | Record | `long_trades.stop_seen` (the print, when it was looked at, the last closed candle) and the decision record; NULL when the candles made the exit |

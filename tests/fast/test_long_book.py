@@ -772,9 +772,7 @@ def test_the_live_pass_reads_the_last_trade_only_after_the_long_is_booked_and_ke
     for k in range(0, 9):
         lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader, venue_quote=offer)
     (t,) = trades(db)
-    # the reference read comes first and only after the booking; the exchange's offer is read once. The last trade
-    # is then read again at each exit check of the open long (the between-candle stop look), never before a booking.
-    assert calls[0] == ("ABCD", 1) and calls.count(("offer", "ABCD", 1)) == 1 and all(c[-1] == 1 for c in calls)
+    assert calls == [("ABCD", 1), ("offer", "ABCD", 1)]               # each once, and only after the booking
     ref = json.loads(t["entry_ref"])
     assert (ref["booked"], ref["last_px"], ref["last_vs_booked"]) == (10.55, 10.61, round(10.61 / 10.55 - 1, 5))
     assert (ref["venue_ask"], ref["venue_ask_vs_booked"]) == (10.64, round(10.64 / 10.55 - 1, 5))
