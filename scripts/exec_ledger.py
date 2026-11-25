@@ -171,8 +171,12 @@ def short_row(api: Api, r: dict) -> dict:
            # 2026-11-22 (listener recovery): how the alert reached the book; "replay" = recovered after a restart.
            # A label only: the trade is priced and counted exactly as any other (the cohort's definition is unchanged).
            "via": r.get("via"), "recovered_at": r.get("recovered_at"),
+           # "reason" is the LIVE path's exit and has been since the first row (kept, so rows stay comparable). Since
+           # 2026-11-24 the row also says so by name and carries the settled replay's own exit beside it (GLXG: a
+           # settled cover at the stop read "60 min"). Additive keys: no figure, label or sample changes.
            "orig": {"entry_ts": r["entry_ts"], "entry": r["entry"], "exit": r["cover"], "reason": r["reason"], "net": r["net"],
-                    "est_entry": r["est_entry"]}}
+                    "est_entry": r["est_entry"], "live_reason": r["reason"], "settled_reason": fade.settled_exit(r),
+                    "est_exit": r.get("est_exit"), "est_exit_at": r.get("est_exit_at")}}
     try:
         tape = api.tape(sym, ses)
         m = em.short(tape, sym, decided, shares=shares)

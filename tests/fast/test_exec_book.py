@@ -175,3 +175,35 @@ def test_importing_twice_changes_nothing_the_reader_sees(tmp_path):
     before = (eb.summary(p), eb.reconcile({"short": {1, 2}, "long": {5}}, p)["ok"])
     write(p, once + once)                                                   # the same import appended again
     assert (eb.summary(p), eb.reconcile({"short": {1, 2}, "long": {5}}, p)["ok"]) == before
+
+
+def test_the_line_labels_thin_quotes_and_delay_sensitive_trades_without_touching_the_average(tmp_path):
+    """2026-11-24: JZ's cover met a quote smaller than the order ("thin"), and GLXG read -20.5% with the 1 s delay
+    and +6.0% with the 5 s one. Both are labels on the counted trades; the average, the review and the sample are
+    what they were, and neither delay is picked."""
+    p = tmp_path / "ledger.jsonl"
+    plain = [row("short", 1, -0.034, -0.065), row("short", 2, 0.218, 0.246), row("short", 3, -0.205, -0.212)]
+    write(p, plain)
+    before, was = eb.line(p), eb.review("short", p)
+    assert "smaller than the order" not in before and "change" not in before
+    write(p, [plain[0], {**plain[1], "flags": ["thin", "borrow_conflict"], "stress_latency_net": 0.234},
+              {**plain[2], "stress_latency_net": 0.0596}, row("short", 4, 0.3, 0.3, "UNRESOLVED") | {"flags": ["thin", "ssr"],
+                                                                                                  "stress_latency_net": -0.1}])
+    assert eb.sensitivity(p, eb.REVIEW_FROM) == {"short": {"thin": 1, "flips": 1}, "long": {"thin": 0, "flips": 0}}
+    t = eb.line(p)
+    assert ("shorts 3 of 50 with no exclusion flag: -0.7% a trade at real quotes (original record -1.0%), -0.7% with "
+            "stops at the worst price of their minute; 1 filled against a quote smaller than the order (assumed filled "
+            "in full at that quote); 1 changes sign with a 5 s delay in place of 1 s (both kept as sensitivity, neither "
+            "chosen); 1 flagged") in t
+    assert eb.review("short", p) == was and "+6.0%" not in t and "5.96" not in t      # no favourable figure is shown
+
+
+def test_an_incomplete_ledger_says_so(tmp_path):
+    p = tmp_path / "ledger.jsonl"
+    write(p, [row("short", 1, 0.1)])
+    assert eb.behind({"short": {1}, "long": set()}, p) == ""
+    write(p, [row("short", 1, 0.1), {**row("long", 7, None), "model": {"status": "no_data"}, "label": "UNRESOLVED"}])
+    assert eb.behind({"short": {1, 2, 3}, "long": {7}}, p) == ("; ⚠️ ledger incomplete: 2 settled trades of earlier "
+                                                              "sessions not in the ledger yet, 1 written without market "
+                                                              "data, to be priced again")
+    assert eb.behind({"short": {5}, "long": set()}, tmp_path / "none.jsonl").startswith("; ⚠️ ledger incomplete: 1 settled trade of")

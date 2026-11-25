@@ -10,11 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import re
 import sqlite3
-import tempfile
-import time
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -25,7 +22,7 @@ import pandas as pd
 from sgt.core.secrets import get_secret
 from sgt.fast import est_costs, fade
 from sgt.intraday.calendar import default_calendar
-from sgt.ops import charts, model_tape
+from sgt.ops import charts, model_tape, pagefile
 from sgt.ops.store import OpsStore, utcnow
 
 log = logging.getLogger("trade_charts")
@@ -340,43 +337,20 @@ def scan_rows(db: OpsStore | None) -> list[dict]:
     return [{**r, "posted_at": r["bar_ts"], "alert_type": "scanner spike"} for r in rows if r["session"] in keep]
 
 
-STALE_TMP_S = 3600                                       # a build takes seconds
-
-
-def publish(out: Path, html: str) -> None:
-    """Put the page in place in one step, so the chart server never serves a partial page. Each run writes a
-    temporary file of its OWN next to the page. 2026-11-24: two runs started 3 s apart at a deploy (the container's
-    start-up build and the deploy script's) shared one ``fade_tape.tmp``; the first renamed it away and the second
-    failed with FileNotFoundError (exit 1, "jobs FAILED: charts" in the nightly). The page itself was whole."""
-    out.parent.mkdir(parents=True, exist_ok=True)
-    for old in out.parent.glob(out.stem + ".*.tmp"):     # a run killed mid-write (a deploy) left its file: bounded
-        try:
-            if time.time() - old.stat().st_mtime > STALE_TMP_S:
-                old.unlink()
-        except OSError:                                  # another run took it first: nothing to clean
-            pass
-    fd, name = tempfile.mkstemp(dir=out.parent, prefix=out.stem + ".", suffix=".tmp")
-    tmp = Path(name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(html)
-        os.chmod(tmp, 0o644)                             # mkstemp makes it 0600; the chart server only needs to read
-        tmp.replace(out)
-    finally:
-        tmp.unlink(missing_ok=True)                      # a failed run leaves nothing behind
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--trades", type=Path, help="JSON-lines export of fade_trades rows (default: ops database)")
     ap.add_argument("--out", type=Path, default=Path("reports/charts/fade_tape.html"))
     ap.add_argument("--fragment", action="store_true", help="omit the document head (for an Artifact publish)")
     a = ap.parse_args()
+    started = utcnow()                                   # before the first read: the age of this build's data
     db = None if a.trades else OpsStore()
     trades = [json.loads(x) for x in a.trades.read_text().splitlines() if x.strip()] if a.trades else from_db(db)
     html = build(trades, db, utcnow(), standalone=not a.fragment)
-    publish(a.out, html)
-    print(f"wrote {a.out} ({len(trades)} trades)")
+    if pagefile.publish(a.out, html, started):
+        print(f"wrote {a.out} ({len(trades)} trades)")
+    else:                                                # not a failure: a build that started later finished first
+        print(f"not written: {a.out} already holds a page built from newer data ({len(trades)} trades in this build)")
     return 0
 
 

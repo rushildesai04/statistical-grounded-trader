@@ -101,6 +101,38 @@ def summary(path: Path = LEDGER, since: str | None = None, before: str | None = 
     return out
 
 
+def sensitivity(path: Path = LEDGER, since: str | None = None) -> dict:
+    """Per book, among the MODELED trades from ``since``: ``thin`` = the quote showed fewer shares than the order at a
+    fill (the model still fills the whole order at that quote: its stated assumption, not a finding), and ``flips`` =
+    the result has the opposite sign with the 5 s delay than with the 1 s one (GLXG 2026-11-24: -20.5% and +6.0%,
+    one cent of entry price apart). Labels for the nightly line. Neither enters the registered average, the review
+    or the sample; neither delay is "the" result."""
+    out = {}
+    for book in BOOKS:
+        mod = [r for r in rows(path) if r["book"] == book and r.get("label") == "MODELED"
+               and (since is None or str(r.get("session") or "") >= since)]
+        thin = sum("thin" in (list(r.get("flags") or ()) + list((r.get("model") or {}).get("flags") or ())) for r in mod)
+        flips = 0
+        for r in mod:
+            a, b = _num((r.get("model") or {}).get("net")), _num(r.get("stress_latency_net"))
+            flips += a is not None and b is not None and ((a > 0 > b) or (a < 0 < b))
+        out[book] = {"thin": thin, "flips": flips}
+    return out
+
+
+def behind(expected: dict[str, set], path: Path = LEDGER) -> str:
+    """A clause for the nightly line when settled trades of EARLIER sessions are not in the ledger (its job failed,
+    was cut short, or has not caught up): the averages beside it are then older than they look. "" when it is whole.
+    ``expected``: book -> ids of the settled trades of sessions before the report's day (tonight's are written after
+    the report, at 21:25 ET)."""
+    r = reconcile(expected, path)
+    n = sum(len(r[b]["missing"]) for b in BOOKS)
+    retry = sum(len(r[b]["no_data"]) for b in BOOKS)
+    parts = ([f"{n} settled trade{'s' if n != 1 else ''} of earlier sessions not in the ledger yet"] if n else []) + \
+            ([f"{retry} written without market data, to be priced again"] if retry else [])
+    return "; ⚠️ ledger incomplete: " + ", ".join(parts) if parts else ""
+
+
 def _bound(sessions: list[str], nets: list[float]) -> float | None:
     """Lower bound of the average: the 10th percentile of the means of BOOT_N resamples of whole SESSIONS (trades of
     one day move together, so days are resampled, not trades). None with fewer than two sessions."""
@@ -150,7 +182,7 @@ def review(book: str, path: Path = LEDGER, today: str | None = None) -> dict:
 
 def line(path: Path = LEDGER, today: str | None = None) -> str | None:
     """One line for the nightly summary: the forward sample only (trades from REVIEW_FROM); None while it is empty."""
-    s, parts = summary(path, REVIEW_FROM), []
+    s, parts, sens = summary(path, REVIEW_FROM), [], sensitivity(path, REVIEW_FROM)
     for book, name in BOOKS.items():
         b = s[book]
         if not b["trades"]:
@@ -159,8 +191,14 @@ def line(path: Path = LEDGER, today: str | None = None) -> str | None:
         orig = f" (original record {b['original']:+.1%})" if b["original"] is not None else ""
         avg = f"{b['model']:+.1%} a trade at real quotes{orig}, {b['stress']:+.1%} with stops at the worst price of their " \
               "minute" if b["modeled"] else "none priced yet"
-        parts.append(f"{name} {b['modeled']} of {REVIEW_N[book]} with no exclusion flag: {avg}; {b['unresolved']} flagged "
-                     f"(no listed shares or price test) and not counted; review: {v['state']}")
+        # 2026-11-24: two labels on the counted trades (never part of the average or the review, see ``sensitivity``)
+        k = sens[book]
+        note = (f"; {k['thin']} filled against a quote smaller than the order (assumed filled in full at that quote)"
+                if k["thin"] else "") + \
+               (f"; {k['flips']} change{'s' if k['flips'] == 1 else ''} sign with a 5 s delay in place of 1 s (both "
+                "kept as sensitivity, neither chosen)" if k["flips"] else "")
+        parts.append(f"{name} {b['modeled']} of {REVIEW_N[book]} with no exclusion flag: {avg}{note}; "
+                     f"{b['unresolved']} flagged (no listed shares or price test) and not counted; review: {v['state']}")
     # 2026-11-24: the ledger is written at 21:25 ET, after the 20:50 summary that shows this line, so the line is one
     # session behind the day's settled results beside it. It says which session it runs through.
     last = max((s[b]["span"][1] for b in BOOKS if s[b]["span"]), default=None)

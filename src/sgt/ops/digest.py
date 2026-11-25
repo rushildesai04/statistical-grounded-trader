@@ -514,8 +514,15 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         from sgt.fast import exec_book
 
         # phase 2: the trade-by-trade re-pricing at real quotes, once its ledger exists; until then the bar-based check
-        el = exec_book.line(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl",
-                            now_et.date().isoformat()) or exec_check.line(db)
+        ledger = Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl"
+        el = exec_book.line(ledger, now_et.date().isoformat())
+        if el:      # 2026-11-24: an incomplete ledger says so, instead of showing older averages as current
+            with db.read() as c:
+                want = {b: {r[0] for r in c.execute(
+                    f"SELECT id FROM {t} WHERE status='settled' AND session>=? AND session<?",  # noqa: S608 - fixed names
+                    (exec_book.REVIEW_FROM, day.isoformat()))} for b, t in (("short", "fade_trades"), ("long", "long_trades"))}
+            el += exec_book.behind(want, ledger)
+        el = el or exec_check.line(db)
         if el:
             lines.append(el)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'
