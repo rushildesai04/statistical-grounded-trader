@@ -963,8 +963,12 @@ night it cannot finish is texted and caught up on the next run.
 - **Long stops seen late, long entries booked at a stale price (owner 2026-11-25, `long_stop_detection_2026-11-25.md`).**
   Measured on 15 past stop exits: the free feed first printed at or under the stop a median 34 s after the tape (twice
   after 13 and 21 minutes, twice not at all); the candle that showed it closed a median 39 s after. A between-candle
-  check on the feed's last trade exists as a proposal (same stop level, earlier detection, no change to a registered
-  figure) and would gain at most one candle; it does not remove the blocker (section 0). The entry rule has no
+  look on the feed's last print was approved by the owner the same day "for paper measurement only" and is built
+  (`long_book.between_candles`): same stop level, a print made after the booking at or under the stop closes the
+  live paper long; it stands aside when a fill candle closed red under A2 or the window has ended (the proposal's
+  "never a different decision" was wrong there); one request a look, at most 10 looks a check; target, time and
+  red-candle exits and every registered figure untouched. It gains at most one candle and does not remove the
+  blocker (section 0). The entry rule has no
   maximum price and no "market moved away" condition, so nothing existing was enforced; the booked price is now
   recorded and texted as a reference with its age and the feed's last trade. Owner the same day: keep the
   registered reference and put a quote beside it. Built: one exchange's offer at the booking (IEX; a BOUND, since
