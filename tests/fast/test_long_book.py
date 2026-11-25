@@ -84,12 +84,13 @@ def test_first_long_to_fill_with_tie_order_and_honest_text(db):
         "💵 $404 (paper, test size; full size $4,038) (sized to the stop)",
         "🛑 stop $10.20 (-3.3%; a trigger, not a cap) ≈ -$17 · 🎯 target $11.25 (+6.6%) · ⏰ out 10:33 ET",
         # owner 2026-11-25: the price in the headline is a reference, and says how old it was when booked
-        "    Booked at $10.55: the free feed's next candle open, 60 s old when booked. A reference price, not a fill.",
+        "    Booked at $10.55: the buy-stop trigger, filled inside a free-feed candle, that candle began 60 s before the "
+        "booking. A reference price, not a fill.",
         "🔗 https://www.tradingview.com/chart/?symbol=ABCD"]
     import json
     ref = json.loads(trades(db)[0]["entry_ref"])
-    assert ref == {"basis": "the free feed's next candle open", "booked": 10.55, "ref_at": trades(db)[0]["entry_ts"],
-                   "age_s": 60.0}
+    assert ref == {"basis": "the buy-stop trigger, filled inside a free-feed candle", "booked": 10.55,
+                   "ref_at": trades(db)[0]["entry_ts"], "age_s": 60.0, "age_from": "the start of the fill candle"}
     assert lb.tick(db, feed(DAY), sent.append, now=at(3, 30)) == 0 and len(trades(db)) == 1      # one long per alert
 
 
@@ -713,7 +714,8 @@ def test_the_booked_price_of_a_long_is_recorded_as_a_reference_with_its_age_and_
         return 8.3852
     ref = lb.entry_reference(s, t, now, True, last, "BNAI")
     assert ref == {"basis": "the break candle's close", "booked": 8.255, "ref_at": "2026-11-25T15:32:00+00:00",
-                   "age_s": 13.6, "last_px": 8.3852, "last_at": "2026-11-25T15:32:13.487000+00:00",
+                   "age_s": 13.6, "age_from": "the candle's close", "last_px": 8.3852,
+                   "last_at": "2026-11-25T15:32:13.487000+00:00",
                    "last_vs_booked": round(8.3852 / 8.255 - 1, 5)}
     assert lb.reference_line(ref) == ("\n    Booked at $8.26: the break candle's close, 14 s old when booked. A reference "
                                       "price, not a fill; free feed last trade $8.39 at 10:32:13 (+1.6%).")
@@ -728,8 +730,12 @@ def test_the_booked_price_of_a_long_is_recorded_as_a_reference_with_its_age_and_
     def broken(symbol):
         raise RuntimeError("boom")
     assert lb.entry_reference(s, t, now, True, broken, "BNAI")["last_note"] == "read failed (RuntimeError)"
-    assert "last_note" not in lb.entry_reference(s, t, now, False) and lb.entry_reference(s, t, now, False)["basis"] == \
-        "the free feed's next candle open"
+    nxt = lb.entry_reference(s, t, now, False)                       # a market buy at the feed's next candle open
+    assert "last_note" not in nxt and (nxt["basis"], nxt["age_from"]) == ("the free feed's next candle open",
+                                                                         "the start of the fill candle")
+    trig = lb.entry_reference(pt.Setup("L5v2", "long", ready, 8.3, 7.89), t, now, False)     # a buy-stop: never "the open"
+    assert trig["basis"] == "the buy-stop trigger, filled inside a free-feed candle"
+    assert "that candle began 14 s before the booking" in lb.reference_line(trig)
 
 
 def test_the_live_pass_reads_the_last_trade_only_after_the_long_is_booked_and_keeps_its_exit_timer(db):
@@ -753,4 +759,20 @@ def test_the_live_pass_reads_the_last_trade_only_after_the_long_is_booked_and_ke
     assert (ref["booked"], ref["last_px"], ref["last_vs_booked"]) == (10.55, 10.61, round(10.61 / 10.55 - 1, 5))
     assert "free feed last trade $10.61" in sent[0] and "A reference price, not a fill" in sent[0]
     assert t["est_entry"] == 10.55 and t["status"] in ("open", "est_closed")     # the booking itself is what it was
+
+
+def test_a_reference_that_cannot_be_built_never_costs_the_entry_text(db):
+    """The long is booked before the reference is read. A feed that hands back a time that cannot be parsed (external
+    data) must not leave an open long without its entry text."""
+    alert_row(db)
+
+    def reader(symbol):
+        reader.seen = {symbol: {"at": "not a time", "why": None}}
+        return 10.61
+    sent = []
+    for k in range(0, 9):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader)
+    (t,) = trades(db)
+    assert t["est_entry"] == 10.55 and len(sent) >= 1 and bold("LONG IN") in sent[0]
+    assert "Booked at" not in sent[0] and t["entry_ref"] is None      # no half-built line, no half-built record
 

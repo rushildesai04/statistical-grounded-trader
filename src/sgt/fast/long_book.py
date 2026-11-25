@@ -284,9 +284,15 @@ def entry_reference(s: pt.Setup, t: pt.Trade, now: datetime, at_close: bool, las
     free feed's last trade at that moment when ``last`` (the live quote, with its ``seen`` record) can give one.
     Never raises and never decides anything: a failed read leaves the last trade out."""
     ref_at = s.ready if at_close else t.entry_ts
-    out = {"basis": "the break candle's close" if at_close else "the free feed's next candle open", "booked": float(t.entry),
-           "ref_at": iso(pd.Timestamp(ref_at).to_pydatetime()),
-           "age_s": round(max(0.0, (pd.Timestamp(now) - pd.Timestamp(ref_at)).total_seconds()), 1)}
+    # Three different things can be the booked price, and the label must not call one by another's name: the break
+    # candle's close (age = since that close); a buy-stop's trigger, filled somewhere inside a candle (age = since that
+    # candle BEGAN, so the fill itself is younger); the open of the feed's next candle (age = since that open).
+    basis = ("the break candle's close" if at_close else
+             "the buy-stop trigger, filled inside a free-feed candle" if s.trigger is not None else
+             "the free feed's next candle open")
+    out = {"basis": basis, "booked": float(t.entry), "ref_at": iso(pd.Timestamp(ref_at).to_pydatetime()),
+           "age_s": round(max(0.0, (pd.Timestamp(now) - pd.Timestamp(ref_at)).total_seconds()), 1),
+           "age_from": "the candle's close" if at_close else "the start of the fill candle"}
     if last is not None and symbol:
         try:
             px = last(symbol)
@@ -302,8 +308,9 @@ def entry_reference(s: pt.Setup, t: pt.Trade, now: datetime, at_close: bool, las
 
 def reference_line(ref: dict) -> str:
     """The LONG IN card's line that says the price in the headline is a reference (it starts with a newline)."""
-    line = (f"\n    Booked at ${ref['booked']:.2f}: {ref['basis']}, {ref['age_s']:.0f} s old when booked. A reference "
-            "price, not a fill")
+    age = (f"{ref['age_s']:.0f} s old when booked" if ref.get("age_from") == "the candle's close" else
+           f"that candle began {ref['age_s']:.0f} s before the booking")
+    line = f"\n    Booked at ${ref['booked']:.2f}: {ref['basis']}, {age}. A reference price, not a fill"
     if ref.get("last_px"):
         at = pd.Timestamp(ref["last_at"]).tz_convert(ET)
         line += f"; free feed last trade ${ref['last_px']:.2f} at {at:%H:%M:%S} ({ref['last_vs_booked']:+.1%})"
@@ -464,14 +471,18 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 opened += 1
                 # owner 2026-11-25: the booked price is a reference. Read AFTER the long is booked, so the read can
                 # delay the text by its timeout at most and never the booking; kept on the row and said in the text.
-                ref = entry_reference(s, t, now, bool(now_line), last_trade, row["symbol"])
+                # Everything about the reference is inside one guard: the long is booked, so whatever goes wrong
+                # here (a malformed time from the feed, a write that fails) the entry text must still go out.
+                ref_line = ""
                 try:
+                    ref = entry_reference(s, t, now, bool(now_line), last_trade, row["symbol"])
+                    ref_line = reference_line(ref)
                     with db.tx() as c:
                         c.execute("UPDATE long_trades SET entry_ref=? WHERE fade_id=? AND entry_ref IS NULL",
-                                  (json.dumps(ref)[:700], row["id"]))
-                except Exception:  # noqa: BLE001 - a label on the record; the trade stands without it
-                    log.exception("entry reference of long for alert %s not stored", row["id"])
-                send(entry_text(db, row["symbol"], s, t, now_line + reference_line(ref) + matrix_line(raw, now)
+                                  (json.dumps(ref, default=str)[:700], row["id"]))
+                except Exception:  # noqa: BLE001 - a label on the record; the trade and its text stand without it
+                    log.exception("entry reference of long for alert %s not recorded", row["id"])
+                send(entry_text(db, row["symbol"], s, t, now_line + ref_line + matrix_line(raw, now)
                                 + context_line(db, row["id"])))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
