@@ -32,7 +32,7 @@ import pandas as pd
 
 from sgt.fast import calc_v1, est_costs
 from sgt.fast.fade_rule import (AVG_LOSS, AVG_WIN, BASE_EV, BASE_N, BASE_WIN, BASE_WIN_CI, ET, HOLD,  # noqa: F401
-                                JUDGE_N, STOP, STOP_RATE, STOPPED_NET, VETO, VETO_EXIT)
+                                JUDGE_N, STOP, STOP_RATE, STOPPED_NET, STOPS, VETO, VETO_EXIT)
 from sgt.fast.fade_texts import (CONF, CONF_LABEL, CONF_MAX, EXIT_WHY, FILING_HIST, PLAIN, TOD_HIST, _fmt,  # noqa: F401
                                  _qty, _usd, ask_text, borrow_note, confidence, news_group, out_text, signals_line,
                                  tod_hist)
