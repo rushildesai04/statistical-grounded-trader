@@ -1,6 +1,6 @@
 # Is there a defensible edge? FCUV (2026-11-25) and the gap between the tests and the forward record
 
-**Date:** 2026-11-25 (written 13:30 to 15:00 ET; tonight's settle and ledger come after). Read-only investigation:
+**Date:** 2026-11-25 (written about 13:30 ET, during the session; tonight's settle and ledger come after). Read-only investigation:
 no rule, size, test, registered calculation or production behaviour is changed by this document. Runner v114 =
 `c12aec4`. Owner, 2026-11-25: "prioritize identifying why SGT's forward performance is materially worse than its
 historical tests, rather than continuing to patch individual losing trades ... The objective is not to explain away
