@@ -134,6 +134,11 @@ COLUMNS = {
         # (``entry_elig``), on what evidence at that moment (``entry_evidence``), under which version of the live
         # entry rule (``entry_rule``), and what the official bars showed afterwards (``entry_official``, nightly).
         "entry_elig": "TEXT", "entry_evidence": "TEXT", "entry_rule": "TEXT", "entry_official": "TEXT",
+        # 2026-11-25 (amendment_stop_arithmetic, option A): ``calc`` names the arithmetic that made the settled
+        # figures of this row ("binary-v0", the registered one; empty on rows settled before the label existed, which
+        # are binary-v0 too). The ``*_v1`` columns hold the SAME replay under price-decimal-v1, written beside it by
+        # the settle and read by nothing but the nightly arithmetic line (sgt.fast.calc_v1).
+        "calc": "TEXT", "cover_v1": "REAL", "net_v1": "REAL", "calc_v1": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
@@ -146,7 +151,9 @@ COLUMNS = {
         "tr_exit_px": "REAL", "tr_exit_at": "TEXT", "tr_why": "TEXT",
         # audit 2026-11-21 (sgt.fast.exec_check): the low of the official minute of a stop exit (the official result
         # books the stop price; a real stop order in a falling thin stock fills between the two). A measurement.
-        "stop_low": "REAL"},
+        "stop_low": "REAL",
+        # 2026-11-25: as on fade_trades (the primary arithmetic's name, and the parallel price-decimal-v1 figure)
+        "calc": "TEXT", "exit_v1": "REAL", "exit_reason_v1": "TEXT", "net_v1": "REAL", "calc_v1": "TEXT"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

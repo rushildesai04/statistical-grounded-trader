@@ -23,7 +23,7 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import est_costs, fade, long_shadow, news
+from sgt.fast import calc_v1, est_costs, fade, long_shadow, news
 from sgt.fast import patterns as pt
 from sgt.fast.fade import ET
 from sgt.ops import approvals, chartserver
@@ -629,6 +629,21 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
     return out
 
 
+def _parallel(db: OpsStore, rid: int, v: dict) -> None:
+    """Store the price-decimal-v1 figure of a long the settle has just booked (owner 2026-11-25, option A): its own
+    columns, written once, after the registered result and in a statement that touches nothing else. Read only by
+    the nightly arithmetic line. A failure here is logged and changes nothing about the settled trade."""
+    cols = {k: v[k] for k in calc_v1.LONG_COLS if v.get(k) is not None}
+    if not cols:
+        return
+    try:
+        with db.tx() as c:
+            c.execute(f"UPDATE long_trades SET {', '.join(k + '=?' for k in cols)} WHERE id=? AND status='settled' "  # noqa: S608
+                      "AND calc_v1 IS NULL", (*cols.values(), rid))
+    except Exception:  # noqa: BLE001 - a parallel figure only
+        log.exception("price-decimal-v1 figure of long %s not stored", rid)
+
+
 def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, stale: str) -> str | None:
     """One long's official result (see settle). None = nothing changed (bars not there yet)."""
     f = bars(r["symbol"], r["session"])
@@ -654,8 +669,12 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
     net = t.gross - rt
     if not _set(db, r["id"], r["status"], status=r["status"] if seen else "settled", entry=t.entry,
                 fill_ts=iso(t.entry_ts.to_pydatetime()), exit=t.exit, exit_ts=iso(t.exit_ts.to_pydatetime()),
-                exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now)):
+                exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now),
+                **({} if seen else {"calc": calc_v1.PRIMARY})):
         return None
+    if not seen:
+        _parallel(db, r["id"], calc_v1.long(f, s, t, rt, latest=long_shadow._latest(r["session"]),
+                                            red_exit=r.get("rules") == RULES))
     if r["status"] == COSTLY:
         return f"{r['symbol']} {r['kind']} not bought (cost above {COST_CAP:.0%}): would have made {net:+.2%}"
     if r["status"] == SHORT_OPEN:

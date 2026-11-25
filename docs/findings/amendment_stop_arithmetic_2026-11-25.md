@@ -1,6 +1,8 @@
 # Proposed amendment: exact decimal price thresholds (`price-decimal-v1`)
 
-**Date:** 2026-11-25. **Status: PROPOSED. Not adopted, not in use.** Owner, 2026-11-25: "I do not approve leaving
+**Date:** 2026-11-25. **Status: option A ADOPTED by the owner the same day (section 8). `binary-v0` remains the
+registered calculation of every existing record; `price-decimal-v1` runs beside it for two consumers only.**
+Sections 1 to 7 are the proposal as it was put (first status: "PROPOSED. Not adopted, not in use"). Owner, 2026-11-25: "I do not approve leaving
 binary rounding as the permanent definition. Prepare a separate, narrowly scoped correction... Preserve the frozen
 registered replay. Give the corrected implementation a separate version... prepare a dated amendment with explicit
 cohort treatment before changing registered calculations. No silent replacement or mixing versions."
@@ -122,3 +124,51 @@ being the permanent definition: v1 is the definition of every record registered 
 2. Whether the live paper checks move with their record (recommended) or at once.
 3. Go-ahead to wire it: versioned fields, the v1 long simulator, the nightly "versions differ" line, tests. Estimated
    one working session plus a review; it touches registered replay code, so it gets an independent review before merge.
+
+## 8. Adopted: option A (owner, 2026-11-25)
+
+"Arithmetic: choose A. Authorize wiring price-decimal-v1 as a parallel calculation with separate fields and explicit
+version labels. Preserve binary-v0 as the primary calculation for existing registered cohorts. Do not restate
+history or mix versions." "Live paper checks follow their record's version. Do not switch them independently. New
+registrations should explicitly specify decimal-v1. Differences must be visible and must not silently change
+registered review decisions."
+
+**What is wired (`sgt.fast.calc_v1`), from the first settle after deployment (session 2026-11-25):**
+
+| Consumer | Registered figure (decides everything) | Parallel figure (read by one report line only) |
+|---|---|---|
+| Live short book, nightly settle | `cover`, `gross`, `net`, with `calc` = "binary-v0" | `cover_v1`, `net_v1`, `calc_v1` |
+| Live long book, nightly settle | `exit`, `exit_reason`, `net`, with `calc` = "binary-v0" | `exit_v1`, `exit_reason_v1`, `net_v1`, `calc_v1` |
+
+`calc_v1` is one of: "same decision as binary-v0"; "DIFFERS from binary-v0: ..." with both exits named; or "not
+computed (...)" with the reason. The nightly report gains one line: how many settled trades carry both figures, how
+many the versions decide differently (each named, the registered result first, then the v1 one), how many could not
+be computed. Book values, totals, texts, the revision block, the execution ledger and every review read the
+registered columns only.
+
+**Isolation, as built and tested:**
+- The registered long simulator's walk is not edited: `exact=True` leaves it through a separate function before the
+  walk begins. A frozen copy of the function as registered (`tests/fixtures/patterns_simulate_v0.py`) is compared
+  with the live function on 20,000 random setups, field for field.
+- The short replay's registered function (`alert_fade_test.cover`) is not edited; the parallel figure walks the same
+  bars with `exact_price.short_cover`.
+- The parallel values are computed after the registered ones are final and are stored in their own columns; a
+  scorer that supplies none settles exactly as before; a trade settled before 2026-11-25 never gets them.
+- A result not made by a threshold replay (scored at the live entry, the owner's NO, the order at the text) gets
+  "not computed", never a figure.
+
+**Precision and conversion at ingestion (audited 2026-11-25).** Official bars are requested unadjusted
+(`adjustment: raw`), parsed from JSON into 64-bit floats and stored as 64-bit floats (`intraday/store.py`); no
+arithmetic touches open, high, low or close on the way. The shortest decimal that round-trips such a float is the
+number the source sent, so the decimal read-back is lossless. Of the 15,392 stored prices the audit compared, none was
+refused; 7 carry 5 or 6 decimal places. A value above the supported precision is not rounded and does not stop
+anything: that trade's `calc_v1` says "not computed (data quality: ...)" and the nightly line counts it.
+
+**Not enabled, each to be validated separately before it is:** the fade's forward record and would-have record, the
+long shadow, the challengers and other nightly studies, the execution model (frozen) and every research file. The
+live paper checks stay on `binary-v0` with their records. **New registrations name `price-decimal-v1` explicitly**
+(playbook, section 0).
+
+**RAIN 2026-11-17 is not restated.** It settled before the parallel figure existed and carries none; its replay on
+the tape is in section 4.
+

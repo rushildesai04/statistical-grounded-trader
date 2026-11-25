@@ -557,6 +557,14 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
             lines.append(el)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'
         lines.append("execution check: unavailable")
+    try:                                         # owner 2026-11-25 (option A): the two arithmetic versions, side by side
+        from sgt.fast import calc_v1
+
+        av = calc_v1.line(db)
+        if av:
+            lines.append(av)
+    except Exception:  # noqa: BLE001 - informational line; said, never silent
+        lines.append("arithmetic check: unavailable")
     try:                                         # audit 2026-11-22: the decision record says every night whether it is whole
         from sgt.ops import decision_health
 

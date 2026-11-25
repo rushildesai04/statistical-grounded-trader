@@ -882,6 +882,41 @@ def official(due: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
                 if c is not None:
                     g = (r.entry - c) / r.entry
                     out.at[i, "cover"], out.at[i, "gross"], out.at[i, "net"] = c, g, g - r.cost_rt - LOCATE
+    return with_v1(out, due, store)
+
+
+def with_v1(out: pd.DataFrame, due: pd.DataFrame, store: ParquetBarStore) -> pd.DataFrame:
+    """Beside each registered result, the same replay under price-decimal-v1 (owner 2026-11-25, option A): columns
+    ``cover_v1`` / ``net_v1`` / ``calc_v1``, read by nothing but the nightly arithmetic line. Computed AFTER every
+    registered number is final and from copies, so no registered value can move; a result that was not made the
+    tested way (scored at the live entry, the owner's NO) gets a note instead of a figure. Never raises."""
+    from alert_fade_test import HOLD_MIN, window
+    from sgt.fast import calc_v1
+
+    out = out.copy()
+    for k in calc_v1.SHORT_COLS:
+        out[k] = None
+    try:
+        info = due.set_index("id")
+        for i, r in out.iterrows():
+            if not bool(r.qualifies) or pd.isna(r.net):
+                continue
+            d = info.loc[r.id]
+            if isinstance(r.why, str) and r.why:
+                v = calc_v1.not_computed("the result was scored at the live entry, not the tested way")
+            elif "reason" in info.columns and d.reason == fade.VETO_EXIT:
+                v = calc_v1.not_computed("the owner's NO exit")
+            else:
+                try:
+                    w = window(store, d.symbol, str(d.session)[:10], pd.Timestamp(r.entry_ts), HOLD_MIN)
+                    v = calc_v1.short(w, r.entry, r.cost_rt, LOCATE)
+                except Exception as exc:  # noqa: BLE001 - one trade's bars failing is said on that trade, not hidden
+                    log.exception("price-decimal-v1 figure for fade %s failed", r.id)
+                    v = calc_v1.not_computed(f"error: {type(exc).__name__}")
+            for k, x in v.items():
+                out.at[i, k] = x
+    except Exception:  # noqa: BLE001 - the parallel figure never blocks the settle
+        log.exception("price-decimal-v1 figures not attached")
     return out
 
 

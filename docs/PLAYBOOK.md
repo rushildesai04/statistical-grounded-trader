@@ -44,6 +44,13 @@ booked by the settle): bought $1.835 at the text (not the texted $1.785), target
 trade that could not have happened: no trade at all on the full tape after the text. Nothing is switched off without
 the owner saying so in the moment.
 
+**Price arithmetic of a registration (owner 2026-11-25).** Every NEW registration names its price arithmetic, and
+that is `price-decimal-v1` (`sgt.fast.exact_price`: exact decimal levels, never rounded to a tick, exact comparison,
+no tolerance). Records registered before that date keep `binary-v0` as their primary calculation to their
+registered end; `price-decimal-v1` runs beside them in separate, labelled fields. Never restate a record, never mix
+the two inside one, never let the parallel figure change a registered review decision. The live paper checks follow
+the version of the record that settles them.
+
 ## 1. What we trade and why it works
 Short small caps ($1-50) right after a MetaTradings momentum alert. Mechanism: retail-attention buying sprees in small
 caps are followed by falling prices (Barber, Huang, Odean, Schwarz, "Attention Induced Trading and Returns"); the alert
@@ -942,6 +949,15 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Arithmetic, option A adopted (owner 2026-11-25): `price-decimal-v1` beside the registered `binary-v0`.** Wired
+  for two consumers only, the live short book's settle and the live long book's settle: each settled trade keeps its
+  registered figures (labelled `calc` = binary-v0) and gets the same replay under exact decimals in its own columns
+  (`*_v1`, `calc_v1`: "same decision", "DIFFERS ..." with both exits, or "not computed ..." with the reason). One
+  nightly line counts the trades computed both ways and names every difference with both results; nothing else reads
+  the parallel columns. Isolation: the registered long simulator's walk is untouched (a frozen copy is compared with
+  it on 20,000 random setups); a value that is not a reported price is said on that trade, never rounded, never a
+  crash. Nothing before 11-25 is restated. Not enabled until validated separately: the forward and would-have
+  records, the long shadow, the nightly studies, the execution model, every research file.
 - **Substitute short entries are record-only (owner 2026-11-25; `live-entry-v2`).** "If the registered entry
   opportunity has already passed, a later free-feed print does not authorize a replacement trade. This decision
   follows the specification, not the outcomes of BUUU or GLXG." What the book can know at the moment: earlier

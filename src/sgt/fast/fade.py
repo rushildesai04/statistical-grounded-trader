@@ -30,7 +30,7 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import est_costs
+from sgt.fast import calc_v1, est_costs
 from sgt.fast.fade_rule import (AVG_LOSS, AVG_WIN, BASE_EV, BASE_N, BASE_WIN, BASE_WIN_CI, ET, HOLD,  # noqa: F401
                                 JUDGE_N, STOP, STOP_RATE, STOPPED_NET, VETO, VETO_EXIT)
 from sgt.fast.fade_texts import (CONF, CONF_LABEL, CONF_MAX, EXIT_WHY, FILING_HIST, PLAIN, TOD_HIST, _fmt,  # noqa: F401
@@ -855,6 +855,12 @@ def settle(db: OpsStore, official: Official, now: datetime | None = None) -> lis
         why = o.get("why")
         if isinstance(why, str) and why and getattr(r, "reason", None) != VETO_EXIT:
             rule["reason"] = why                             # how this result was made, when not the tested way
+        # 2026-11-25 (option A): the settled figures are the registered arithmetic's and say so; the same replay
+        # under price-decimal-v1 goes into its own columns when the scorer hands it over. Nothing reads those back.
+        rule["calc"] = calc_v1.PRIMARY
+        for k in calc_v1.SHORT_COLS:
+            if k in o and pd.notna(o[k]):
+                rule[k] = str(o[k]) if k == "calc_v1" else float(o[k])
         if _set(db, r.id, r.status, status="settled", entry_ts=str(o["entry_ts"]), entry=float(o["entry"]),
                 cover=float(o["cover"]), cost_rt=float(o["cost_rt"]), gross=float(o["gross"]), net=float(o["net"]),
                 settled_at=iso(now), **rule):
