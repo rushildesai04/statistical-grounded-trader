@@ -164,6 +164,16 @@ number the source sent, so the decimal read-back is lossless. Of the 15,392 stor
 refused; 7 carry 5 or 6 decimal places. A value above the supported precision is not rounded and does not stop
 anything: that trade's `calc_v1` says "not computed (data quality: ...)" and the nightly line counts it.
 
+**Source-price preservation, verified rather than assumed (owner 2026-11-25: "Float storage does not inherently
+preserve the original decimal exactly").** That is true in general, so the claim was checked on data
+(`scripts/price_source_check.py`, runner, read-only): the response text was parsed once with exact decimals (no
+float in between) and once the way the pipeline does, and both were compared with the stored value read back
+shortest-form. Six symbol-days (GLXG and JZ and BENF 11-24, RAIN 11-17, ALGS and BNAI 11-25), 11,592 open / high /
+low / close values: the pipeline's value equals the number the source wrote in every case; the stored value equals
+it in all 9,508 that are in the store; no value was written with more than 6 decimal places (0, 1, 2, 3 or 4) and
+none looks like a float artefact. Not checked, and not checkable from here: what the vendor did to the exchange's
+price before writing it; the trade and quote feeds the execution model reads (same parsing path, not yet compared).
+
 **Not enabled, each to be validated separately before it is:** the fade's forward record and would-have record, the
 long shadow, the challengers and other nightly studies, the execution model (frozen) and every research file. The
 live paper checks stay on `binary-v0` with their records. **New registrations name `price-decimal-v1` explicitly**

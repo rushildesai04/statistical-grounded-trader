@@ -63,15 +63,16 @@ record scores it from official bars, the site lists it with its reason, and the 
 - An alert with no free-feed print for five minutes: skipped with the same reason as before (not an event).
 - Approved and auto entries of the ask-first mode (off since F5): their own registered timing, untouched.
 - Restart recovery: the rules of 2026-11-22/23, untouched.
-- **Delivery delay, still open:** an alert that itself arrives after its registered minute has ended is NOT covered
-  by this rule; it enters as before and is labelled so. The same reading of the specification would make it
-  record-only too. Of 422 alert rows 3 arrived more than 60 s after posting; no live entry has been of this kind.
+- **Delivery delay: decided the same day.** Owner, 2026-11-25: "Delivery-late short alerts are record-only under the
+  same registered-minute eligibility principle." An alert that itself reaches the book after its registered minute
+  has ended is recorded, not shorted, and its evidence starts with when it arrived and how late. (First written
+  here as "still open".) Of 422 alert rows 3 arrived more than 60 s after posting; no live entry was of this kind.
 
 ## 5. Not built: a timely source that could confirm a halt
 
 Entering a genuinely delayed first print live needs a timely official source: the listing markets' public halt feed
 (free; a new outside dependency to parse and bound) or real-time official data (paid; ruled out until a book is
-proven). Neither is built. Until one is, "unknown" stays record-only.
+proven). Owner, 2026-11-25: "Do not add a halt-feed dependency now." Neither is built; "unknown" stays record-only.
 
 ## 6. The registered cohort (execution baseline, from 2026-11-23)
 

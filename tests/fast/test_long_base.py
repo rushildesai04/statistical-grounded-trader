@@ -163,7 +163,7 @@ def test_the_live_book_buys_the_base_break_and_says_so(db):
     assert t["target"] == pytest.approx(11.3) and pd.Timestamp(t["entry_ts"]) == T1 + 13 * pt.BAR
     assert 0 < t["weight"] <= lb.PROBE_USD / 100_000 + 1e-12     # test size, cut further by the stop distance
     assert sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY ABCD')} @ {bold('$10.60')}")
-    assert "🛑 stop $10.25 (-3.3%)" in sent[0]
+    assert "🛑 stop $10.25 (-3.3%; a trigger, not a cap)" in sent[0]          # owner 2026-11-25: a stop does not cap a loss
     assert "\n⏱ Break candle closed 10:14:00 ET (5s ago): buy at market now" in sent[0]
     assert f"🎲 Past win rate {bold('37%')} · base break: " + italic("avg -0.3%/trade over 255 past trades") in sent[0]
     for k in range(29, 80):

@@ -86,6 +86,19 @@ def run(db: OpsStore, bars: RthBars, cost_fn: Cost, now: datetime | None = None)
     from sgt.fast import fade
 
     with db.read() as c:
+        bases = [dict(r) for r in c.execute(
+            "SELECT t.id, t.symbol, t.session, t.entry_ts, f.posted_at FROM long_trades t JOIN fade_trades f ON "
+            "f.id=t.fade_id WHERE t.kind='L8' AND t.entry_ts IS NOT NULL AND t.setup_official IS NULL AND t.status IN "
+            "('est_closed','settled','void') AND t.session>=? ORDER BY t.id LIMIT ?", (since, MAX_ROWS))]
+    for r in bases:
+        try:
+            line = _base(db, r, bars)
+        except Exception:  # noqa: BLE001 - as above
+            log.exception("setup evidence failed for long %s", r["id"])
+            continue
+        if line:
+            out.append(line)
+    with db.read() as c:
         subs = [dict(r) for r in c.execute(
             "SELECT id, symbol, session, posted_at FROM fade_trades WHERE status='skipped' AND reason=? AND "
             "entry_official IS NULL AND session>=? ORDER BY id LIMIT ?", (fade.SUBSTITUTE_REASON, since, MAX_ROWS))]
@@ -98,6 +111,60 @@ def run(db: OpsStore, bars: RthBars, cost_fn: Cost, now: datetime | None = None)
         if line:
             out.append(line)
     return out
+
+
+def base_on(day: pd.DataFrame, posted: pd.Timestamp, ready: pd.Timestamp) -> str:
+    """What official bars show for a base break the live book took at ``ready`` (the minute after its break candle).
+    The live rule reads the free feed, which carries about 1% of the volume: its ranges are never wider than the
+    tape's, so a base can qualify there and not on the tape (prereg_long_setup_tape_2026-11-22: the two agreed on 4 of
+    22). This is the same detector on the official candles that had closed by ``ready``. Evidence, not a rule."""
+    from sgt.fast import long_shadow
+    from sgt.fast import patterns as pt
+
+    hm = lambda t: pd.Timestamp(t).tz_convert(ET).strftime("%H:%M")  # noqa: E731
+    seen = day[day.ts + pt.BAR <= ready].reset_index(drop=True)
+    _, t0 = long_shadow.setups(seen, {"posted_at": posted.isoformat(), "status": "live"})
+    if t0 is None:
+        return "official tape: no start bar for this alert within its limits"
+    found = pt.base_break(seen, t0)
+    brk = ready - pt.BAR
+    if found and found[0].ready == ready:
+        i = found[0].info
+        return (f"official tape: the same base break at {hm(brk)} (base {i['base_low']:g} to {i['base_high']:g}, "
+                f"{(i['base_high'] - i['base_low']) / i['base_low']:.2%} wide)")
+    if found:
+        return f"official tape: its first base break was at {hm(found[0].info['break_ts'])}, not {hm(brk)}"
+    j = seen.index[seen.ts == brk]
+    if not len(j):
+        return f"official tape: no base break by {hm(brk)} and no official candle in that minute"
+    j = int(j[0])
+    a = int(seen.ts.searchsorted(brk - pt.BASE_MIN, side="left"))
+    base = seen.iloc[a:j]
+    if len(base) < pt.BASE_MIN_BARS:
+        return f"official tape: no base break at {hm(brk)}: only {len(base)} candles in the 10 minutes before it"
+    hi, lo, close = float(base.high.max()), float(base.low.min()), float(seen.close.iloc[j])
+    vw = float(pt.session_vwap(seen)[j])
+    why = []
+    if lo > 0 and (hi - lo) / lo > pt.BASE_MAX_RANGE:
+        why.append(f"the 10 minutes before it span {(hi - lo) / lo:.2%} ({lo:g} to {hi:g}; limit {pt.BASE_MAX_RANGE:.0%})")
+    if not close > hi:
+        why.append(f"its close {close:g} is not above their high {hi:g}")
+    if not close > vw:
+        why.append(f"its close {close:g} is not above session VWAP {vw:.4g}")
+    if not brk <= t0 + pt.BASE_WATCH or not brk >= t0 + pt.BASE_MIN:
+        why.append("it is outside the watch window on the tape's start bar")
+    return f"official tape: no base break at {hm(brk)}: " + ("; ".join(why) or "reason not reproduced")
+
+
+def _base(db: OpsStore, r: dict, bars: RthBars) -> str | None:
+    posted, ready, day = _utc(r["posted_at"]), _utc(r["entry_ts"]), _day(bars, r["symbol"], r["session"])
+    if posted is None or ready is None or day is None or "volume" not in day.columns:
+        return None                                        # no bars yet: retried
+    what = base_on(day, posted, ready)[:400]
+    with db.tx() as c:
+        done = c.execute("UPDATE long_trades SET setup_official=? WHERE id=? AND setup_official IS NULL",
+                         (what, r["id"])).rowcount == 1
+    return f"{r['symbol']} base break: {what}" if done else None
 
 
 def _substitute(db: OpsStore, r: dict, bars: RthBars) -> str | None:

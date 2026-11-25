@@ -681,3 +681,15 @@ def test_three_hundred_losing_or_noisy_trades_prove_nothing(db):
     settled(db, 300, lambda i: 0.30 if i % 50 == 0 else -0.005)                          # mean just above zero, interval not
     assert not lb.proven(db)
 
+
+def test_the_setup_as_the_book_saw_it_is_kept_on_the_row_and_the_decision_line():
+    """BNAI 2026-11-25: to learn which base the book had bought, the free feed had to be fetched again. The detector's
+    own record of the setup (base high and low, break candle, VWAP) and its width now stay with the trade."""
+    import json
+
+    s = pt.Setup("L8", "long", T1, None, 7.89, {"base_high": 8.18, "base_low": 7.89, "break_ts": T1 - pt.BAR, "vwap": 8.1741})
+    seen = json.loads(lb.setup_seen(s))
+    assert seen == {"base_high": 8.18, "base_low": 7.89, "break_ts": (T1 - pt.BAR).isoformat(), "vwap": 8.1741,
+                    "base_width": round((8.18 - 7.89) / 7.89, 6), "feed": "free feed (the live candles)"}
+    assert lb.setup_seen(None) is None and lb.setup_seen(pt.Setup("L4b", "long", T1, 1.1, 1.0)) is None
+

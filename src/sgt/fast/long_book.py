@@ -15,6 +15,7 @@ that holds. Respects PAUSE / DISARM; no entry after the last entry minute; at mo
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 from datetime import date, datetime, timedelta
@@ -481,13 +482,14 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
     v = nav(db)
     w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
     rules = RULES_BASE if s is not None and s.kind == "L8" else RULES
+    seen = setup_seen(s)
     with db.tx() as c:
         cur = c.execute(
             "INSERT OR IGNORE INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
-            "entry_ts, est_entry, est_last, created_at, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "entry_ts, est_entry, est_last, created_at, rules, setup_info) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
              s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
-             t.entry if t else None, t.entry if t else None, iso(now), rules))
+             t.entry if t else None, t.entry if t else None, iso(now), rules, seen))
         done, rid = cur.rowcount == 1, cur.lastrowid
     if done:       # audit 2026-11-22: the decision record (what the book did with this alert, and on what facts)
         db.decide("long", rid, row["symbol"], None, status, None, f"{RULE_VERSION}; rules {rules}", fade_id=row["id"],
@@ -495,8 +497,24 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
                   trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
                   entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
                   decided_at=iso(now), posted_at=row.get("posted_at"), via=row.get("via"),
-                  recovered_at=row.get("recovered_at"), **facts)
+                  recovered_at=row.get("recovered_at"), setup=seen, **facts)
     return done
+
+
+def setup_seen(s: pt.Setup | None) -> str | None:
+    """The setup as the book saw it when it decided, for the row and its decision line (2026-11-25): what the detector
+    itself recorded (for a base break: the base's high and low, the break candle, VWAP at its close) plus the base's
+    width, and the feed it was read from. JSON, bounded. None when there is nothing to record."""
+    info = getattr(s, "info", None) if s is not None else None
+    if not isinstance(info, dict) or not info:
+        return None
+    out = {k: (v.isoformat() if hasattr(v, "isoformat") else round(float(v), 6) if isinstance(v, (int, float)) else str(v))
+           for k, v in list(info.items())[:12]}
+    lo, hi = info.get("base_low"), info.get("base_high")
+    if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and lo > 0:
+        out["base_width"] = round((hi - lo) / lo, 6)
+    out["feed"] = "free feed (the live candles)"
+    return json.dumps(out)[:700]
 
 
 def target(s: pt.Setup, t: pt.Trade) -> float:
