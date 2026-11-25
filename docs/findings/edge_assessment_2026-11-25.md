@@ -48,8 +48,9 @@ the decision: sold at the 5.60 bid, stop 6.72 touched 12:47:16.25, bought back 6
 with the ASSUMED 0.5% locate; 5 s: -21.1%; its stress case -24.6%. Flag: thin (the quote was smaller than the order).
 
 **What the model's cost does not contain.** A listing at 597.6% a year. One day at that rate is 1.6% of the position;
-whether an intraday locate was obtainable, and at what fee, is not established by a listing. The test's break-even
-locate was about 1.6% (`prereg_alert_fade_2026-11-01`).
+whether an intraday locate was obtainable, and at what fee, is not established by a listing. For scale only: on the held-out
+sample the tested mean reaches zero at a locate of about 1.6% of the position (`prereg_alert_fade_2026-11-01`; a
+figure of that sample and its other costs, not a threshold).
 
 **Classification.**
 
