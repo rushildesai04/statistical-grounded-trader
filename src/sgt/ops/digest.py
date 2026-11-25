@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -320,6 +321,17 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     return head + [line], today
 
 
+def revision_lines(db: OpsStore, day: date, marks: dict | None = None) -> list[str]:
+    """Owner 2026-11-24: one block for trades whose settled result is far from the texted live estimate
+    (``sgt.ops.revisions``). ``marks``: the caller's dict; it receives the watermark to store once the report is sent."""
+    from sgt.ops import revisions
+
+    rep = revisions.report(db, day)
+    if marks is not None:
+        marks[revisions.WATERMARK] = rep.through
+    return rep.lines
+
+
 def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     """Long book TODAY line with its official dollars (2026-11-12 night check: the line was always green and its
     dollars were left out of the header total, so a losing long day read as a win)."""
@@ -379,7 +391,9 @@ def _safe(fn, fallback: str, *a):
 
 
 def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[str],
-          broker: str | None, research: list[str]) -> str:
+          broker: str | None, research: list[str], marks: dict | None = None) -> str:
+    """``marks``: a dict of the caller's; it receives what the job stores AFTER the report was sent (the revision
+    block's watermark, so a late settle is listed by exactly one report)."""
     day = now_et.date()
     books, by_group = _safe(model_books, "books: unavailable", db, day)
     fl, fade_usd = _safe(fade_today, "fade: today unavailable", db, day)
@@ -431,7 +445,12 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
              + (f"\n{split}" if split else "") + (f"\n{italic('not in the total:')} {not_counted}" if not_counted else "")]
     lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
               ["\u2705 Nothing needs you. Jobs OK (24h)."])
-    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + sc + books
+    try:                                        # owner 2026-11-24: texted estimate against settled result, named
+        revised = revision_lines(db, day, marks)
+    except Exception:  # noqa: BLE001 - a reporting block: its failure is said, never silent, and stops nothing else
+        logging.getLogger(__name__).exception("revision block failed")
+        revised = ["revisions (live estimate against settled): unavailable"]
+    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + revised + sc + books
     lines += ["", f"\U0001F4C8 {bold('RECORD')}"]
     try:
         from sgt.fast import long_book

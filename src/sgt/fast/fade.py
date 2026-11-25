@@ -24,7 +24,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from time import monotonic
 from typing import Callable
 
@@ -95,6 +95,9 @@ NOT_EVENT_SKIPS = (NO_PRINT_REASON, "no quote within 5 min", "session closed bef
 # back (a recovered alert, or a restart with the alert waiting). An operational skip, like "alert received late": the
 # alert stays an event (F8 and the long book count it); it is not evidence of a halt, so it is not in NOT_EVENT_SKIPS.
 RESTART_NO_PRINT = "no trade print after the restart within 5 min of the alert"
+# fade_trades.entry_wait (2026-11-24): why an entry had no price on its first pass, when the quote itself gave no reason
+NO_PRICE_YET = "no price from the live quote yet"
+RESTART_WAIT = "the listener restarted inside or after the entry bar: no entry on a print it cannot date"
 # Record-only for recovered SHORT alerts (docs/findings/recovery_verification_2026-11-23.md, section 1). The registered
 # rule enters at the first bar at or after alert + 10 s; its five minutes bound how late that FIRST bar may be. The
 # live code also tolerates an alert that arrives late, and amendment F5 withdrew late entries on evidence (the edge
@@ -561,7 +564,15 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
         px = None
     else:
         px = quote(r["symbol"], since=floor) if aware else quote(r["symbol"])
+    saw = (getattr(quote, "seen", None) or {}).get(r["symbol"]) or {}     # what the quote saw (a record, not a rule)
     if px is None or not px > 0:
+        if "entry_wait" in r.keys() and r["entry_wait"] is None:
+            # 2026-11-24: the FIRST pass without a price writes down why, once. The rule is unchanged: the entry waits
+            # for a print at or after the tested bar, up to 5 minutes after the alert, then the alert is skipped.
+            why = (RESTART_WAIT if late and (over or not aware) else saw.get("why")) or NO_PRICE_YET
+            with db.tx() as c:
+                c.execute("UPDATE fade_trades SET entry_wait=? WHERE id=? AND status='pending' AND entry_wait IS NULL",
+                          (f"{iso(now)} {why}"[:300], r["id"]))
         if over:                                    # the tested rule: no bar within 5 minutes -> no trade (halts)
             traded = late and (not aware or (quote(r["symbol"], since=start) or 0) > 0)   # it printed; we were away
             _set(db, r["id"], "pending", status="skipped", reason=RESTART_NO_PRINT if traded else NO_PRINT_REASON)
@@ -579,7 +590,8 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     if is_off(db):                                    # owner 2026-11-12: a would-be short, not taken (no text)
         _set(db, r["id"], "pending", status="filtered", reason=OFF_REASON)
         return
-    if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now)):
+    when = {"est_print_at": saw["at"]} if saw.get("at") else {}      # the print the price came from (data age)
+    if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), **when):
         out = _exit_at(r["session"], now)[0].astimezone(ET)
         if r["reason"] == VETO:
             _veto_text(db, send, r, px, now, out, context)
@@ -712,6 +724,28 @@ def _set(db: OpsStore, rid: int, expect: str, **cols) -> bool:
         db.decide("short", rid, None, expect, cols.get("status", expect), cols.get("reason"), RULE_VERSION,
                   **{k: v for k, v in cols.items() if k not in ("status", "reason")})
     return done
+
+
+def settled_exit(r) -> str | None:
+    """How a SETTLED short's rule replay ended, read off its own stored numbers (2026-11-24). The row's ``reason``
+    is the LIVE path's exit and stays that after the settle, so GLXG 11-24 read "60 min" beside a settled cover at
+    the stop. "stop": the cover is at or above entry x 1.2 (the stop level, or the open of a minute that gapped over
+    it); the owner's NO; otherwise the timer: "60 min", or "close" when the hour ran past the session's close.
+    None = not settled."""
+    r = dict(r)
+    entry, cover = r.get("entry"), r.get("cover")
+    if entry is None or cover is None or not entry > 0:
+        return None
+    if cover >= entry * (1 + STOP) - 1e-9:
+        return "stop"
+    if r.get("reason") == VETO_EXIT:
+        return VETO_EXIT
+    try:
+        started = datetime.fromisoformat(str(r["entry_ts"]))
+        started = started if started.tzinfo is not None else started.replace(tzinfo=timezone.utc)
+        return _exit_at(str(r["session"]), started)[1]
+    except (KeyError, ValueError):
+        return "60 min"
 
 
 def due(db: OpsStore, now: datetime | None = None) -> pd.DataFrame:

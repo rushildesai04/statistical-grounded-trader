@@ -125,6 +125,10 @@ COLUMNS = {
         # while the listener was down and found by the catch-up) and, for a replay, when it was recovered. The entry
         # of a recovered alert never uses a print older than recovered_at.
         "via": "TEXT", "recovered_at": "TEXT",
+        # 2026-11-24 (GLXG: the live entry came 2 min 32 s after the tested bar and nothing on record said why): the
+        # time of the print the live entry price came from, and why the entry waited the first time it had no price.
+        # A record only: the entry rule (first print at or after the tested bar, inside 5 minutes) is unchanged.
+        "est_print_at": "TEXT", "entry_wait": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
