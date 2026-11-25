@@ -158,7 +158,12 @@ COLUMNS = {
         # nothing on the row said what the book had seen): the setup as the book saw it when it decided (JSON: the
         # base's high, low, width, the break candle, VWAP, the feed), and what the official bars show for the same
         # minute, written the same night. Evidence only: the rule stays "as the free feed shows it".
-        "setup_info": "TEXT", "setup_official": "TEXT"},
+        "setup_info": "TEXT", "setup_official": "TEXT",
+        # 2026-11-25 (BNAI: booked 8.255, the break candle's close, 13.6 s after it closed, while the offer was
+        # 8.39): what the booked price IS (JSON: its basis, the time it refers to, how old it was when booked, and
+        # the free feed's last trade at that moment when it could be read). A label on the live estimate; the
+        # registered replay and the execution model are computed as before.
+        "entry_ref": "TEXT"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

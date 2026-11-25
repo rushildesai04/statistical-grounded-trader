@@ -278,6 +278,38 @@ def at_close_line(s: pt.Setup, now: datetime) -> str:
     return f"\n⏱ Break candle closed {s.ready.tz_convert(ET):%H:%M:%S} ET ({ago}s ago): buy at market now"
 
 
+def entry_reference(s: pt.Setup, t: pt.Trade, now: datetime, at_close: bool, last=None, symbol: str | None = None) -> dict:
+    """What the booked price of a long IS (owner 2026-11-25): a reference, not a fill. Its basis (the break candle's
+    close, or the feed's next candle open), the time it refers to, how old it was when the book booked it, and the
+    free feed's last trade at that moment when ``last`` (the live quote, with its ``seen`` record) can give one.
+    Never raises and never decides anything: a failed read leaves the last trade out."""
+    ref_at = s.ready if at_close else t.entry_ts
+    out = {"basis": "the break candle's close" if at_close else "the free feed's next candle open", "booked": float(t.entry),
+           "ref_at": iso(pd.Timestamp(ref_at).to_pydatetime()),
+           "age_s": round(max(0.0, (pd.Timestamp(now) - pd.Timestamp(ref_at)).total_seconds()), 1)}
+    if last is not None and symbol:
+        try:
+            px = last(symbol)
+            seen = (getattr(last, "seen", None) or {}).get(symbol) or {}
+            if px is not None and px > 0 and seen.get("at"):
+                out.update(last_px=float(px), last_at=str(seen["at"]), last_vs_booked=round(float(px) / float(t.entry) - 1, 5))
+            else:
+                out["last_note"] = str(seen.get("why") or "no free-feed trade to read")[:120]
+        except Exception as exc:  # noqa: BLE001 - evidence only; the entry is already booked
+            out["last_note"] = f"read failed ({type(exc).__name__})"
+    return out
+
+
+def reference_line(ref: dict) -> str:
+    """The LONG IN card's line that says the price in the headline is a reference (it starts with a newline)."""
+    line = (f"\n    Booked at ${ref['booked']:.2f}: {ref['basis']}, {ref['age_s']:.0f} s old when booked. A reference "
+            "price, not a fill")
+    if ref.get("last_px"):
+        at = pd.Timestamp(ref["last_at"]).tz_convert(ET)
+        line += f"; free feed last trade ${ref['last_px']:.2f} at {at:%H:%M:%S} ({ref['last_vs_booked']:+.1%})"
+    return line + "."
+
+
 def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> Fill | None:
     """The first long setup to fill that the book would take (None = none yet)."""
     return fills(f, row, latest)[0]
@@ -349,7 +381,7 @@ SWEEP_EVERY = 15.0      # seconds: while candidates are being read, open longs a
 
 
 def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None,
-         up_since: datetime | None = None, on_sweep=None) -> int:
+         up_since: datetime | None = None, on_sweep=None, last_trade=None) -> int:
     """One pass: advance the open longs FIRST, then look for new ones, then advance again when one was opened (its
     first exit check, in the pass that opened it, as before). Open longs first (operational risk review 2026-11-23):
     each candidate costs a bar request (up to MAX_LOOKS a pass, 5 s timeout each) and the exit check of the open
@@ -358,7 +390,10 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
     when its candle closes (``at_close``, owner 2026-11-20), any other fill when the feed shows it. ``arm`` (a text
     sender, owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills
     (``sgt.fast.long_armed``); None = no armed texts. ``rule`` (a text sender): the trader's rule is texted when it would leave a long
-    (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way."""
+    (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way.
+    ``last_trade`` (2026-11-25): the live quote (``last_trade(symbol)`` -> the free feed's last trade price, with its ``seen``
+    record); read once AFTER a long is booked, only to say on the record and in the text how far the booked
+    reference price was from the feed's last trade. It decides nothing."""
     fixed, now = now, now or utcnow()
 
     def sweep(when: datetime) -> float:
@@ -427,7 +462,17 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
-                send(entry_text(db, row["symbol"], s, t, now_line + matrix_line(raw, now) + context_line(db, row["id"])))
+                # owner 2026-11-25: the booked price is a reference. Read AFTER the long is booked, so the read can
+                # delay the text by its timeout at most and never the booking; kept on the row and said in the text.
+                ref = entry_reference(s, t, now, bool(now_line), last_trade, row["symbol"])
+                try:
+                    with db.tx() as c:
+                        c.execute("UPDATE long_trades SET entry_ref=? WHERE fade_id=? AND entry_ref IS NULL",
+                                  (json.dumps(ref)[:700], row["id"]))
+                except Exception:  # noqa: BLE001 - a label on the record; the trade stands without it
+                    log.exception("entry reference of long for alert %s not stored", row["id"])
+                send(entry_text(db, row["symbol"], s, t, now_line + reference_line(ref) + matrix_line(raw, now)
+                                + context_line(db, row["id"])))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
     if opened:                                 # a long opened in this pass gets its first exit check in it, as before

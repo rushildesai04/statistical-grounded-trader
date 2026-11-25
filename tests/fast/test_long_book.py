@@ -83,7 +83,13 @@ def test_first_long_to_fill_with_tie_order_and_honest_text(db):
                         "this trade."),
         "💵 $404 (paper, test size; full size $4,038) (sized to the stop)",
         "🛑 stop $10.20 (-3.3%; a trigger, not a cap) ≈ -$17 · 🎯 target $11.25 (+6.6%) · ⏰ out 10:33 ET",
+        # owner 2026-11-25: the price in the headline is a reference, and says how old it was when booked
+        "    Booked at $10.55: the free feed's next candle open, 60 s old when booked. A reference price, not a fill.",
         "🔗 https://www.tradingview.com/chart/?symbol=ABCD"]
+    import json
+    ref = json.loads(trades(db)[0]["entry_ref"])
+    assert ref == {"basis": "the free feed's next candle open", "booked": 10.55, "ref_at": trades(db)[0]["entry_ts"],
+                   "age_s": 60.0}
     assert lb.tick(db, feed(DAY), sent.append, now=at(3, 30)) == 0 and len(trades(db)) == 1      # one long per alert
 
 
@@ -692,4 +698,59 @@ def test_the_setup_as_the_book_saw_it_is_kept_on_the_row_and_the_decision_line()
     assert seen == {"base_high": 8.18, "base_low": 7.89, "break_ts": (T1 - pt.BAR).isoformat(), "vwap": 8.1741,
                     "base_width": round((8.18 - 7.89) / 7.89, 6), "feed": "free feed (the live candles)"}
     assert lb.setup_seen(None) is None and lb.setup_seen(pt.Setup("L4b", "long", T1, 1.1, 1.0)) is None
+
+
+def test_the_booked_price_of_a_long_is_recorded_as_a_reference_with_its_age_and_the_feeds_last_trade():
+    """BNAI 2026-11-25: booked 8.255, the break candle's close, 13.6 s after it closed, while the offer was 8.39. The
+    booking is unchanged (the 2026-11-20 rule); the record and the text now say what that price is."""
+    ready = pd.Timestamp("2026-11-25 15:32:00", tz="UTC")
+    now = (ready + pd.Timedelta(seconds=13.6)).to_pydatetime()
+    s = pt.Setup("L8", "long", ready, None, 7.89)
+    t = pt.Trade("L8", "long", ready, 8.255, ready, 8.255, "open", 0.0)
+
+    def last(symbol):
+        last.seen = {symbol: {"at": "2026-11-25T15:32:13.487000+00:00", "why": None}}
+        return 8.3852
+    ref = lb.entry_reference(s, t, now, True, last, "BNAI")
+    assert ref == {"basis": "the break candle's close", "booked": 8.255, "ref_at": "2026-11-25T15:32:00+00:00",
+                   "age_s": 13.6, "last_px": 8.3852, "last_at": "2026-11-25T15:32:13.487000+00:00",
+                   "last_vs_booked": round(8.3852 / 8.255 - 1, 5)}
+    assert lb.reference_line(ref) == ("\n    Booked at $8.26: the break candle's close, 14 s old when booked. A reference "
+                                      "price, not a fill; free feed last trade $8.39 at 10:32:13 (+1.6%).")
+
+    def silent(symbol):                                              # the feed has no trade to give: said, not guessed
+        silent.seen = {symbol: {"at": None, "why": "the quote request failed"}}
+        return None
+    quiet = lb.entry_reference(s, t, now, True, silent, "BNAI")
+    assert quiet["last_note"] == "the quote request failed" and "last_px" not in quiet
+    assert lb.reference_line(quiet).endswith("A reference price, not a fill.")
+
+    def broken(symbol):
+        raise RuntimeError("boom")
+    assert lb.entry_reference(s, t, now, True, broken, "BNAI")["last_note"] == "read failed (RuntimeError)"
+    assert "last_note" not in lb.entry_reference(s, t, now, False) and lb.entry_reference(s, t, now, False)["basis"] == \
+        "the free feed's next candle open"
+
+
+def test_the_live_pass_reads_the_last_trade_only_after_the_long_is_booked_and_keeps_its_exit_timer(db):
+    """The reader is handed to ``tick`` by name (``last_trade``): inside the pass ``last`` is the exit-check timer, and
+    the first version of this change overwrote one with the other. A failing reader changes nothing about the trade."""
+    import json
+
+    alert_row(db)
+    calls = []
+
+    def reader(symbol):
+        calls.append((symbol, len(trades(db))))                       # how many longs were booked when it was read
+        reader.seen = {symbol: {"at": at(2, 5).isoformat(), "why": None}}
+        return 10.61
+    sent = []
+    for k in range(0, 9):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader)
+    (t,) = trades(db)
+    assert calls == [("ABCD", 1)]                                     # once, and only after the booking
+    ref = json.loads(t["entry_ref"])
+    assert (ref["booked"], ref["last_px"], ref["last_vs_booked"]) == (10.55, 10.61, round(10.61 / 10.55 - 1, 5))
+    assert "free feed last trade $10.61" in sent[0] and "A reference price, not a fill" in sent[0]
+    assert t["est_entry"] == 10.55 and t["status"] in ("open", "est_closed")     # the booking itself is what it was
 

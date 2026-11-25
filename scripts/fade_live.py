@@ -763,9 +763,12 @@ async def run() -> int:
     async def long_loop():
         from sgt.fast import long_book
 
+        long_last = iex_quote(lc)                # 2026-11-25: the feed's last trade, read after a long is booked (a label)
+
         def long_pass() -> None:
             long_book.tick(db, lambda sym, now: live_bars(lc, sym, now), long_send,
-                           None, arm_send, None, rec.up_since, long_pace.sweep)   # armed text. No text for the trend-hold exit
+                           None, arm_send, None, rec.up_since, long_pace.sweep,   # armed text. No text for the trend-hold exit
+                           last_trade=long_last)
 
         while True:
             try:
