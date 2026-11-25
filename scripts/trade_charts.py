@@ -96,6 +96,7 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         if r["status"] != "settled":                      # the official entry/exit only once settled
             r.update(net=None, entry=None, cover=None, entry_ts=None, exit_reason=None)
         elif r.get("exit_ts"):
+            r["live_exit_at"] = r["est_exit_at"]           # 2026-11-24: the live path's own exit time stays on the card
             r["est_exit_at"] = r["exit_ts"]                # the official exit time for the sell marker
         ret = r["net"] if r["net"] is not None else est_costs.net(     # live estimate: after estimated costs (2026-11-16)
             "long", r["symbol"], r.get("est_entry_at"), r.get("est_entry"), r.get("est_exit"))

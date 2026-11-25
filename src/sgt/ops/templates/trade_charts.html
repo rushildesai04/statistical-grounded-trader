@@ -688,9 +688,17 @@ function card(t, i) {
     // audit 2026-11-21: a settled card shows the official exit; what the live feed texted is kept when it differed
     if (t.live_reason) fact("texted live", t.live_reason);
     if (t.result_note) fact("scored", t.result_note);
+    // 2026-11-24: the live paper path's own prices and result stay on a settled card (two records of one trade)
+    const lp = v => "$" + (v < 5 ? v.toFixed(4).replace(/0{1,2}$/, "") : v.toFixed(2));
+    if (t.live && t.live.ret != null) fact("live estimate", (t.live.entry != null ? lp(t.live.entry) : "–") + " → "
+      + (t.live.exit != null ? lp(t.live.exit) : "no exit") + ", " + pct(t.live.ret)
+      + (t.live.stop != null ? ", stop " + lp(t.live.stop) : ""));
     if (isLong(t)) { if (t.target) fact("target", "$" + t.target.toFixed(2)); }
     else fact("news", t.news ? "yes" : "none found");
     c.append(top, facts);
+    if (t.official) c.append(el("div", "conf-note", (t.live && t.live.revised ? "Revised at the settle. " : "")
+      + "Shown: the settled rule replay on official one-minute bars" + (isLong(t) || t.stop == null ? "" : " (stop " + lp(t.stop) + ")")
+      + ". The live estimate is the listener's own path on the free feed. Neither is a broker fill."));
     // 2026-11-14 (owner): the 0-100 "group score" (100 x the chance that the average of similar trades is profitable)
     // is superseded by the money score. Archived, not shown: it was read as a win chance and was never money.
     scoreBox(t.score).forEach(n => c.append(n));
@@ -1047,7 +1055,7 @@ function jnHeadline(e) {
   const a = off ? e.entry : e.est_entry, b = off ? e.cover : e.est_exit;
   let s = e.symbol + " — " + (long ? "long " : "short ") + (jnPx(a) || "–");
   if (b != null) s += ", " + (long ? "sell " : "cover ") + jnPx(b);
-  if (r.ret != null) s += ": about a " + Math.abs(r.ret * 100).toFixed(1) + "% " + (r.ret > 0 ? "gain" : "loss") + (r.official ? " (official, after costs)" : " (live estimate)");
+  if (r.ret != null) s += ": about a " + Math.abs(r.ret * 100).toFixed(1) + "% " + (r.ret > 0 ? "gain" : "loss") + (r.official ? " (settled rule replay, after costs)" : " (live estimate)");
   return s;
 }
 
@@ -1315,7 +1323,7 @@ function jnDetail(key) {
   hero.append(h2, el("span", "big " + st, r.ret == null ? (e.status || "open") : (r.ret >= 0 ? "+" : "") + (r.ret * 100).toFixed(2) + "%"
     + (r.usd != null ? "  " + money(r.usd) : "") + (r.official ? "" : " est")));
   const head = el("div", "jn-title"); head.append(el("p", "jn-headline", jnHeadline(e)));
-  if (jnKind(e) !== "book") head.append(el("span", "jn-lesson", r.official ? "Official: the tested rule's fills on SIP bars, after costs."
+  if (jnKind(e) !== "book") head.append(el("span", "jn-lesson", r.official ? "Settled: the tested rule replayed on official one-minute bars, after costs. A rule replay, not a broker fill."
     : "Live estimate from the listener's prices, after estimated costs. The official result replaces it after the 20:40 ET settle."));
   const flag = jnBorrow(e); if (flag) head.append(el("span", "jn-warn", "⚠ " + flag));
   const stats = el("div", "jn-stats");

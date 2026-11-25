@@ -325,3 +325,26 @@ def test_the_page_says_the_money_verdict_is_advice_and_shows_the_live_label():
     assert "Verdict as of this page, not as of the entry" in page
     assert 'fact("texted live", t.live_reason)' in page and 'fact("scored", t.result_note)' in page
 
+
+def test_a_settled_card_keeps_the_live_paper_path_beside_the_settled_replay():
+    """GLXG 2026-11-24: texted +4.7% on the free feed (short 1.02, stop 1.224, out 0.9598), settled -21.2% (short 1.00,
+    stop 1.20). The card showed only the settled record. Both are two records of one trade; neither is a broker fill."""
+    ts = pd.date_range("2026-11-24 17:50", periods=80, freq="1min", tz="UTC")
+    bars = pd.DataFrame({"ts": ts, "open": 1.0, "high": [1.2 if i == 18 else 1.05 for i in range(80)], "low": 0.9,
+                         "close": 1.0, "volume": 1000})
+    t = {"id": 489, "symbol": "GLXG", "session": "2026-11-24", "alert_type": "gaining_momentum", "status": "settled",
+         "reason": "60 min", "posted_at": "2026-11-24T17:57:40+00:00", "est_entry": 1.02,
+         "est_entry_at": "2026-11-24T18:00:32.542634+00:00", "est_exit": 0.9598, "est_exit_at": "2026-11-24T19:00:37+00:00",
+         "entry_ts": "2026-11-24 17:58:00+00:00", "entry": 1.0, "cover": 1.2, "net": -0.2123386}
+    v = charts.trade_view(t, bars)
+    assert (v["entry"], v["exit"], v["reason"], v["live_reason"], v["official"]) == (1.0, 1.2, "stop", "60 min", True)
+    assert v["stop"] == pytest.approx(1.2) and v["ret"] == pytest.approx(-0.2123386)
+    live = v["live"]
+    assert (live["entry"], live["exit"], live["revised"]) == (1.02, 0.9598, True)
+    assert live["ret"] == pytest.approx(0.0467, abs=1e-4) and live["stop"] == pytest.approx(1.224)
+    assert live["entry_at"] == charts.et_epoch("2026-11-24T18:00:32.542634+00:00") and live["exit_at"] is not None
+    assert charts.trade_view({**t, "status": "est_closed", "entry": None, "cover": None, "net": None, "entry_ts": None},
+                             bars)["live"] is None                           # not settled: the estimate IS the card
+    small = charts.trade_view({**t, "est_entry": 1.0, "est_exit": 1.2, "reason": "stop"}, bars)["live"]
+    assert small["revised"] is False                                         # shown all the same, just not flagged
+

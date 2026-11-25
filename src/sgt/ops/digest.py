@@ -23,6 +23,24 @@ LOGS = {"megacap": Path("reports/megacap_forward/run.log"), "megacap 15": Path("
         "sms-poll": Path("reports/ops/poll.log"), "fast": Path("reports/fast/run.log"),
         "charts": Path("reports/charts/run.log")}
 _RUN = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+MAX_LOGS = 80
+
+
+def every_log(root: Path = Path("reports"), named: dict[str, Path] | None = None) -> dict[str, Path]:
+    """``LOGS`` plus every other ``<job>/run.log`` under ``root`` (2026-11-24). The list above was written by hand and
+    had fallen behind: the execution ledger, the forward records and the nightly studies each write a run.log that
+    nothing read, so "Jobs OK (24h)" could stand beside a ledger job that had failed (its own alert text was the only
+    notice, the same gap as 11-13). A log found this way is named after its folder."""
+    out = dict(LOGS if named is None else named)
+    have = {p.resolve() for p in out.values()}
+    try:
+        found = sorted(root.glob("*/run.log"))[:MAX_LOGS]
+    except OSError:
+        return out
+    for p in found:
+        if p.resolve() not in have:
+            out.setdefault(p.parent.name.replace("_", " "), p)
+    return out
 TAIL = 400
 
 
@@ -411,7 +429,7 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         needs.append(f"pending {p['strategy']}: OK {p['code']} by {approvals.fmt_et(datetime.fromisoformat(p['expires_at']))}")
     stuck = approvals.attention(db, now_et - timedelta(hours=24))
     needs += [f"approval #{r['id']} {r['strategy']} {r['status']}" for r in stuck]
-    fails = job_failures(now_et, LOGS)
+    fails = job_failures(now_et, every_log())
     if fails:
         needs.append("jobs FAILED: " + ", ".join(fails))
     needs += list(problems)
