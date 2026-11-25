@@ -115,7 +115,11 @@ def test_live_estimates_entry_stop_and_time_exit(db):
                        + italic("Estimate after about 1.3% costs (spread + locate); official numbers in the midnight "
                                 "summary."))
     assert out[-2].startswith(f"[SGT] 🛑 {bold('FADE OUT')} · {bold('UP')} · lost {bold('-$1,314 (-26.3%)')}\n"
-                              "Shorted $10.00 → bought back $12.50 · 🛑 stop hit")
+                              "Shorted $10.00 → bought back $12.50 · 🛑 stop triggered: price rose 20% over our short\n")
+    # owner 2026-11-25: a stop is a trigger, not a cap. The loss in its parts: to the stop, beyond it, costs
+    assert ("🛑 Stop $12.00 triggered: intended price risk -20.0%. A stop is a trigger, not a cap.\n"
+            "    Estimated exit $12.50: 5.0 points beyond the stop · about 1.3 points of costs\n") in out[-2]
+    assert "capped" not in out[-2] and "Stop $" not in out[-1]                  # a timer exit carries no stop lines
     assert fade.day_est_pnl(db, DAY.isoformat()) == pytest.approx(0.05 * (-0.25 + 0.10 - 2 * c))
 
 
@@ -404,10 +408,14 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
         "📰 “XYZ raises guidance”",
         "📣 halt resumed · up 85% today · +12% from open",
         f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
-        "💵 $5,000 · 🛑 stop $5.04 ≈ -$1,120 · ⏳ 60 min",
+        "💵 $5,000 · 🛑 stop $5.04 (a trigger, not a cap: past stopped trades averaged -22.4%) ≈ -$1,120 · ⏳ 60 min",
         f"🎯 Tested (764 unseen): win 57%, avg {bold('+$56')}",
         "    wins +$670 · losses -$765 · 16% stopped",
-        f"📈 Live: 21 trades, avg -2.0% {italic('(too few to judge)')}",
+        "    " + italic("Past figures: a bar replay of every alert, with no borrow check and no real fills. Averages of "
+                        "past trades, not a forecast for this one."),
+        # owner 2026-11-25: "too few to judge" hid a losing record; say which way it stands and what decides
+        "📈 Live paper record: 21 trades, avg -2.0% " + italic("(losing so far; not yet decisive: decided by the forward "
+                                                              "record at 300 alerts and the real-quote review at 50 trades)"),
         "🏦 IBKR 75k sh @ 44%/yr",
         "🔗 https://www.tradingview.com/chart/?symbol=XYZ"]
     quiet = {"news_any": False, "news_own": False, "news_earn": False, "news_n": 0, "headline": None}
@@ -936,19 +944,25 @@ def test_the_last_second_of_the_registered_minute_enters_and_the_first_of_the_ne
 
 
 def test_what_this_rule_leaves_alone(db, tmp_path):
-    """Not this rule's cases, each unchanged: an alert that itself arrived after its registered minute (delivery
-    delay, the owner's open question; labelled) and a stock with no free-feed print for five minutes (the same skip
-    as before, not the new one). The approved entries of the old ask-first mode and the restart rules keep their own
-    tests above, which pass unchanged."""
-    # delivery: the alert reaches the book 70 s after its registered minute began, then prints at once
+    """A stock with no free-feed print for five minutes: the same skip as before, not the new one. (The approved
+    entries of the old ask-first mode and the restart rules keep their own tests above, which pass unchanged.)
+    An alert that itself ARRIVES after its registered minute is no longer left alone: owner 2026-11-25, "Delivery-late
+    short alerts are record-only under the same registered-minute eligibility principle"."""
     d2 = OpsStore(tmp_path / "delivery.db")
     ap.arm(d2, T10)
-    fade.on_alert(d2, alert(at=T10 - timedelta(seconds=10)), now=T10 + timedelta(seconds=70))
+    fade.on_alert(d2, alert(at=T10 - timedelta(seconds=10)), now=T10 + timedelta(seconds=70))   # arrives 70 s into it
     sent = []
     fade.monitor(d2, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(seconds=80))
     (r,) = rows(d2)
-    assert r["status"] == "open" and r["entry_elig"].startswith(fade.ELIG_EXEMPT) and "delivery delay" in r["entry_elig"]
-    assert len(sent) == 1
+    assert (r["status"], r["reason"], r["est_entry"]) == ("skipped", fade.SUBSTITUTE_REASON, None) and sent == []
+    assert r["entry_elig"] == fade.ELIG_UNKNOWN and r["entry_rule"] == fade.ENTRY_RULE
+    assert r["entry_evidence"].startswith("the alert reached the book 10:01:10 ET, 70 s after its registered minute began; ")
+    # an alert that arrives late but still inside its registered minute, with a price there, is entered as before
+    d4 = OpsStore(tmp_path / "intime.db")
+    ap.arm(d4, T10)
+    fade.on_alert(d4, alert(at=T10 - timedelta(seconds=10)), now=T10 + timedelta(seconds=40))
+    fade.monitor(d4, sent.append, lambda s, **k: 4.0, now=T10 + timedelta(seconds=50))
+    assert (rows(d4)[0]["status"], rows(d4)[0]["entry_elig"]) == ("open", fade.ELIG_REGISTERED) and len(sent) == 1
     # no print at all for five minutes: the old reason, not an event, exactly as before
     d3 = OpsStore(tmp_path / "noprint.db")
     ap.arm(d3, T10)

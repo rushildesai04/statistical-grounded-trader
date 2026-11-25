@@ -113,15 +113,17 @@ RESTART_NO_PRINT = "no trade print after the restart within 5 min of the alert"
 # What the official bars showed is written the same night (``entry_official``), so the count of genuinely delayed
 # first prints the live book could not confirm is known. Unchanged: the registered replay (settle, forward record,
 # would-have: all from official bars, the first bar within five minutes); an alert with no free-feed print for five
-# minutes (NO_PRINT_REASON, as before); approved / auto entries of the old ask-first mode; the restart rules; and an
-# alert that itself ARRIVED after its registered minute had ended (delivery delay: still the owner's open question).
+# minutes (NO_PRINT_REASON, as before); approved / auto entries of the old ask-first mode; and the restart rules.
+# An alert that itself ARRIVED after its registered minute had ended (delivery delay) is record-only too: the owner
+# closed that question the same day ("record-only under the same registered-minute eligibility principle").
 ENTRY_MINUTE = timedelta(minutes=1)
-ENTRY_RULE = "live-entry-v2 2026-11-25: decided inside the registered entry minute, else record-only"
+ENTRY_RULE = ("live-entry-v2 2026-11-25: decided inside the registered entry minute, else record-only "
+              "(an alert delivered late included)")
 SUBSTITUTE_REASON = "registered entry minute passed: no substitute entry on a later free-feed print (record-only)"
 ELIG_REGISTERED = "inside the registered entry minute"
 ELIG_SUBSTITUTE = "substitute: the stock traded earlier, in or after its registered entry minute"
 ELIG_UNKNOWN = "unknown: earlier official trading cannot be confirmed or ruled out in time"
-ELIG_EXEMPT = "later minute, outside this rule: "       # + approved entry / restart rules / the alert arrived late
+ELIG_EXEMPT = "later minute, outside this rule: "       # + approved entry / restart rules
 # fade_trades.entry_wait (2026-11-24): why an entry had no price on its first pass, when the quote itself gave no reason
 NO_PRICE_YET = "no price from the live quote yet"
 RESTART_WAIT = "the listener restarted inside or after the entry bar: no entry on a print it cannot date"
@@ -218,7 +220,8 @@ class LiveAlert:
 RULE_VERSION = ("fade 2026-11-21: F6 no-news, F7 beta<3 (unknown = no short), F8 no repeat 7d, borrow listed, $1-50, 20% stop, "
                 "60 min | restart rules 2026-11-23: a recovered alert is recorded, not entered; no entry on a print from "
                 "before the listener was back; the 5 min entry limit is not stretched by downtime | entry 2026-11-25: "
-                "decided inside the registered entry minute, else record-only (not: approved, restart, late delivery)")
+                "decided inside the registered entry minute, else record-only, late delivery included (not: approved, "
+                "restart)")
 RECORDED = ("status", "reason", "news_own", "beta")     # a row update that touches one of these is a decision
 
 
@@ -631,13 +634,18 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     if now >= start + ENTRY_MINUTE:                   # owner 2026-11-25: the registered entry minute has passed
         got = datetime.fromisoformat(r["created_at"]) if r["created_at"] else posted
         exempt = ("an approved entry (ask-first mode)" if r["reason"] in ("approved", "auto") else
-                  "the restart rules decide it" if late else
-                  "the alert itself arrived after its registered minute (delivery delay, an open question)"
-                  if got >= start + ENTRY_MINUTE else None)
+                  "the restart rules decide it" if late else None)
         if exempt is None:
             what, evidence = _earlier_trading(quote, r["symbol"], start, now)
+            # Owner 2026-11-25 (second decision): "Delivery-late short alerts are record-only under the same
+            # registered-minute eligibility principle." An alert that itself reached the book after its registered
+            # minute had ended is not shorted either; the record says that it arrived late, and how late.
+            arrived = (f"the alert reached the book {got.astimezone(ET):%H:%M:%S} ET, "
+                       f"{int((got - start).total_seconds())} s after its registered minute began; "
+                       if got >= start + ENTRY_MINUTE else "")
             _set(db, r["id"], "pending", status="skipped", reason=SUBSTITUTE_REASON, entry_elig=what,
-                 entry_evidence=(evidence + f"; the print not used: ${_fmt(px)}")[:400], entry_rule=ENTRY_RULE, **when)
+                 entry_evidence=(arrived + evidence + f"; the print not used: ${_fmt(px)}")[:400],
+                 entry_rule=ENTRY_RULE, **when)
             return                                    # recorded, never shorted; no text (as every skip)
         elig = ELIG_EXEMPT + exempt
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), entry_elig=elig,

@@ -25,6 +25,7 @@ import pandas as pd
 
 from sgt.fast import calc_v1, est_costs, fade, long_shadow, news
 from sgt.fast import patterns as pt
+from sgt.fast.fade_texts import live_note, stop_lines
 from sgt.fast.fade import ET
 from sgt.ops import approvals, chartserver
 from sgt.ops.sms_style import bold, italic
@@ -709,13 +710,17 @@ def entry_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade, extra: str =
              "🎲 " + (f"Past win rate {bold(f'{win:.0%}')} · " if win is not None else "") + f"{name}: "
              + italic(f"avg {long_shadow.TESTED.get(s.kind, 0):+.1%}/trade over {TESTED_N.get(s.kind, 0):,} past trades")
              + " (live paper test)",
+             "    " + italic("Past figures: a replay of past alerts on candles, no real fills. Averages, not a forecast "
+                             "for this trade."),
              f"💵 ${usd:,.0f} {paper}{sized}",
-             f"🛑 stop ${s.stop:.2f} ({-risk:.1%}) ≈ {_usd(-usd * (risk + cost))} · 🎯 target ${target(s, t):.2f} "
+             f"🛑 stop ${s.stop:.2f} ({-risk:.1%}; a trigger, not a cap) ≈ {_usd(-usd * (risk + cost))} · "
+             f"🎯 target ${target(s, t):.2f} "
              f"(+{pt.RR * risk:.1%}) · ⏰ out {out.tz_convert(ET):%H:%M} ET"]
     with db.tx() as c:
         n, m = c.execute("SELECT COUNT(*), AVG(net) FROM long_trades WHERE status='settled'").fetchone()
     if n and m is not None:
-        lines.append(f"📈 Live: {n} trades, avg {m:+.1%}" + (" " + italic("(too few to judge)") if n < PROOF_N else ""))
+        lines.append(f"📈 Live paper record: {n} trades, avg {m:+.1%}" + (" " + italic(live_note(m, "long"))
+                                                                           if n < PROOF_N else ""))
     chart = news.chart_url(symbol)
     return "\n".join(lines) + extra + (f"\n🔗 {chart}" if chart else "")
 
@@ -732,7 +737,7 @@ def seen_text(db: OpsStore, symbol: str, s: pt.Setup, t: pt.Trade) -> str:
             f"{TESTED_N.get(s.kind, 0):,} trades")
 
 
-EXIT_WHY = {"stop": "🛑 stop hit, loss capped", "target": "🎯 target hit", "time": "⏰ time exit",
+EXIT_WHY = {"stop": "🛑 stop triggered", "target": "🎯 target hit", "time": "⏰ time exit",   # 2026-11-25: never "capped"
             "red": "🔻 fill candle closed red, out at the next open"}
 
 
@@ -763,6 +768,8 @@ def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
     move = t.exit / t.entry - 1
     lines.append("💡 Why: " + (f"price rose {move:.1%} while we were long" if move > 0 else
                               f"price fell {abs(move):.1%} while we were long" if move < 0 else "price did not move"))
+    if t.reason == "stop" and dict(r).get("stop"):     # owner 2026-11-25: the stop's loss in its parts, never "capped"
+        lines += stop_lines("long", t.entry, float(r["stop"]), t.exit, cost)
     session = dict(r).get("session")
     n_day, day_usd = _day(db, session) if session else (0, 0.0)
     if n_day:
