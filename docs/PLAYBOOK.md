@@ -53,6 +53,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | step | rule | source |
 |---|---|---|
 | entry | first 1-min bar at or after alert + 10 s (live: latest IEX trade; a print older than 90 s after a >= 10% move in 5 min looks like a halt and is not a price; without such a move it is a thin-on-IEX stock and is used) | prereg_alert_fade; RAYA / SNT fixes 2026-11-06 |
+| entry minute (2026-11-25, owner) | a live short is decided inside its registered entry minute (the first minute at or after alert + 10 s) or not at all. Later than that the alert is recorded, never shorted, no text: "substitute" when the free feed's trade list shows an earlier trade, "unknown" when nothing can confirm or rule out earlier official trading in time (the official feed refuses data younger than about 15 minutes; a silent free feed is never read as a halt). The official bars are read the same night and say which it was. Not covered, unchanged: no free-feed print for 5 minutes (skipped as before), approved / auto entries, restart rules, and an alert that itself arrives after its minute (delivery, open) | `entry_eligibility_2026-11-25.md`, `live-entry-v2` |
 | filters | alert type in the 10 cells, 09:30-15:44 ET, $1-50, first event per symbol-day | prereg_alert_fade |
 | stop | 20% above entry (worst case inside a bar). Live, the free feed can miss a move on a thin name, so since 2026-11-17 (owner decision 3A, `sgt.fast.tape_check`) the official one-minute bars, free once about 16 minutes old, are read every minute for each live short: an open trade whose stop the official tape crossed is closed there, and a trade covered later on the timer is corrected to the stop with one CORRECTION text. Estimates and texts only: the nightly official result was always computed from that tape | prereg_alert_fade (10/20/30/none explored on train); MPU 11-17 |
 | exit | 60 minutes after entry, or the 16:00 close if earlier | prereg_alert_fade |
@@ -941,6 +942,17 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Substitute short entries are record-only (owner 2026-11-25; `live-entry-v2`).** "If the registered entry
+  opportunity has already passed, a later free-feed print does not authorize a replacement trade. This decision
+  follows the specification, not the outcomes of BUUU or GLXG." What the book can know at the moment: earlier
+  trading can be CONFIRMED (the free feed's trade list, odd lots included: GLXG's three odd lots were there);
+  absence of trading cannot (the official feed answers 403 for the last 15 minutes; BUUU's registered minute traded
+  officially while the free feed showed nothing for two minutes). So a live entry is decided inside the registered
+  minute or the alert is recorded with its eligibility ("substitute" or "unknown"), its evidence and the rule's
+  version; the official bars are read that night. The registered replay, the forward record, the cohort and every
+  stored trade are unchanged. A genuinely delayed first print stays entered where it is registered (official bars);
+  live it is "unknown" and not entered, which has cost no trade so far (0 of 34 live entries were one). Still open:
+  an alert that itself arrives late (delivery), and a timely halt source that could confirm a delay (not built).
 - **Stop arithmetic and entry timing: two corrections prepared, nothing registered changed (owner 2026-11-25).**
   (1) Arithmetic. Every price threshold is computed in binary floating point (`binary-v0`), so whether an exact
   touch counts depends on the entry price. The owner does not accept that as the permanent definition. Prepared,
@@ -957,8 +969,9 @@ night it cannot finish is texted and caught up on the next run.
   late that first bar may be. WAITING for the first qualifying print (a halt) is that rule. Entering LATER although
   the official tape already traded in the registered minute is a substitute entry the registration does not define;
   the live code cannot tell the two apart, because it waits for a round-lot print on the free feed. Of 34 live short
-  entries 4 came in a later minute: 2 waited with the official tape (CRIS, PMAX 11-04), 2 were substitutes (BUUU
-  11-23, GLXG 11-24), both with the alert received in under 3 s. That is neither delivery delay (open, unchanged) nor
+  entries 4 came in a later minute: 2 were approved / auto entries of the withdrawn ask-first mode (CRIS, PMAX
+  11-04; first written here as waits on a delayed tape: wrong, corrected 11-25), 2 were substitutes (BUUU 11-23,
+  GLXG 11-24), both with the alert received in under 3 s. That is neither delivery delay (open, unchanged) nor
   restart recovery (record-only since 11-23). My 11-24 wording that the five-minute wait "is the rule" described
   the code and is withdrawn; the question is the owner's (`ops_risk_register_2026-11-23.md`), to be taken on the
   specification and F5, not on the cohort's returns. The labels "filled against a quote smaller than the order" and

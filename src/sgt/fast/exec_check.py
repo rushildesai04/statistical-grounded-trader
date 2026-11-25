@@ -32,6 +32,12 @@ log = logging.getLogger(__name__)
 RthBars = Callable[[str, str], "pd.DataFrame | None"]   # (symbol, session) -> official regular-hours 1-minute bars
 Cost = Callable[[str, datetime, float], float]
 NO_MINUTE = "no official minute after the bot's decision"
+# 2026-11-25: for an alert the live book recorded instead of shorting because its registered entry minute had passed
+# (``fade.SUBSTITUTE_REASON``), what the official bars show afterwards. The live book could not know this in time.
+OFF_SUBSTITUTE = "official tape traded in the registered entry minute: a later entry would have been a substitute"
+OFF_DELAYED = "official tape first traded {at} ET, after the registered minute: the registered rule enters there; the live book could not confirm it in time"
+OFF_NONE = "no official bar within 5 minutes of the alert: not an event under the registered rule"
+ENTRY_REACTION, ENTRY_LIMIT = timedelta(seconds=10), timedelta(minutes=5)
 LOOKBACK_DAYS, MAX_ROWS = 14, 200
 REREAD = 50                                             # settled shorts with both figures at which the pair is reread
 
@@ -77,7 +83,46 @@ def run(db: OpsStore, bars: RthBars, cost_fn: Cost, now: datetime | None = None)
             continue
         if line:
             out.append(line)
+    from sgt.fast import fade
+
+    with db.read() as c:
+        subs = [dict(r) for r in c.execute(
+            "SELECT id, symbol, session, posted_at FROM fade_trades WHERE status='skipped' AND reason=? AND "
+            "entry_official IS NULL AND session>=? ORDER BY id LIMIT ?", (fade.SUBSTITUTE_REASON, since, MAX_ROWS))]
+    for r in subs:
+        try:
+            line = _substitute(db, r, bars)
+        except Exception:  # noqa: BLE001 - as above
+            log.exception("entry evidence failed for alert %s", r["id"])
+            continue
+        if line:
+            out.append(line)
     return out
+
+
+def _substitute(db: OpsStore, r: dict, bars: RthBars) -> str | None:
+    """What the official bars show for an alert recorded under the 2026-11-25 entry rule: did the stock trade in its
+    registered entry minute (the live entry would have been a substitute), first trade later (the registered rule
+    enters there: an entry the live book gave up because it could not confirm the delay), or not within 5 minutes."""
+    from sgt.fast import fade
+
+    posted, day = _utc(r["posted_at"]), _day(bars, r["symbol"], r["session"])
+    if posted is None or day is None:
+        return None                                        # no bars yet: retried
+    start = pd.Timestamp(fade.entry_start(posted.to_pydatetime()))
+    after = day[day.ts >= posted + ENTRY_REACTION]
+    if after.empty or after.ts.iloc[0] - posted > ENTRY_LIMIT:
+        what = OFF_NONE
+    elif after.ts.iloc[0] < start + pd.Timedelta(minutes=1):
+        what = OFF_SUBSTITUTE
+    else:
+        what = OFF_DELAYED.format(at=after.ts.iloc[0].tz_convert(ET).strftime("%H:%M"))
+    with db.tx() as c:
+        done = c.execute("UPDATE fade_trades SET entry_official=? WHERE id=? AND entry_official IS NULL",
+                         (what, r["id"])).rowcount == 1
+    short = {OFF_SUBSTITUTE: "the official tape traded in its registered minute", OFF_NONE: "no official bar within 5 minutes"}
+    return (f"{r['symbol']} recorded, not shorted: "
+            + short.get(what, "the official tape first traded in a later minute")) if done else None
 
 
 def _short(db: OpsStore, r: dict, bars: RthBars, cost_fn: Cost) -> str | None:

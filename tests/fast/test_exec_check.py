@@ -168,3 +168,32 @@ def test_a_second_writer_never_overwrites_a_recorded_figure(db):
     first = one(db, "fade_trades", rid)["dec_net"]
     assert ec._short(db, r, lambda sym, session: rth({32: (20.0, 20.0, 20.0, 20.0)}), cost) is None
     assert one(db, "fade_trades", rid)["dec_net"] == first
+
+
+def test_an_alert_recorded_under_the_entry_rule_gets_what_the_official_bars_showed(db):
+    """2026-11-25: the live book records, and does not short, an alert whose registered entry minute passed without a
+    free-feed print. It cannot know in time whether the stock traded; the official bars say so the same night."""
+    from sgt.fast import fade
+
+    def recorded(sym):
+        rid = short(db, sym=sym, status="skipped")              # posted 10:00:20 -> registered minute 10:01
+        with db.tx() as c:
+            c.execute("UPDATE fade_trades SET reason=?, est_entry=NULL, est_entry_at=NULL, entry_ts=NULL, entry=NULL, "
+                      "net=NULL WHERE id=?", (fade.SUBSTITUTE_REASON, rid))
+        return rid
+
+    traded, delayed, never, nobars = recorded("TRD"), recorded("DLY"), recorded("NVR"), recorded("NOB")
+    full = rth()
+    cut = lambda a, b: full[(full.ts < OPEN + pd.Timedelta(minutes=a)) | (full.ts >= OPEN + pd.Timedelta(minutes=b))]  # noqa: E731
+    days = {"TRD": full, "DLY": cut(31, 33), "NVR": cut(31, 40)}       # 10:01 is minute 31 of the session
+    lines = run(db, days)
+    assert one(db, "fade_trades", traded)["entry_official"] == ec.OFF_SUBSTITUTE
+    assert one(db, "fade_trades", delayed)["entry_official"] == ec.OFF_DELAYED.format(at="10:03")
+    assert one(db, "fade_trades", never)["entry_official"] == ec.OFF_NONE
+    assert one(db, "fade_trades", nobars)["entry_official"] is None                # no bars yet: retried, not guessed
+    assert sorted(x for x in lines if "recorded, not shorted" in x) == [
+        "DLY recorded, not shorted: the official tape first traded in a later minute",
+        "NVR recorded, not shorted: no official bar within 5 minutes",
+        "TRD recorded, not shorted: the official tape traded in its registered minute"]
+    assert not [x for x in run(db, days) if "recorded, not shorted" in x]          # written once
+    assert all(one(db, "fade_trades", i)["status"] == "skipped" for i in (traded, delayed, never))   # nothing else moves

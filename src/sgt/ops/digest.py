@@ -308,6 +308,9 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                              f"reason IN ({','.join('?' * len(fade.BORROW_REASONS))}) GROUP BY reason",
                              (s, *fade.BORROW_REASONS)).fetchall())
     dry = sum(why.values())
+    with db.read() as c:                                # owner 2026-11-25: substitute entries are record-only
+        late = c.execute("SELECT entry_elig, entry_official FROM fade_trades WHERE session=? AND status='skipped' AND "
+                         "reason=?", (s, fade.SUBSTITUTE_REASON)).fetchall()
     # 2026-11-16: the fade went back on at 12:13 and the night's digest still read "fade OFF" for the nine alerts of
     # the morning. The line says what is true now: off, or on again with what was skipped while it was off.
     if fade.is_off(db):
@@ -327,6 +330,15 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
         head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted on IBKR's lendable "
                     f"list at the alert ({', '.join(parts)}; "
                     f"{italic('that broker at that time, not every broker')})")
+    if late:
+        n = len(late)
+        known = sum(str(r["entry_elig"] or "").startswith("substitute") for r in late)
+        delayed = sum(str(r["entry_official"] or "").startswith("official tape first traded") for r in late)
+        head.append(f"\U0001F4DD {bold('fade')}: {n} alert{'s' if n != 1 else ''} recorded, not shorted: the "
+                    f"registered entry minute passed before our free feed showed a price (earlier trading confirmed "
+                    f"{known}, not knowable in time {n - known}"
+                    + (f"; official bars since: {delayed} had a genuinely later first trade" if delayed else "")
+                    + f"; {italic('no replacement entry')})")
     if not rows:
         return head, 0.0
     today = fade.nav(db, day) - fade.nav(db, day - timedelta(days=1))

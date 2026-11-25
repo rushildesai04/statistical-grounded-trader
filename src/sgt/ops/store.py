@@ -130,6 +130,10 @@ COLUMNS = {
         # A record only: what the live code does at entry is unchanged. Whether a live entry that comes after the
         # registered entry bar is eligible is NOT settled by this (see the note in ``fade._enter``).
         "est_print_at": "TEXT", "entry_wait": "TEXT",
+        # 2026-11-25 (owner: a substitute short entry is record-only): what the entry rule decided about this alert
+        # (``entry_elig``), on what evidence at that moment (``entry_evidence``), under which version of the live
+        # entry rule (``entry_rule``), and what the official bars showed afterwards (``entry_official``, nightly).
+        "entry_elig": "TEXT", "entry_evidence": "TEXT", "entry_rule": "TEXT", "entry_official": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars

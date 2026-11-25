@@ -31,6 +31,7 @@ WHY = {
     fade.BORROW_FEW: "too few shares listed at IBKR at the alert for this trade size: no short",
     fade.BORROW_UNKNOWN: "borrow unknown at entry: no short",
     fade.NO_PRINT_REASON: "no trade printed within 5 minutes (halted or no quote)",
+    fade.SUBSTITUTE_REASON: "its entry minute passed before our free feed showed a price: recorded, no replacement short",
     "alert received late": "the alert reached us too late to enter at the tested time",
     fade.RESTART_NO_PRINT: "the stock traded, but not after our listener was back, inside the 5 minutes",
     fade.RECOVERED_ONLY: "posted while our listener was down: recorded, not shorted",

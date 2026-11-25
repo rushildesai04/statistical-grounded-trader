@@ -126,8 +126,38 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
             log.warning("quote %s failed: %s", symbol, type(exc).__name__)
             note["why"] = f"the quote request failed ({type(exc).__name__})"
             return None
+    def traded_between(symbol: str, start: datetime, end: datetime) -> tuple[str, str]:
+        """Did the FREE feed print any trade of ``symbol`` in [start, end), odd lots included (they do not move its
+        "latest trade")? ("yes", when and how much) / ("no", "") / ("unknown", why). "no" is this feed's silence
+        and nothing more: IEX carries a small share of a stock's trades, so it is never evidence of a halt or of an
+        untraded minute. The answer is external data: anything not exactly as expected is "unknown"."""
+        if not _SYMBOL.match(symbol) or not end > start:
+            return "unknown", "nothing to look at"
+        try:
+            r = client.get(f"/v2/stocks/{symbol}/trades", params={"feed": "iex", "start": start.isoformat(),
+                                                                 "end": end.isoformat(), "limit": 5})
+            if r.status_code != 200:
+                return "unknown", f"HTTP {r.status_code}"
+            body = r.json()
+            rows = body.get("trades") if isinstance(body, dict) else None
+            if rows is None:
+                return "no", ""
+            if not isinstance(rows, list):
+                return "unknown", "unexpected answer"
+            for t in rows[:5]:
+                if not isinstance(t, dict):
+                    continue
+                at = pd.Timestamp(str(t.get("t", ""))).to_pydatetime(warn=False)
+                px, size = float(t.get("p", 0)), float(t.get("s", 0))
+                if at.tzinfo is not None and start <= at < end and px > 0 and size > 0:
+                    return "yes", f"traded {at.astimezone(fade.ET):%H:%M:%S} ET, {size:g} shares at ${px:g}"
+            return "no", ""
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            log.warning("trade list %s failed: %s", symbol, type(exc).__name__)
+            return "unknown", type(exc).__name__
     quote.since_aware = True
     quote.seen = seen
+    quote.traded_between = traded_between
     return quote
 
 
