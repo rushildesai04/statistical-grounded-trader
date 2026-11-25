@@ -39,14 +39,29 @@ the code, three things are open, and all three should be fixed before the split 
 **C1. Three labels, never two.** Every forward alert gets exactly one of: SHARES LISTED, NONE LISTED, UNKNOWN.
 UNKNOWN is its own row in every table. It is never counted as unflagged.
 
-**C2. One source for the listing, the same for taken and untaken alerts.** The runner has stored IBKR's full loan
-list every 15 minutes since 2026-11-04 (`data/borrow/YYYYMMDD/HHMM.parquet`). The listing of an alert is read from
-the last stored list stamped at or before the alert's posting time and no more than 20 minutes older; none such:
-UNKNOWN. SHARES LISTED = that list shows at least the shares a position of the book's size needs at the alert's
-price; the rule the bot's own gate uses, unchanged. For alerts the bot did stamp, its stamp is shown beside the
-list's and any disagreement is counted, not resolved.
-*This is an extension, not a restatement:* it defines the part the registration left open. It changes no threshold
-and no registered figure. It needs the owner's word because it fixes how a registered report is computed.
+**C2. One source for the listing, the same for taken and untaken alerts, under the rules that already exist.** The
+runner has stored IBKR's full loan list every 15 minutes since 2026-11-04 (`data/borrow/YYYYMMDD/HHMM.parquet`). The
+listing of an alert is read from the last stored list stamped at or before the alert's posting time, under the SAME
+age rule the bot's own stamp uses (`borrow.STALE`: a list more than 3 hours old is not used); none such: UNKNOWN. No
+new age limit is introduced. For alerts the bot did stamp, its stamp is shown beside the list's and any
+disagreement is counted, not resolved.
+*This is an extension, not a restatement:* it defines the part the registration left open, with existing rules
+only. It needs the owner's word because it fixes how a registered report is computed.
+
+**C2a. An inconsistency that exists today, for the owner to settle rather than for this draft to choose.** The
+ledger defines "none listed" in two ways:
+
+| Rows | Rule in `scripts/exec_ledger.py` | A missing stamp |
+|---|---|---|
+| shorts the bot took (the cohort) | `no_borrow` when the list shows no shares OR fewer than the position needs | `borrow_unknown`, which is NOT an exclusion flag: the trade is labelled MODELED |
+| forward alerts | `no_borrow` only when the list shows no shares at all | no flag |
+
+The forward split can follow the forward rows' rule as it stands (no shares at all), or the cohort's (fewer than
+the position needs). Both are existing rules; neither is a new threshold. Recommended: report BOTH readings side by
+side and call neither the answer, since choosing one after the fact would be a choice made on seen data for the
+sessions before 2026-11-23. Whether `borrow_unknown` should stay inside the cohort's MODELED sample is a question
+about a registered sample and is NOT proposed for change here; it is stated so that "no exclusion flag" is read for
+what it is.
 
 **C3. Reasons kept apart.** The report shows the registered headline (any exclusion flag against none) and, beside
 it, the rows: price test only, none listed only, both, neither, unknown. No row is pooled with another to make a

@@ -176,7 +176,8 @@ stops and the modelled result of each stopped trade); the held-out file itself w
   4. **Order feasibility.** Whether the order could be sent and filled as assumed: the short-sale price test, the
      displayed size against the order, halts, and a broker's own approval. A listing establishes none of these.
   An exclusion flag in the ledger speaks to 1 (at one broker, at one time) and to the price test. "No exclusion
-  flag" is therefore not "could be traded".
+  flag" is therefore not "could be traded"; and a short whose borrow stamp is missing carries `borrow_unknown`,
+  which is not an exclusion flag, so it sits inside the modelled sample.
 - Spreads, for shorts: **limited paired evidence, no more.** On the 15 pre-cohort shorts with no flag, real quotes
   give -8.87% against a settled -9.18% for the same trades. On those 15 the bar-based cost was not flattering. That
   is one small paired comparison from three weeks of one channel's stocks at a quarter of full size; it does not
