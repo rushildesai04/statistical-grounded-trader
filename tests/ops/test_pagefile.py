@@ -90,3 +90,25 @@ def test_a_file_left_by_a_killed_build_is_removed_after_an_hour_and_a_bad_stamp_
     with pytest.raises(ValueError):
         pagefile.publish(out, "D", datetime(2026, 11, 24, 21, 0))    # a build must say when, with a zone
     assert out.read_text() == "C"
+
+
+def test_a_build_that_dies_between_its_stamp_and_its_page_cannot_let_an_older_build_in(tmp_path, monkeypatch):
+    """Review 2026-11-24: the stamp and the page are two renames. Stamp first: a death between them leaves the stamp
+    ahead of the page, so an older build is refused and the next newer build repairs it."""
+    out = tmp_path / "fade_tape.html"
+    assert pagefile.publish(out, "PAGE 1", T0) is True
+    real = Path.replace
+
+    def dies(self, target):
+        if str(target) == str(out):
+            raise OSError("killed before the page rename")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", dies)
+    with pytest.raises(OSError):
+        pagefile.publish(out, "PAGE 3", T0 + timedelta(seconds=6))
+    monkeypatch.setattr(Path, "replace", real)
+    assert out.read_text() == "PAGE 1" and names(tmp_path) == ["fade_tape.html", "fade_tape.html.built", "fade_tape.html.lock"]
+    assert pagefile.publish(out, "PAGE 2", T0 + timedelta(seconds=3)) is False    # older than the stamp: refused
+    assert pagefile.publish(out, "PAGE 4", T0 + timedelta(seconds=9)) is True and out.read_text() == "PAGE 4"
+

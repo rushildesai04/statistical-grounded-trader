@@ -44,7 +44,7 @@ def publish(out: Path, html: str, built_from: datetime) -> bool:
         except OSError:                                  # another run took it first: nothing to clean
             pass
     fd, name = tempfile.mkstemp(dir=out.parent, prefix=out.stem + ".", suffix=".tmp")
-    tmp, stamp = Path(name), out.with_name(out.name + ".built")
+    tmp, stamp, mark = Path(name), out.with_name(out.name + ".built"), None
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(html)
@@ -57,12 +57,18 @@ def publish(out: Path, html: str, built_from: datetime) -> bool:
                 have = None
             if have is not None and have > built_from:
                 return False                             # the page in place was built from newer data
-            tmp.replace(out)
+            # The stamp first, then the page (review 2026-11-24): a process that dies between the two leaves a stamp
+            # that is AHEAD of the page, so an older build is still refused and the next build puts things right.
+            # The other order would leave a newer page under an older stamp, which an older build could replace.
             fd2, name2 = tempfile.mkstemp(dir=out.parent, prefix=out.stem + ".", suffix=".tmp")
+            mark = Path(name2)
             with os.fdopen(fd2, "w", encoding="utf-8") as f:
                 f.write(built_from.isoformat())
-            os.chmod(name2, 0o644)
-            Path(name2).replace(stamp)
+            os.chmod(mark, 0o644)
+            mark.replace(stamp)
+            tmp.replace(out)
         return True
     finally:
         tmp.unlink(missing_ok=True)                      # a failed or dropped build leaves nothing behind
+        if mark is not None:
+            mark.unlink(missing_ok=True)

@@ -570,9 +570,12 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
             # 2026-11-24: the FIRST pass without a price writes down why, once. The rule is unchanged: the entry waits
             # for a print at or after the tested bar, up to 5 minutes after the alert, then the alert is skipped.
             why = (RESTART_WAIT if late and (over or not aware) else saw.get("why")) or NO_PRICE_YET
-            with db.tx() as c:
-                c.execute("UPDATE fade_trades SET entry_wait=? WHERE id=? AND status='pending' AND entry_wait IS NULL",
-                          (f"{iso(now)} {why}"[:300], r["id"]))
+            try:
+                with db.tx() as c:
+                    c.execute("UPDATE fade_trades SET entry_wait=? WHERE id=? AND status='pending' AND entry_wait IS "
+                              "NULL", (f"{iso(now)} {why}"[:300], r["id"]))
+            except Exception:  # noqa: BLE001 - a record: failing to write it must never change what the entry does
+                log.exception("entry wait of fade %s not recorded", r["id"])
         if over:                                    # the tested rule: no bar within 5 minutes -> no trade (halts)
             traded = late and (not aware or (quote(r["symbol"], since=start) or 0) > 0)   # it printed; we were away
             _set(db, r["id"], "pending", status="skipped", reason=RESTART_NO_PRINT if traded else NO_PRINT_REASON)

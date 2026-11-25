@@ -941,6 +941,30 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Three records of one trade, and the revision block (owner 2026-11-24 night; reporting and records only, no
+  rule, size, sample or criterion changed).** A trade has three records and none is a broker fill: the LIVE paper
+  path (the listener on the free feed: its own entry print, its own stop level), the SETTLED rule replay (the
+  registered rule on official one-minute bars; for a short from the first minute after alert + 10 s, so its own
+  entry and its own stop level), and the EXECUTION MODEL (orders against real quotes from the bot's decision, a
+  research ledger written at 21:25). GLXG 11-24: the live path stayed open because its stop (1.224) was never
+  reached; the replay stopped at 1.20 from a 1.00 entry; the model sold the 1.00 bid and was stopped too, and
+  the same model with a 5 s delay sold 1.01 and was not (-20.5% and +6.0%: both kept as sensitivity, neither
+  chosen, nothing inferred). What now shows this: (1) the nightly report lists every trade whose net return moved
+  5 points or more, or changed sign, between the texted estimate and the settled result, with both entries, both
+  stop levels, both exits and the cause when the two stored records establish it (else "unresolved"); the model
+  is never in that block. A late settle is listed once by the next report; an unsettled trade is marked. (2) The
+  site's settled card keeps the live record beside the settled one and says which it shows. (3) The ledger's short
+  rows carry the settled exit beside the live one (additive keys); its nightly line labels counted trades filled
+  against a quote smaller than the order and trades whose sign differs between the two delays, and says when the
+  ledger is incomplete. (4) A short entry that waits writes down why, once, and the time of the print it used
+  (GLXG waited 2 min 32 s for a round-lot print on the free feed and no record said so). Edge cases checked the same
+  night: a list read without the write lock cannot close a position twice or reopen a settled one (every change is
+  one guarded statement; tests let another task act between the read and the write); a page built from older data
+  cannot replace a newer one; the nightly job list reads every job's log, not nine named ones. Left to the owner,
+  unchanged: the stop is "high at or above entry x 1.2" in binary arithmetic in all three records, and for 23 of the
+  981 five-cent entry prices from $1 to $50 that level lands a hair above the whole cent, so a touch exactly at it
+  would not count. It has never decided a trade (of 34 settled shorts only GLXG came within 0.5% of its level, and
+  it counted); changing it is a change to the registered replay and needs a dated amendment.
 - **Three items of the 2026-11-24 reports (owner review 11-24 night; no rule, size or threshold changed).**
   (1) GLXG: texted +4.7%, settled -21.2%; the row in section 5 has the tape. Expected replacement of the free-feed
   estimate; no late stop; a result that turns on one cent of entry price. (2) Database: the nightly said "longest

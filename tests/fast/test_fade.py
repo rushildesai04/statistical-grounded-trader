@@ -645,6 +645,39 @@ def test_an_entry_that_never_gets_a_print_is_skipped_by_the_same_rule_with_its_w
     assert r["entry_wait"].endswith(" " + fade.NO_PRICE_YET) and r["est_print_at"] is None
 
 
+def test_a_wait_that_cannot_be_written_down_changes_nothing_about_the_entry(db, monkeypatch):
+    ap.arm(db, T10)
+    fade.on_alert(db, alert(at=T10 - timedelta(seconds=10)), now=T10)
+    from contextlib import contextmanager
+
+    real, state = db.tx, {"fail": True}
+
+    class Conn:                                     # the record's own statement fails; every other write works
+        def __init__(self, c):
+            self.c = c
+
+        def execute(self, sql, *a):
+            if state["fail"] and "SET entry_wait" in sql:
+                raise RuntimeError("database is locked")
+            return self.c.execute(sql, *a)
+
+    @contextmanager
+    def tx():
+        with real() as c:
+            yield Conn(c)
+
+    monkeypatch.setattr(db, "tx", tx)
+    answers = iter([None, 4.0])
+    quote = lambda symbol, since=None: next(answers)  # noqa: E731
+    quote.since_aware = True
+    sent = []
+    fade.monitor(db, sent.append, quote, now=T10 + timedelta(seconds=20))
+    assert rows(db)[0]["status"] == "pending" and rows(db)[0]["entry_wait"] is None
+    state["fail"] = False
+    fade.monitor(db, sent.append, quote, now=T10 + timedelta(seconds=30))
+    assert (rows(db)[0]["status"], rows(db)[0]["est_entry"]) == ("open", 4.0) and len(sent) == 1
+
+
 def test_digest_warns_when_the_channel_goes_quiet(db):
     with db.tx() as c:
         for i, d in enumerate(["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"]):
