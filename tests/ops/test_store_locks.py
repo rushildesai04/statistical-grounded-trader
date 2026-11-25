@@ -160,3 +160,30 @@ def test_the_lists_the_trading_loops_read_do_not_wait_for_a_writer(db):
     assert {k: round(v[0], 1) for k, v in took.items() if v[0] >= 0.5} == {}
     assert [r["symbol"] for r in took["alert_context.due"][1]] == ["ABCD"]     # and they still read what is there
     assert [r["symbol"] for r in took["tape_check._rows"][1]] == ["ABCD"]
+
+
+def test_a_slow_close_of_a_read_block_is_written_down_with_who(db, monkeypatch):
+    """2026-11-24: the 1.3 s wait at 08:00:22 ET has no holder in the record. Only write blocks were timed, and a
+    read block that is the last connection to close does SQLite's checkpoint (the pending writes go into the database
+    file) in its close."""
+    from pathlib import Path
+
+    wal = Path(str(db.path) + "-wal")
+    other = sqlite3.connect(db.path)
+    other.execute("SELECT 1 FROM flags").fetchall()
+    db.set_flag("k", "v")                                           # a write waiting in the WAL
+    monkeypatch.setattr(store, "SLOW_S", 0.0)
+    with db.read() as c:
+        c.execute("SELECT COUNT(*) FROM flags").fetchone()
+        other.close()                                               # the read block is now the last connection
+        assert wal.stat().st_size > 0
+    assert not wal.exists()                                         # its close did the checkpoint ...
+    rows = [r for r in db.slow(datetime.now(timezone.utc).date().isoformat()) if r.get("what") == store.READ_CLOSE]
+    assert len(rows) == 1 and rows[0]["wait"] == 0.0 and rows[0]["failed"] is False          # ... and is on record
+    assert rows[0]["who"].startswith("test_store_locks.py:test_a_slow_close_of_a_read_block_is_written_down_with_who:")
+    assert db.flag("k") == "v"                                      # through a store helper: the caller is named
+    last = db.slow(datetime.now(timezone.utc).date().isoformat())[-1]
+    assert last["what"] == store.READ_CLOSE and last["who"].endswith(" via flag")
+    monkeypatch.setattr(store, "SLOW_S", 0.25)
+    n = len(db.slow(datetime.now(timezone.utc).date().isoformat()))
+    assert db.flag("k") == "v" and len(db.slow(datetime.now(timezone.utc).date().isoformat())) == n   # a quick one is not
