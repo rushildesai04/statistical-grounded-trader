@@ -18,11 +18,12 @@ that, it says so and proposes a registration instead.
 
 | Question | Answer |
 |---|---|
-| Does the short book show positive executable expectancy? | **No. Not demonstrated, and the evidence closest to execution is unfavourable.** The tested +1.12% a trade had a lower bound of +0.05%, assumed a 0.5% locate and never checked that a share could be borrowed. On the same replay the forward record is +0.11% (120 alerts, 18 sessions). The live book is -2.44% (34). On real quotes, pre-cohort shorts with no exclusion flag are -8.9% (15) |
+| Does the short book show positive executable expectancy? | **No. Not demonstrated, and the evidence closest to execution is unfavourable.** The tested +1.12% a trade had a lower bound of +0.05%, assumed a 0.5% locate and never checked that a share could be borrowed. On the same replay the forward record is +0.11% (120 alerts, 18 sessions; 95% interval -3.3% to +3.6%): consistent with the test and with zero. The live book is -2.44% (34). On real quotes, pre-cohort shorts with no exclusion flag are -8.9% (15) |
 | Does the long book? | **No, in every record that exists**, tests included: tested -0.79% / -1.12%, bot replay -0.89% to -1.85%, live -2.25% (26, 27% winners), real quotes -3.63% (18). This is unfavourable evidence, not missing evidence |
-| Why is the forward record worse than the test? | Not the live code path: the forward record is the SAME bar replay as the backtest and never touches the listener. On it, stop-outs are 29.2% of trades against 16% tested (a session bootstrap puts 16% or less in 1 of 10,000 resamples); trades that are not stopped earn MORE than tested (+9.2% against +5.6%). Alerted stocks in November move further in both directions. With a 20% stop and winners of 6 to 9%, break-even is a stop-out rate of 20 to 30% |
-| Why is the live book worse than the forward record? | Selection, on a small sample. The live book takes about a quarter of the alerts. Trades where IBKR listed shares average -3.3% (26); the others +0.4% (8). The test's own secondary said the same in 2026-11-01: names Alpaca lists easy to borrow, -0.55% (64). An observation from overlapping samples, not a confirmation (section 5, U1) |
-| Did implementation defects cause it? | No defect found explains it. Six are listed in section 4; all are fixed, deploying today, or approved and unbuilt. None moves the forward record, which shows the shortfall without any of them |
+| Is the forward record worse than the test? | **Like for like, that is not established.** The forward record is the SAME bar replay as the backtest and never touches the listener. Its trades have the tested shape: a stop-out costs 22.0 points (tested 22.3), a trade that is not stopped earns 9.2 (tested 9.1). Stop-outs are 29.2% of trades against 25.4% tested: four or five more than expected in 120, inside the sampling interval (21.7% to 37.0%). That difference alone moves the mean from +1.12% to +0.11%. What it shows is how thin the tested margin is: break-even is a stop-out share of 29.0% |
+| Why is the live book worse than the forward record? | Selection, on a small sample. Its stop-out share is the forward record's (29.4%); its trades that are not stopped earn 5.5 points where the forward record's earn 9.2 (24 trades). Trades where IBKR listed shares average -3.3% (26); the others +0.4% (8). The test's own secondary said the same on 2026-11-01: names Alpaca lists easy to borrow, -0.55% (64). An observation from overlapping samples, not a confirmation (section 5, U1) |
+| A wrong figure found on the way | The short entry card has said "16% stopped" as the tested record since 2026-11-04 (`fade_rule.STOP_RATE`). The registered count is 194 of 764: 25.4% (`prereg_fade_stop_slippage_2026-11-09`, stored report). My audit of this morning repeated the 16%, and the first draft of this document was built on it. Corrected here; the card is not changed (section 4, D0) |
+| Did implementation defects cause it? | No defect found explains it. Seven are listed in section 4: fixed, deploying today, approved and unbuilt, or (the card's figure) found today. None touches the forward record, the like-for-like comparison with the test, and none accounts for the live book's -2.44% |
 | Was FCUV a defect? | The short: no. An eligible entry inside its registered minute, a correct no-news read, a stop detected 7.2 s after the tape. The long: a setup that existed only on the free feed, booked 66 s after its fill candle began, when the entry and the exit prices had both already printed: a known limitation of how trigger setups are recorded, about -$3 at the test size |
 | What would demonstrate an edge? | Section 7. At the dispersion the forward record shows (about 19 points a trade, session-clustered), a true +1.1% needs roughly 800 trades to clear zero half the time and about 1,900 to do so four times in five. The registered decision at 300 forward alerts can drop the fade; it is unlikely to confirm it |
 
@@ -89,7 +90,8 @@ reference was not flattering here (6.60 booked against a 6.59 offer) but it was 
 
 | | Population | Method | Trades | Mean net | Winners | Stop-outs |
 |---|---|---|---|---|---|---|
-| T1 | held-out 2026-07-01 to 10-29, every in-cell alert (the registered primary) | bar replay, modelled stops, cost model + 0.5% locate | 764 | **+1.12%** (lower bound +0.05%) | 57% | 16% |
+| T1 | held-out 2026-07-01 to 10-29, every in-cell alert (the registered primary) | bar replay, modelled stops, cost model + 0.5% locate | 764 | **+1.12%** (lower bound +0.05%) | 57% | 25.4% (194) |
+| T0 | training 2024-01 to 2026-06, the same rule (explored before the registration) | the same replay | 2,345 | +0.97% | | 24.7% (580) |
 | T2 | T1 with real stop fills from the tape (`prereg_fade_stop_slippage_2026-11-09`) | | 764 | +0.91% | | |
 | T3 | T1 with locate at 1% / 2% | | 764 | +0.62% / -0.38% | | |
 | T4 | T1, names Alpaca lists easy to borrow (status of 2026-11-01, look-ahead) | | 64 | -0.55% | 44% | |
@@ -104,28 +106,38 @@ reference was not flattering here (6.60 booked against a 6.59 offer) but it was 
 T1 and F are the comparable pair: same events definition, same replay, same costs, no listener, no free feed, no
 live code. L, M and C are different populations (a filtered subset; a real-quote model) and are not pooled with them.
 
-### 3.2 Where the gap between T1 and F is
+### 3.2 Where the difference between T1 and F is
 
 Every trade is either stopped or not. Mean = (share not stopped x their average) + (share stopped x their average).
+The tested rows are read from the stored output of the registered stop study (`reports/fade_stops/`: its count of
+stops and the modelled result of each stopped trade); the held-out file itself was not opened.
 
-| | Stopped: share, average | Not stopped: share, average | Mean |
-|---|---|---|---|
-| Tested (T1) | 16%, -22.4% | 84%, +5.6% (implied) | +1.12% |
-| Forward (F) | 29.2%, -21.95% | 70.8%, +9.2% | +0.11% |
-| Live book (L) | 29.4%, about -21.5% | 70.6%, about +5.5% | -2.44% |
+| | Stopped: share, average | Not stopped: share, average | Mean | Break-even stop share at those sizes |
+|---|---|---|---|---|
+| Training (T0) | 24.7%, -21.7% | 75.3%, +8.4% (implied) | +0.97% | 28.0% |
+| Tested (T1) | 25.4%, -22.3% | 74.6%, +9.1% (implied) | +1.12% | 29.0% |
+| Forward (F) | 29.2%, -21.95% | 70.8%, +9.2% | +0.11% | 29.5% |
+| Live book (L) | 29.4%, about -21.5% | 70.6%, about +5.5% | -2.44% | about 20% |
 
-- The stop-out loss is the same size in all three. Stops are not slipping more than tested.
-- In the forward record the trades that survive earn more than tested and stop-outs are almost twice as frequent:
-  the distribution is wider on both sides. Sum of the 35 stopped trades -768 points; of the 85 others +782.
-- Break-even stop-out rate: 20% at the tested winner size, 29.5% at the forward one. The forward record sits on it.
-- Session bootstrap of F (10,000 resamples of the 18 sessions): mean, 95% interval -3.3% to +3.6%; the tested +1.12%
-  or better in 28% of resamples. Stop-out rate, 95% interval 21.7% to 37.0%; the tested 16% or lower in 0.01%.
-  **So the forward MEAN is not distinguishable from the tested mean; the forward STOP-OUT RATE is.** 17 of 18
-  sessions had at least one stop-out.
+- **The forward record has the tested shape.** The cost of a stop-out and the gain of a trade that is not stopped
+  are within a few tenths of a point of the test. Stops are not slipping more; winners are not smaller.
+- **The whole difference in the mean is the stop-out share:** 29.2% against 25.4%, which is 35 stop-outs where the
+  tested rate implies 30.5. Each point of stop-out share is worth about 0.31 points of mean (the 31 points between
+  a survivor and a stop-out), so 3.8 points of share is 1.2 points of mean: +1.12% becomes about zero.
+- **That difference is inside sampling error.** Session bootstrap of F (10,000 resamples of the 18 sessions): stop
+  share, 95% interval 21.7% to 37.0%, which contains 25.4%; mean, -3.3% to +3.6%, which contains +1.12% (the tested
+  mean or better in 28% of resamples) and contains zero and -3%. The registered monitor that would test this
+  formally (`fade-drift-monitor-v1`) is inactive by the owner's decision and was not computed.
+- **So the forward record neither contradicts the test nor supports it.** What it does establish is the margin: the
+  tested rule earns its +1.12% from the 3.6 points between a 25.4% stop-out share and a 29.0% break-even. In
+  training the margin was 3.3 points. A rule whose whole profit is that gap needs a long record to show which side
+  of it the truth is on (section 7).
+- 17 of 18 forward sessions had at least one stop-out. Sum of the 35 stopped trades -768 points; the 85 others +782.
 - By week (alerts, mean, stop-outs): 10-30: 5, +1.9%, 2 · 11-02: 33, -3.0%, 10 · 11-09: 35, -1.2%, 11 · 11-16: 32,
   +7.6%, 6 · 11-23 (two sessions): 15, -6.4%, 6. One good week carries the month; that week is not evidence of
   recovery and the others are not evidence of a break.
-- The live book's non-stopped trades match the test (+5.5% against +5.6%); its whole shortfall is the stop-out rate.
+- **The live book differs from both in another place.** Its stop share is the forward record's. Its trades that are
+  not stopped earn about 5.5 points instead of 9 (24 trades): the subset the live gates select has smaller winners.
 
 ### 3.3 The five questions
 
@@ -141,9 +153,10 @@ Every trade is either stopped or not. Mean = (share not stopped x their average)
   (`prereg_fade_halt_audit_2026-11-09`). Found and corrected on 2026-11-09 by making the live entry the tested one.
 - Regime: `prereg_fade_regime_gate_2026-11-13` found session results have almost no memory in 354 training sessions
   (lag-1 correlation +0.06); a poor week did not predict the next. Its own reading on 11-13: "November is the
-  first time the fade actually broke." **Not determined:** whether an 18-session stretch with a stop-out rate near
-  29% occurred anywhere in the history. Answering needs a time split of files that are not to be re-split without a
-  registration (proposal P1).
+  first time the fade actually broke." That reading was made on 66 forward fades and on the mean; set against the
+  registered stop count it does not hold as stated: the forward stop share is within sampling range of the test
+  and the payoff sizes are the test's. A different regime is not indicated by the forward record as a whole, and is
+  not excluded by it either.
 - The forward record is one month from one channel.
 
 **Do the historical samples represent borrow, spreads, liquidity and costs?**
@@ -161,9 +174,10 @@ Every trade is either stopped or not. Mean = (share not stopped x their average)
   result concentrated there (`prereg_fade_price_test_2026-11-21`); the forward observation that flagged trades
   carry the gains (M') stands beside that null, not above it.
 
-**Do concentrated losses overwhelm the gains?** Yes, by construction, and it is the whole of the forward result.
-A stop-out costs 22 points and a surviving trade earns 6 to 9, so one stop-out cancels three to four winners. The
-strategy is short the tail. In the test the tail came 16 times in 100. Since 2026-10-30 it has come 29 times in 100.
+**Do concentrated losses overwhelm the gains?** That is the structure of the trade, in the test as much as since. A
+stop-out costs 22 points and a trade that is not stopped earns 9, so one stop-out cancels about 2.4 survivors. The
+test had 2.9 survivors for each stop-out; break-even is 2.45; the forward record has 2.4. The strategy is short the
+tail, and its tested profit is the distance between 2.9 and 2.45.
 
 **Does the free feed change eligibility or exit timing?**
 - Shorts, settled record: no. It is scored on the official tape from the registered entry.
@@ -174,14 +188,15 @@ strategy is short the tail. In the test the tail came 16 times in 100. Since 202
   the feed's first print at or under a long's stop came a median 34 s after the tape and up to 21 minutes. Both
   long losses of 2026-11-25 were feed-only setups.
 
-**Positive expectancy after realistic costs?** Section 0. For shorts: the single positive figure is the test's, and
-every step toward execution lowers it (real stops, a realistic locate, borrowable names, the forward month, the live
-book, real quotes). For longs: no positive figure exists.
+**Positive expectancy after realistic costs?** Section 0. For shorts: the single positive figure is the test's. The
+forward month is consistent with it and with zero. Every step toward execution lowers it: real stops, a realistic
+locate, borrowable names, the live book, real quotes. For longs: no positive figure exists.
 
 ## 4. Confirmed defects (implementation), ranked by effect on the record
 
 | # | Defect | Status | Explains the gap? |
 |---|---|---|---|
+| D0 | The short entry card states the tested record as "16% stopped" (`fade_rule.STOP_RATE = 0.16`, since 2026-11-04). The registered count is 25.4% (194 of 764). The card has understated how often the stop is reached on every short text for three weeks; `loss_audit_2026-11-25.md` repeated it | found today; the audit's sentence is corrected in this change; the card is NOT changed here (production stays as it is during the investigation). A one-constant fix with its pinned test is ready to prepare on the owner's word. Where 0.16 came from is not established; the constant feeds texts only, no decision | no: it changes no trade. It does change what the owner was told about the risk |
 | D1 | The backtest dropped halted events; the live book had entered them (2026-11-09) | fixed 11-09; corrected pooled figure +0.86% | no: pooled it lowers the tested figure by 0.15 points (+1.01% to +0.86%); on the held-out period alone it raises it (+1.12% to +1.18%) |
 | D2 | A later free-feed print stood in for a passed entry minute (BUUU, GLXG); delivery-late alerts likewise | fixed in #218 to #220; deploy queued for today 16:11 ET | no: 2 of 34 trades |
 | D3 | Trigger-setup longs are booked after their fill candle closes; entry and exit references can both predate the booking (FCUV long) | approved today as a quote-based estimate beside the registered reference; not built. #221 (draft, review incomplete) records the reference | no: it misstates a long's price by about the spread |
@@ -189,7 +204,7 @@ book, real quotes). For longs: no positive figure exists.
 | D5 | Binary rounding at exact stop and target touches | `price-decimal-v1` runs beside the registered arithmetic from today | no: 1 of 60 settled trades |
 | D6 | Live estimates revised by 5 points or more at the settle (GLXG) | reported nightly from tonight | no: the settled figure is the record |
 
-None of these touches the forward record F, which is where the shortfall against the test is measured.
+None of these touches the forward record F, the like-for-like comparison with the test.
 
 ## 5. Known limitations and unproven hypotheses, ranked
 
@@ -206,9 +221,9 @@ None of these touches the forward record F, which is where the shortfall against
 | | Hypothesis | For | Against, or missing | What would settle it |
 |---|---|---|---|---|
 | U1 | The tested gain sits in stocks that cannot be shorted as assumed (no shares, the price test, a prohibitive fee) | T4 (-0.55%, 64, registered secondary); live: IBKR-listed -3.3% (26) against +0.4% (8); ledger: no flag -8.9% (15) against flagged +6.3% (14) | the last two overlap and are one observation; both were examined after the fact; the price-test check on training was null; T4 uses a later borrow status | the sealed H1 result; the cohort review; a registered forward split on the borrow listing stamped BEFORE each entry (P3) |
-| U2 | November is a different regime: alerted stocks move further both ways | stop-outs 29% against 16% and survivors +9.2% against +5.6%, on the same replay | 18 sessions; history not examined for comparable stretches | P1 |
+| U2 | November is a different regime for these alerts | stop share 29.2% against 25.4% tested; weeks from -6.4% to +7.6% | the payoff sizes are the test's and the stop share is inside sampling range: the forward record does not indicate a regime change | more forward data only |
 | U3 | The channel or its audience changed (which alerts fire, how fast the crowd acts) | none measured | no comparison of alert mix or pre-alert moves has been made | P2, which reads no outcome |
-| U4 | The original pass was partly luck (lower bound +0.05%) | arithmetic | cannot be separated from U2 with one forward month | only more forward data: F1 at 300 and at 600 |
+| U4 | The true stop-out share is at or above break-even (29%), and the tested 25.4% was the favourable side of sampling | the tested lower bound was +0.05%; training's margin was 3.3 points; the forward share is 29.2% | 120 trades cannot tell 25% from 29% | only more forward data: F1 at 300 and at 600 |
 
 ## 6. Proposed improvements
 
@@ -216,15 +231,17 @@ Nothing below is built, registered or run. Each needs the owner's word. None add
 
 | | Proposal | Expected benefit | Risk | Validation |
 |---|---|---|---|---|
-| P1 | **Registered diagnostic: is this month inside history?** On the training file only (354 sessions), the distribution of stop-out rate and mean net over every 18-session window, fixed before the run; where 29.2% and +0.11% fall in it. Adopts nothing | tells apart "a stretch the test already contains" from "something the test never saw"; decides whether the 25% size is a response to noise or to a break | a time split of a file used many times: it must be one registered run, with the reading rule written first; the held-out file stays closed unless the owner opens it | one script, existing files, no new data. Registration reviewed before the run |
+| P1 | **Correct the card:** the tested stop share shown on short texts, 16% to 25%, with its pinned test | the owner reads the registered risk on every entry | none to any trade; a text change, so it is counted against the text rules | one constant, one test; the figure is the registered count |
 | P2 | **Composition check with no outcomes:** alert-type mix, entry price, move before the alert, time of day, alerts a session: forward against history | detects a changed population (U3) without spending any outcome data | finding a difference invites a filter; the registration must say it adopts none | registered list of covariates; outcomes not loaded by the script |
 | P3 | **Forward borrow split:** the IBKR listing (shares, fee) is already stamped before each entry. Register now: groups, a fixed count per group, one decision date. Every alert, not only taken trades | the first evidence on U1 that is not retrospective | slow (a quarter or more); listings are not locates | prospective only; rows before the registration date are development data and excluded |
 | P4 | **Real locate quotes** for a sample of alerted names (amendment F1 already requires this before any capital) | replaces the 0.5% assumption, the input the result is most sensitive to (break-even 1.6%) | needs a locate-broker account: the owner's action, and no spending is authorised | a dated sample of quotes set beside the listing stamped at the same minute |
 | P5 | Build the two measurements approved today (between-candle long-stop check; quote-based entry estimate with quote age, displayed size and slippage) | the long record stops describing prices and exits that were not available | measurement only; neither is stop protection or a fill | reviewed PRs; registered figures unchanged; shown beside, never instead |
-| P6 | **Stop patching single losses.** A loss review reports facts and classification; a rule change needs a registered test on unseen data. Effort goes to P1 to P4 and the registered decision dates | ends the cycle in which each loss produces a candidate rule fitted to it | none to the record | the dates in section 7 |
+| P6 | **Stop patching single losses.** A loss review reports facts and classification; a rule change needs a registered test on unseen data. Effort goes to P2 to P4 and the registered decision dates | ends the cycle in which each loss produces a candidate rule fitted to it | none to the record | the dates in section 7 |
 
 Not proposed, and why: a tighter stop, a confirmation delay, a momentum filter, earlier profit-taking. Each was
-tested and rejected in the playbook's section 4, or would be fitted to three trades.
+tested and rejected in the playbook's section 4, or would be fitted to three trades. Also not proposed: a test of
+whether this month is "inside history". The comparison in 3.2 already answers it (it is), and the registered
+monitor for that question is inactive by the owner's decision.
 
 ## 7. What it would take to demonstrate an edge
 
@@ -262,6 +279,11 @@ have to stop being negative in every form.
 - 0.5% locate is an assumption wherever the execution model is cited. Sensitivity: at 1% subtract half a point from
   every model figure; at 2% the tested mean is negative.
 - The stop-out count in the forward file is read as gross at or under -19.99%.
+- **Corrected before any review:** the first commit of this document took the tested stop-out share from the code
+  constant (16%) and concluded that the forward stop-out rate was far outside the test. The registered count is
+  25.4%; that conclusion was wrong and is withdrawn. Tested figures here are now read from the registrations and
+  their stored outputs, not from constants in code.
+- The averages of AVG_WIN, AVG_LOSS and the 57.3% on the card were not re-derived.
 - Today's three trades (ALGS, BNAI, FCUV twice) are not settled and are in no aggregate above.
 - The power table uses the forward month's dispersion; a different regime changes it.
 - Not done: any split of the held-out file or of the training file; any reading of sealed results (H1, the
