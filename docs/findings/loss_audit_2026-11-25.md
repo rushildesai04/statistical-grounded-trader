@@ -80,9 +80,10 @@ showed none; that is each broker's list at its time, not proof either way that t
 **The loss in parts (live path):** 4.4 points from the booked entry to the stop; 0.2 points beyond it; about 0.5
 points of estimated costs.
 
-**Was the setup valid?** By the live rule, yes: the rule reads "a range of at most 4% as the free feed shows it"
-(playbook, section 2), and on that feed every condition held on completed candles. On the official tape it was not a
-base. That gap is known and registered: `prereg_long_setup_tape_2026-11-22.md` found the feed and the tape agreeing
+**Was the setup valid?** Valid ON THE FREE FEED, which is what the live rule reads ("a range of at most 4% as the
+free feed shows it", playbook section 2): every condition held there on completed candles. NOT valid on full-tape
+data: on the official tape it was not a base. The two statements are different and only the first is true of this
+trade. That gap is known and registered: `prereg_long_setup_tape_2026-11-22.md` found the feed and the tape agreeing
 on 4 of 22 base breaks ("setup validity is NOT established on the free feed, and it is a data-source problem no rule
 repairs"). BNAI is one more case, not a new defect. The feed's ranges can only be narrower than the tape's, so it
 errs one way: it accepts bases the tape would refuse.
@@ -113,11 +114,16 @@ the tape did. Here the price was 7.87 to 7.95 in between and it cost nothing; it
 | The long row did not say which base the book had bought | missing evidence | fixed: the setup as seen is stored with the trade and its decision line |
 | Nothing said, per trade, whether the base existed on the tape | missing evidence | fixed: the official candles are read the same night and the row says so |
 | ALGS entry eligibility, stop detection, news lookup, borrow gate, price test | handled correctly | none |
-| BNAI qualification on completed free-feed candles, watch window, VWAP, stop, target, size | handled correctly under the live rule | none |
+| BNAI qualification on completed free-feed candles, watch window, VWAP, stop, target, size | applied as the live rule is written (valid on the free feed only; not valid on the tape) | none |
 | The free feed accepts bases the tape refuses | known limit (registered 2026-11-22) | evidence added; an owner question (section 5) |
-| The long's booked price can lag the offer (1.6% here) | known, by the 2026-11-20 rule; measured nightly | none; the nightly "price when each long text went out" line shows it |
+| The long's booked price can lag the offer (1.6% here) | known, by the 2026-11-20 rule; measured nightly | labelled since: the row and the entry text call it a reference and give its age (`long_stop_detection_2026-11-25.md`, section 5) |
+| The long's stop was seen 2 min 47 s after the tape | limit of the data source; a deployment blocker | measured on 15 past stops; proposal and blocker in `long_stop_detection_2026-11-25.md` |
 
 ## 4. Enhancement hypotheses: none supported
+
+"None supported" means this and no more: each candidate reviewed here lacked support under the definition it was
+tested with, on the population and execution assumptions of that test. It does not mean that no improvement
+exists, and it does not disprove definitions that were not tested.
 
 | Idea | What earlier work already says | Verdict |
 |---|---|---|

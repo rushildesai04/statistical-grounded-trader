@@ -114,6 +114,12 @@ def run(db: OpsStore, bars: RthBars, cost_fn: Cost, now: datetime | None = None)
     return out
 
 
+# Owner 2026-11-25: "Keep feed-only, tape-confirmed, timing-different, and unknown classifications distinct." Every
+# stamp starts with exactly one of these; a row with no stamp yet (no official bars read) is unknown as well.
+CONFIRMED, TIMING, FEED_ONLY, UNKNOWN = "tape-confirmed: ", "timing-different: ", "feed-only: ", "unknown: "
+SETUP_CLASSES = (CONFIRMED, TIMING, FEED_ONLY, UNKNOWN)
+
+
 def base_on(day: pd.DataFrame, posted: pd.Timestamp, ready: pd.Timestamp) -> str:
     """What official bars show for a base break the live book took at ``ready`` (the minute after its break candle).
     The live rule reads the free feed, which carries about 1% of the volume: its ranges are never wider than the
@@ -126,23 +132,23 @@ def base_on(day: pd.DataFrame, posted: pd.Timestamp, ready: pd.Timestamp) -> str
     seen = day[day.ts + pt.BAR <= ready].reset_index(drop=True)
     _, t0 = long_shadow.setups(seen, {"posted_at": posted.isoformat(), "status": "live"})
     if t0 is None:
-        return "official tape: no start bar for this alert within its limits"
+        return UNKNOWN + "official tape: no start bar for this alert within its limits"
     found = pt.base_break(seen, t0)
     brk = ready - pt.BAR
     if found and found[0].ready == ready:
         i = found[0].info
-        return (f"official tape: the same base break at {hm(brk)} (base {i['base_low']:g} to {i['base_high']:g}, "
+        return (f"{CONFIRMED}official tape: the same base break at {hm(brk)} (base {i['base_low']:g} to {i['base_high']:g}, "
                 f"{(i['base_high'] - i['base_low']) / i['base_low']:.2%} wide)")
     if found:
-        return f"official tape: its first base break was at {hm(found[0].info['break_ts'])}, not {hm(brk)}"
+        return f"{TIMING}official tape: its first base break was at {hm(found[0].info['break_ts'])}, not {hm(brk)}"
     j = seen.index[seen.ts == brk]
     if not len(j):
-        return f"official tape: no base break by {hm(brk)} and no official candle in that minute"
+        return f"{FEED_ONLY}official tape: no base break by {hm(brk)} and no official candle in that minute"
     j = int(j[0])
     a = int(seen.ts.searchsorted(brk - pt.BASE_MIN, side="left"))
     base = seen.iloc[a:j]
     if len(base) < pt.BASE_MIN_BARS:
-        return f"official tape: no base break at {hm(brk)}: only {len(base)} candles in the 10 minutes before it"
+        return f"{FEED_ONLY}official tape: no base break at {hm(brk)}: only {len(base)} candles in the 10 minutes before it"
     hi, lo, close = float(base.high.max()), float(base.low.min()), float(seen.close.iloc[j])
     vw = float(pt.session_vwap(seen)[j])
     why = []
@@ -154,7 +160,9 @@ def base_on(day: pd.DataFrame, posted: pd.Timestamp, ready: pd.Timestamp) -> str
         why.append(f"its close {close:g} is not above session VWAP {vw:.4g}")
     if not brk <= t0 + pt.BASE_WATCH or not brk >= t0 + pt.BASE_MIN:
         why.append("it is outside the watch window on the tape's start bar")
-    return f"official tape: no base break at {hm(brk)}: " + ("; ".join(why) or "reason not reproduced")
+    if not why:                                            # the detector said no and the parts do not show why
+        return f"{UNKNOWN}official tape: no base break at {hm(brk)}, reason not reproduced"
+    return f"{FEED_ONLY}official tape: no base break at {hm(brk)}: " + "; ".join(why)
 
 
 def _base(db: OpsStore, r: dict, bars: RthBars) -> str | None:
