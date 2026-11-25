@@ -127,7 +127,8 @@ COLUMNS = {
         "via": "TEXT", "recovered_at": "TEXT",
         # 2026-11-24 (GLXG: the live entry came 2 min 32 s after the tested bar and nothing on record said why): the
         # time of the print the live entry price came from, and why the entry waited the first time it had no price.
-        # A record only: the entry rule (first print at or after the tested bar, inside 5 minutes) is unchanged.
+        # A record only: what the live code does at entry is unchanged. Whether a live entry that comes after the
+        # registered entry bar is eligible is NOT settled by this (see the note in ``fade._enter``).
         "est_print_at": "TEXT", "entry_wait": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)

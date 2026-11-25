@@ -941,6 +941,26 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Stop arithmetic and entry timing: two corrections prepared, nothing registered changed (owner 2026-11-25).**
+  (1) Arithmetic. Every price threshold is computed in binary floating point (`binary-v0`), so whether an exact
+  touch counts depends on the entry price. The owner does not accept that as the permanent definition. Prepared,
+  with no caller yet: `sgt.fast.exact_price` (`price-decimal-v1`): a price is the decimal its source sent (at most 6
+  places, else refused), a level is exact and never rounded to a tick, the comparison is exact, no tolerance.
+  Measured on the stored history (counts of decisions, no return used): shorts 0 of 34 settled and 0 of 126 alerts
+  differ; the price test 0 of 34; longs 1 of 26 settled (RAIN 11-17: registered -3.9% at the stop, +5.6% under v1
+  because the fill minute's high of 1.17 IS the target) and 3 of 163 in the long shadow (the target minute only).
+  The proposal and the cohort options are in `amendment_stop_arithmetic_2026-11-25.md`; recommended: v1 beside v0
+  for every running record, adopted only at a record's next registration, never part-way. (2) Entry timing. The
+  registered short enters at ONE bar, the first official minute at or after alert + 10 s; its five minutes bound how
+  late that first bar may be. WAITING for the first qualifying print (a halt) is that rule. Entering LATER although
+  the official tape already traded in the registered minute is a substitute entry the registration does not define;
+  the live code cannot tell the two apart, because it waits for a round-lot print on the free feed. Of 34 live short
+  entries 4 came in a later minute: 2 waited with the official tape (CRIS, PMAX 11-04), 2 were substitutes (BUUU
+  11-23, GLXG 11-24), both with the alert received in under 3 s. That is neither delivery delay (open, unchanged) nor
+  restart recovery (record-only since 11-23). My 11-24 wording that the five-minute wait "is the rule" described
+  the code and is withdrawn; the question is the owner's (`ops_risk_register_2026-11-23.md`), to be taken on the
+  specification and F5, not on the cohort's returns. The labels "filled against a quote smaller than the order" and
+  "changes sign with a 5 s delay" on the ledger line disclose limits of the model; they establish no fill.
 - **Three records of one trade, and the revision block (owner 2026-11-24 night; reporting and records only, no
   rule, size, sample or criterion changed).** A trade has three records and none is a broker fill: the LIVE paper
   path (the listener on the free feed: its own entry print, its own stop level), the SETTLED rule replay (the

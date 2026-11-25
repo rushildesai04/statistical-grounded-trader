@@ -54,6 +54,10 @@ def test_the_rule_is_five_points_or_a_change_of_sign():
     assert rv.large(0.001, -0.001)                                   # the sign alone
     assert not rv.large(0.206, 0.246)                                # JZ 11-24: 4 points, same sign
     assert not rv.large(0.0, -0.01) and not rv.large(None, -0.2) and not rv.large(0.1, None)
+    # 2026-11-25: exactly 5.0 points is listed and a hair under is not, with no tolerance (in doubles the first
+    # difference below is 0.04999999999999999)
+    assert abs(0.25 - 0.30) < 0.05 and rv.large(0.30, 0.25) and rv.large(0.10, 0.05) and rv.large(0.047, -0.003)
+    assert not rv.large(0.10, 0.050001) and not rv.large(0.047, 0.0969)
 
 
 def test_glxg_reads_as_two_records_with_both_entries_stops_exits_and_the_cause(db):

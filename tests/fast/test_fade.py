@@ -606,8 +606,9 @@ def test_stale_print_is_no_price_only_when_it_looks_halted():
 
 def test_an_entry_that_waits_writes_down_why_once_and_the_print_it_used(db):
     """GLXG 2026-11-24: the live entry came 2 min 32 s after the tested bar started (no round-lot print on the free
-    feed) and nothing on record said why. The rule is unchanged: wait for a print at or after the entry bar, up to 5
-    minutes after the alert, then skip."""
+    feed) and nothing on record said why. The live code's behaviour is unchanged (wait for a free-feed print at or
+    after the entry bar, up to 5 minutes after the alert, then skip); whether such a late live entry is eligible
+    under the registration is the open late-entry question, not something this record decides."""
     ap.arm(db, T10)
     fade.on_alert(db, alert(at=T10 - timedelta(seconds=10)), now=T10)
     answers = iter([(None, "2026-11-02T14:59:50+00:00", "no free-feed print at or after the entry bar yet (its last "

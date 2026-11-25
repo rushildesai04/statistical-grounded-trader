@@ -567,8 +567,13 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
     saw = (getattr(quote, "seen", None) or {}).get(r["symbol"]) or {}     # what the quote saw (a record, not a rule)
     if px is None or not px > 0:
         if "entry_wait" in r.keys() and r["entry_wait"] is None:
-            # 2026-11-24: the FIRST pass without a price writes down why, once. The rule is unchanged: the entry waits
-            # for a print at or after the tested bar, up to 5 minutes after the alert, then the alert is skipped.
+            # 2026-11-24: the FIRST pass without a price writes down why, once. What the live CODE does is unchanged:
+            # it waits for a free-feed print at or after the tested bar, up to 5 minutes after the alert, then skips.
+            # That is not the registered rule's wording (2026-11-25): the registration enters at ONE bar, the first
+            # official minute at or after alert + 10 s, and its five minutes only bound how late that first bar may
+            # be (recovery_verification_2026-11-23.md, section 1). A live entry AFTER that bar, because the free feed
+            # had no print while the official tape did, is a later entry the registration does not define: the open
+            # late-entry question (ops_risk_register_2026-11-23.md), recorded here, decided by the owner, not by code.
             why = (RESTART_WAIT if late and (over or not aware) else saw.get("why")) or NO_PRICE_YET
             try:
                 with db.tx() as c:
