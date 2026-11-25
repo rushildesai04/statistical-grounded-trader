@@ -17,6 +17,7 @@ trade. ``bars`` is external data: a missing or malformed day is retried for LOOK
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 from datetime import datetime, timedelta
@@ -87,7 +88,7 @@ def run(db: OpsStore, bars: RthBars, cost_fn: Cost, now: datetime | None = None)
 
     with db.read() as c:
         bases = [dict(r) for r in c.execute(
-            "SELECT t.id, t.symbol, t.session, t.entry_ts, f.posted_at FROM long_trades t JOIN fade_trades f ON "
+            "SELECT t.id, t.symbol, t.session, t.entry_ts, t.setup_info, f.posted_at FROM long_trades t JOIN fade_trades f ON "
             "f.id=t.fade_id WHERE t.kind='L8' AND t.entry_ts IS NOT NULL AND t.setup_official IS NULL AND t.status IN "
             "('est_closed','settled','void') AND t.session>=? ORDER BY t.id LIMIT ?", (since, MAX_ROWS))]
     for r in bases:
@@ -158,6 +159,15 @@ def base_on(day: pd.DataFrame, posted: pd.Timestamp, ready: pd.Timestamp) -> str
 
 def _base(db: OpsStore, r: dict, bars: RthBars) -> str | None:
     posted, ready, day = _utc(r["posted_at"]), _utc(r["entry_ts"]), _day(bars, r["symbol"], r["session"])
+    # The setup's own break candle when the row has it (rows from 2026-11-25): on a thin feed a buy at the NEXT candle
+    # can be booked a minute or more after the break, and the entry time is then not the minute after the break.
+    try:
+        seen = json.loads(r.get("setup_info") or "{}")
+        brk = _utc(seen.get("break_ts")) if isinstance(seen, dict) else None
+    except (TypeError, ValueError):
+        brk = None
+    if brk is not None:
+        ready = brk + pd.Timedelta(minutes=1)
     if posted is None or ready is None or day is None or "volume" not in day.columns:
         return None                                        # no bars yet: retried
     what = base_on(day, posted, ready)[:400]

@@ -232,4 +232,14 @@ def test_a_base_break_taken_on_the_free_feed_gets_what_the_official_candles_show
     assert [x for x in lines if x.startswith("BNAI base break: official tape: no base break at 10:31")]
     assert not [x for x in run(db, {"BNAI": narrow}) if "base break" in x]            # written once, never rewritten
     assert one(db, "long_trades", lid)["status"] == "est_closed"                      # evidence only: nothing else moves
+    # a long booked a minute AFTER its setup was ready (the feed had no candle in between): the break candle comes from
+    # the setup the row kept, not from the entry time
+    f2 = short(db, sym="LATE", posted=posted.isoformat(), status="filtered")
+    with db.tx() as c:
+        l2 = c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, stop, entry_ts, est_entry, "
+                       "setup_info, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (f2, "LATE", DAY, "L8", "est_closed", 7.89, (ready + pd.Timedelta(minutes=2)).isoformat(), 8.3,
+                        '{"break_ts": "' + (ready - pd.Timedelta(minutes=1)).isoformat() + '"}', "x")).lastrowid
+    run(db, {"LATE": narrow})
+    assert one(db, "long_trades", l2)["setup_official"] == "official tape: the same base break at 10:31 (base 7.89 to 8.18, 3.68% wide)"
 

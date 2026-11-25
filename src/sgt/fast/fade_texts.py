@@ -292,7 +292,8 @@ EXIT_WHY = {"stop": "🛑 stop triggered: price rose 20% over our short", "60 mi
             "close": "🔔 market close", VETO_EXIT: "👋 you texted NO",
             # sgt.fast.tape_check (2026-11-17): the official tape crossed the stop and the free live feed did not show it
             "stop (official tape, seen late)": "🛑 stop triggered on the official tape about 15 minutes ago (the free "
-                                               "live feed did not show it); booked at the stop level"}
+                                               "live feed did not show it); booked at the stop level, or at that "
+                                               "minute's open when it opened above it"}
 
 
 def stop_lines(side: str, entry: float, stop: float, exit_px: float, cost: float) -> list[str]:
