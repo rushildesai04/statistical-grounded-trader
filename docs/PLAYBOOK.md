@@ -947,8 +947,10 @@ night it cannot finish is texted and caught up on the next run.
   with no caller yet: `sgt.fast.exact_price` (`price-decimal-v1`): a price is the decimal its source sent (at most 6
   places, else refused), a level is exact and never rounded to a tick, the comparison is exact, no tolerance.
   Measured on the stored history (counts of decisions, no return used): shorts 0 of 34 settled and 0 of 126 alerts
-  differ; the price test 0 of 34; longs 1 of 26 settled (RAIN 11-17: registered -3.9% at the stop, +5.6% under v1
-  because the fill minute's high of 1.17 IS the target) and 3 of 163 in the long shadow (the target minute only).
+  differ; the price test 0 of 34; longs 1 of 26 settled (RAIN 11-17: registered -3.9% at the stop; under v1 the fill
+  minute's 1.17 high reaches the 1.17 target. Replayed on the tape: the touch came 8.3 s after the trigger and 11
+  minutes before the stop, but neither the 1.10 entry nor a fill of the order at 1.17 is established, so no v1
+  figure is claimed; the execution model reads -8.7%) and 3 of 163 in the long shadow (the target minute only).
   The proposal and the cohort options are in `amendment_stop_arithmetic_2026-11-25.md`; recommended: v1 beside v0
   for every running record, adopted only at a record's next registration, never part-way. (2) Entry timing. The
   registered short enters at ONE bar, the first official minute at or after alert + 10 s; its five minutes bound how

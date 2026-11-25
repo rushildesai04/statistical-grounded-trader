@@ -71,15 +71,32 @@ studies, not re-read).
 
 | Trade | `binary-v0` (registered, stands) | `price-decimal-v1` |
 |---|---|---|
-| Long 43, RAIN 2026-11-17 (before the cohort; entry 1.10, stop 1.065, target 1.17) | target never reached (highs of 1.17 at 11:45 and 11:50 are under 1.1700000000000004); stopped 1.065 at 11:56; -3.18% before costs, -3.92% net | the fill minute's high of 1.17 is the target; by the simulator's own rule a target reached in the fill minute is filled there: +6.36% before costs, +5.63% net at the same cost. About $350 apart at its 3.7% weight (approximate: the book's value that day was not re-read) |
+| Long 43, RAIN 2026-11-17 (before the cohort; entry 1.10, stop 1.065, target 1.17) | target never reached (highs of 1.17 at 11:45 and 11:50 are under 1.1700000000000004); stopped 1.065 at 11:56; -3.18% before costs, -3.92% net | the target is reached in the fill minute. NOT a verified outcome: see the replay below |
 | Shadow 41, RAYA 2026-11-06 | target first reached 09:51 | 09:50 |
 | Shadow 142, XLAB 2026-11-12 | target first reached 11:55 | 11:54 |
 | Shadow 218, GMM 2026-11-18 | target first reached 11:36 | 11:30 |
 
+**RAIN replayed on the full tape (2026-11-25, owner: "an exact target touch alone does not establish that it
+occurred after entry and before the stop").**
+
+| Question | What the tape shows | Established? |
+|---|---|---|
+| Did the touch come after the entry trigger? | first print at or above the 1.10 trigger 11:45:00.327; first print at 1.17 11:45:08.640 | yes: 8.3 s after |
+| Did it come before the stop? | first print at or under 1.065 after the trigger: 11:56:13.809 (1.06) | yes |
+| Was the entry price 1.10 available for the order (about 3,300 shares)? | the minute opened with a sweep from 1.0701 to 1.15 in 18 ms (181 prints, 34,487 shares); 975 shares printed at or under 1.10; the offer at the trigger print was 300 shares at 1.10, a second later 300 at 1.12 | no. The registered simulator books a stop entry at its trigger; that is its convention, not a fill |
+| Would a 3,300-share limit at 1.17 have filled? | 260 shares printed at 1.17 at 11:45:08 against 1,800 offered there; about 8,400 more at 1.17 from 11:50:37 to 11:50:48; one 40-share odd lot above it (1.1783) | not established: it depends on the order's place in the queue |
+
+So the two versions differ on one fact only: whether the 1.17 high counts as reaching the 1.17 target. Under the
+registered simulator's own conventions (entry at the trigger, a touch is a fill) `price-decimal-v1` reads "target".
+That is a rule-replay reading, not a corrected result, and no figure is put on it here: the parallel calculation
+will produce v1 figures for new trades only (option A; history is not restated). The third record of this trade
+says more about what was achievable: the execution model, from the bot's own decision at 11:46:15 on real quotes,
+bought 1.15 and was stopped at 1.05, -8.7% (flag: quote smaller than the order).
+
 For the three shadow rows only the minute was compared; their full results under v1 are not computed (it needs the
 simulator, not built). The direction is set by the rule, not by the result: v1 adds stops to shorts and price-test
-flags (worse for a short, or an exclusion) and adds targets to longs (better for a long). One long that turns from
-a loss into a gain is not a reason for anything; the long book's tested record is unchanged by it.
+flags (worse for a short, or an exclusion) and adds targets to longs (better for a long). One long whose reading
+changes is not a reason for anything; the long book's tested record is unchanged by it.
 
 ## 5. What a correction would touch
 
