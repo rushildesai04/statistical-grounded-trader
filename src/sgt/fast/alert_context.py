@@ -61,8 +61,11 @@ def columns(ctx: dict) -> dict:
 
 def due(db: OpsStore, now: datetime) -> list[dict]:
     """Alert rows not yet read and still fresh, oldest first, at most MAX_PER_PASS. Every status counts: an alert the
-    short book filtered is still an alert the long book may trade and the site lists."""
-    with db.tx() as c:
+    short book filtered is still an alert the long book may trade and the site lists.
+
+    A read (2026-11-24): under ``tx()`` this select took the write lock on every pass. It is in six of the slow lines
+    of the lock record of 11-23 and 11-24 (the longest wait, 1.3 s, and a 0.65 s hold with a writer behind it)."""
+    with db.read() as c:
         rows = c.execute("SELECT id, symbol, posted_at FROM fade_trades WHERE ctx_at IS NULL AND posted_at>=? "
                          "ORDER BY id LIMIT ?", (iso(now - FRESH), MAX_PER_PASS)).fetchall()
     return [dict(r) for r in rows]

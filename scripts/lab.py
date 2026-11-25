@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from sgt.lab import page, replay
+from sgt.ops import pagefile
 
 ET = ZoneInfo("America/New_York")
 TESTED = Path("reports/telegram/trades_pooled_first.csv")
@@ -118,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--site", action="store_true", help="the latest sessions' alerted stocks from the ops database")
     ap.add_argument("--out", type=Path, default=OUT)
     a = ap.parse_args(argv)
+    started = datetime.now(timezone.utc)                    # before the first read: the age of this build's data
     specs: list[dict] = []
     if a.events:
         specs += from_file(a.events)
@@ -132,8 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         specs.append(spec(a.symbol, a.session, alerts))
     if not specs:
         if a.site:                                          # no alert yet: an empty page, not a failed job
-            a.out.parent.mkdir(parents=True, exist_ok=True)
-            a.out.write_text(page.render([], datetime.now(timezone.utc)))
+            pagefile.publish(a.out, page.render([], started), started)
             print(f"0 replay(s) -> {a.out.resolve()}")
             return 0
         ap.error("nothing to replay: give a ticker and a day, --random N or --events FILE")
@@ -144,9 +145,10 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
     with data_client() as client:
         replays = build(specs, lambda sym, day: session_bars(client, sym, day, now), now)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(page.render(replays, now))
-    print(f"{len(replays)} replay(s) -> {a.out.resolve()}")
+    # 2026-11-24: in one step, from a file of its own, and never over a page built from newer data (two lab builds
+    # overlapped at the 16:14 ET deploy and both wrote straight into the page: sgt.ops.pagefile).
+    done = pagefile.publish(a.out, page.render(replays, now), started)
+    print(f"{len(replays)} replay(s) -> {a.out.resolve()}" + ("" if done else " (not written: a newer page is in place)"))
     return 0 if replays or a.site else 1
 
 

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from sgt.fast import est_costs, signals
+from sgt.ops import revisions
 
 ET = ZoneInfo("America/New_York")
 TEMPLATE = Path(__file__).with_name("templates") / "trade_charts.html"
@@ -135,6 +136,18 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
     # 2026-11-16: a live estimate is shown after its estimated costs (est_costs), like the official net it becomes
     ret = official if official is not None else est_costs.net(
         "long" if long else "short", t.get("symbol"), t.get("est_entry_at"), entry, exit_px)
+    # 2026-11-24 (GLXG: texted +4.7%, settled -21.2%): a settled card kept the live path's exit REASON but not its
+    # prices or result, so the estimate that was texted was nowhere on the page. Both records are shown; ``revised``
+    # is the nightly report's own rule (5 points, or the sign). Neither is a broker fill.
+    live = None
+    if settled:
+        le, lx = _num(t.get("est_entry")), _num(t.get("est_exit"))
+        lret = est_costs.net("long" if long else "short", t.get("symbol"), t.get("est_entry_at"), le, lx)
+        when = t.get("live_exit_at") or (None if long else t.get("est_exit_at"))
+        live = {"entry": le, "exit": lx, "ret": lret, "revised": revisions.large(lret, official),
+                "stop": _num(t.get("stop")) if long else (le * (1 + STOP) if le else None),
+                "entry_at": et_epoch(t["est_entry_at"]) if t.get("est_entry_at") else None,
+                "exit_at": et_epoch(when) if when else None}
     open_k, close_k = ("buy", "sell") if long else ("short", "cover")
     markers = [{"time": _bar_at(times, alert), "kind": "alert", "text": "alert"},
                {"time": _bar_at(times, entered), "kind": open_k, "text": f"{open_k} {entry:.2f}" if entry else open_k}]
@@ -153,7 +166,7 @@ def trade_view(t: dict, bars: pd.DataFrame, usd: float | None = None, side: str 
         "entry": entry, "exit": exit_px, "side": side, "setup": t.get("setup"),
         "stop": _num(t.get("stop")) if long else (entry * (1 + STOP) if entry else None),
         "target": _num(t.get("target")) if long else None,
-        "ret": ret, "official": official is not None, "usd": usd,
+        "ret": ret, "official": official is not None, "usd": usd, "live": live,
         # owner note on CISS 2026-11-10: the candles stopped before the exit. Intraday the page only has bars to
         # about 16 minutes ago (SIP delay); the Notes page says so when the exit is past the last candle.
         "exit_at": et_epoch(exited) if exited is not None else None, "bars_end": times[-1] if times else None,

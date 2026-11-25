@@ -504,8 +504,11 @@ def target(s: pt.Setup, t: pt.Trade) -> float:
 
 def _advance(db: OpsStore, bars: LiveBars, send, now: datetime) -> None:
     """Close open longs when the simulator's exit is final on closed bars: a stop or target, or a time exit once the
-    whole hold window (or the session) has closed."""
-    with db.tx() as c:
+    whole hold window (or the session) has closed.
+
+    The list of open longs is a read (2026-11-24): under ``tx()`` this exit check queued for the write lock before it
+    looked at anything (0.43 s on 11-24 behind another block that was only reading)."""
+    with db.read() as c:
         rows = [dict(r) for r in c.execute("SELECT t.*, f.posted_at, f.status AS fstatus FROM long_trades t JOIN "
                                            "fade_trades f ON f.id=t.fade_id WHERE t.status='open' ORDER BY t.id")]
     for r in rows:

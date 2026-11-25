@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -22,6 +23,24 @@ LOGS = {"megacap": Path("reports/megacap_forward/run.log"), "megacap 15": Path("
         "sms-poll": Path("reports/ops/poll.log"), "fast": Path("reports/fast/run.log"),
         "charts": Path("reports/charts/run.log")}
 _RUN = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+MAX_LOGS = 80
+
+
+def every_log(root: Path = Path("reports"), named: dict[str, Path] | None = None) -> dict[str, Path]:
+    """``LOGS`` plus every other ``<job>/run.log`` under ``root`` (2026-11-24). The list above was written by hand and
+    had fallen behind: the execution ledger, the forward records and the nightly studies each write a run.log that
+    nothing read, so "Jobs OK (24h)" could stand beside a ledger job that had failed (its own alert text was the only
+    notice, the same gap as 11-13). A log found this way is named after its folder."""
+    out = dict(LOGS if named is None else named)
+    have = {p.resolve() for p in out.values()}
+    try:
+        found = sorted(root.glob("*/run.log"))[:MAX_LOGS]
+    except OSError:
+        return out
+    for p in found:
+        if p.resolve() not in have:
+            out.setdefault(p.parent.name.replace("_", " "), p)
+    return out
 TAIL = 400
 
 
@@ -285,8 +304,10 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                          "('settled','void','open','pending','est_closed') ORDER BY id", (s,)).fetchall()
         off = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason=?",
                         (s, fade.OFF_REASON)).fetchone()[0]
-        dry = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason IN "
-                        f"({','.join('?' * len(fade.BORROW_REASONS))})", (s, *fade.BORROW_REASONS)).fetchone()[0]
+        why = dict(c.execute("SELECT reason, COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND "
+                             f"reason IN ({','.join('?' * len(fade.BORROW_REASONS))}) GROUP BY reason",
+                             (s, *fade.BORROW_REASONS)).fetchall())
+    dry = sum(why.values())
     # 2026-11-16: the fade went back on at 12:13 and the night's digest still read "fade OFF" for the nine alerts of
     # the morning. The line says what is true now: off, or on again with what was skipped while it was off.
     if fade.is_off(db):
@@ -297,9 +318,15 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                 "it was off"]
     else:
         head = []
-    if dry:                                           # owner 2026-11-16: a real account cannot short without shares
-        head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted, no shares to borrow "
-                    f"at IBKR ({italic('a real account could not')})")
+    if dry:                                           # owner 2026-11-16: no listed shares, no short
+        # Owner 2026-11-24: the list is one broker's at one time. The line used to read "no shares to borrow at IBKR
+        # (a real account could not)" for all three reasons; it says what the IBKR list showed, by reason.
+        parts = [f"{label} {why[k]}" for k, label in ((fade.BORROW_NONE, "no shares listed"),
+                                                      (fade.BORROW_FEW, "too few for the size"),
+                                                      (fade.BORROW_UNKNOWN, "no fresh list")) if why.get(k)]
+        head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted on IBKR's lendable "
+                    f"list at the alert ({', '.join(parts)}; "
+                    f"{italic('that broker at that time, not every broker')})")
     if not rows:
         return head, 0.0
     today = fade.nav(db, day) - fade.nav(db, day - timedelta(days=1))
@@ -310,6 +337,17 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     line = (f"{dot(today)} {bold('fade')} {usd(today)}, {len(st)} trades: " + ", ".join(bits)
             + (f" ({italic(f'{wait} not settled yet')})" if wait else ""))
     return head + [line], today
+
+
+def revision_lines(db: OpsStore, day: date, marks: dict | None = None) -> list[str]:
+    """Owner 2026-11-24: one block for trades whose settled result is far from the texted live estimate
+    (``sgt.ops.revisions``). ``marks``: the caller's dict; it receives the watermark to store once the report is sent."""
+    from sgt.ops import revisions
+
+    rep = revisions.report(db, day)
+    if marks is not None:
+        marks[revisions.WATERMARK] = rep.through
+    return rep.lines
 
 
 def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
@@ -371,7 +409,9 @@ def _safe(fn, fallback: str, *a):
 
 
 def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[str],
-          broker: str | None, research: list[str]) -> str:
+          broker: str | None, research: list[str], marks: dict | None = None) -> str:
+    """``marks``: a dict of the caller's; it receives what the job stores AFTER the report was sent (the revision
+    block's watermark, so a late settle is listed by exactly one report)."""
     day = now_et.date()
     books, by_group = _safe(model_books, "books: unavailable", db, day)
     fl, fade_usd = _safe(fade_today, "fade: today unavailable", db, day)
@@ -389,7 +429,7 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         needs.append(f"pending {p['strategy']}: OK {p['code']} by {approvals.fmt_et(datetime.fromisoformat(p['expires_at']))}")
     stuck = approvals.attention(db, now_et - timedelta(hours=24))
     needs += [f"approval #{r['id']} {r['strategy']} {r['status']}" for r in stuck]
-    fails = job_failures(now_et, LOGS)
+    fails = job_failures(now_et, every_log())
     if fails:
         needs.append("jobs FAILED: " + ", ".join(fails))
     needs += list(problems)
@@ -423,7 +463,12 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
              + (f"\n{split}" if split else "") + (f"\n{italic('not in the total:')} {not_counted}" if not_counted else "")]
     lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
               ["\u2705 Nothing needs you. Jobs OK (24h)."])
-    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + sc + books
+    try:                                        # owner 2026-11-24: texted estimate against settled result, named
+        revised = revision_lines(db, day, marks)
+    except Exception:  # noqa: BLE001 - a reporting block: its failure is said, never silent, and stops nothing else
+        logging.getLogger(__name__).exception("revision block failed")
+        revised = ["revisions (live estimate against settled): unavailable"]
+    lines += ["", f"\U0001F4B5 {bold('TODAY')}"] + longs + fl + revised + sc + books
     lines += ["", f"\U0001F4C8 {bold('RECORD')}"]
     try:
         from sgt.fast import long_book
@@ -487,8 +532,15 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         from sgt.fast import exec_book
 
         # phase 2: the trade-by-trade re-pricing at real quotes, once its ledger exists; until then the bar-based check
-        el = exec_book.line(Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl",
-                            now_et.date().isoformat()) or exec_check.line(db)
+        ledger = Path(db.path).resolve().parent.parent / "exec_model" / "ledger.jsonl"
+        el = exec_book.line(ledger, now_et.date().isoformat())
+        if el:      # 2026-11-24: an incomplete ledger says so, instead of showing older averages as current
+            with db.read() as c:
+                want = {b: {r[0] for r in c.execute(
+                    f"SELECT id FROM {t} WHERE status='settled' AND session>=? AND session<?",  # noqa: S608 - fixed names
+                    (exec_book.REVIEW_FROM, day.isoformat()))} for b, t in (("short", "fade_trades"), ("long", "long_trades"))}
+            el += exec_book.behind(want, ledger)
+        el = el or exec_check.line(db)
         if el:
             lines.append(el)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'

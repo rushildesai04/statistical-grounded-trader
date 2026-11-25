@@ -8,8 +8,8 @@ is the tested result; for one outside the rule (price under $1, after the last e
 the same. No result, and ``wh_note`` says why, when there was no regular-hours trade within 5 minutes of the alert
 (before the open, after the close, halted).
 
-A MEASUREMENT: never part of a book value, a total or a text. A short on a stock with no shares to borrow could not
-have been placed by a real account: its number says what the gate cost or saved on paper, not what was available.
+A MEASUREMENT: never part of a book value, a total or a text. A short on a stock with no shares listed at IBKR at
+the alert could not have been placed at that broker then (one broker, one time): its number says what the gate cost or saved on paper, not what was available.
 ``short_from`` is also the official result of a short that WAS taken but is not a tested event (``fade_live``).
 """
 from __future__ import annotations

@@ -249,6 +249,7 @@ marks the spree. Held-out result: **+1.12% per trade net of costs**, win 57%, n 
 | BRAI 2026-11-23 short, live est -3.4%, -3.4% on real quotes with the ASSUMED 0.5% locate (2.05 to 2.11; official tonight; $1,250, about -$43) | alert 10:29:33 (new high), received in 0.9 s; press release before the open, +17 to +24% premarket, an hour flat at 1.77 to 1.85, then 2.06 in three minutes on rising volume; short 2.04 at 10:30:23 with 100 shares on the bid against an order of 613; 665% borrow fee; high 2.27 at 10:53, cover 2.11 at 11:30; vendor news NONE, 26 X posts carried the release | rule loss into an active breakout; data limit (one news vendor); the real locate charge is unknown | dropping price-breakout alerts was checked on 1,238 past fades: they are never worse than volume alerts on the backtest's fills (+2.7% against +1.1%), in 2025 or 2026: rejected. The X-catalyst skip is a registered forward test (17 of 60 a group) |
 | BUUU 2026-11-23 short, live est -8.7% (about -$109); carries an exclusion flag (price test in force: a short may not be sold at the bid), 5.6% spread, three halts; -25% if it could have been sold at the bid; labelled unresolved, not in the registered sample | "resumed" alert 10:42:06 after a halt 10:14 to 10:42 at 4.45 (+34% in 44 minutes); first usable print on the free feed 10:45:08, short 4.14 while the tape traded 4.08 to 4.54 that minute; halted again 10:46 and 10:52; tape high 4.84; cover 4.50 at 11:45 | execution: the booked trade could not have been made; the price test is not applied by the paper book (that is H1) | on past data halt reopenings are a strong kind for the backtest's fills (+5.7%, 155 trades; the best kind in 2026, not in 2025) and the kind most often carrying an exclusion flag on real quotes (of 12 forward ones, 9 flagged, 1 priced). A label in the accounting, not a filter. H1 is the test of whether such shorts can be sold at all |
 | SCAG 2026-11-23 short, official -21.2% (-$253 at a quarter of full size); on real quotes -21.6% with the ASSUMED 0.5% locate; carries an exclusion flag (price test in force since the prior day: low 0.658 against a 0.75 close), so labelled unresolved: kept in the ledger, not in the registered sample | opened 0.64, ran to 1.19 by 12:24 (+81% from the low); "volume increasing" alert 12:24:26, received in 3.8 s, decided 12:25:23 on the first free-feed print. Three records, three stop levels: MODEL sold at the bid 1.14 (1,500 shown, order 1,092), stop 1.368, first crossed 13:11:23.6 by a 650-share print at 1.37, 11 s after a 5-minute halt ended; cover 1 s later at the ask 1.38 (400 shown: thin); halted again 14 s after the crossing until 13:16:38. LIVE (free feed) entry 1.145, stop 1.374, never printed before that second halt (tape high 1.37): seen 13:16:48.9 at 1.43, within one 10 s check of the reopening. OFFICIAL entry 1.1613 (minute open), stop 1.3936, first minute at or above it 13:16, booked at the stop. Tape high 1.50 at 13:19; 1.22 an hour after entry; close 1.09 | a stop-out after a late alert (the move was 81% old), between two halts. Costs are not the story: official 1.2% (0.73% round trip + 0.5% locate), model the spread plus the assumed locate; IBKR listed 100,000 shares at a 92.6% yearly fee, Alpaca not shortable (borrow conflict). Detection was not late against the book's own level; the 5 min 25 s between the model's crossing and the live exit is the halt plus a stop level 0.6 cents higher | none adopted. Under the price test the modeled sale at the bid is not allowed, so neither the official nor the modeled figure is a result a real account could have had: that question belongs to H1 (sealed; its outcome for this trade was not computed). A cover of 1,092 shares into 400 shown, 14 s before a halt, is an optimistic fill: the model flags it "thin" and does not price it worse |
+| GLXG 2026-11-24 short, official -21.2% (-$253 at a quarter of full size); the texted estimate was +4.7% (+$56) and was replaced at the settle; on real quotes -20.5% with the ASSUMED 0.5% locate; no exclusion flag, so it is in the registered sample; borrow conflict (IBKR listed 50,000 shares at a 40.6% yearly fee at 12:34, Alpaca listed it not shortable) | opened 0.67, up 49% by the alert ("gaining momentum" 12:57:40, received in 2.1 s; our lookup found no company news at 12:58:02; the channel's own news alert came at 12:58:43, a case tested and closed on 11-20). Three records, two stop levels. OFFICIAL (tested timing): the open of the first minute after alert + 10 s, 12:58, $1.00 (first print 12:58:00.385), stop 1.20. The day's high was 1.2000 exactly: 7 prints, 9,011 shares, 13:08:50.293 to 13:08:51.661, with 26,400 shares offered at 1.20; booked at the stop. LIVE (free feed): no round-lot print from 12:58:00 to 13:00:26 (three odd lots, which do not move that feed's last price), so the entry came at 13:00:32.5 on a 1.02 print of 13:00:29; stop 1.224, never printed on either feed (official high 1.20, free feed 1.195); out on the timer at 14:00:37, 0.9598, +5.9% before 1.2% estimated costs. MODEL: sold at the bid 1.00 one second after the decision (quote 1.00 x 1.03, 11,100 on the bid; order about 1,190 shares), stop 1.20, covered 1.20 at 13:08:51.3. Price 0.91 six minutes after the crossing, 0.94 at the hour, close 1.04 | the expected replacement of a free-feed estimate by the official record: not a reporting error, not a late stop. Every stop check of the hour was on time (longest gap 11.0 s) and the live level was never reached. The live estimate was the outlier: its entry was a last print 2 cents above the bid a market sell would have hit. Knife-edge: the stop was touched to the cent; the same model with a 5 s delay sells at 1.01, is not stopped and makes +6.0%; the decision-minute check (13:01 open, 1.025) reads +6.2% | none adopted, no variant (owner 11-24). One trade says nothing about the 20% stop or the entry timing. The daytime official-tape check applies the trade's own (live) level, so it had nothing to correct: a gap between a texted result and the official one closes only at the settle. A nightly line naming any trade revised by 5 points or more is proposed, not built |
 **Owner notes review (2026-11-11; all 20 notes, trades 11-06 to 11-11).** The notes keep proposing the same five ideas.
 Each one is matched to evidence below:
 | idea in the notes | trades | evidence |
@@ -940,6 +941,57 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Three records of one trade, and the revision block (owner 2026-11-24 night; reporting and records only, no
+  rule, size, sample or criterion changed).** A trade has three records and none is a broker fill: the LIVE paper
+  path (the listener on the free feed: its own entry print, its own stop level), the SETTLED rule replay (the
+  registered rule on official one-minute bars; for a short from the first minute after alert + 10 s, so its own
+  entry and its own stop level), and the EXECUTION MODEL (orders against real quotes from the bot's decision, a
+  research ledger written at 21:25). GLXG 11-24: the live path stayed open because its stop (1.224) was never
+  reached; the replay stopped at 1.20 from a 1.00 entry; the model sold the 1.00 bid and was stopped too, and
+  the same model with a 5 s delay sold 1.01 and was not (-20.5% and +6.0%: both kept as sensitivity, neither
+  chosen, nothing inferred). What now shows this: (1) the nightly report lists every trade whose net return moved
+  5 points or more, or changed sign, between the texted estimate and the settled result, with both entries, both
+  stop levels, both exits and the cause when the two stored records establish it (else "unresolved"); the model
+  is never in that block. A late settle is listed once by the next report; an unsettled trade is marked. (2) The
+  site's settled card keeps the live record beside the settled one and says which it shows. (3) The ledger's short
+  rows carry the settled exit beside the live one (additive keys); its nightly line labels counted trades filled
+  against a quote smaller than the order and trades whose sign differs between the two delays, and says when the
+  ledger is incomplete. (4) A short entry that waits writes down why, once, and the time of the print it used
+  (GLXG waited 2 min 32 s for a round-lot print on the free feed and no record said so). Edge cases checked the same
+  night: a list read without the write lock cannot close a position twice or reopen a settled one (every change is
+  one guarded statement; tests let another task act between the read and the write); a page built from older data
+  cannot replace a newer one; the nightly job list reads every job's log, not nine named ones. Left to the owner,
+  unchanged: the stop is "high at or above entry x 1.2" in binary arithmetic in all three records, and for 23 of the
+  981 five-cent entry prices from $1 to $50 that level lands a hair above the whole cent, so a touch exactly at it
+  would not count. It has never decided a trade (of 34 settled shorts only GLXG came within 0.5% of its level, and
+  it counted); changing it is a change to the registered replay and needs a dated amendment.
+- **Three items of the 2026-11-24 reports (owner review 11-24 night; no rule, size or threshold changed).**
+  (1) GLXG: texted +4.7%, settled -21.2%; the row in section 5 has the tape. Expected replacement of the free-feed
+  estimate; no late stop; a result that turns on one cent of entry price. (2) Database: the nightly said "longest
+  wait 1.3 s (alert_context.py:due), longest hold 0.8 s (fade.py:monitor)". Both were outside trading: 08:00:22 and
+  05:56:42 ET, no position open (first entry 10:23). The wait was in the context pass, a different thread: the
+  stop-check record of its window is 60 of 60 and 40 of 40 on time, gaps 10.0 and 15.0 s. The hold is the
+  heartbeat's one-row write (commit and close on the volume; no network or file read inside) and it sits in the
+  short loop's own pass, so the next check came that much later: longest gap of its window 10.9 s against a 25 s
+  late limit (the same write took 1.2 s at 19:49 ET that evening: gap 11.2 s, nothing open). Of the day's 13 slow
+  lines one fell while a position was open (14:25:24, a 0.26 s hold by the paused scanner's list, BENF long): that
+  window's 40 long-book checks were on time, longest gap 15.2 s. No stop check was late and none was missed; a slow
+  heartbeat write does push the next short check back by its own length. The 1.3 s wait has NO holder in the record, which timed write blocks only; start-up
+  of a job takes no write lock (tested), so what is left is a close of an untimed block (a read block that closes
+  last does SQLite's checkpoint: reproduced) or the volume itself: not established. Fixed: four lists the loops
+  only read took the write lock (`alert_context.due`, `tape_check._rows`, `long_book._advance`,
+  `scanner.step`: each is in the record as a waiter or a holder) and now read without it; the close of a read
+  block is timed and written down. Not changed: one connection per block (so the checkpoint runs at many closes)
+  and a disk sync at every commit; both are storage design, put to the owner. (3) Charts: "jobs FAILED: charts
+  11-24 16:14" was two chart builds 3 s apart at the deploy (the container's start-up build and the deploy
+  script's) sharing one temporary file; the second died on its rename. The page was whole and was rebuilt at 16:20
+  and 20:50; trading, the settle and the ledger do not use that job. Fixed: a temporary file per run. Also the
+  nightly's borrow line said "a real account could not" for three different reasons; it now counts them and says
+  what IBKR's list showed at the alert ("that broker at that time, not every broker"); the stored reason text is
+  a key and keeps its wording. Registered sample after 11-24 (ledger written 21:25): shorts 3 of 25 / 50 with no
+  exclusion flag (BRAI -3.4%, JZ +21.8%, GLXG -20.5%; mean -0.7%, original record -1.0%), 2 flagged and not
+  counted; longs 2 of 15 / 30 (APLD -1.2%, BENF +4.7%; mean +1.8%, original +1.2%). Under 10 trades cannot be
+  judged; a day with two winners changes no size and no rule.
 - **Research drift monitor: registered, NOT implemented (2026-11-24, `prereg_fade_drift_monitor_2026-11-24.md` with
   amendment A1, `fade-drift-monitor-v1`).** Registered at the owner's word as a forward-only monitor beside the
   existing guard (three looks at 20 / 40 / 60 sessions from 2026-11-25, 5 points of false-warning probability in

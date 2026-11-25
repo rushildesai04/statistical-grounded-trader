@@ -225,6 +225,16 @@ def test_digest_reports_failed_jobs_and_pending(db, tmp_path):
     many.write_text("".join(f"=== {now - timedelta(minutes=m):%Y-%m-%d %H:%M:%S} charts\n!!! exit 1\n!!! alert failed\n"
                             for m in (50, 40, 30)))
     assert digest.job_failures(now, {"charts": many}) == [f"charts x3 (last {now - timedelta(minutes=30):%m-%d %H:%M})"]
+    # 2026-11-24: a job whose log nobody listed (the execution ledger) is read too, named after its folder
+    root = tmp_path / "reports"
+    (root / "exec_model").mkdir(parents=True)
+    (root / "exec_model" / "run.log").write_text(f"=== {now - timedelta(minutes=5):%Y-%m-%d %H:%M:%S} EST python x\n!!! exit 1\n")
+    (root / "ops").mkdir()
+    (root / "ops" / "run.log").write_text(f"=== {now - timedelta(minutes=9):%Y-%m-%d %H:%M:%S} EST python y\nfine\n")
+    logs = digest.every_log(root, {"ops": root / "ops" / "run.log"})
+    assert list(logs) == ["ops", "exec model"] and logs["ops"] == root / "ops" / "run.log"
+    assert digest.job_failures(now, logs) == [f"exec model {now - timedelta(minutes=5):%m-%d %H:%M}"]
+    assert digest.every_log(tmp_path / "nowhere", {"a": Path("x")}) == {"a": Path("x")}
     # every log the runner's job wrapper writes for a model or page job is read (11-13: the 15-name set's crash was not)
     assert {"megacap", "megacap 15", "megacap overlay", "charts"} <= set(digest.LOGS)
     assert digest.LOGS["megacap 15"].as_posix() == "reports/megacap_ext/run.log"

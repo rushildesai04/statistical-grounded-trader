@@ -144,6 +144,14 @@ def build(db: OpsStore, day: date) -> str:
     if real and real["orders"]:
         lines.append(f"💵 {bold('REAL')} (Schwab): {real['orders']} fills · ${real['traded']:,.0f} traded · "
                      f"fades {bold(_usd(real['usd']))}")
+    try:                                        # owner 2026-11-24: a texted estimate the settle moved far, by name
+        from sgt.ops import revisions
+
+        rv = revisions.short_note(db, day)
+        if rv:
+            lines.append(rv)
+    except Exception:  # noqa: BLE001 - one informational line; said, never silent
+        lines.append("✏️ Revisions: unavailable")
     total = f["usd"] + lg["usd"] + sum(v for _, v in counted)     # the same books the nightly digest adds up
     lines.append(f"🧾 Paper total (trading books): {bold(_usd(total))}")
     page = chartserver.link()

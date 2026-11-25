@@ -25,8 +25,10 @@ WHY = {
     fade.BETA_UNKNOWN: "beta unknown at entry (lookup failed or a new listing): no short",
     fade.REPEAT_REASON: "alerted in the last 7 days: multi-day runners keep running",
     fade.OFF_REASON: "the fade was switched off at that time",
-    fade.BORROW_NONE: "no shares to borrow at IBKR: a real account could not short it",
-    fade.BORROW_FEW: "too few shares to borrow at IBKR for this trade size",
+    # Owner 2026-11-24: one broker's list at one time, not proof that no broker had shares. (The stored reason
+    # keeps its old text: it is the key the gate counts and the would-have record match on.)
+    fade.BORROW_NONE: "no shares listed to borrow at IBKR at the alert (that broker, that time): no short",
+    fade.BORROW_FEW: "too few shares listed at IBKR at the alert for this trade size: no short",
     fade.BORROW_UNKNOWN: "borrow unknown at entry: no short",
     fade.NO_PRINT_REASON: "no trade printed within 5 minutes (halted or no quote)",
     "alert received late": "the alert reached us too late to enter at the tested time",

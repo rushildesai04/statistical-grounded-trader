@@ -62,6 +62,7 @@ MAX_FADE_TEXTS_DAY = 40
 MAX_PILOT_TEXTS_DAY = 150                       # real-money texts: own counter, never crowded out by paper
 VOID_AFTER = timedelta(days=3)                 # SIP bars still missing after this -> void
 STALE_QUOTE = timedelta(seconds=90)            # older IEX print + a large move = likely halted (RAYA 2026-11-06)
+SEEN_MAX = 500                                 # symbols the live quote remembers its last answer for
 HALT_MOVE = 0.10                               # high/low range in the 5 min before the last print that looks like LULD
 _SYMBOL = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
 
@@ -85,29 +86,48 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
     STALE_QUOTE after a violent move is not a price (entry waits for real trading, like the research rule). But SNT the
     same day was only quiet on IEX while trading every minute on SIP; skipping it diverged from the research rule, so a
     stale print WITHOUT such a move is still used (thin on IEX, not halted)."""
+    seen: dict[str, dict] = {}                  # symbol -> what the last call saw (2026-11-24: a record, never a rule)
+
     def quote(symbol: str, since: datetime | None = None) -> float | None:
-        """``since``: only a print at or after it is a price (entry: the tested bar's start, fade.entry_start)."""
+        """``since``: only a print at or after it is a price (entry: the tested bar's start, fade.entry_start).
+        ``quote.seen[symbol]`` holds what this call saw: the print's time (``at``) and, when it gave no price, why
+        (``why``); the short book writes both on the trade's row."""
         if not _SYMBOL.match(symbol):
             return None
+        note = seen[symbol] = {"at": None, "why": "the quote request failed"}
+        if len(seen) > SEEN_MAX:                # bounded: one entry per symbol asked about
+            seen.pop(next(iter(seen)))
         try:
             r = client.get(f"/v2/stocks/{symbol}/trades/latest", params={"feed": "iex"})
             if r.status_code != 200:
+                note["why"] = f"the quote request failed (HTTP {r.status_code})"
                 return None
             t = r.json().get("trade", {})
             p = float(t.get("p", 0))
             at = pd.Timestamp(str(t.get("t", ""))).to_pydatetime(warn=False)   # nanosecond ISO from Alpaca
             if at.tzinfo is None:
+                note["why"] = "the feed's last print carries no time"
                 return None
+            note["at"] = at.isoformat()
             if since is not None and at < since:
-                return None                     # no print yet in the tested entry bar (e.g. halted right after the alert)
+                # no print yet in the tested entry bar (e.g. halted right after the alert). The free feed's "last
+                # print" is its last ROUND-LOT print: odd lots do not move it (GLXG 2026-11-24).
+                note["why"] = (f"no free-feed print at or after the entry bar yet (its last print "
+                               f"{at.astimezone(fade.ET):%H:%M:%S} ET)")
+                return None
             if now() - at > STALE_QUOTE and halted_like(client, symbol, at):
                 log.info("quote %s stale (%s) after a large move: likely halted, no price yet", symbol, at.isoformat())
+                note["why"] = (f"free-feed print {at.astimezone(fade.ET):%H:%M:%S} ET is over "
+                               f"{int(STALE_QUOTE.total_seconds())} s old after a large move (likely halted)")
                 return None
+            note["why"] = None if p > 0 else "the feed's last print has no price"
             return p if p > 0 else None
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             log.warning("quote %s failed: %s", symbol, type(exc).__name__)
+            note["why"] = f"the quote request failed ({type(exc).__name__})"
             return None
     quote.since_aware = True
+    quote.seen = seen
     return quote
 
 

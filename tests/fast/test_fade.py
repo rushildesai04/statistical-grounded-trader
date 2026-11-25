@@ -596,6 +596,86 @@ def test_stale_print_is_no_price_only_when_it_looks_halted():
     assert q("LIVE") == 1.425 and q("BAD") is None
     assert q.since_aware and q("LIVE", since=pd.Timestamp(last["LIVE"]).to_pydatetime()) == 1.425   # print at since
     assert q("LIVE", since=pd.Timestamp(last["LIVE"]).to_pydatetime() + timedelta(seconds=1)) is None   # older: wait
+    # 2026-11-24: every answer leaves what it saw (the print's time, and why there was no price): a record, not a rule
+    assert q.seen["LIVE"]["at"] == pd.Timestamp(last["LIVE"]).to_pydatetime().isoformat()
+    assert q.seen["LIVE"]["why"].startswith("no free-feed print at or after the entry bar yet (its last print ")
+    assert q("LIVE") == 1.425 and q.seen["LIVE"]["why"] is None
+    assert q("RAYA") is None and "s old after a large move (likely halted)" in q.seen["RAYA"]["why"]
+    assert q("BAD") is None and q.seen["BAD"]["why"]
+
+
+def test_an_entry_that_waits_writes_down_why_once_and_the_print_it_used(db):
+    """GLXG 2026-11-24: the live entry came 2 min 32 s after the tested bar started (no round-lot print on the free
+    feed) and nothing on record said why. The rule is unchanged: wait for a print at or after the entry bar, up to 5
+    minutes after the alert, then skip."""
+    ap.arm(db, T10)
+    fade.on_alert(db, alert(at=T10 - timedelta(seconds=10)), now=T10)
+    answers = iter([(None, "2026-11-02T14:59:50+00:00", "no free-feed print at or after the entry bar yet (its last "
+                                                         "print 09:59:50 ET)"),
+                    (None, "2026-11-02T14:59:50+00:00", "something else"),
+                    (4.0, "2026-11-02T15:02:26+00:00", None)])
+
+    def quote(symbol, since=None):
+        px, at, why = next(answers)
+        quote.seen = {symbol: {"at": at, "why": why}}
+        return px
+    quote.since_aware = True
+    sent = []
+    for k in (20, 30, 152):
+        fade.monitor(db, sent.append, quote, now=T10 + timedelta(seconds=k))
+    (r,) = rows(db)
+    assert (r["status"], r["est_entry"]) == ("open", 4.0)
+    assert r["entry_wait"] == ((T10 + timedelta(seconds=20)).isoformat()
+                               + " no free-feed print at or after the entry bar yet (its last print 09:59:50 ET)")
+    assert r["est_print_at"] == "2026-11-02T15:02:26+00:00"          # data age = est_entry_at - est_print_at
+    opened = [d for d in db.decisions("short", r["id"]) if d["state_to"] == "open"]
+    assert len(opened) == 1 and '"est_print_at": "2026-11-02T15:02:26+00:00"' in opened[0]["facts"]
+    assert len(sent) == 1                                            # one entry text; the wait itself texts nothing
+
+
+def test_an_entry_that_never_gets_a_print_is_skipped_by_the_same_rule_with_its_wait_on_record(db):
+    ap.arm(db, T10)
+    fade.on_alert(db, alert(at=T10 - timedelta(seconds=10)), now=T10)
+    quote = lambda symbol, since=None: None  # noqa: E731 - a quote with no record of its own
+    quote.since_aware = True
+    for k in (20, 301):
+        fade.monitor(db, [].append, quote, now=T10 + timedelta(seconds=k))
+    (r,) = rows(db)
+    assert (r["status"], r["reason"]) == ("skipped", fade.NO_PRINT_REASON)
+    assert r["entry_wait"].endswith(" " + fade.NO_PRICE_YET) and r["est_print_at"] is None
+
+
+def test_a_wait_that_cannot_be_written_down_changes_nothing_about_the_entry(db, monkeypatch):
+    ap.arm(db, T10)
+    fade.on_alert(db, alert(at=T10 - timedelta(seconds=10)), now=T10)
+    from contextlib import contextmanager
+
+    real, state = db.tx, {"fail": True}
+
+    class Conn:                                     # the record's own statement fails; every other write works
+        def __init__(self, c):
+            self.c = c
+
+        def execute(self, sql, *a):
+            if state["fail"] and "SET entry_wait" in sql:
+                raise RuntimeError("database is locked")
+            return self.c.execute(sql, *a)
+
+    @contextmanager
+    def tx():
+        with real() as c:
+            yield Conn(c)
+
+    monkeypatch.setattr(db, "tx", tx)
+    answers = iter([None, 4.0])
+    quote = lambda symbol, since=None: next(answers)  # noqa: E731
+    quote.since_aware = True
+    sent = []
+    fade.monitor(db, sent.append, quote, now=T10 + timedelta(seconds=20))
+    assert rows(db)[0]["status"] == "pending" and rows(db)[0]["entry_wait"] is None
+    state["fail"] = False
+    fade.monitor(db, sent.append, quote, now=T10 + timedelta(seconds=30))
+    assert (rows(db)[0]["status"], rows(db)[0]["est_entry"]) == ("open", 4.0) and len(sent) == 1
 
 
 def test_digest_warns_when_the_channel_goes_quiet(db):

@@ -22,7 +22,7 @@ import pandas as pd
 from sgt.core.secrets import get_secret
 from sgt.fast import est_costs, fade
 from sgt.intraday.calendar import default_calendar
-from sgt.ops import charts, model_tape
+from sgt.ops import charts, model_tape, pagefile
 from sgt.ops.store import OpsStore, utcnow
 
 log = logging.getLogger("trade_charts")
@@ -96,6 +96,7 @@ def long_rows(db: OpsStore | None) -> list[dict]:
         if r["status"] != "settled":                      # the official entry/exit only once settled
             r.update(net=None, entry=None, cover=None, entry_ts=None, exit_reason=None)
         elif r.get("exit_ts"):
+            r["live_exit_at"] = r["est_exit_at"]           # 2026-11-24: the live path's own exit time stays on the card
             r["est_exit_at"] = r["exit_ts"]                # the official exit time for the sell marker
         ret = r["net"] if r["net"] is not None else est_costs.net(     # live estimate: after estimated costs (2026-11-16)
             "long", r["symbol"], r.get("est_entry_at"), r.get("est_entry"), r.get("est_exit"))
@@ -343,14 +344,14 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("reports/charts/fade_tape.html"))
     ap.add_argument("--fragment", action="store_true", help="omit the document head (for an Artifact publish)")
     a = ap.parse_args()
+    started = utcnow()                                   # before the first read: the age of this build's data
     db = None if a.trades else OpsStore()
     trades = [json.loads(x) for x in a.trades.read_text().splitlines() if x.strip()] if a.trades else from_db(db)
     html = build(trades, db, utcnow(), standalone=not a.fragment)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = a.out.with_suffix(".tmp")
-    tmp.write_text(html)
-    tmp.replace(a.out)                                   # atomic: the chart server never serves a partial page
-    print(f"wrote {a.out} ({len(trades)} trades)")
+    if pagefile.publish(a.out, html, started):
+        print(f"wrote {a.out} ({len(trades)} trades)")
+    else:                                                # not a failure: a build that started later finished first
+        print(f"not written: {a.out} already holds a page built from newer data ({len(trades)} trades in this build)")
     return 0
 
 

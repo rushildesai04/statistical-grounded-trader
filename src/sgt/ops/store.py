@@ -125,6 +125,10 @@ COLUMNS = {
         # while the listener was down and found by the catch-up) and, for a replay, when it was recovered. The entry
         # of a recovered alert never uses a print older than recovered_at.
         "via": "TEXT", "recovered_at": "TEXT",
+        # 2026-11-24 (GLXG: the live entry came 2 min 32 s after the tested bar and nothing on record said why): the
+        # time of the print the live entry price came from, and why the entry waited the first time it had no price.
+        # A record only: the entry rule (first print at or after the tested bar, inside 5 minutes) is unchanged.
+        "est_print_at": "TEXT", "entry_wait": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
@@ -156,6 +160,7 @@ def iso(ts: datetime) -> str:
 
 SLOW_S = 0.25                       # a wait for the write lock, or a hold of it, this long is written down
 WAITS_NAME = "db_waits.jsonl"       # next to the database
+READ_CLOSE = "close of a read"      # ``what`` of a line that timed the close of a read block, not a write block
 WAITS_MAX_BYTES, WAITS_MAX_LINES = 2_000_000, 20_000
 DECIDE_TIMEOUT_S = 0.5              # the longest the decision record may hold a trading loop (see OpsStore.decide)
 SPOOL_NAME = "decisions.spool.jsonl"   # next to the database: lines that could not be written, waiting for a replay
@@ -210,7 +215,12 @@ class OpsStore:
     def read(self) -> Iterator[sqlite3.Connection]:
         """A consistent READ that takes no write lock. The database runs in WAL mode, where a reader and the writer do
         not block each other: a page or a report built inside this block cannot delay a trading write, however long
-        it takes. Writes are refused (query_only). Use it for every block that only selects."""
+        it takes. Writes are refused (query_only). Use it for every block that only selects.
+
+        Its CLOSE is timed (2026-11-24). Every block here opens a connection of its own, and SQLite moves the pending
+        writes into the database file (a checkpoint, with its disk syncs) when the LAST open connection closes: a
+        read block too (reproduced). That work was in no record: the 1.3 s wait of 11-24 08:00:22 ET has no holder
+        in the file. A close of SLOW_S or more is now written down like a slow hold, marked ``what``."""
         c = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         c.row_factory = sqlite3.Row
         try:
@@ -220,9 +230,13 @@ class OpsStore:
         finally:
             if c.in_transaction:
                 c.execute("ROLLBACK")
+            t0 = time.monotonic()
             c.close()
+            took = time.monotonic() - t0
+            if took >= SLOW_S:
+                self._note_slow(0.0, took, False, sys._getframe(2), what=READ_CLOSE)
 
-    def _note_slow(self, wait: float, hold: float, failed: bool, frame) -> None:
+    def _note_slow(self, wait: float, hold: float, failed: bool, frame, what: str | None = None) -> None:
         """One line per slow wait or hold, next to the database (bounded; never raises: it runs on trading paths)."""
         try:
             via = []                            # a store helper (set_flag, audit, ...) is not the answer to "who":
@@ -236,7 +250,7 @@ class OpsStore:
                 return
             with p.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"at": utcnow().isoformat(), "wait": round(wait, 3), "hold": round(hold, 3),
-                                    "who": who, "failed": failed}) + "\n")
+                                    "who": who, "failed": failed, **({"what": what} if what else {})}) + "\n")
             logging.getLogger(__name__).warning("ops database: waited %.2f s, held %.2f s (%s)", wait, hold, who)
         except Exception:  # noqa: BLE001 - a measurement must never break the write it measures
             logging.getLogger(__name__).exception("ops database: slow wait not recorded")

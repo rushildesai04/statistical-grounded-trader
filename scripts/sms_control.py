@@ -385,7 +385,8 @@ def last_final_session(now_et: datetime) -> date:
 def cmd_digest(db: OpsStore) -> int:
     now = datetime.now(ET)
     fills, problems = book.settle(db, daily_closes, last_final_session(now))
-    text = digest.build(db, now, fills=fills, problems=problems, broker=broker_line(),
+    marks: dict = {}
+    text = digest.build(db, now, fills=fills, problems=problems, broker=broker_line(), marks=marks,
                         research=[digest.megacap_research(), digest.challenger_research(),
                                   digest.challenger_research(Path("reports/fade_exits")),
                                   digest.challenger_research(Path("reports/fade_hold")),
@@ -398,6 +399,11 @@ def cmd_digest(db: OpsStore) -> int:
             sms.send(part)
     finally:
         sms.close()
+    from sgt.ops import revisions
+
+    # 2026-11-24: only after the report went out. A report that failed to send stores nothing, so the next one still
+    # lists every late settle; a second run of tonight's report shows the same block and moves the mark forward only.
+    revisions.mark(db, now.date(), marks.get(revisions.WATERMARK))
     print(text)
     return 0
 

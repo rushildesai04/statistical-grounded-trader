@@ -65,8 +65,15 @@ def test_labels():
 def test_a_placeable_short_is_modeled_with_both_figures_and_the_original_untouched():
     r = el.short_row(FakeApi(), short())
     assert r["label"] == "MODELED" and r["flags"] == [] and r["model"]["entry"] == 9.95 and r["model"]["exit"] == 10.05
-    assert r["orig"] == {"entry_ts": "2026-11-18 15:01:00+00:00", "entry": 10.0, "exit": 9.9, "reason": "60 min", "net": 0.0,
-                         "est_entry": 10.0}
+    first = {"entry_ts": "2026-11-18 15:01:00+00:00", "entry": 10.0, "exit": 9.9, "reason": "60 min", "net": 0.0,
+             "est_entry": 10.0}
+    assert {k: r["orig"][k] for k in first} == first              # the keys of every earlier row, unchanged
+    # 2026-11-24: "reason" is the LIVE path's exit; the row now says so and carries the settled replay's own exit
+    assert {k: v for k, v in r["orig"].items() if k not in first} == {
+        "live_reason": "60 min", "settled_reason": "60 min", "est_exit": None, "est_exit_at": None}
+    glxg = el.short_row(FakeApi(), short(entry=1.0, cover=1.2, est_entry=1.02, est_exit=0.9598,
+                                         est_exit_at="2026-11-18T16:00:37+00:00"))["orig"]
+    assert (glxg["reason"], glxg["live_reason"], glxg["settled_reason"], glxg["est_exit"]) == ("60 min", "60 min", "stop", 0.9598)
     assert r["stress_latency_net"] == pytest.approx(r["model"]["net"])
     json.dumps(r, default=el._plain)                              # every value can be written to the ledger
 

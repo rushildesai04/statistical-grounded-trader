@@ -118,7 +118,8 @@ def disk(db: OpsStore, usage=None) -> str:
 
 
 def database(db: OpsStore, session: str) -> str:
-    """The day's slow waits for the database's write lock (``OpsStore.tx``), as a clause for the nightly line."""
+    """The day's slow waits for the database's write lock (``OpsStore.tx``) and slow closes of a read block
+    (``OpsStore.read``, counted with the holds since 2026-11-24), as a clause for the nightly line."""
     rows = db.slow(session)
     if not rows:
         return "database: no write waited 0.25 s"
