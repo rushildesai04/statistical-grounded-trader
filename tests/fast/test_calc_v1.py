@@ -230,3 +230,35 @@ def test_the_scorer_attaches_v1_values_without_moving_one_registered_number():
     broken = fl.with_v1(out, due, Store(fail=True)).set_index("id")   # the store fails: said per trade, nothing raised
     pd.testing.assert_frame_equal(broken[list(out.columns.drop("id"))], out.set_index("id"))
     assert "not computed (error: OSError)" in broken.loc[1, "calc_v1"]
+
+
+def test_review_findings_of_2026_11_25(db):
+    """(1) The one-time re-score of a long settled long ago gives it no v1 figure: nothing settled before the parallel
+    figure existed is restated. (2) A short's target is exact too. (3) Bars that are not 64-bit floats are named."""
+    fid = _short_row(db, "OLDL", 1.1)
+    with db.tx() as c:
+        c.execute("UPDATE fade_trades SET status='filtered' WHERE id=?", (fid,))
+        lid = c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
+                        "entry_ts, est_entry, est_exit, reason, net, rules, settled_at, created_at) VALUES "
+                        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (fid, "OLDL", ET_DAY, "L4b", "settled", 1.1, 1.065, 1.185, 0.037, T0.isoformat(), 1.105, 1.06, "stop",
+                         -0.05, long_book.RULES, "2026-11-10T01:40:00+00:00", T0.isoformat())).lastrowid
+    rain = bars([(1.0701, 1.17, 1.07, 1.13), (1.1318, 1.16, 1.13, 1.1501), (1.135, 1.17, 1.08, 1.11), (1.10, 1.11, 1.05, 1.08)])
+    out = long_book.settle(db, lambda sym, ses: rain, lambda sym, ts, px: 0.0073386,
+                           now=datetime(2026, 11, 26, 1, 40, tzinfo=timezone.utc))
+    assert len(out) == 1 and "re-scored" in out[0]
+    with db.read() as c:
+        r = dict(c.execute("SELECT * FROM long_trades WHERE id=?", (lid,)).fetchone())
+    assert r["entry"] == 1.1 and (r["net_v1"], r["exit_v1"], r["calc_v1"]) == (None, None, None)
+    assert calc_v1.line(db) is None
+    # (2)
+    from decimal import Decimal as D
+    assert xp.short_target(1.000001, 1.5) == D("0.000003") and xp.short_target(10, 10.5) == D("9")
+    s = pt.Setup("S2v2", "short", T0, None, 10.5)
+    t = pt.simulate(bars([(10.0, 10.1, 9.9, 10.0), (10.0, 10.0, 9.0, 9.2)]), s, exact=True)
+    assert (t.reason, t.exit) == ("target", 9.0)
+    # (3)
+    narrow = bars([(5.15, 6.0, 5.1, 5.9)]).astype({"high": "float32"})
+    assert calc_v1.short(narrow, 5.15, 0.01, 0.005) == calc_v1.not_computed("data quality: bar prices are not 64-bit floats (high)")
+    assert "not 64-bit floats" in calc_v1.long(narrow, pt.Setup("L4b", "long", T0, 1.1, 1.065), None, 0.007)["calc_v1"]
+

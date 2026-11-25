@@ -109,6 +109,12 @@ def long_target(entry, stop, rr=RR) -> Decimal:
     return _EXACT.add(e, _EXACT.multiply(rate(rr), _EXACT.subtract(e, price(stop))))
 
 
+def short_target(entry, stop, rr=RR) -> Decimal:
+    """``entry - rr x (stop - entry)``, exact and unrounded: a short's target (the stop is above the entry)."""
+    e = price(entry)
+    return _EXACT.subtract(e, _EXACT.multiply(rate(rr), _EXACT.subtract(price(stop), e)))
+
+
 def at_or_above(px, level: Decimal) -> bool:
     """Has ``px`` (a reported price) reached ``level`` from below? Exact ``>=``; a touch counts."""
     return price(px) >= level

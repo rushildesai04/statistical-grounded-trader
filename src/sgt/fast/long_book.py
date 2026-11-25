@@ -672,7 +672,9 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
                 exit_reason=t.reason, gross=t.gross, cost_rt=rt, net=net, settled_at=iso(now),
                 **({} if seen else {"calc": calc_v1.PRIMARY})):
         return None
-    if not seen:
+    if not seen and r["status"] != "settled":        # a fresh settle only (review 2026-11-25): the one-time re-score
+        #                                                  of a row settled long ago must not give that old trade a v1
+        #                                                  figure: nothing settled before the parallel figure is restated
         _parallel(db, r["id"], calc_v1.long(f, s, t, rt, latest=long_shadow._latest(r["session"]),
                                             red_exit=r.get("rules") == RULES))
     if r["status"] == COSTLY:

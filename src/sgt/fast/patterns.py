@@ -262,7 +262,7 @@ def _exit_exact(path: pd.DataFrame, after: pd.DataFrame, s: Setup, entry: float,
 
     stop, e = xp.price(s.stop), xp.price(entry)
     rate = Decimal(repr(float(rr)))                       # the registered reward-to-risk (2.0) as an exact number
-    target = xp.long_target(e, stop, rate) if long else e - rate * (stop - e)
+    target = xp.long_target(e, stop, rate) if long else xp.short_target(e, stop, rate)
     tgt = float(target)
     for k, b in enumerate(path.itertuples()):
         first = k == 0

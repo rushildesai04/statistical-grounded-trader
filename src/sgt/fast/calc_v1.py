@@ -46,6 +46,13 @@ def _hm(ts) -> str:
     return pd.Timestamp(ts).tz_convert(ET).strftime("%H:%M")
 
 
+def _not_float64(bars: pd.DataFrame) -> str | None:
+    """Official bars are stored as 64-bit floats, which is what makes the decimal read-back lossless. A narrower type
+    (a 32-bit float widened on the way) would turn every price into a computed-looking number: say that once."""
+    bad = [k for k in ("open", "high", "low", "close") if k in bars.columns and str(bars[k].dtype) != "float64"]
+    return f"data quality: bar prices are not 64-bit floats ({', '.join(bad)})" if bad else None
+
+
 def short(window: pd.DataFrame | None, entry, cost_rt, locate: float) -> dict:
     """The registered short replay's result under ``price-decimal-v1`` for one settled trade. ``window``: the SAME
     official bars the registered replay walked (from its entry bar, 60 minutes, regular hours). Returns the values
@@ -53,6 +60,8 @@ def short(window: pd.DataFrame | None, entry, cost_rt, locate: float) -> dict:
     try:
         if window is None or not len(window):
             return not_computed("no official bars for the window")
+        if (why := _not_float64(window)) is not None:
+            return not_computed(why)
         w = window.sort_values("ts")
         e, c = float(entry), float(cost_rt)
         got = xp.short_cover(w.high, w.open, w.close, e)
@@ -80,6 +89,8 @@ def long(bars: pd.DataFrame, setup, primary, cost_rt, *, latest=None, red_exit: 
     from sgt.fast import patterns as pt
 
     try:
+        if (why := _not_float64(bars)) is not None:
+            return not_computed(why)
         t = pt.simulate(bars, setup, latest=latest, red_exit=red_exit, exact=True)
         if t is None:
             return not_computed("no fill")
