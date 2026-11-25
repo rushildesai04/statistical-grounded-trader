@@ -790,7 +790,9 @@ async def run() -> int:
     async def long_loop():
         from sgt.fast import long_book
 
-        long_last = iex_quote(lc)                # 2026-11-25: the feed's last trade, read after a long is booked (a label)
+        # 2026-11-25: the feed's last trade. Read after a long is booked (a label on its reference price), and at each
+        # exit check of an open long for a print at its stop (long_book.between_candles: paper measurement, not protection)
+        long_last = iex_quote(lc)
 
         long_venue = iex_book(lc)                # 2026-11-25: one exchange's standing quote, read at the same point
 

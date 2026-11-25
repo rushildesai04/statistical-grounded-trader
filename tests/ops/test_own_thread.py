@@ -145,9 +145,9 @@ def test_the_intervals_between_stop_checks_are_measured_not_assumed(tmp_path):
         lp.finish()
     lp.flush()
     text = ot.clause(tmp_path, day, noon)
-    assert ("long book 5 checks, 100.0% within 16 s, longest gap 15 s, longest single check 0 s (how often it LOOKS at "
-            "closed free-feed candles; a long's stop is seen only when such a candle closes, later than the tape: not "
-            "stop protection); short book 74 checks") in text
+    assert ("long book 5 checks, 100.0% within 16 s, longest gap 15 s, longest single check 0 s (how often it LOOKS, "
+            "at closed free-feed candles and at the free feed's last trade; that feed shows a long's stop later than the "
+            "tape, or not at all: not stop protection); short book 74 checks") in text
     assert text.count("not stop protection") == 1
 
 

@@ -181,8 +181,10 @@ def gaps(folder: Path, day: str) -> list[dict]:
 # sees a stop: on 15 past stop exits the candle that showed it closed a median 39 s and up to 22 minutes after the
 # tape's first print there (docs/findings/long_stop_detection_2026-11-25.md). The line says so; the short book's
 # figures are never evidence for the long book's exits.
-LOOKS = {"long book": " (how often it LOOKS at closed free-feed candles; a long's stop is seen only when such a candle "
-                      "closes, later than the tape: not stop protection)"}
+# 2026-11-25 (afternoon): the look now also reads the free feed's last trade for a print at the stop
+# (long_book.between_candles). Still one thin feed: the wording says what is looked at, and that it is not protection.
+LOOKS = {"long book": " (how often it LOOKS, at closed free-feed candles and at the free feed's last trade; that feed "
+                      "shows a long's stop later than the tape, or not at all: not stop protection)"}
 
 
 def _measured(rows: list[dict], in_hours) -> str:
