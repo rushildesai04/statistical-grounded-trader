@@ -119,8 +119,9 @@ def _say(send, text: str) -> None:
 
 def step(db: OpsStore, quote: Quote, now: datetime, send=None) -> None:
     """pending -> open at the first print in bar t+1 (within 5 min); open -> est_closed on the stop or 60 minutes.
-    ``send``: owner 2026-11-09 wants a text for every new trade and every exit (experiment trades too)."""
-    with db.tx() as c:
+    ``send``: owner 2026-11-09 wants a text for every new trade and every exit (experiment trades too).
+    The list of live rows is a read (2026-11-24: it waited 1.0 s for the write lock and held it 0.26 s on 11-24)."""
+    with db.read() as c:
         rows = c.execute("SELECT * FROM scan_trades WHERE status IN ('pending','open') ORDER BY id").fetchall()
     for r in rows:
         try:

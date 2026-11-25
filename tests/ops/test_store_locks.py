@@ -115,3 +115,48 @@ def test_writing_the_measurement_down_can_never_break_the_write(db, monkeypatch)
     monkeypatch.setattr(store, "WAITS_NAME", "no/such/dir/x.jsonl")
     db.set_flag("k", "v")
     assert db.flag("k") == "v"
+
+
+def test_the_lists_the_trading_loops_read_do_not_wait_for_a_writer(db):
+    """Lock record of 2026-11-24: ``alert_context.due`` waited 1.3 s for the write lock, ``tape_check._rows`` held it
+    0.37 s with the long book's exit check (0.43 s) behind it, ``scanner.step`` waited 1.0 s. Each of them only reads
+    its list there. With another process in the middle of a write, each returns at once."""
+    import pandas as pd
+
+    from sgt.fast import alert_context, long_book, scanner, tape_check
+
+    now = T10 + timedelta(minutes=1)
+    open_short(db)
+    db.set_flag("k", "v")
+
+    def while_writing(call):
+        """``call()`` with the write lock held by someone else: (seconds it took, what it returned)."""
+        got, release = [], threading.Event()
+
+        def writer():
+            with db.tx() as c:
+                c.execute("UPDATE flags SET value='x' WHERE key='k'")
+                got.append("locked")
+                release.wait(3)
+
+        w = threading.Thread(target=writer)
+        w.start()
+        while not got:
+            time.sleep(0.01)
+        try:
+            t0 = time.monotonic()
+            out = call()
+            return time.monotonic() - t0, out
+        finally:
+            release.set()
+            w.join()
+
+    took = {
+        "alert_context.due": while_writing(lambda: alert_context.due(db, now)),
+        "tape_check._rows": while_writing(lambda: tape_check._rows(db, now)),
+        "long_book._advance": while_writing(lambda: long_book._advance(db, lambda s, t: pd.DataFrame(), [].append, now)),
+        "scanner.step": while_writing(lambda: scanner.step(db, lambda s, **k: None, now)),
+    }
+    assert {k: round(v[0], 1) for k, v in took.items() if v[0] >= 0.5} == {}
+    assert [r["symbol"] for r in took["alert_context.due"][1]] == ["ABCD"]     # and they still read what is there
+    assert [r["symbol"] for r in took["tape_check._rows"][1]] == ["ABCD"]

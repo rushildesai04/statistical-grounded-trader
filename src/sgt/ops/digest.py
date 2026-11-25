@@ -285,8 +285,10 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                          "('settled','void','open','pending','est_closed') ORDER BY id", (s,)).fetchall()
         off = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason=?",
                         (s, fade.OFF_REASON)).fetchone()[0]
-        dry = c.execute("SELECT COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND reason IN "
-                        f"({','.join('?' * len(fade.BORROW_REASONS))})", (s, *fade.BORROW_REASONS)).fetchone()[0]
+        why = dict(c.execute("SELECT reason, COUNT(*) FROM fade_trades WHERE session=? AND status='filtered' AND "
+                             f"reason IN ({','.join('?' * len(fade.BORROW_REASONS))}) GROUP BY reason",
+                             (s, *fade.BORROW_REASONS)).fetchall())
+    dry = sum(why.values())
     # 2026-11-16: the fade went back on at 12:13 and the night's digest still read "fade OFF" for the nine alerts of
     # the morning. The line says what is true now: off, or on again with what was skipped while it was off.
     if fade.is_off(db):
@@ -297,9 +299,15 @@ def fade_today(db: OpsStore, day: date) -> tuple[list[str], float]:
                 "it was off"]
     else:
         head = []
-    if dry:                                           # owner 2026-11-16: a real account cannot short without shares
-        head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted, no shares to borrow "
-                    f"at IBKR ({italic('a real account could not')})")
+    if dry:                                           # owner 2026-11-16: no listed shares, no short
+        # Owner 2026-11-24: the list is one broker's at one time. The line used to read "no shares to borrow at IBKR
+        # (a real account could not)" for all three reasons; it says what the IBKR list showed, by reason.
+        parts = [f"{label} {why[k]}" for k, label in ((fade.BORROW_NONE, "no shares listed"),
+                                                      (fade.BORROW_FEW, "too few for the size"),
+                                                      (fade.BORROW_UNKNOWN, "no fresh list")) if why.get(k)]
+        head.append(f"\U0001F6AB {bold('fade')}: {dry} alert{'s' if dry != 1 else ''} not shorted on IBKR's lendable "
+                    f"list at the alert ({', '.join(parts)}; "
+                    f"{italic('that broker at that time, not every broker')})")
     if not rows:
         return head, 0.0
     today = fade.nav(db, day) - fade.nav(db, day - timedelta(days=1))

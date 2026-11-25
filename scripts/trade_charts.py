@@ -10,8 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import sqlite3
+import tempfile
+import time
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -337,6 +340,32 @@ def scan_rows(db: OpsStore | None) -> list[dict]:
     return [{**r, "posted_at": r["bar_ts"], "alert_type": "scanner spike"} for r in rows if r["session"] in keep]
 
 
+STALE_TMP_S = 3600                                       # a build takes seconds
+
+
+def publish(out: Path, html: str) -> None:
+    """Put the page in place in one step, so the chart server never serves a partial page. Each run writes a
+    temporary file of its OWN next to the page. 2026-11-24: two runs started 3 s apart at a deploy (the container's
+    start-up build and the deploy script's) shared one ``fade_tape.tmp``; the first renamed it away and the second
+    failed with FileNotFoundError (exit 1, "jobs FAILED: charts" in the nightly). The page itself was whole."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    for old in out.parent.glob(out.stem + ".*.tmp"):     # a run killed mid-write (a deploy) left its file: bounded
+        try:
+            if time.time() - old.stat().st_mtime > STALE_TMP_S:
+                old.unlink()
+        except OSError:                                  # another run took it first: nothing to clean
+            pass
+    fd, name = tempfile.mkstemp(dir=out.parent, prefix=out.stem + ".", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(html)
+        os.chmod(tmp, 0o644)                             # mkstemp makes it 0600; the chart server only needs to read
+        tmp.replace(out)
+    finally:
+        tmp.unlink(missing_ok=True)                      # a failed run leaves nothing behind
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--trades", type=Path, help="JSON-lines export of fade_trades rows (default: ops database)")
@@ -346,10 +375,7 @@ def main() -> int:
     db = None if a.trades else OpsStore()
     trades = [json.loads(x) for x in a.trades.read_text().splitlines() if x.strip()] if a.trades else from_db(db)
     html = build(trades, db, utcnow(), standalone=not a.fragment)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = a.out.with_suffix(".tmp")
-    tmp.write_text(html)
-    tmp.replace(a.out)                                   # atomic: the chart server never serves a partial page
+    publish(a.out, html)
     print(f"wrote {a.out} ({len(trades)} trades)")
     return 0
 

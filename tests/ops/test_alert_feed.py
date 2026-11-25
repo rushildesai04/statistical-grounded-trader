@@ -51,7 +51,7 @@ def test_one_line_per_alert_newest_first_in_plain_words(tmp_path):
     assert by["NEWS"]["long"] == "no long setup filled" and not by["NEWS"]["traded"]
     assert by["OFFD"]["why"] == "the fade was switched off at that time"
     assert by["OFFD"]["long"] == "long setup filled before the book was on"
-    assert by["DRY"]["why"] == "no shares to borrow at IBKR: a real account could not short it"
+    assert by["DRY"]["why"] == "no shares listed to borrow at IBKR at the alert (that broker, that time): no short"
     assert by["HALT"]["why"] == "no trade printed within 5 minutes (halted or no quote)"
     assert (by["WON"]["short"], by["WON"]["why"], by["WON"]["long"], by["WON"]["traded"]) == (
         "shorted +3.1%", "", "long taken -2.1%", True)

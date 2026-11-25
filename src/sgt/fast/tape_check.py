@@ -60,7 +60,9 @@ def first_cross(bars: pd.DataFrame | None, after: datetime, before: datetime, le
 
 def _rows(db: OpsStore, now: datetime) -> list[dict]:
     marks = ",".join("?" * len(CORRECTABLE))
-    with db.tx() as c:
+    # A read (2026-11-24): under tx() this select held the write lock 0.37 s on 11-24, with the long book's exit check
+    # and the context pass waiting behind it.
+    with db.read() as c:
         return [dict(r) for r in c.execute(
             "SELECT * FROM fade_trades WHERE est_entry IS NOT NULL AND est_entry_at IS NOT NULL AND (status='open' OR "
             f"(status='est_closed' AND reason IN ({marks}) AND est_exit_at>=?)) ORDER BY id LIMIT ?",

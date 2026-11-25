@@ -154,7 +154,18 @@ def test_a_short_not_taken_for_borrow_is_still_an_event_for_f8_the_longs_and_the
     assert [x["symbol"] for x in long_shadow.due(db, "2026-11-01")] == ["ABC"]      # a long needs no borrowed shares
     head, usd = digest.fade_today(db, date(2026, 11, 2))
     assert usd == 0.0 and len(head) == 1
-    assert "1 alert not shorted, no shares to borrow at IBKR" in head[0] and "alerts" not in head[0]
+    assert "1 alert not shorted on IBKR's lendable list at the alert (no shares listed 1; " in head[0]
+    from sgt.ops.sms_style import italic
+    assert italic("that broker at that time, not every broker") in head[0] and "alerts" not in head[0]
+    assert "could not" not in head[0]                 # owner 2026-11-24: one broker's list is not every broker's
+    with db.tx() as c:                                # the three reasons are counted as what they are
+        for i, why in enumerate((fade.BORROW_FEW, fade.BORROW_UNKNOWN, fade.BORROW_UNKNOWN)):
+            c.execute("INSERT INTO fade_trades(symbol, session, alert_type, posted_at, channel, message_id, status, "
+                      "reason, created_at) VALUES (?,?,?,?,?,?,?,?,?)", (f"Q{i}", "2026-11-02", "new_high",
+                      "2026-11-02T15:00:00+00:00", "-1", 900 + i, "filtered", why, "2026-11-02T15:00:01+00:00"))
+    head, _ = digest.fade_today(db, date(2026, 11, 2))
+    assert "4 alerts not shorted" in head[0]
+    assert "(no shares listed 1, too few for the size 1, no fresh list 2; " in head[0]
     assert set(fade.BORROW_REASONS) <= set(fade.EVENT_FILTERS) and set(fade.BORROW_REASONS) <= set(long_shadow.SHORT_SKIPS)
 
 
