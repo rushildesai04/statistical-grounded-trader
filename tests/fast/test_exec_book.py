@@ -207,3 +207,32 @@ def test_an_incomplete_ledger_says_so(tmp_path):
                                                               "sessions not in the ledger yet, 1 written without market "
                                                               "data, to be priced again")
     assert eb.behind({"short": {5}, "long": set()}, tmp_path / "none.jsonl").startswith("; ⚠️ ledger incomplete: 1 settled trade of")
+
+
+def test_the_booked_reference_of_a_long_is_set_beside_the_official_offer_and_enters_no_average(tmp_path):
+    p = tmp_path / "ledger.jsonl"
+    q = lambda gap, age, covers: {"feed": "official", "ask_vs_booked": gap, "age_s": age, "covers_order": covers}  # noqa: E731
+    rows = [{**row("long", 1, -0.02, session="2026-11-25"), "entry_quote": q(0.016, 0.4, True)},
+            {**row("long", 2, 0.03, session="2026-11-25"), "entry_quote": q(-0.002, 2.0, False)},
+            {**row("long", 3, 0.01, session="2026-11-27"), "entry_quote": q(0.010, 1.0, True)},
+            {**row("long", 4, 0.01, session="2026-11-27"), "entry_quote": {"note": "no official offer at the booking"}},
+            {**row("long", 5, 0.01, session="2026-11-27")},                                    # written before the field
+            {**row("long", 6, 0.01, session="2026-11-24"), "entry_quote": q(0.5, 1.0, True)},  # before GAP_FROM
+            {**row("short", 7, 0.01, session="2026-11-25"), "entry_quote": q(0.5, 1.0, True)}, # not a long
+            {**row("long", 8, 0.01, session="2026-11-25"), "entry_quote": q("0.4", 1.0, True)}]  # a string is no number
+    write(p, rows)
+    g = eb.reference_gap(p)
+    assert (g["n"], g["thin"], g["unread"]) == (3, 1, 3) and g["median"] == 0.010 and g["age"] == 1.0
+    assert g["mean"] == pytest.approx((0.016 - 0.002 + 0.010) / 3)
+    assert eb.reference_gap_line(p) == (
+        "long entries since 11-25, booked reference against the official offer at the booking (a quote, not a fill): "
+        "3 longs, the offer averaged +0.8% from the booked price (median +1.0%), quote age median 1.0 s; 1 of 3 offered "
+        "fewer shares than the order; 3 with no quote read")
+    before = (eb.summary(p, since=eb.REVIEW_FROM), eb.review("long", p, "2026-11-27"), eb.line(p, "2026-11-27"))
+    write(p, [{k: v for k, v in r.items() if k != "entry_quote"} for r in rows])
+    assert (eb.summary(p, since=eb.REVIEW_FROM), eb.review("long", p, "2026-11-27"), eb.line(p, "2026-11-27")) == before
+    assert eb.reference_gap_line(p) is None and eb.reference_gap_line(tmp_path / "none.jsonl") is None
+    write(p, rows[:1])
+    assert eb.reference_gap_line(p) == (
+        "long entries since 11-25, booked reference against the official offer at the booking (a quote, not a fill): "
+        "1 long, the offer was +1.6% from the booked price, quote age 0.4 s; 0 of 1 offered fewer shares than the order")

@@ -80,6 +80,33 @@ def halted_like(client: httpx.Client, symbol: str, last_at: datetime) -> bool:
     return bool(w.high.max() / w.low.min() - 1 >= HALT_MOVE)
 
 
+def iex_book(client: httpx.Client):
+    """The free feed's standing quote: ONE exchange's best bid and offer (IEX), not the national best (2026-11-25;
+    ``sgt.fast.long_quote`` says what that can and cannot stand for). Returns ``book(symbol)`` -> a dict with ``bid``,
+    ``ask``, ``bid_size``, ``ask_size`` (shares) and ``at`` (the quote's time), or ``{"why": ...}``. External data:
+    anything not exactly as expected is a "why", never a number. One request, the client's timeout."""
+    def book(symbol: str) -> dict:
+        if not _SYMBOL.match(symbol):
+            return {"why": "not a symbol"}
+        try:
+            r = client.get(f"/v2/stocks/{symbol}/quotes/latest", params={"feed": "iex"})
+            if r.status_code != 200:
+                return {"why": f"the quote request failed (HTTP {r.status_code})"}
+            body = r.json()
+            q = body.get("quote") if isinstance(body, dict) else None
+            if not isinstance(q, dict):
+                return {"why": "the answer carries no quote"}
+            at = pd.Timestamp(str(q.get("t", ""))).to_pydatetime(warn=False)   # nanosecond ISO from Alpaca
+            if at.tzinfo is None:
+                return {"why": "the quote carries no time"}
+            num = lambda k: q[k] if isinstance(q.get(k), (int, float)) and not isinstance(q.get(k), bool) else None  # noqa: E731
+            return {"bid": num("bp"), "ask": num("ap"), "bid_size": num("bs"), "ask_size": num("as"), "at": at.isoformat()}
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            log.warning("quote book %s failed: %s", symbol, type(exc).__name__)
+            return {"why": f"the quote request failed ({type(exc).__name__})"}
+    return book
+
+
 def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
     """Latest IEX trade price, or None when that price cannot be used. Review 2026-11-06: RAYA's alert came during a
     LULD halt and the book 'entered' at the last pre-halt print ($1.425; reopen $1.52), so a print older than
@@ -765,8 +792,10 @@ async def run() -> int:
 
         long_last = iex_quote(lc)                # 2026-11-25: the feed's last trade, read after a long is booked (a label)
 
-        def long_tick(*a):                       # the book's pass, with that reader handed over by name
-            return long_book.tick(*a, last_trade=long_last)
+        long_venue = iex_book(lc)                # 2026-11-25: one exchange's standing quote, read at the same point
+
+        def long_tick(*a):                       # the book's pass, with those readers handed over by name
+            return long_book.tick(*a, last_trade=long_last, venue_quote=long_venue)
 
         def long_pass() -> None:
             long_tick(db, lambda sym, now: live_bars(lc, sym, now), long_send,

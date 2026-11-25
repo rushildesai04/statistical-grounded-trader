@@ -99,13 +99,52 @@ not a fill" with those numbers. The registered replay is untouched. The executio
 from the standing quote one second after the decision and flags a quote smaller than the order; on BNAI it bought
 8.39.
 
+**Added 2026-11-25 afternoon (owner's decision 2: "Preserve the registered candle-close entry reference, but add a
+separately labeled live executable-price estimate using current bid/ask quotes, quote age, displayed liquidity and
+slippage. Do not substitute last trade for a guaranteed execution price.").**
+
+What could be built faithfully, and what could not:
+
+| | Source | When | What it is | Where |
+|---|---|---|---|---|
+| Registered reference | free-feed candle (close, trigger or next open) | at the booking | the booked price; unchanged | `long_trades.est_entry` |
+| One exchange's offer | IEX standing quote (free feed) | at the booking | a BOUND: the national best offer is at or under it. With its age, displayed size against the order, distance from the booked price | `entry_ref.venue_*`, the entry text |
+| The official offer at the booking | official quotes | the same night (the official feed refuses data younger than about 15 minutes) | the national best offer standing at the booking instant, its age, size, distance from the booked price. A quote, not a fill | `entry_quote` on the long's ledger row; one line in the nightly report |
+| Registered executable figure | the frozen execution model | the same night | buys the official offer one second after the booking; unchanged | the ledger's `model` |
+
+A LIVE national quote does not exist for this system without paid market data, which is not authorised. The live
+figure is therefore one exchange's offer and is labelled as a bound, not as an estimate of the fill: at 14:09 ET on
+2026-11-25 IEX showed FCUV at 4.40 x 5.67 with the last trade at 5.17, and BNAI at 8.80 x 10.04 with the last trade
+at 8.84. Sizes on both feeds are in shares (checked on the runner: SPY quoted 40 x 40). The last trade stays on the
+record as context and is now labelled "a past trade, not a price on offer".
+
+Still a policy question, NOT decided and NOT built: what the book should do when a trigger setup is seen only after
+its fill candle has closed and its exit is already determined (FCUV long, section 6, question 3).
+
 ## 6. Decisions for the owner
 
-**A. Between-candle stop check (section 3).** Build it, or leave detection on closed candles. Either way the blocker
-of section 4 stands. Recommended: build it. It enforces the existing stop sooner with no change of level and no
-change to any registered figure; the cost is one request per open long per look.
+**A. Between-candle stop check (section 3). DECIDED 2026-11-25:** "Approve the proposed between-candle long-stop check
+for paper measurement only, with the same stop level and no changes to registered simulation results. Do not treat it
+as real stop protection." An engineering change to the live paper path, built in its own reviewed change. The
+blocker of section 4 stands.
 
-**B. The long's live booked price.** Keep the candle's close (the 2026-11-20 rule, now labelled), or book the live
-estimate at the free feed's last trade when that trade is newer than the candle's close. The second changes only
-the live estimate and the text, not eligibility and not the replay. A price LIMIT (skip when the market has moved
-more than some amount) would be a new entry rule and needs its own registered test first; none is proposed here.
+**B. The long's live booked price. DECIDED 2026-11-25:** the registered reference stays; a separately labelled
+estimate from quotes goes beside it (section 5, "Added"). An engineering change; nothing about eligibility or the
+replay moves. A price LIMIT (skip when the market has moved more than some amount) would be a new entry rule and
+needs its own registered test first; none is proposed.
+
+**C. OPEN, a policy question, not an engineering one: a trigger setup seen after it is over.** The book reads closed
+candles, so a buy-stop that fills inside a candle is seen when that candle has closed. On 2026-11-25 FCUV was booked
+66 s after its fill candle began; that candle had closed red (the adopted exit: out at the next open) and the next
+open had already printed. The live estimate and both texts described a trade whose entry and exit were in the past.
+This is a material limitation of the live paper record for trigger setups, not a closed matter.
+
+| | What it is | For | Against |
+|---|---|---|---|
+| C1 (as now) | book it as the candles show it, labelled (reference age, the exchange's offer) | the live record stays the rule replay it has been since the cohort began; nothing in a review changes mid-sample | the texts describe prices nobody could act on; the estimate can flatter or hurt by the move since |
+| C2 | when the exit is already determined at the booking, record the setup and do not open a live paper long | the live paper book holds only trades that were open when seen | changes which trades the live book holds in the middle of the registered sample; the texted-trade rules would need a "seen, already over" case |
+| C3 | act from the booking: buy at the booking and judge the exits from that moment | the live estimate becomes what the execution model already computes nightly from real quotes | a different entry rule for trigger setups: a rule change, needing its own registration |
+
+What already measures this without any change: the nightly execution model prices every long from the bot's booking
+instant on official quotes (FCUV: bought 6.59, sold 6.53, -0.91%) and is the registered executable figure. No option
+is recommended for adoption before the long book's registered review; C1 with its labels is what runs.

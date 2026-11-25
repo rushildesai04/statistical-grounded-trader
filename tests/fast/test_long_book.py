@@ -718,7 +718,21 @@ def test_the_booked_price_of_a_long_is_recorded_as_a_reference_with_its_age_and_
                    "last_at": "2026-11-25T15:32:13.487000+00:00",
                    "last_vs_booked": round(8.3852 / 8.255 - 1, 5)}
     assert lb.reference_line(ref) == ("\n    Booked at $8.26: the break candle's close, 14 s old when booked. A reference "
-                                      "price, not a fill; free feed last trade $8.39 at 10:32:13 (+1.6%).")
+                                      "price, not a fill; free feed last trade $8.39 at 10:32:13 (+1.6%; a past "
+                                      "trade, not a price on offer).")
+
+    def offer(symbol):                                               # one exchange's standing quote at the booking
+        return {"bid": 8.34, "ask": 8.39, "bid_size": 200, "ask_size": 100, "at": "2026-11-25T15:32:12.600000+00:00"}
+    both = lb.entry_reference(s, t, now, True, last, "BNAI", offer, 36.7)
+    assert {k: v for k, v in both.items() if not k.startswith("venue") and k != "order_shares"} == ref   # nothing replaced
+    assert (both["venue_ask"], both["venue_ask_size"], both["venue_age_s"], both["venue_covers_order"]) == (8.39, 100.0, 1.0, True)
+    assert both["venue_ask_vs_booked"] == round(8.39 / 8.255 - 1, 5) and both["booked"] == 8.255
+    assert lb.reference_line(both).endswith(
+        "a past trade, not a price on offer). IEX offer $8.39 x 100 at 10:32:12 (1 s old, +1.6% vs booked): one "
+        "exchange's offer, the most a market buy of those shares would cost, not a fill.")
+    assert lb._ref_json(both) == __import__("json").dumps(both, default=str)
+    assert __import__("json").loads(lb._ref_json({**both, "last_note": "x" * 3000})) == {
+        k: both[k] for k in lb.REF_CORE}                              # never a string cut off mid-way
 
     def silent(symbol):                                              # the feed has no trade to give: said, not guessed
         silent.seen = {symbol: {"at": None, "why": "the quote request failed"}}
@@ -751,12 +765,19 @@ def test_the_live_pass_reads_the_last_trade_only_after_the_long_is_booked_and_ke
         reader.seen = {symbol: {"at": at(2, 5).isoformat(), "why": None}}
         return 10.61
     sent = []
+
+    def offer(symbol):
+        calls.append(("offer", symbol, len(trades(db))))
+        return {"bid": 10.58, "ask": 10.64, "bid_size": 300, "ask_size": 1, "at": at(2, 5).isoformat()}
     for k in range(0, 9):
-        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader)
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader, venue_quote=offer)
     (t,) = trades(db)
-    assert calls == [("ABCD", 1)]                                     # once, and only after the booking
+    assert calls == [("ABCD", 1), ("offer", "ABCD", 1)]               # each once, and only after the booking
     ref = json.loads(t["entry_ref"])
     assert (ref["booked"], ref["last_px"], ref["last_vs_booked"]) == (10.55, 10.61, round(10.61 / 10.55 - 1, 5))
+    assert (ref["venue_ask"], ref["venue_ask_vs_booked"]) == (10.64, round(10.64 / 10.55 - 1, 5))
+    assert ref["order_shares"] > 1 and ref["venue_covers_order"] is False     # one share offered against the order
+    assert "IEX offer $10.64 x 1 at " in sent[0] and "it shows fewer shares than the order" in sent[0]
     assert "free feed last trade $10.61" in sent[0] and "A reference price, not a fill" in sent[0]
     assert t["est_entry"] == 10.55 and t["status"] in ("open", "est_closed")     # the booking itself is what it was
 
@@ -776,3 +797,23 @@ def test_a_reference_that_cannot_be_built_never_costs_the_entry_text(db):
     assert t["est_entry"] == 10.55 and len(sent) >= 1 and bold("LONG IN") in sent[0]
     assert "Booked at" not in sent[0] and t["entry_ref"] is None      # no half-built line, no half-built record
 
+
+def test_a_quote_reader_that_fails_costs_neither_the_booking_nor_the_text_nor_the_rest_of_the_reference(db):
+    import json
+
+    alert_row(db)
+
+    def reader(symbol):
+        reader.seen = {symbol: {"at": at(2, 5).isoformat(), "why": None}}
+        return 10.61
+
+    def offer(symbol):
+        raise RuntimeError("down")
+    sent = []
+    for k in range(0, 9):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader, venue_quote=offer)
+    (t,) = trades(db)
+    ref = json.loads(t["entry_ref"])
+    assert ref["venue_note"] == "quote read failed (RuntimeError)" and ref["last_px"] == 10.61 and "venue_ask" not in ref
+    assert bold("LONG IN") in sent[0] and "IEX offer" not in sent[0] and "A reference price, not a fill" in sent[0]
+    assert t["est_entry"] == 10.55                                    # the registered reference is what it was

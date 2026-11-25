@@ -555,6 +555,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         el = el or exec_check.line(db)
         if el:
             lines.append(el)
+        gap = exec_book.reference_gap_line(ledger)      # 2026-11-25: a long's booked reference against a real offer
+        if gap:
+            lines.append(gap)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'
         lines.append("execution check: unavailable")
     try:                                         # owner 2026-11-25 (option A): the two arithmetic versions, side by side

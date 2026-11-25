@@ -120,6 +120,49 @@ def sensitivity(path: Path = LEDGER, since: str | None = None) -> dict:
     return out
 
 
+GAP_FROM = "2026-11-25"      # the first session whose long rows carry ``entry_quote``
+
+
+def reference_gap(path: Path = LEDGER, since: str = GAP_FROM) -> dict:
+    """Longs: the booked reference price against the official offer standing at the booking instant (``entry_quote``,
+    written by the nightly ledger from GAP_FROM). A measurement of the reference, beside the registered figures and
+    never inside them: no review, average or verdict in this module reads it. ``n`` rows with both prices; ``mean`` /
+    ``median`` of offer / booked - 1; ``thin``: the offer showed fewer shares than the order; ``age``: median age of
+    the quote in seconds; ``unread``: long rows from ``since`` with no usable quote."""
+    gaps, ages, thin, unread = [], [], 0, 0
+    for r in rows(path):
+        if r.get("book") != "long" or not since <= str(r.get("session") or ""):
+            continue
+        q = r.get("entry_quote")
+        gap = _num(q.get("ask_vs_booked")) if isinstance(q, dict) else None
+        if gap is None:
+            unread += 1
+            continue
+        gaps.append(gap)
+        thin += q.get("covers_order") is False
+        if _num(q.get("age_s")) is not None:
+            ages.append(float(q["age_s"]))
+    gaps.sort(), ages.sort()
+    mid = lambda v: (v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2) if v else None  # noqa: E731
+    return {"n": len(gaps), "mean": sum(gaps) / len(gaps) if gaps else None, "median": mid(gaps), "thin": thin,
+            "age": mid(ages), "unread": unread}
+
+
+def reference_gap_line(path: Path = LEDGER, since: str = GAP_FROM) -> str | None:
+    """One sentence for the nightly report; None while no long carries the quote."""
+    g = reference_gap(path, since)
+    if not g["n"]:
+        return None
+    one = g["n"] == 1
+    out = (f"long entries since {since[5:]}, booked reference against the official offer at the booking (a quote, not a "
+           f"fill): {g['n']} long{'' if one else 's'}, the offer {'was' if one else 'averaged'} {g['mean']:+.1%} "
+           f"from the booked price" + ("" if one else f" (median {g['median']:+.1%})"))
+    if g["age"] is not None:
+        out += f", quote age {'' if one else 'median '}{g['age']:.1f} s"
+    out += f"; {g['thin']} of {g['n']} offered fewer shares than the order"
+    return out + (f"; {g['unread']} with no quote read" if g["unread"] else "")
+
+
 def behind(expected: dict[str, set], path: Path = LEDGER) -> str:
     """A clause for the nightly line when settled trades of EARLIER sessions are not in the ledger (its job failed,
     was cut short, or has not caught up): the averages beside it are then older than they look. "" when it is whole.

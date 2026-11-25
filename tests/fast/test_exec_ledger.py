@@ -140,3 +140,35 @@ def test_a_recovered_alerts_trade_is_priced_like_any_other_and_carries_its_label
     assert (live["via"], live["recovered_at"]) == (None, None)
     assert (back["via"], back["recovered_at"]) == ("replay", "2026-11-18T15:00:38+00:00")
     assert back["model"] == live["model"] and back["label"] == live["label"] == "MODELED"
+
+
+def test_a_long_row_carries_the_official_quote_at_its_booking_beside_the_untouched_model():
+    """2026-11-25: additive. The frozen model prices the entry one second after the booking and is the registered
+    figure; ``entry_quote`` is the offer standing AT the booking, with its age and size, for one report line."""
+    row = {"id": 2, "symbol": "AAA", "session": "2026-11-18", "kind": "L8", "rules": "B1", "weight": 0.01, "stop": 9.0,
+           "created_at": "2026-11-18T15:01:12+00:00", "est_entry": 10.0, "fill_ts": "x", "entry": 10.0, "exit": 9.0,
+           "exit_reason": "stop", "net": -0.1, "reason": "stop"}
+    plain = el.long_row(FakeApi(), row)
+    assert plain["entry_quote"] == {"note": "not read (AttributeError)"}             # this fake has no quote reader
+    assert plain["label"] == "MODELED" and plain["model"]["entry"] == 10.05           # ... and the model is unmoved
+
+    class Quoted(FakeApi):
+        def __init__(self, q):
+            super().__init__()
+            self.q = q
+
+        def quote(self, symbol, at):
+            if isinstance(self.q, Exception):
+                raise self.q
+            return self.q
+    q = {"bid": 9.95, "ask": 10.08, "bid_size": 500.0, "ask_size": 3.0, "t": "2026-11-18T15:01:10.5Z"}
+    r = el.long_row(Quoted(q), row)
+    shares = 0.01 * el.BOOK / 10.0
+    assert r["entry_quote"] == {"feed": "official", "bid": 9.95, "ask": 10.08, "bid_size": 500.0, "ask_size": 3.0,
+                                "quote_at": "2026-11-18T15:01:10.5Z", "age_s": 1.5, "ask_vs_booked": round(10.08 / 10.0 - 1, 6),
+                                "shares": round(shares, 1), "covers_order": False}
+    assert {k: v for k, v in r.items() if k != "entry_quote"} == {k: v for k, v in plain.items() if k != "entry_quote"}
+    assert el.long_row(Quoted(None), row)["entry_quote"] == {"note": "no official offer at the booking"}
+    assert el.long_row(Quoted({**q, "ask": 0.0}), row)["entry_quote"] == {"note": "no official offer at the booking"}
+    assert el.long_row(Quoted(em.NoData("quotes")), row)["entry_quote"] == {"note": "not read (NoData)"}
+    assert el.long_row(Quoted(q), {**row, "created_at": None})["entry_quote"] == {"note": "no booking time"}
