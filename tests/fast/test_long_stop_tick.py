@@ -56,7 +56,7 @@ def test_a_print_at_the_stop_closes_at_the_stop_one_tick_above_does_not_and_a_pr
     t, seen = look(10.2, printed)
     assert (t.reason, t.exit, t.exit_ts, t.entry, t.entry_ts) == ("stop", 10.2, printed, 10.55, ENTRY_TS)
     assert t.gross == pytest.approx(10.2 / 10.55 - 1)
-    assert seen == {"by": "a free-feed print between candles", "print_px": 10.2, "print_at": printed.isoformat(),
+    assert seen == {"version": "long-stop-look-v1 2026-11-25", "by": "a free-feed print between candles", "print_px": 10.2, "print_at": printed.isoformat(),
                     "looked_at": (BOOKED + pd.Timedelta(seconds=45)).isoformat(),
                     "last_closed_candle": ENTRY_TS.isoformat(), "stop": 10.2}
     assert look(10.2001, printed) is None                                      # the level is the stop, unchanged
@@ -110,7 +110,8 @@ def test_the_live_book_closes_once_keeps_the_record_and_says_what_it_is(db):
     lb.tick(db, feed(DAY), sent.append, now=at(3, 30), stop_print=falling)
     (t,) = trades(db)
     assert (t["status"], t["reason"], t["est_exit"], t["est_exit_at"]) == ("est_closed", "stop", 10.15, printed.isoformat())
-    assert json.loads(t["stop_seen"]) == {"by": "a free-feed print between candles", "print_px": 10.15,
+    assert json.loads(t["stop_seen"]) == {"version": "long-stop-look-v1 2026-11-25",
+                                          "by": "a free-feed print between candles", "print_px": 10.15,
                                           "print_at": printed.isoformat(), "looked_at": pd.Timestamp(at(3, 30)).isoformat(),
                                           "last_closed_candle": ENTRY_TS.isoformat(), "stop": 10.2}
     assert (t["stop"], t["target"], t["est_entry"]) == (10.2, pytest.approx(11.25), 10.55)      # nothing else moved
@@ -120,9 +121,10 @@ def test_the_live_book_closes_once_keeps_the_record_and_says_what_it_is(db):
     for k in range(4, 12):                                                      # later passes: closed, never twice
         lb.tick(db, feed(DAY), sent.append, now=at(3, 30 * k), stop_print=falling)
     assert len(sent) == 2 and trades(db)[0]["est_exit"] == 10.15
-    assert lb.stop_seen_line(db) == ("long stops since 11-09 (live paper estimate): 1 of 1 seen on a free-feed print before "
-                                     "the candle closed, the rest when a candle closed. A measurement on a thin feed, not "
-                                     "stop protection")
+    assert lb.stop_seen_line(db) == ("long stops since 11-09 (live paper estimate, long-stop-look-v1): 1 of 1 seen on a free-feed "
+                                     "print before the candle closed, the rest when a candle closed. A measurement on a "
+                                     "thin feed, not stop protection")
+    assert json.loads(trades(db)[0]["stop_seen"])["version"] == lb.STOP_LOOK_VERSION == "long-stop-look-v1 2026-11-25"
 
 
 def test_with_no_print_at_the_stop_the_book_is_the_research_simulator_as_before(db):
@@ -162,7 +164,7 @@ def test_the_looks_of_one_exit_check_are_bounded_and_every_open_long_gets_its_tu
     """MAX_OPEN is 40 and each look is a request: an exit check makes at most TICK_LOOKS of them, the longs looked at
     longest ago first, so none is starved and the request rate does not grow with what is open."""
     monkeypatch.setattr(lb, "TICK_LOOKS", 2)
-    lb._looked.clear()
+    monkeypatch.setattr(lb, "_stop_looked", {})
     ids = []
     for sym in ("AAA", "BBB", "CCC", "DDD", "EEE"):
         fid = alert_row(db, sym)
@@ -182,5 +184,40 @@ def test_the_looks_of_one_exit_check_are_bounded_and_every_open_long_gets_its_tu
     with db.tx() as c:                                          # a long that has left the book leaves the turn list
         c.execute("UPDATE long_trades SET status='est_closed' WHERE id=?", (ids[1],))
     lb._advance(db, lambda sym, now: day, sent.append, at(3, 40), calm)
-    assert calm.calls[-2:] == ["CCC", "DDD"] and ids[1] not in lb._looked
-    lb._looked.clear()
+    assert calm.calls[-2:] == ["CCC", "DDD"] and ids[1] not in lb._stop_looked
+
+
+def test_the_candidate_rotation_and_the_stop_look_rotation_keep_separate_turn_lists(monkeypatch):
+    """Found 2026-11-25 on the merged code, before any deploy: the between-candle look kept its turn list under the
+    module name the candidate rotation already used (``_looked``), so one dict served both. Each rotation dropped the
+    other's entries as "gone" (above MAX_LOOKS candidates the same first ones were read every pass and the rest never;
+    the same for open longs above TICK_LOOKS), and a long whose id equalled a candidate's alert id compared a clock
+    reading with a datetime, outside the per-trade guard of the exit check."""
+    from time import monotonic
+
+    monkeypatch.setattr(lb, "MAX_LOOKS", 2)
+    monkeypatch.setattr(lb, "TICK_LOOKS", 2)
+    monkeypatch.setattr(lb, "_looked", {})
+    monkeypatch.setattr(lb, "_stop_looked", {})
+    assert lb._looked is not lb._stop_looked
+    now = at(3)
+
+    def stop_turn(ids):
+        picked = lb._turns(ids)
+        for i in picked:
+            lb._stop_looked[i] = monotonic()               # as ``_advance`` records a look
+        return picked
+
+    # disjoint ids: neither rotation forgets its turns because of the other
+    cands = [{"id": i} for i in (101, 102, 103, 104)]
+    assert [r["id"] for r in lb._turn(cands, now)] == [101, 102]
+    assert stop_turn([1, 2, 3]) == {1, 2}
+    assert [r["id"] for r in lb._turn(cands, now + pd.Timedelta(seconds=15))] == [103, 104]   # not 101, 102 again
+    assert stop_turn([1, 2, 3]) == {1, 3}                  # the never-looked-at third, then the oldest
+    assert set(lb._looked) == {101, 102, 103, 104} and set(lb._stop_looked) == {1, 2, 3}
+    # a long whose id equals a candidate's alert id: two unrelated things, no shared entry, nothing raised
+    same = [{"id": i} for i in (1, 2, 3)]
+    assert [r["id"] for r in lb._turn(same, now + pd.Timedelta(seconds=30))] == [1, 2]
+    assert len(stop_turn([1, 2, 3])) == 2
+    assert all(isinstance(v, float) for v in lb._stop_looked.values())
+    assert all(hasattr(v, "tzinfo") for v in lb._looked.values())

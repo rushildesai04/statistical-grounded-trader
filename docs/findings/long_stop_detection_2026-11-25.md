@@ -86,11 +86,21 @@ always a stop the candles would also have booked.
 | Cost, bounded | ONE request per look (the raw last print; no staleness or halt probe is needed, since a print is used only if it came after the booking). At most 10 looks per exit check, the longs looked at longest ago first, whatever number is open (the book allows 40). The first draft reused the short book's quote reader, which makes a second request whenever the print is over 90 s old, the usual case in these stocks: found in own review and replaced before any review |
 | Comparison | `price <= stop`, the live book's own (binary-v0; the live checks follow their record's version) |
 | Live estimated exit | the lower of the stop and the print; its time is the print's time |
-| Record | `long_trades.stop_seen` (the print, when it was looked at, the last closed candle) and the decision record; NULL when the candles made the exit |
+| Effective version | `long-stop-look-v1 2026-11-25` (`long_book.STOP_LOOK_VERSION`), written into every `stop_seen` and its decision line and named in the nightly line. Owner, 2026-11-25 evening, decision A: "close the live paper position when the valid stop condition is detected, using the documented execution estimate. Keep registered replay unchanged and label the effective monitoring version." Before it: closed candles only |
+| Record | `long_trades.stop_seen` (the version, the print, when it was looked at, the last closed candle) and the decision record; NULL when the candles made the exit |
 | Text | the LONG OUT card adds one line: seen on a free-feed print, "a paper measurement on a thin feed, not stop protection". No new text type |
 | Report | one line in the nightly report: how many long stops were seen between candles |
 | Untouched | the stop level, target, time exit, red-candle exit, the settled replay, the execution model, every registered figure |
 | Bad data | a failed or malformed read, no time, a time without a zone, a print older than the booking: no decision |
+
+**Corrected on the merged code, 2026-11-25 evening, before any deploy.** The look's turn list was written under the
+module name the candidate rotation already used (`_looked`), so one dict served both and each rotation dropped the
+other's entries: above 15 candidates in a pass the same first 15 would have been read every time and the rest never
+(missed long setups on a busy day), the same for open longs above 10, and a long whose id equalled a candidate's
+alert id would have raised outside the per-trade guard of the exit check. Neither the build's own tests nor its
+independent review exercised the two rotations together. Found when the two changes were first read as one file;
+the list has its own name (`_stop_looked`) and a test runs both rotations interleaved, equal ids included. It never
+ran on the runner (v115 has neither change).
 
 ## 4. Deployment blocker (stands whether or not section 3 is built)
 

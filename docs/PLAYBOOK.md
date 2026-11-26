@@ -977,7 +977,9 @@ night it cannot finish is texted and caught up on the next run.
   live paper long; it stands aside when a fill candle closed red under A2 or the window has ended (the proposal's
   "never a different decision" was wrong there); one request a look, at most 10 looks a check; target, time and
   red-candle exits and every registered figure untouched. It gains at most one candle and does not remove the
-  blocker (section 0). The entry rule has no
+  blocker (section 0). Owner, evening: it closes the live paper long (decision A); its effective version
+  is `long-stop-look-v1 2026-11-25`, on every such exit's record. Its turn list shared a name with the candidate
+  rotation's on the merged code (each wiped the other's turns); found and fixed before any deploy. The entry rule has no
   maximum price and no "market moved away" condition, so nothing existing was enforced; the booked price is now
   recorded and texted as a reference with its age and the feed's last trade. Owner the same day: keep the
   registered reference and put a quote beside it. Built: one exchange's offer at the booking (IEX; a BOUND, since

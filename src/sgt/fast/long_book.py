@@ -607,8 +607,18 @@ def target(s: pt.Setup, t: pt.Trade) -> float:
 
 
 STOP_SEEN_BY = "a free-feed print between candles"
+# The effective version of the live paper book's stop monitoring (owner 2026-11-25, decision A: "close the live paper
+# position when the valid stop condition is detected, using the documented execution estimate. Keep registered replay
+# unchanged and label the effective monitoring version."). Written into ``stop_seen`` and so into the decision line
+# of every exit it makes. A long closed with ``stop_seen`` NULL was seen on a closed candle (the only path before
+# this version, and still the path for the target, time and red-candle exits). The settled replay and the execution
+# model never read it.
+STOP_LOOK_VERSION = "long-stop-look-v1 2026-11-25"
 TICK_LOOKS = 10         # between-candle looks per exit check (one request each): bounded, whatever is open (MAX_OPEN)
-_looked: dict[int, float] = {}          # long id -> when it last had a between-candle look (monotonic); open longs only
+# long id -> when it last had a between-candle look (monotonic); open longs only. Its OWN name (2026-11-25): it was
+# first written as a second ``_looked``, the name of the candidate rotation's list above, and the two shared one
+# dict (found on the merged code before any deploy; tests/fast/test_long_stop_tick.py).
+_stop_looked: dict[int, float] = {}
 
 
 def _red_pending(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> bool:
@@ -623,9 +633,9 @@ def _red_pending(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> bool:
 def _turns(ids: list[int]) -> set[int]:
     """Which open longs get a between-candle look in this exit check: the TICK_LOOKS looked at longest ago (never
     looked at first), so every open long is reached within a few checks however many are open."""
-    for gone in set(_looked) - set(ids):
-        del _looked[gone]
-    return set(sorted(ids, key=lambda i: (_looked.get(i, 0.0), i))[:TICK_LOOKS])
+    for gone in set(_stop_looked) - set(ids):
+        del _stop_looked[gone]
+    return set(sorted(ids, key=lambda i: (_stop_looked.get(i, 0.0), i))[:TICK_LOOKS])
 
 
 def between_candles(r: dict, f: pd.DataFrame, entry_ts: pd.Timestamp, now: datetime, stop_print,
@@ -676,7 +686,7 @@ def between_candles(r: dict, f: pd.DataFrame, entry_ts: pd.Timestamp, now: datet
         out = min(stop, float(px))
         last_candle = iso(pd.Timestamp(f.ts.iloc[-1]).to_pydatetime()) if len(f) else None
         return (pt.Trade(r["kind"], "long", entry_ts, entry, printed, out, "stop", out / entry - 1),
-                {"by": STOP_SEEN_BY, "print_px": float(px), "print_at": iso(printed.to_pydatetime()),
+                {"version": STOP_LOOK_VERSION, "by": STOP_SEEN_BY, "print_px": float(px), "print_at": iso(printed.to_pydatetime()),
                  "looked_at": iso(at_now.to_pydatetime()), "last_closed_candle": last_candle, "stop": stop})
     except Exception:  # noqa: BLE001 - an extra look; whatever goes wrong, the candle path decides as before
         log.exception("between-candle stop look of long %s failed", r.get("id"))
@@ -706,7 +716,7 @@ def _advance(db: OpsStore, bars: LiveBars, send, now: datetime, stop_print=None)
             final = t is not None and (t.reason != "time" or pd.Timestamp(now) >= min(entry_ts + pt.HOLD, close))
             seen = None
             if not final and stop_print is not None and r["id"] in turns:
-                _looked[r["id"]] = monotonic()   # closed candles have no final exit yet: the stop, between candles
+                _stop_looked[r["id"]] = monotonic()   # closed candles have no final exit yet: the stop, between candles
                 hit = between_candles(r, f, entry_ts, now, stop_print, close)
                 if hit is not None:
                     (t, seen), final = hit, True
@@ -1068,7 +1078,7 @@ def stop_seen_line(db: OpsStore) -> str | None:
             return None
         n, k = c.execute("SELECT COUNT(*), SUM(stop_seen IS NOT NULL) FROM long_trades WHERE session>=? AND reason='stop' "
                          "AND status IN ('est_closed', 'settled')", (first,)).fetchone()
-    return (f"long stops since {first[5:]} (live paper estimate): {k or 0} of {n} seen on a free-feed print before the "
+    return (f"long stops since {first[5:]} (live paper estimate, {STOP_LOOK_VERSION.split()[0]}): {k or 0} of {n} seen on a free-feed print before the "
             f"candle closed, the rest when a candle closed. A measurement on a thin feed, not stop protection")
 
 
