@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sgt.fast import news
 from sgt.fast.fade_rule import (AVG_LOSS, AVG_WIN, BASE_EV, BASE_N, BASE_WIN, ET, JUDGE_N, STOP, STOP_RATE,
-                                STOPPED_NET, VETO_EXIT)
+                                STOPPED_NET, STOPS, VETO_EXIT)
 from sgt.ops import chartserver
 from sgt.ops.sms_style import bold, italic
 
@@ -268,7 +268,9 @@ def ask_text(symbol: str, alert_type: str, px: float | None, size: float, ctx: d
     lines += [f"💵 ${size:,.0f} · 🛑 stop {stop} (a trigger, not a cap: past stopped trades averaged "
               f"{STOPPED_NET:+.1%}) ≈ {_usd(size * STOPPED_NET)} · {hold}",
               f"🎯 Tested ({BASE_N} unseen): win {BASE_WIN:.0%}, avg {bold(_usd(size * BASE_EV))}",
-              f"    wins {_usd(size * AVG_WIN)} · losses {_usd(size * AVG_LOSS)} · {STOP_RATE:.0%} stopped",
+              # 2026-11-25: the registered count with its population (was a typed "16% stopped"; see fade_rule.STOPS)
+              f"    wins {_usd(size * AVG_WIN)} · losses {_usd(size * AVG_LOSS)} · stopped {STOPS} of {BASE_N} "
+              f"({STOP_RATE:.0%})",
               "    " + italic(PAST_NOTE)]
     n, mean = live
     if n and mean is not None:
