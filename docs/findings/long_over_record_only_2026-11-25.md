@@ -10,7 +10,15 @@ existing eligibility window or trigger opportunity has demonstrably expired. Def
 setup's specification. Do not reject a still-valid setup merely because its qualifying candle completed earlier.
 Unknown cases need an explicit reason, not retrospective booking." and "No individual text for these recorded-only
 setups is fine. Keep the reason on the site and in the nightly counts, distinguishing expired, invalidated, and
-insufficient-data cases." Sections 2, 2a, 3 and 5 are written to that. The version was never deployed in its
+insufficient-data cases." Sections 2, 2a, 3 and 5 are written to that.
+
+**Second message, 2026-11-26 (verbatim):** "'Target already reached' may remain classified as expired. A missing
+free-feed candle need not automatically invalidate a setup, but it also cannot prove that the stop or target was
+untouched. Distinguish confirmed quiet intervals from unknown coverage. If entry eligibility depends on an unobserved
+interval and cannot be established, record insufficient data rather than open retrospectively. Verify this without
+changing the registered replay. Document the allowed 4.5-minute discovery case clearly: what establishes that the
+setup remains eligible, and which current price is used? Keep historical trigger prices separate from executable
+paper estimates." Sections 2b and 2c are written to that. The version was never deployed in its
 earlier form, so there is one `long-live-entry-v2`, the one described here.
 
 Paper only. A change to what the LIVE paper long book opens. The setup rules, the stop, the target, the exits, the
@@ -65,6 +73,7 @@ cause in words, and the exit that was determined when there is one). The nightly
 | **expired** (the opportunity ran out) | the fill was more than 5 minutes old when seen (`LIVE_LAG`, the book's existing eligibility window), or its candle began before the listener was back | `missed`, as before this version | no, as before (the long shadow scores every setup anyway) |
 | **expired** | the 2R target was already on a closed candle; or the hold window, or the session, had ended | `over` | yes, hypothetical |
 | **invalidated** (the setup's own exit already said out) | its stop was already on a closed candle (every kind); or its fill candle closed under the entry where the specification has the red-candle exit | `over` | yes, hypothetical |
+| **insufficient data** | the book's 5-minute window ended while a closed minute since the entry had no candle and none after it (section 2b): eligibility was never established | `missed`, with both facts in the cause | no, as before |
 | **insufficient data** (it cannot be told) | a candle from the fill on has no usable price (not a number, zero, negative) and nothing before it settles the question; or the long's own entry, stop or target is not a usable price; or the check itself failed | `over`, with the cause in words | yes, hypothetical; a row whose stop is not a price has no order to replay: no size, target or stop is stored, and the settle says so once |
 
 Three things this fixes in place:
@@ -76,13 +85,66 @@ Three things this fixes in place:
   leaving no record; a candle with no usable low compared as "stop not reached". Now each is recorded at once as
   insufficient data with its cause, nothing is opened then or later, and it is counted every night. What the candles
   BEFORE an unusable one already settle still counts (a stop on the fill candle is invalidated, not unknown).
-- **A quiet minute is not missing data.** The free feed has no candle for a minute with no print on its exchange.
-  That is how the feed looks on a thin stock and how the book has always read it; treating it as unknown would
-  reject most valid setups. It remains a stated limit of the live estimate (`long_stop_detection_2026-11-25.md`).
+- **A minute with no candle is quiet only when that is confirmed** (section 2b).
 
-Target-already-reached is classed expired (the move the setup was for has happened), not invalidated: my mapping of
-the owner's three words onto the four exits, written down so it can be changed in one table (`long_book.CLASS_OF`).
+Target-already-reached is classed expired (the move the setup was for has happened), not invalidated; the owner
+confirmed it 2026-11-26. The mapping is one table (`long_book.CLASS_OF`).
 The `missed` rows get the class from this version on; rows made before it are untouched and keep their old words.
+
+## 2b. A confirmed quiet minute against unknown coverage (`long_book.coverage`)
+
+The free feed has no candle for a minute in which nothing traded on its exchange. A missing candle therefore has two
+possible meanings, and they look the same: nothing traded there, or the feed has not delivered that minute yet. For
+every closed session minute from the entry's candle up to the moment the book looks:
+
+| The minute | Meaning | What the book does |
+|---|---|---|
+| a closed candle is held | observed: the exit check reads it | as section 2 |
+| no candle, and a LATER candle is held | **confirmed quiet on the free feed**: the feed had reported past that minute and showed no trade in it | the setup stays eligible. The number of such minutes is kept on the row (`entry_ref.quiet_minutes`) and said in the text. It is NOT evidence that the official tape was quiet (the free feed carries about 1% of the volume) |
+| no candle and none after it | **unknown coverage**: quiet, or not delivered yet | the long is not opened in that pass. The book looks again each pass. If a later candle arrives the minute becomes confirmed quiet (or shows what happened). If the five-minute window ends first, the setup is recorded as insufficient data, with the window and the uncovered span both in the cause |
+
+No request is made for this (it reads the frame the book already holds) and no threshold is added (the only clock
+is the existing five-minute window). An exit that is already on a held candle is decided whatever is unknown after
+it. A fill seen when its own candle closes, the normal case, has one closed minute, its candle: the rule changes
+nothing for it (the 23 live longs measured in `long_entry_timing_2026-11-20.md` were booked 62 to 88 s after their
+fill candle began, that is within 28 s of its close; how often a fill is first seen two or more minutes late has not
+been measured). The registered replay is untouched: it runs on the official candles at night, as before, for opened and
+recorded rows alike (tests: the settle lines and totals).
+
+**One case is left as approved, and is the owner's to decide.** A base break is bought at its break candle's close
+for up to 90 s after that close while no later candle is held (`AT_CLOSE`, owner 2026-11-20: "the
+buy-at-candle-close changes only on the owner's word"). Between 60 and 90 s one closed minute has no candle, which
+by the rule above is unknown coverage. Applying the rule there would end that window at 60 s. It is NOT applied: the
+buy is made as approved, and the row says so (`entry_ref.unobserved_minutes`, with a note). BNAI 2026-11-25, the one
+live case looked at, was booked 13.6 s after the close. To make the two consistent, say "end the at-close window at
+60 s"; it is a one-line change.
+
+## 2c. The allowed late discovery, step by step (a fill first seen 4.5 minutes after its candle began)
+
+Example: a buy-stop at 10.55 fills inside the 10:03 candle; the book first looks at 10:07:30.
+
+**What establishes that the setup is still eligible** (all of these, in this order; any one failing records it):
+
+| Check | Fails as |
+|---|---|
+| the fill candle began no more than 5 minutes ago, and after the listener was back | expired |
+| estimated cost at or under the cap; our own short on the stock not open | not bought (their own existing statuses) |
+| every closed candle from the fill candle on: low above the stop, high under the 2R target | invalidated / expired |
+| where the specification has the red-candle exit: the fill candle closed at or above the entry | invalidated |
+| every closed minute since the entry is a held candle or a confirmed quiet minute (2b) | not opened yet; insufficient data if the window ends |
+| every value compared is a usable price | insufficient data |
+
+**Which price is used.** Three different prices exist, and none is written into another's field:
+
+| Price | What it is | Where it lives |
+|---|---|---|
+| 10.55, the trigger | the registered entry REFERENCE of the setup: a historical price, 270 s old in this example. It is what the paper long is booked at, as the registered replay books it; it is not a current price and not a fill | `est_entry`; the text's headline, with "that candle began 270 s before the booking. A reference price, not a fill" |
+| the free feed's last trade and one exchange's offer at the booking | the CURRENT prices the book could read at 10:07:30, with their age and, for the offer, its size against the order and its distance from the reference | `entry_ref` (`last_px`, the venue fields); the same line of the text. They decide nothing and are never booked |
+| the execution model's entry | the executable paper estimate: the official quote at the bot's decision time plus latency, computed at night | the nightly ledger. The registered cohort is judged on this, not on the trigger |
+
+So a late-discovered long is booked at a stale reference by design (that is the registered convention), and how
+stale, and what the market was showing at that moment, are on the row and in the text. Whether late discoveries
+should be booked at a current price instead is the different entry rule of section 6 (not proposed).
 
 ## 3. What is preserved, separately
 

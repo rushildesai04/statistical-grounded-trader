@@ -994,7 +994,9 @@ night it cannot finish is texted and caught up on the next run.
   kind by its own specification (the base break has no red-candle exit), a still-valid setup is opened however long
   ago its candle closed, and each recorded setup carries a class on the row, the site and the nightly count:
   expired (window or target), invalidated (stop or red close), insufficient data (said with its cause, never
-  booked). Wording
+  booked). A minute with no free-feed candle counts as quiet only when a later candle shows the feed reported past
+  it; otherwise the long is not opened, and insufficient data is recorded if the five-minute window ends. The
+  approved 90 s buy-at-close window is left as it is (one unobserved minute possible; said on the row). Wording
   tightened: "valid on the free feed" is not "valid on the tape"; "no enhancement supported" covers only the
   candidates and definitions reviewed; the source-price check is an observation on six symbol-days, repeated before
   any further consumer is wired.

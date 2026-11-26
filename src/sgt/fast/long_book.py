@@ -334,6 +334,9 @@ def reference_line(ref: dict) -> str:
     age = (f"{ref['age_s']:.0f} s old when booked" if ref.get("age_from") == "the candle's close" else
            f"that candle began {ref['age_s']:.0f} s before the booking")
     line = f"\n    Booked at ${ref['booked']:.2f}: {ref['basis']}, {age}. A reference price, not a fill"
+    if ref.get("quiet_minutes"):
+        n = int(ref["quiet_minutes"])
+        line += f"; {n} minute{'s' if n != 1 else ''} since had no trade on the free feed (not proof the tape was quiet)"
     if ref.get("last_px"):
         at = pd.Timestamp(ref["last_at"]).tz_convert(ET)
         line += (f"; free feed last trade ${ref['last_px']:.2f} at {at:%H:%M:%S} ({ref['last_vs_booked']:+.1%}; a past "
@@ -371,8 +374,8 @@ SHORT_OPEN = "short_open"           # filled, not bought: our own short on the s
 # in the registered sample). docs/findings/long_over_record_only_2026-11-25.md says what this does to the samples.
 OVER = "over"                       # filled, not opened: recorded under long-live-entry-v2 (its class says why)
 ENTRY_RULE = ("long-live-entry-v2 2026-11-25: a live paper long is opened only while its exit is still undetermined on "
-              "the candles the book holds; else record-only (status over), classed expired / invalidated / "
-              "insufficient data")
+              "the candles the book holds and every closed minute since its entry is a candle or a confirmed quiet "
+              "minute; else record-only, classed expired / invalidated / insufficient data")
 # Owner 2026-11-26, confirming the scope: "Apply record-only handling to every long setup where its existing
 # eligibility window or trigger opportunity has demonstrably expired. Define 'already over' using each setup's
 # specification. Do not reject a still-valid setup merely because its qualifying candle completed earlier. Unknown
@@ -390,8 +393,16 @@ ENTRY_RULE = ("long-live-entry-v2 2026-11-25: a live paper long is opened only w
 #                usable prices, or the check failed. Recorded with that reason (status ``over``); never opened on a
 #                guess and never booked later
 # A fill whose candle has closed and whose exit is still undetermined is opened exactly as before: a closed
-# qualifying candle is never a reason by itself. The free feed having no candle for a quiet minute is not NO_DATA
-# either (that is how the feed looks on a thin stock, and the book has always read it so).
+# qualifying candle is never a reason by itself.
+# Owner 2026-11-26 (second message): "A missing free-feed candle need not automatically invalidate a setup, but it
+# also cannot prove that the stop or target was untouched. Distinguish confirmed quiet intervals from unknown
+# coverage. If entry eligibility depends on an unobserved interval and cannot be established, record insufficient
+# data rather than open retrospectively." ``coverage``: a closed minute with no candle is a CONFIRMED QUIET minute
+# on the free feed only when the feed has delivered a later candle (it had reported past that minute and showed no
+# trade in it); with no later candle it is UNKNOWN coverage (quiet, or not delivered yet: the two look the same).
+# While any minute since the entry is unknown the long is not opened; the book looks again each pass, and if its
+# five-minute window ends first the setup is recorded as insufficient data. A confirmed quiet minute says nothing
+# about the official tape (the free feed carries about 1% of the volume): the count is kept on the row.
 EXPIRED, INVALIDATED, NO_DATA = "expired", "invalidated", "insufficient data"
 CLASSES = (EXPIRED, INVALIDATED, NO_DATA)
 CLASS_OF = {"stop": INVALIDATED, "red": INVALIDATED, "target": EXPIRED, "time": EXPIRED}
@@ -515,10 +526,15 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
             s, t = hit
             since = live_from(row, up_since)
             stale = pd.Timestamp(now) - t.entry_ts > LIVE_LAG
+            seen_to = coverage(f, row["session"], t.entry_ts, now)
             if stale or (since is not None and t.entry_ts < since):
                 # the decision line says which rule made it "missed", so the restart rule's cases can be counted
                 why = "fill older than 5 min when seen" if stale else "fill candle began before the listener was back"
-                _insert(db, row, s, t, "missed", now, not_opened={"class": EXPIRED, "cause": why}, missed_why=why,
+                # owner 2026-11-26: the window ran out. Where the feed's coverage since the entry was never
+                # established either, that is the class (insufficient data), with both facts in the cause
+                gone = ({"class": NO_DATA, "cause": f"{why}; {unknown_words(seen_to)}"} if seen_to["unknown"] else
+                        {"class": EXPIRED, "cause": why})
+                _insert(db, row, s, t, "missed", now, not_opened=gone, missed_why=why,
                         live_since=iso(since.to_pydatetime()) if since is not None else None)
                 log.info("long %s %s filled %s, before the book saw it: missed", row["symbol"], s.kind, t.entry_ts)
                 continue
@@ -535,6 +551,14 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                         over=json.dumps(over), seen_after_s=round((pd.Timestamp(now) - t.entry_ts).total_seconds(), 1))
                 log.info("long %s %s: recorded, not opened (%s: %s)", row["symbol"], s.kind, over["class"], why)
                 continue
+            # owner 2026-11-26: not opened across an unobserved minute. NOT applied to a base break bought at its
+            # candle's close (``now_line``): that buy's own window is AT_CLOSE = 90 s with no later candle held
+            # (owner 2026-11-20), and "the buy-at-candle-close changes only on the owner's word". Between 60 and 90 s
+            # one closed minute has no candle; the buy is made as approved and the row says so (``unobserved_minutes``).
+            # Whether that window should end at 60 s is put to the owner, not decided here.
+            if seen_to["unknown"] and not now_line:
+                log.info("long %s %s: not opened in this pass: %s", row["symbol"], s.kind, unknown_words(seen_to))
+                continue                                   # looked at again next pass; recorded when the window ends
             if off:
                 if _insert(db, row, s, t, SEEN, now):
                     send(seen_text(db, row["symbol"], s, t) + now_line + matrix_line(raw, now))
@@ -549,6 +573,12 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 try:
                     ref = entry_reference(s, t, now, bool(now_line), last_trade, row["symbol"], venue_quote,
                                           _shares(db, row["id"], t.entry))
+                    if seen_to["quiet"]:                   # said on the row and in the text; it decides nothing
+                        ref["quiet_minutes"] = len(seen_to["quiet"])
+                        ref["quiet_note"] = QUIET_NOTE
+                    if seen_to["unknown"]:                 # only a buy at the candle's close can get here (above)
+                        ref["unobserved_minutes"] = len(seen_to["unknown"])
+                        ref["unobserved_note"] = UNOBSERVED_NOTE
                     ref_line = reference_line(ref)
                     with db.tx() as c:
                         c.execute("UPDATE long_trades SET entry_ref=? WHERE fade_id=? AND entry_ref IS NULL",
@@ -828,6 +858,58 @@ def _exit(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> pt.Trade | None:
         return None
     last = path.iloc[-1]
     return pt.Trade(r["kind"], "long", entry_ts, entry, last.ts, float(last.close), "time", float(last.close) / entry - 1)
+
+
+QUIET_NOTE = ("minutes with no candle that a later free-feed candle shows the feed had reported past: quiet on that "
+              "feed, which carries about 1% of the volume; not evidence about the official tape")
+
+
+UNOBSERVED_NOTE = ("bought at the break candle's close inside its 90 s window (owner 2026-11-20) although a closed minute "
+                   "since has no free-feed candle: that minute was not observed")
+
+
+def coverage(f: pd.DataFrame, session: str, entry_ts: pd.Timestamp, now: datetime) -> dict:
+    """What the book has OBSERVED of the closed session minutes from the entry's candle up to ``now`` (owner
+    2026-11-26). Each such minute is one of:
+
+    - held: a closed candle is in ``f`` (the exit check reads it);
+    - quiet: no candle, and a LATER candle is held. The feed had reported past that minute and showed no trade in
+      it: a confirmed quiet minute on the free feed. Not a statement about the official tape;
+    - unknown: no candle and none after it. Either nothing traded there or the feed has not delivered it yet; the
+      two cannot be told apart, so the stop and the target cannot be said to be untouched.
+
+    Returns ``{"held": n, "quiet": [minute starts], "unknown": [minute starts]}``. A fill seen when its own candle
+    closes has one closed minute, its candle: nothing is quiet or unknown, and no request is made here in any case
+    (it reads the frame the book already holds). Minutes at or after the session's close are not session minutes.
+    A session whose close cannot be read counts every closed minute (fail towards "unknown")."""
+    at, first = pd.Timestamp(now), pd.Timestamp(entry_ts)
+    try:
+        end = min(at, pd.Timestamp(default_close(session)))
+    except Exception:  # noqa: BLE001 - no calendar: every closed minute up to now is asked about
+        log.exception("coverage: no session close for %s", session)
+        end = at
+    have = set(pd.to_datetime(f.ts)) if len(f) else set()
+    last = max((x for x in have if x >= first), default=None)
+    held, quiet, unknown, m = 0, [], [], first
+    while m + pt.BAR <= end:
+        if m in have:
+            held += 1
+        elif last is not None and m < last:
+            quiet.append(m)
+        else:
+            unknown.append(m)
+        m += pt.BAR
+    return {"held": held, "quiet": quiet, "unknown": unknown}
+
+
+def unknown_words(seen_to: dict) -> str:
+    """The unknown minutes of ``coverage``, in words ("" when there are none)."""
+    u = seen_to.get("unknown") or []
+    if not u:
+        return ""
+    a, b = (pd.Timestamp(x).tz_convert(ET).strftime("%H:%M") for x in (u[0], u[-1] + pt.BAR))
+    return (f"the free feed delivered no candle for {a} to {b} ET and none after, so whether the stop or target was "
+            "reached there cannot be established")
 
 
 def _usable(v) -> bool:

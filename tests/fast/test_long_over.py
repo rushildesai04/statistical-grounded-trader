@@ -360,3 +360,95 @@ def test_a_setup_with_no_usable_stop_still_gets_its_row_and_its_reason(db, monke
     assert lb.over_check_line(db) == (
         "long entry check since 11-09 (long-live-entry-v2): 0 opened, 1 recorded only (0 expired, 0 invalidated, "
         "1 insufficient data). The recorded ones are in no total and do not join the registered sample")
+
+
+# ---- owner 2026-11-26 (second message): a confirmed quiet minute against unknown coverage ----
+def thin(keep):
+    """CALM with only the candles at these positions (0 = 15:01; the fill candle is position 2, 15:03)."""
+    return CALM.iloc[list(keep)].reset_index(drop=True)
+
+
+def test_coverage_tells_a_held_candle_a_confirmed_quiet_minute_and_an_unknown_one_apart():
+    entry = T1 + 2 * pt.BAR                                                    # the 15:03 fill candle
+    hm = lambda xs: [pd.Timestamp(x).strftime("%H:%M") for x in xs]            # noqa: E731
+    on_time = lb.coverage(CALM.iloc[:3], "2026-11-09", entry, at(3, 5))        # seen as the fill candle closes
+    assert (on_time["held"], on_time["quiet"], on_time["unknown"]) == (1, [], [])
+    gap = lb.coverage(thin([0, 1, 2, 5]), "2026-11-09", entry, at(6, 5))       # 15:04, 15:05 missing; 15:06 held
+    assert (gap["held"], hm(gap["quiet"]), gap["unknown"]) == (2, ["15:04", "15:05"], [])
+    tail = lb.coverage(thin([0, 1, 2]), "2026-11-09", entry, at(5, 30))        # nothing after the fill candle
+    assert (tail["held"], tail["quiet"], hm(tail["unknown"])) == (1, [], ["15:04", "15:05"])
+    assert lb.unknown_words(tail) == ("the free feed delivered no candle for 10:04 to 10:06 ET and none after, so whether "
+                                      "the stop or target was reached there cannot be established")
+    assert lb.unknown_words(gap) == "" and lb.coverage(CALM.iloc[:0], "2026-11-09", entry, at(3, 5))["unknown"]
+    # the minute still forming is never asked about, and minutes after the session's close are not session minutes
+    assert lb.coverage(CALM.iloc[:3], "2026-11-09", entry, at(3, 59))["unknown"] == []
+    late = pd.Timestamp("2026-11-09 20:58", tz="UTC")                          # 15:58 ET
+    assert lb.coverage(bars([(10, 10, 10, 10, 1)], start=late), "2026-11-09", late,
+                       (late + pd.Timedelta(minutes=9)).to_pydatetime()) == {"held": 1, "quiet": [], "unknown": [late + pt.BAR]}
+
+
+def test_a_minute_with_no_candle_is_quiet_only_once_a_later_candle_shows_the_feed_reported_past_it(db):
+    """Seen late (the fill candle closed 90 s ago) and the feed holds nothing after it: the 15:04 minute is unknown,
+    so nothing is opened. When the 15:06 candle is held, 15:04 and 15:05 are confirmed quiet on the feed and the long
+    is opened, inside the book's five-minute window, with the quiet minutes on the row and in the text."""
+    day = thin([0, 1, 2, 5] + list(range(6, 40)))                              # no 15:04, no 15:05
+    alert_row(db)
+    sent = []
+    for now in (at(4, 30), at(5, 5), at(5, 35)):                               # 15:05:30 .. 15:06:35: 15:06 not closed
+        assert lb.tick(db, feed(day), sent.append, now=now) == 0 and trades(db) == [] and sent == []
+    assert lb.tick(db, feed(day), sent.append, now=at(6, 2)) == 1              # 15:07:02: the 15:06 candle has closed
+    (t,) = trades(db)
+    ref = json.loads(t["entry_ref"])
+    assert (t["status"], t["est_entry"], t["not_opened"]) == ("open", 10.55, None)
+    assert (ref["quiet_minutes"], ref["quiet_note"], ref["age_s"]) == (2, lb.QUIET_NOTE, 242.0) and "unobserved_minutes" not in ref
+    assert "; 2 minutes since had no trade on the free feed (not proof the tape was quiet)." in sent[0]
+    assert "that candle began 242 s before the booking" in sent[0] and bold("LONG IN") in sent[0]
+
+
+def test_coverage_never_established_inside_the_window_is_recorded_as_insufficient_data(db):
+    day = thin([0, 1, 2])                                                      # the feed never shows another candle
+    alert_row(db)
+    sent = []
+    for k in range(0, 9):                                                      # 15:05:30 .. 15:09:30 (window ends 15:08)
+        lb.tick(db, feed(day), sent.append, now=at(4, 30 + 30 * k))
+    (t,) = trades(db)
+    why = json.loads(t["not_opened"])
+    assert (t["status"], t["est_exit"], sent) == ("missed", None, [])
+    assert why == {"version": "long-live-entry-v2", "class": "insufficient data", "cause": (
+        "fill older than 5 min when seen; the free feed delivered no candle for 10:04 to 10:08 ET and none after, so "
+        "whether the stop or target was reached there cannot be established")}
+    (d,) = decisions(db)
+    assert json.loads(d["facts"])["missed_why"] == "fill older than 5 min when seen"       # the old counted key stays
+    assert lb.over_check_line(db) == (
+        "long entry check since 11-09 (long-live-entry-v2): 0 opened, 1 recorded only (0 expired, 0 invalidated, "
+        "1 insufficient data). The recorded ones are in no total and do not join the registered sample")
+    assert lb.settle(db, sip({"ABCD": CALM}), cost, now=NIGHT) == [] and lb.nav(db) == 100_000.0
+
+
+def test_an_exit_already_on_a_held_candle_is_decided_whatever_is_unknown_after_it(db):
+    day = STOPPED.iloc[:3]                                                     # the stop is on the fill candle; nothing after
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(day), sent.append, now=at(4, 30)) == 0 and sent == []
+    (t,) = trades(db)
+    assert (t["status"], json.loads(t["not_opened"])["class"]) == ("over", "invalidated")
+
+
+@pytest.mark.parametrize("late_s, unobserved", [(20, None), (75, 1)])
+def test_a_buy_at_the_break_candles_close_keeps_its_approved_window_and_says_what_was_not_observed(tmp_path, monkeypatch,
+                                                                                                    late_s, unobserved):
+    """The coverage rule is NOT applied to a base break bought at its candle's close: that buy's window (90 s, no
+    later candle held) is the owner's of 2026-11-20 and changes only on the owner's word. Bought 75 s after the close,
+    one closed minute has no candle: the buy is made as approved, and the row says that minute was not observed."""
+    from tests.fast import test_long_base as tb
+
+    monkeypatch.setattr(lb, "LIVE_KINDS", ("L8", "L5v2"))
+    monkeypatch.setattr(lb, "LIVE_WATCH", max(pt.WATCH, pt.BASE_WATCH))
+    db = OpsStore(tmp_path / "base.db")
+    tb.alert_row(db)
+    sent = []
+    assert lb.tick(db, tb.feed(tb.THIN), sent.append, now=tb.at(13, late_s)) == 1
+    (r,) = tb.trades(db)
+    ref = json.loads(r["entry_ref"])
+    assert (r["status"], r["kind"], ref["age_s"], ref.get("unobserved_minutes")) == ("open", "L8", float(late_s), unobserved)
+    assert ref.get("unobserved_note") == (lb.UNOBSERVED_NOTE if unobserved else None) and "quiet_minutes" not in ref
