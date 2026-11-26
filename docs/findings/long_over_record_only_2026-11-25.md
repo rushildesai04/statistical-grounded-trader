@@ -103,6 +103,10 @@ every closed session minute from the entry's candle up to the moment the book lo
 | no candle, and a LATER candle is held | **confirmed quiet on the free feed**: the feed had reported past that minute and showed no trade in it | the setup stays eligible. The number of such minutes is kept on the row (`entry_ref.quiet_minutes`) and said in the text. It is NOT evidence that the official tape was quiet (the free feed carries about 1% of the volume) |
 | no candle and none after it | **unknown coverage**: quiet, or not delivered yet | the long is not opened in that pass. The book looks again each pass. If a later candle arrives the minute becomes confirmed quiet (or shows what happened). If the five-minute window ends first, the setup is recorded as insufficient data, with the window and the uncovered span both in the cause |
 
+While the book is in measure-only mode the same holds for its "seen" text: it is sent for what the book would
+open, so it waits for the coverage too, and is not sent for a setup that ends as insufficient data (review
+2026-11-26; the books are on, so nothing changes today).
+
 No request is made for this (it reads the frame the book already holds) and no threshold is added (the only clock
 is the existing five-minute window). An exit that is already on a held candle is decided whatever is unknown after
 it. A fill seen when its own candle closes, the normal case, has one closed minute, its candle: the rule changes
@@ -127,7 +131,7 @@ Example: a buy-stop at 10.55 fills inside the 10:03 candle; the book first looks
 
 | Check | Fails as |
 |---|---|
-| the fill candle began no more than 5 minutes ago, and after the listener was back | expired |
+| the fill candle began no more than 5 minutes ago, and after the listener was back | expired; insufficient data where a minute since the entry was also never covered (2b) |
 | estimated cost at or under the cap; our own short on the stock not open | not bought (their own existing statuses) |
 | every closed candle from the fill candle on: low above the stop, high under the 2R target | invalidated / expired |
 | where the specification has the red-candle exit: the fill candle closed at or above the entry | invalidated |
