@@ -410,7 +410,7 @@ def test_approval_text_has_confidence_reason_tape_risk_payoff_record_and_borrow(
         f"📊 9% off high · +11% vs VWAP $3.78 · vol 3.2x yday {italic('(IEX)')}",
         "💵 $5,000 · 🛑 stop $5.04 (a trigger, not a cap: past stopped trades averaged -22.4%) ≈ -$1,120 · ⏳ 60 min",
         f"🎯 Tested (764 unseen): win 57%, avg {bold('+$56')}",
-        "    wins +$670 · losses -$765 · 16% stopped",
+        "    wins +$670 · losses -$765 · stopped 194 of 764 (25%)",   # the registered count, with its population
         "    " + italic("Past figures: a bar replay of every alert, with no borrow check and no real fills. Averages of "
                         "past trades, not a forecast for this one."),
         # owner 2026-11-25: "too few to judge" hid a losing record; say which way it stands and what decides
@@ -1026,3 +1026,22 @@ def test_what_this_rule_leaves_alone(db, tmp_path):
     assert (r["status"], r["reason"], r["entry_elig"]) == ("skipped", fade.NO_PRINT_REASON, None)
     assert fade.prior_alert(d3, "ABC", DAY + timedelta(days=1)) is None
 
+
+def test_the_cards_stop_share_is_the_registered_count_over_its_population():
+    # 2026-11-25: the card said "16% stopped" from a typed constant with no source; the registered count is 194 of
+    # the 764 held-out alerts. The share is derived, and both numbers are pinned to the documents that registered them.
+    from pathlib import Path
+
+    from sgt.fast import fade_rule
+
+    docs = Path(__file__).resolve().parents[2] / "docs" / "findings"
+    study = (docs / "prereg_fade_stop_slippage_2026-11-09.md").read_text()
+    restated = (docs / "prereg_fade_drift_monitor_2026-11-24.md").read_text()
+    primary = (docs / "prereg_alert_fade_2026-11-01.md").read_text()
+    assert f"193 / {fade_rule.STOPS} held-out stops" in study                      # the count, where it was measured
+    assert f"{fade_rule.STOPS} of {fade_rule.BASE_N} = 25.4%" in restated          # the count over its population
+    assert f"{fade_rule.BASE_N} alerts" in primary                                  # the population, where it was tested
+    assert fade_rule.STOP_RATE == fade_rule.STOPS / fade_rule.BASE_N               # derived, never typed
+    assert f"{fade_rule.STOP_RATE:.1%}" == "25.4%"
+    body = fade.ask_text("XYZ", "resumed", 4.2, 5000.0, {}, "", (0, None))
+    assert "stopped 194 of 764 (25%)" in body and "16%" not in body
