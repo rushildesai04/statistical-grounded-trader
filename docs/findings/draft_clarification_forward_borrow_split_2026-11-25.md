@@ -4,6 +4,12 @@
 identify overlap with the already registered borrow study and H1. Prefer a documented clarification or extension if
 it asks the same question. No duplicate testing, altered thresholds, or early reading of sealed outcomes."
 
+**Decided by the owner, 2026-11-25 evening (point C2a, the two existing "none listed" rules):** "A - report both
+definitions, with the registered definition primary and the other explicitly diagnostic. Define overlap,
+missingness, and denominators before evaluation. Do not select the favorable definition or duplicate an existing
+sealed study." C2a is rewritten to that and section 3a fixes the three definitions. Still a draft, and still
+nothing computed: the other points (C1 to C8) wait for acceptance.
+
 ## 1. Finding: the proposed forward borrow split would duplicate registered work
 
 `edge_assessment_2026-11-25.md` proposed registering a forward comparison of alerts by their borrow listing. Read
@@ -56,12 +62,19 @@ ledger defines "none listed" in two ways:
 | shorts the bot took (the cohort) | `no_borrow` when the list shows no shares OR fewer than the position needs | `borrow_unknown`, which is NOT an exclusion flag: the trade is labelled MODELED |
 | forward alerts | `no_borrow` only when the list shows no shares at all | no flag |
 
-The forward split can follow the forward rows' rule as it stands (no shares at all), or the cohort's (fewer than
-the position needs). Both are existing rules; neither is a new threshold. Recommended: report BOTH readings side by
-side and call neither the answer, since choosing one after the fact would be a choice made on seen data for the
-sessions before 2026-11-23. Whether `borrow_unknown` should stay inside the cohort's MODELED sample is a question
-about a registered sample and is NOT proposed for change here; it is stated so that "no exclusion flag" is read for
-what it is.
+**Decided: both are reported, in fixed roles.**
+
+| Role | Rule | Why it has that role |
+|---|---|---|
+| PRIMARY | none listed = the list shows no shares at all (the forward rows' existing rule) | it is the rule the registered split was computed with: the baseline's own flagged / unflagged figures for the forward record (2026-11-21) came from `exec_ledger.forward_rows` under this rule |
+| DIAGNOSTIC | none listed = no shares, or fewer than the position needs (the cohort's existing rule, applied to forward alerts) | an existing rule of the same ledger, shown so that the reader sees what the stricter reading would say. It is never the headline and never replaces the primary, whichever looks better |
+
+*My reading of "the registered definition", to be confirmed:* the split is registered for the forward record, so
+its registered rule is the forward rows' one. If the owner meant the cohort's rule, the two roles swap and nothing
+else in this text changes.
+
+Whether `borrow_unknown` should stay inside the cohort's MODELED sample is a question about a registered sample and
+is NOT proposed for change here; it is stated so that "no exclusion flag" is read for what it is.
 
 **C3. Reasons kept apart.** The report shows the registered headline (any exclusion flag against none) and, beside
 it, the rows: price test only, none listed only, both, neither, unknown. No row is pooled with another to make a
@@ -93,6 +106,46 @@ reads KEEP and the SHARES LISTED rows from 2026-11-23 are at or under zero, the 
 result does not sit in alerts with shares listed, before anything else follows from the KEEP. If F1 reads DROP, the
 split is recorded and changes nothing.
 
+## 3a. Fixed before any evaluation: denominators, missingness, overlap
+
+**Denominator.** D = every forward alert the forward record scores (status ok: the same rows amendment F1
+averages), sessions from 2026-11-23 to F1's decision session, each alert once. Alerts of those sessions the record
+cannot score are counted beside D with their reason and are in no row. Sessions before 2026-11-23 form their own
+table with their own denominator and are never added to D (C4).
+
+**Under each definition every alert of D has exactly one label, and the labels sum to D.**
+
+| Label | PRIMARY | DIAGNOSTIC |
+|---|---|---|
+| SHARES LISTED | the list read under C2 shows more than zero shares | it shows at least the shares the position needs |
+| NONE LISTED | it shows zero, or the symbol is not on a list that was read | it shows fewer than the position needs (zero and absent included) |
+| UNKNOWN | no list could be read under C2 | no list could be read, or the position's shares cannot be computed |
+
+Shares the position needs, for an alert the bot did not take: the dollars the book's own sizing gave a short that
+session (the same function, read-only, with the drift scale recorded for that session), divided by the forward
+record's entry price. No new sizing is defined. A symbol absent from a list that was read is "none listed", as the
+bot's own stamp treats it (`borrow.lookup`: "not in IBKR's lendable list = not shortable there", `ib_avail` 0).
+
+**Missingness.** UNKNOWN has exactly these causes, each counted on its own line: no list stored for the session;
+the last list at or before the posting time is older than the existing age rule; the stored file cannot be read; and
+(diagnostic only) no position size. UNKNOWN is never imputed, never merged into either side, and never dropped: its
+row shows its count and its result like the others. If UNKNOWN is the largest row, the report says in its first
+line that the split describes a minority of the alerts.
+
+**Overlap between the two definitions.** One 3 x 3 table of counts, PRIMARY label by DIAGNOSTIC label. By
+construction every PRIMARY NONE LISTED alert is DIAGNOSTIC NONE LISTED, so the two can differ in one cell only:
+listed, but fewer shares than the position. That cell's count is reported, and its result is reported as
+diagnostic. The two definitions are therefore never two findings: they are one split and one named cell.
+
+**Overlap with other registered work.** The taken shorts of the cohort are inside D and count once (C5). H1's
+events are inside D as alerts; H1's own figures are not read, computed or reproduced. The after-day borrow test
+(`prereg_after_day_borrow_forward_2026-11-17`) uses the same alerts for a different trade; its sealed results are
+not read, and no close-to-close figure is computed here.
+
+**No selection.** The report's wording, row order and headline are fixed by this section before any number
+exists: headline = PRIMARY; DIAGNOSTIC and the differing cell follow, labelled diagnostic. Neither is dropped,
+re-ordered or re-labelled after the numbers are seen.
+
 ## 4. What this does not do
 
 No new hypothesis, no new sample, no threshold, no early reading. H1 stays sealed and is not touched. The cohort
@@ -102,5 +155,6 @@ authorised, and none is needed for this.
 ## 5. Effort
 
 About a third of a working session: one function that reads the stored list at an alert's time, its tests (the
-20-minute bound, UNKNOWN, a list that is missing or malformed), and the report table, built to run only when F1's
+existing age rule, UNKNOWN and each of its causes, a list that is missing or malformed, the two definitions and their
+one differing cell), and the report table, built to run only when F1's
 decision point is reached. One independent review before it is accepted.
