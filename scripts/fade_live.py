@@ -80,6 +80,35 @@ def halted_like(client: httpx.Client, symbol: str, last_at: datetime) -> bool:
     return bool(w.high.max() / w.low.min() - 1 >= HALT_MOVE)
 
 
+def iex_last(client: httpx.Client):
+    """The free feed's last print, raw: ``last(symbol)`` -> ``{"px", "at"}`` or ``{"why": ...}``. ONE request and no
+    judgement about staleness or halts (2026-11-25, for ``long_book.between_candles``, which uses a print only if it
+    was made after its long was booked). IEX's "last trade" moves on round lots only. External data: anything not
+    exactly as expected is a "why", never a number."""
+    def last(symbol: str) -> dict:
+        if not _SYMBOL.match(symbol):
+            return {"why": "not a symbol"}
+        try:
+            r = client.get(f"/v2/stocks/{symbol}/trades/latest", params={"feed": "iex"})
+            if r.status_code != 200:
+                return {"why": f"the request failed (HTTP {r.status_code})"}
+            body = r.json()
+            t = body.get("trade") if isinstance(body, dict) else None
+            if not isinstance(t, dict):
+                return {"why": "the answer carries no trade"}
+            p = t.get("p")
+            if not isinstance(p, (int, float)) or isinstance(p, bool) or not p > 0:
+                return {"why": "the print has no price"}
+            at = pd.Timestamp(str(t.get("t", ""))).to_pydatetime(warn=False)   # nanosecond ISO from Alpaca
+            if at.tzinfo is None:
+                return {"why": "the print carries no time"}
+            return {"px": float(p), "at": at.isoformat()}
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            log.warning("last print %s failed: %s", symbol, type(exc).__name__)
+            return {"why": f"the request failed ({type(exc).__name__})"}
+    return last
+
+
 def iex_book(client: httpx.Client):
     """The free feed's standing quote: ONE exchange's best bid and offer (IEX), not the national best (2026-11-25;
     ``sgt.fast.long_quote`` says what that can and cannot stand for). Returns ``book(symbol)`` -> a dict with ``bid``,
@@ -791,11 +820,14 @@ async def run() -> int:
         from sgt.fast import long_book
 
         long_last = iex_quote(lc)                # 2026-11-25: the feed's last trade, read after a long is booked (a label)
+        # 2026-11-25: the feed's raw last print, read at each exit check of an open long for a print at its stop
+        # (long_book.between_candles: a paper measurement on a thin feed, not stop protection; bounded looks a check)
+        long_print = iex_last(lc)
 
         long_venue = iex_book(lc)                # 2026-11-25: one exchange's standing quote, read at the same point
 
         def long_tick(*a):                       # the book's pass, with those readers handed over by name
-            return long_book.tick(*a, last_trade=long_last, venue_quote=long_venue)
+            return long_book.tick(*a, last_trade=long_last, venue_quote=long_venue, stop_print=long_print)
 
         def long_pass() -> None:
             long_tick(db, lambda sym, now: live_bars(lc, sym, now), long_send,

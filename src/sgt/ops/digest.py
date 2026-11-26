@@ -534,6 +534,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         sl = long_book.short_check_line(db)      # owner 2026-11-20: no long while our short is open, against its test
         if sl:
             lines.append(sl)
+        ss = long_book.stop_seen_line(db)        # owner 2026-11-25: how the paper book saw its long stops
+        if ss:
+            lines.append(ss)
     except Exception:  # noqa: BLE001 - informational line
         lines.append("gates check: unavailable")
     try:                                         # audit 2026-11-21: the official record against the bot's own timing

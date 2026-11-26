@@ -163,7 +163,11 @@ COLUMNS = {
         # 8.39): what the booked price IS (JSON: its basis, the time it refers to, how old it was when booked, and
         # the free feed's last trade at that moment when it could be read). A label on the live estimate; the
         # registered replay and the execution model are computed as before.
-        "entry_ref": "TEXT"},
+        "entry_ref": "TEXT",
+        # 2026-11-25 (owner: "approve the proposed between-candle long-stop check for paper measurement only"): set
+        # when a stop exit was seen on a free-feed print before its candle closed (JSON: the print, when it was
+        # looked at, the last closed candle). NULL = the exit was read from closed candles, as before.
+        "stop_seen": "TEXT"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

@@ -72,6 +72,26 @@ shows the stop, the estimated exit and the points beyond it.
 the stop would have been seen about 50 s sooner, still about 2 minutes after the tape. On FCUV and RETO it would
 have changed nothing: the free feed printed nothing near the stop for 13 and 21 minutes.
 
+**Built 2026-11-25 afternoon (`long_book.between_candles`), with one correction to the claim above.** "Can only reach
+the same decision EARLIER, never a different one" was wrong in one case, found while building it: under rules A2 a
+fill candle that has closed RED already determines the exit (out at the next candle's open), and the book books it
+once that next candle has closed. A print under the stop during that minute would have turned a registered "red"
+exit into a live "stop". The check therefore stands aside whenever the fill candle has closed red under A2, and
+whenever the hold window or the session has ended (the time exit). With those two guards a between-candle stop is
+always a stop the candles would also have booked.
+
+| As built | |
+|---|---|
+| Print used | the free feed's last trade, only if it printed at or after the long was BOOKED and not after the look |
+| Cost, bounded | ONE request per look (the raw last print; no staleness or halt probe is needed, since a print is used only if it came after the booking). At most 10 looks per exit check, the longs looked at longest ago first, whatever number is open (the book allows 40). The first draft reused the short book's quote reader, which makes a second request whenever the print is over 90 s old, the usual case in these stocks: found in own review and replaced before any review |
+| Comparison | `price <= stop`, the live book's own (binary-v0; the live checks follow their record's version) |
+| Live estimated exit | the lower of the stop and the print; its time is the print's time |
+| Record | `long_trades.stop_seen` (the print, when it was looked at, the last closed candle) and the decision record; NULL when the candles made the exit |
+| Text | the LONG OUT card adds one line: seen on a free-feed print, "a paper measurement on a thin feed, not stop protection". No new text type |
+| Report | one line in the nightly report: how many long stops were seen between candles |
+| Untouched | the stop level, target, time exit, red-candle exit, the settled replay, the execution model, every registered figure |
+| Bad data | a failed or malformed read, no time, a time without a zone, a print older than the booking: no decision |
+
 ## 4. Deployment blocker (stands whether or not section 3 is built)
 
 **The bot's own detection cannot protect a long.** The only timely data it has is a thin feed that showed the stop
