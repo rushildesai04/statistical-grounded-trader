@@ -146,11 +146,42 @@ def test_rows_made_before_the_rule_are_not_touched(db):
 
 
 def test_a_long_bought_at_its_break_candles_close_is_never_over(db):
-    """``already_over`` on a buy whose reference is the candle that has just closed: no later candle exists yet."""
+    """``already_over`` on a buy whose reference is the candle that has just closed: no later candle exists yet.
+    The break candle is 15:03 (the last of ``DAY.iloc[:3]``); the setup's ready time and the buy's entry time are the
+    start of the NEXT candle, 15:04, which the book does not hold yet."""
     s = pt.Setup("L8", "long", T1 + 3 * pt.BAR, None, 10.2)
     t = pt.Trade("L8", "long", s.ready, 10.65, s.ready, 10.65, "open", 0.0)
     assert lb.already_over(DAY.iloc[:3], {"session": "2026-11-09"}, s, t, at(3, 10)) is None
-    # and once later candles are held and one of them reached its stop, it is over like any other long
+    # and once a LATER candle is held (15:04, after the buy's entry time) and it reached the stop: over like any long
     low = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.65, 500),
                 (10.65, 10.7, 10.0, 10.1, 800)])
     assert lb.already_over(low, {"session": "2026-11-09"}, s, t, at(4, 10))["exit"] == "stop"
+
+
+def test_a_break_candle_that_spans_its_own_stop_and_target_does_not_make_a_buy_at_its_close_over(tmp_path, monkeypatch):
+    """Review 2026-11-25 asked whether a base break bought at its candle's close could be classed over by that same
+    candle (a wick to the stop, a spike past the 2R target). It cannot: the buy's entry time is the START of the next
+    candle (``Setup.ready`` = break candle + one bar), the buy is made only while no candle from then on is held
+    (``long_armed.pending``), and the exit code reads candles from the entry time on. What happened inside the break
+    candle happened before the buy. Run through the live pass on the frame the runner holds at that moment."""
+    from sgt.fast import long_shadow
+
+    from tests.fast import test_long_base as tb
+
+    monkeypatch.setattr(lb, "LIVE_KINDS", ("L8", "L5v2"))                      # the live kinds, not this file's default
+    monkeypatch.setattr(lb, "LIVE_WATCH", max(pt.WATCH, pt.BASE_WATCH))
+    wide = (10.4, 12.0, 10.2, 10.6, 500)                 # low under the stop 10.25, high far above the target 11.30
+    day = tb.bars([tb.SPIKE] + [tb.QUIET] * 11 + [wide, tb.FILL, tb.RUN] + [tb.AFTER] * 60)
+    now = tb.at(13, 5)                                   # five seconds after the break candle closed
+    f = lb.rth(day, now)
+    row = {"id": 1, "symbol": "ABCD", "session": "2026-11-09", "posted_at": tb.POSTED.isoformat()}
+    s, t = lb.at_close(f, row, now, long_shadow._latest("2026-11-09"))
+    assert (f.ts.iloc[-1], f.low.iloc[-1], f.high.iloc[-1]) == (s.ready - pt.BAR, 10.2, 12.0)      # it IS in the frame
+    assert s.stop == 10.25 and lb.target(s, t) == pytest.approx(11.3) and f[f.ts >= s.ready].empty
+    assert lb.already_over(f, row, s, t, now) is None
+    db = OpsStore(tmp_path / "base.db")
+    tb.alert_row(db)
+    sent = []
+    assert lb.tick(db, tb.feed(day), sent.append, now=now) == 1 and bold("LONG IN") in sent[0]
+    (r,) = tb.trades(db)
+    assert (r["status"], r["kind"], r["est_entry"]) == ("open", "L8", 10.6)
