@@ -1,0 +1,156 @@
+"""A long whose exit is already determined when the book sees its fill is recorded, never opened (owner 2026-11-25
+evening, decision B: "Trigger setup discovered after its opportunity is over: B - record-only. Do not book a position
+retrospectively. Preserve the hypothetical replay separately and document the prospective effective version. Do not
+remove historical observations or silently change registered sample membership.")."""
+from __future__ import annotations
+
+import json
+
+import pandas as pd
+import pytest
+
+from sgt.fast import long_book as lb
+from sgt.fast import patterns as pt
+from sgt.ops import alert_feed
+from sgt.ops.sms_style import bold
+from sgt.ops.store import OpsStore
+
+from tests.fast.test_long_book import DAY, NIGHT, POSTED, T1, alert_row, at, bars, cost, feed, one_minute_setups, sip, trades  # noqa: F401
+
+# the same alert as DAY (red candle 15:02, buy-stop 10.55, stop 10.20, filled inside the 15:03 candle), three endings
+RED = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.45, 500),
+            (10.42, 10.5, 10.4, 10.45, 300)] + [(10.45, 10.5, 10.4, 10.45, 100)] * 50)      # fill candle closed under 10.55
+STOPPED = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.1, 10.6, 500),
+                (10.6, 10.7, 10.5, 10.6, 300)] + [(10.6, 10.7, 10.5, 10.6, 100)] * 50)      # fill candle's low under the stop
+TARGET = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 11.4, 10.3, 11.3, 500),
+               (11.3, 11.4, 11.2, 11.3, 300)] + [(11.3, 11.4, 11.2, 11.3, 100)] * 50)       # fill candle reached 11.25
+
+
+@pytest.fixture()
+def db(tmp_path):
+    return OpsStore(tmp_path / "ops.db")
+
+
+def decisions(db):
+    with db.read() as c:
+        return [dict(r) for r in c.execute("SELECT * FROM decisions WHERE book='long' ORDER BY id")]
+
+
+def run(db, day, passes=9, sym="ABCD"):
+    alert_row(db, sym)
+    sent = []
+    for k in range(0, passes):
+        lb.tick(db, feed(day), sent.append, now=at(0, 30 * k))
+    return sent
+
+
+@pytest.mark.parametrize("day, exit_, px, words", [
+    (RED, "red", None, "its red-candle exit was already determined when the book saw the fill (out at the next candle's open)"),
+    (STOPPED, "stop", 10.2, "its stop was already on a closed free-feed candle when the book saw the fill ($10.20, 10:03 ET candle)"),
+    (TARGET, "target", 11.25, "its target was already on a closed free-feed candle when the book saw the fill ($11.25, 10:03 ET candle)")])
+def test_a_fill_whose_exit_is_already_determined_is_recorded_and_never_opened(db, day, exit_, px, words):
+    sent = run(db, day, passes=140)                        # the whole window: nothing is opened later either
+    (t,) = trades(db)
+    assert (t["status"], t["kind"], t["est_entry"], t["stop"], t["trigger"]) == ("over", "L4b", 10.55, 10.2, 10.55)
+    assert (t["est_exit"], t["est_exit_at"], t["entry_ref"], t["stop_seen"]) == (None, None, None, None)
+    assert t["reason"] == words and t["created_at"] == at(3).isoformat()      # recorded when the fill candle closed
+    assert sent == []                                      # no position: no LONG IN, no LONG OUT, no new text type
+    (d,) = decisions(db)                                   # one decision line, with the version and what was seen
+    facts = json.loads(d["facts"])
+    assert (d["state_from"], d["state_to"], d["reason"]) == (None, "over", words)
+    assert facts["entry_rule"] == lb.ENTRY_RULE and facts["entry_rule"].startswith("long-live-entry-v2 2026-11-25")
+    over = json.loads(facts["over"])
+    assert (over["exit"], over["exit_px"]) == (exit_, pytest.approx(px) if px else None) and facts["seen_after_s"] == 60.0
+    assert lb.nav(db) == 100_000.0                         # never in the book's value
+
+
+def test_a_fill_whose_exit_is_still_open_is_opened_exactly_as_before_and_carries_the_version(db):
+    sent = run(db, DAY)
+    (t,) = trades(db)
+    assert (t["status"], t["est_entry"], t["reason"]) == ("est_closed", 10.55, "target")       # 15:04 ran to the target
+    assert bold("LONG IN") in sent[0] and bold("LONG OUT") in sent[1] and len(sent) == 2
+    opened = [d for d in decisions(db) if d["state_to"] == "open"]
+    assert len(opened) == 1 and json.loads(opened[0]["facts"])["entry_rule"] == lb.ENTRY_RULE
+
+
+def test_over_is_what_the_exit_check_of_the_same_pass_would_have_done(db, monkeypatch):
+    """The definition is the book's own exit code: without the rule, each of these was opened and then closed by the
+    exit check of the same pass (stop, target) or left with nothing to decide (red)."""
+    monkeypatch.setattr(lb, "already_over", lambda *a, **k: None)              # the book as it was before the rule
+    for sym, day, reason in (("STOP", STOPPED, "stop"), ("TARG", TARGET, "target")):
+        alert_row(db, sym)
+        sent = []
+        lb.tick(db, feed(day), sent.append, now=at(3))                         # ONE pass: the fill candle has closed
+        (t,) = [x for x in trades(db) if x["symbol"] == sym]
+        assert (t["status"], t["reason"]) == ("est_closed", reason) and len(sent) == 2     # in and out in one pass
+    alert_row(db, "REDD")
+    sent = []
+    lb.tick(db, feed(RED), sent.append, now=at(3))
+    (t,) = [x for x in trades(db) if x["symbol"] == "REDD"]
+    assert t["status"] == "open" and lb._red_pending(RED.iloc[:3], t, pd.Timestamp(t["entry_ts"]))
+    lb.tick(db, feed(RED), sent.append, now=at(4))                             # the next candle closed: out at its open
+    assert [x for x in trades(db) if x["symbol"] == "REDD"][0]["reason"] == "red"
+
+
+def test_the_other_not_bought_reasons_keep_their_place_and_their_counts(db, monkeypatch):
+    monkeypatch.setattr(lb, "costly", lambda symbol, t: True)
+    run(db, STOPPED)
+    assert trades(db)[0]["status"] == lb.COSTLY            # the cost cap is checked first, as before: its test's sample
+    monkeypatch.setattr(lb, "costly", lambda symbol, t: False)
+    db2 = OpsStore(db.path.parent / "off.db")
+    db2.set_flag(lb.OFF_FLAG, "1")
+    sent = run(db2, STOPPED)
+    assert trades(db2)[0]["status"] == lb.OVER and sent == []   # measure-only texts what the book WOULD open: not this
+
+
+def test_the_nightly_settle_replays_the_recorded_order_on_official_candles_and_keeps_it_out_of_every_total(db):
+    run(db, RED)
+    run(db, DAY, sym="GOOD")
+    out = lb.settle(db, sip({"ABCD": DAY, "GOOD": DAY}), cost, now=NIGHT)      # the official tape: this one ran
+    assert out == ["ABCD L4b not opened (already over when seen): its order replayed on official candles +5.64% "
+                   "(hypothetical; no position existed)", "GOOD L4b +5.64%"]
+    over, good = trades(db)
+    assert (over["status"], over["net"], over["calc"], over["calc_v1"]) == ("over", pytest.approx(0.0564, abs=1e-4), None, None)
+    assert good["status"] == "settled" and over["settled_at"] is not None
+    assert lb.settle(db, sip({"ABCD": DAY, "GOOD": DAY}), cost, now=NIGHT) == []           # scored once
+    assert lb.nav(db) == pytest.approx(100_000 * (1 + good["weight"] * good["net"]))       # the opened long alone
+    assert lb.today_line(db, "2026-11-09") == "longs (paper) 1 trades: GOOD red-candle break +5.6%"
+    assert lb.over_line(db, "2026-11-09") == ("longs not opened, already over when seen (1; no position, not in the "
+                                              "total; replay on official candles): ABCD red-candle break +5.6%")
+    assert lb.over_check_line(db) == (
+        "long entry check since 11-09 (long-live-entry-v2): 1 opened, 1 recorded only because the exit was already "
+        "determined when seen; the 1 scored replay to +5.6% on official candles (hypothetical). The recorded ones are in "
+        "no total and do not join the registered sample")
+    # the ledger and the registered sample read settled trades only: the recorded one is not among them
+    with db.read() as c:
+        assert [r[0] for r in c.execute("SELECT symbol FROM long_trades WHERE status='settled'")] == ["GOOD"]
+    assert alert_feed.long_words("over", over["net"]) == ("long not opened: already over when the book saw it: its order "
+                                                          "replayed on official candles +5.6%")
+    assert alert_feed.long_words("over", None) == "long not opened: already over when the book saw it"
+
+
+def test_rows_made_before_the_rule_are_not_touched(db):
+    """Prospective only: a long opened and closed under the earlier behaviour (FCUV 11-25, booked 66 s after its fill
+    candle began, its red exit already determined) stays the live paper long it was, and settles as one."""
+    fid = alert_row(db, "FCUV")
+    with db.tx() as c:
+        c.execute("INSERT INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, entry_ts, "
+                  "est_entry, est_exit, est_exit_at, created_at, rules, reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (fid, "FCUV", "2026-11-09", "L4b", "est_closed", 10.55, 10.2, 11.25, 0.002, (T1 + 2 * pt.BAR).isoformat(),
+                   10.55, 10.42, (T1 + 3 * pt.BAR).isoformat(), at(3, 6).isoformat(), lb.RULES, "red"))
+    for k in range(6, 12):
+        lb.tick(db, feed(RED), [].append, now=at(0, 30 * k))
+    assert lb.settle(db, sip({"FCUV": RED}), cost, now=NIGHT) == [f"FCUV L4b {10.42 / 10.55 - 1 - 0.01:+.2%}"]
+    (t,) = trades(db)
+    assert (t["status"], t["exit_reason"]) == ("settled", "red") and lb.over_check_line(db) is None
+
+
+def test_a_long_bought_at_its_break_candles_close_is_never_over(db):
+    """``already_over`` on a buy whose reference is the candle that has just closed: no later candle exists yet."""
+    s = pt.Setup("L8", "long", T1 + 3 * pt.BAR, None, 10.2)
+    t = pt.Trade("L8", "long", s.ready, 10.65, s.ready, 10.65, "open", 0.0)
+    assert lb.already_over(DAY.iloc[:3], {"session": "2026-11-09"}, s, t, at(3, 10)) is None
+    # and once later candles are held and one of them reached its stop, it is over like any other long
+    low = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.65, 500),
+                (10.65, 10.7, 10.0, 10.1, 800)])
+    assert lb.already_over(low, {"session": "2026-11-09"}, s, t, at(4, 10))["exit"] == "stop"

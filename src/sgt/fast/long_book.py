@@ -359,7 +359,20 @@ OFF_FLAG = "long_off"
 SEEN, NOWIN = "seen", "nowin"       # long_trades.status: watched while off / filled but could not beat costs
 COSTLY = "costly"                   # filled, not bought: estimated cost above COST_CAP (owner 2026-11-20)
 SHORT_OPEN = "short_open"           # filled, not bought: our own short on the stock was open (owner 2026-11-20)
-WATCHED = (SEEN, COSTLY, SHORT_OPEN)   # never a trade, never in a total; scored nightly on the official tape
+# Owner 2026-11-25 evening (decision B on the open question of docs/findings/long_stop_detection_2026-11-25.md,
+# section 6 C): "Trigger setup discovered after its opportunity is over: B - record-only. Do not book a position
+# retrospectively. Preserve the hypothetical replay separately and document the prospective effective version. Do not
+# remove historical observations or silently change registered sample membership."
+# The book reads closed candles, so a fill inside a candle is seen when that candle has closed. When the candles it
+# holds at that moment already determine the long's EXIT as well (``already_over``), nothing was ever open: the
+# setup is recorded with status ``over`` and no live paper long is opened, no text is sent. The nightly settle
+# replays its order on official candles like every watched row (the hypothetical replay, on the row, in no total).
+# PROSPECTIVE: rows made before this version are untouched (FCUV 11-25, long 89, stays a live paper long and stays
+# in the registered sample). docs/findings/long_over_record_only_2026-11-25.md says what this does to the samples.
+OVER = "over"                       # filled, not opened: its exit was already determined when the book saw it
+ENTRY_RULE = ("long-live-entry-v2 2026-11-25: a live paper long is opened only while its exit is still undetermined on "
+              "the candles the book holds; else record-only (status over)")
+WATCHED = (SEEN, COSTLY, SHORT_OPEN, OVER)   # never a trade, never in a total; scored nightly on the official tape
 
 
 def is_off(db: OpsStore) -> bool:
@@ -491,11 +504,18 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
             if short_open(db, row["symbol"], row["session"]):   # owner 2026-11-20: one account, one side
                 _insert(db, row, s, t, SHORT_OPEN, now)
                 continue
+            over = already_over(f, row, s, t, now)         # owner 2026-11-25: never booked retrospectively
+            if over is not None:
+                _insert(db, row, s, t, OVER, now, reason=over_reason(over), entry_rule=ENTRY_RULE, over=json.dumps(over),
+                        seen_after_s=round((pd.Timestamp(now) - t.entry_ts).total_seconds(), 1))
+                log.info("long %s %s: exit already determined when seen (%s): recorded, not opened", row["symbol"],
+                         s.kind, over["exit"])
+                continue
             if off:
                 if _insert(db, row, s, t, SEEN, now):
                     send(seen_text(db, row["symbol"], s, t) + now_line + matrix_line(raw, now))
                 continue
-            if _insert(db, row, s, t, "open", now):
+            if _insert(db, row, s, t, "open", now, entry_rule=ENTRY_RULE):
                 opened += 1
                 # owner 2026-11-25: the booked price is a reference. Read AFTER the long is booked, so the read can
                 # delay the text by its timeout at most and never the booking; kept on the row and said in the text.
@@ -563,7 +583,7 @@ def _arm(db: OpsStore, row: dict, f: pd.DataFrame, now: datetime, off: bool, arm
 
 
 def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime,
-            **facts) -> bool:
+            reason: str | None = None, **facts) -> bool:
     v = nav(db)
     w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
     rules = RULES_BASE if s is not None and s.kind == "L8" else RULES
@@ -571,13 +591,13 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
     with db.tx() as c:
         cur = c.execute(
             "INSERT OR IGNORE INTO long_trades(fade_id, symbol, session, kind, status, trigger, stop, target, weight, "
-            "entry_ts, est_entry, est_last, created_at, rules, setup_info) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "entry_ts, est_entry, est_last, created_at, rules, setup_info, reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
              s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
-             t.entry if t else None, t.entry if t else None, iso(now), rules, seen))
+             t.entry if t else None, t.entry if t else None, iso(now), rules, seen, reason))
         done, rid = cur.rowcount == 1, cur.lastrowid
     if done:       # audit 2026-11-22: the decision record (what the book did with this alert, and on what facts)
-        db.decide("long", rid, row["symbol"], None, status, None, f"{RULE_VERSION}; rules {rules}", fade_id=row["id"],
+        db.decide("long", rid, row["symbol"], None, status, reason, f"{RULE_VERSION}; rules {rules}", fade_id=row["id"],
                   kind=s.kind if s else None, setup_ready=iso(s.ready.to_pydatetime()) if s else None,
                   trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
                   entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
@@ -761,6 +781,46 @@ def _exit(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> pt.Trade | None:
     return pt.Trade(r["kind"], "long", entry_ts, entry, last.ts, float(last.close), "time", float(last.close) / entry - 1)
 
 
+def already_over(f: pd.DataFrame, row: dict, s: pt.Setup, t: pt.Trade, now: datetime) -> dict | None:
+    """Is the exit of the long the book is about to open ALREADY determined on the closed candles it holds? (owner
+    2026-11-25, ``OVER``.) Exactly the two cases in which the live book would have nothing left to decide:
+
+    - the exit check of this same pass would close it: a stop or a target on a closed candle from the fill candle on
+      (the fill candle included), or a time exit whose window has ended. The test is ``_exit`` with the finality
+      rule of ``_advance``, on the row the book would have written: the same code, so "over" can never disagree
+      with what the book would have done a moment later;
+    - its fill candle has closed under the entry under rules A2 (the red-candle exit: out at the next candle's
+      open). The next open may not have printed on the feed yet; the decision has been made either way.
+
+    Returns what was determined ({"exit": stop | target | time | red, "exit_px", "exit_candle"}) or None (still
+    undetermined: opened as before). Any setup kind: a base break seen late can be in the same position as a
+    trigger setup. A long bought at its break candle's close has no later candle yet and is never over. It reads
+    only the candles the book already holds: no request, no clock but ``now``. It raises like ``_exit`` does; the
+    caller's per-alert guard then opens nothing in this pass and tries again in the next."""
+    rules = RULES_BASE if s.kind == "L8" else RULES
+    r = {"kind": s.kind, "rules": rules, "est_entry": t.entry, "stop": s.stop, "target": target(s, t), "trigger": s.trigger}
+    x = _exit(f, r, t.entry_ts)
+    if x is not None and (x.reason != "time" or pd.Timestamp(now) >= min(t.entry_ts + pt.HOLD,
+                                                                        pd.Timestamp(default_close(row["session"])))):
+        return {"exit": x.reason, "exit_px": float(x.exit), "exit_candle": iso(pd.Timestamp(x.exit_ts).to_pydatetime())}
+    if _red_pending(f, r, t.entry_ts):
+        return {"exit": "red", "exit_px": None, "exit_candle": None}
+    return None
+
+
+OVER_WHY = {"stop": "its stop", "target": "its target", "time": "its time exit", "red": "its red-candle exit"}
+
+
+def over_reason(over: dict) -> str:
+    """The row's reason, in words: which exit was already determined, and where (free-feed candles)."""
+    what = OVER_WHY.get(over.get("exit"), "its exit")
+    px, at = over.get("exit_px"), over.get("exit_candle")
+    if px is None or at is None:
+        return f"{what} was already determined when the book saw the fill (out at the next candle's open)"
+    hm = pd.Timestamp(at).tz_convert(ET).strftime("%H:%M")
+    return f"{what} was already on a closed free-feed candle when the book saw the fill (${px:,.2f}, {hm} ET candle)"
+
+
 def default_close(session: str) -> datetime:
     from sgt.intraday.calendar import default_calendar
     return default_calendar().bounds(date.fromisoformat(session)).rth_close
@@ -815,8 +875,8 @@ def settle(db: OpsStore, bars: SipBars, cost_fn: Cost, now: datetime | None = No
                   "WHERE status='open' AND session<?", (today,))      # across the close) gets its official result
         rows = [dict(r) for r in c.execute(
             "SELECT id, symbol, session, kind, status, trigger, stop, entry_ts, net, rules, reason FROM long_trades WHERE "
-            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status IN (?,?,?) AND settled_at IS NULL) "
-            "ORDER BY id", WATCHED)]
+            "status='est_closed' OR (status='settled' AND entry IS NULL) OR (status IN "
+            f"({','.join('?' * len(WATCHED))}) AND settled_at IS NULL) ORDER BY id", WATCHED)]  # noqa: S608 - fixed
     out = []
     stale = (now.astimezone(ET).date() - timedelta(days=STALE_DAYS)).isoformat()
     for r in rows:
@@ -884,6 +944,9 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
         return f"{r['symbol']} {r['kind']} not bought (cost above {COST_CAP:.0%}): would have made {net:+.2%}"
     if r["status"] == SHORT_OPEN:
         return f"{r['symbol']} {r['kind']} not bought (our short was open): would have made {net:+.2%}"
+    if r["status"] == OVER:
+        return (f"{r['symbol']} {r['kind']} not opened (already over when seen): its order replayed on official "
+                f"candles {net:+.2%} (hypothetical; no position existed)")
     if seen:
         return f"{r['symbol']} {r['kind']} seen, not traded: would have made {net:+.2%}"
     was = f" (re-scored, was {float(r['net']):+.2%})" if r["status"] == "settled" and r["net"] is not None else ""
@@ -1067,6 +1130,37 @@ def short_check_line(db: OpsStore) -> str | None:
         return None
     return (f"long short-open check (longs not bought, since {since[5:]}, in no total): {n} at {m:+.1%} "
             f"(tested {SHORT_TESTED:+.1%}; reread at {SHORT_REREAD})")
+
+
+def over_line(db: OpsStore, session: str) -> str | None:
+    """Digest line for the day's longs NOT opened because their exit was already determined when the book saw the
+    fill (never in a total). The figure, once settled, is the order's replay on official candles: hypothetical."""
+    with db.tx() as c:
+        rows = c.execute("SELECT symbol, kind, net FROM long_trades WHERE session=? AND status=? ORDER BY id",
+                         (session, OVER)).fetchall()
+    if not rows:
+        return None
+    bits = [f"{r['symbol']} {NAMES.get(r['kind'], r['kind'])}" + ("" if r["net"] is None else f" {r['net']:+.1%}")
+            for r in rows]
+    return (f"longs not opened, already over when seen ({len(rows)}; no position, not in the total; replay on "
+            "official candles): " + ", ".join(bits))
+
+
+def over_check_line(db: OpsStore) -> str | None:
+    """Every night, so the change of what the live book holds is never silent: since the rule began, how many longs
+    it opened and how many it recorded instead, and what the recorded ones' orders replayed to on official candles.
+    A count beside the book; it is in no total and no review, and it never changes the rule."""
+    with db.tx() as c:
+        n, k, m, since = c.execute("SELECT COUNT(*), SUM(net IS NOT NULL), AVG(net), MIN(session) FROM long_trades WHERE "
+                                   "status=?", (OVER,)).fetchone()
+        if not n:
+            return None
+        opened = c.execute("SELECT COUNT(*) FROM long_trades WHERE session>=? AND status IN ('open','est_closed',"
+                           "'settled','void')", (since,)).fetchone()[0]
+    scored = f"; the {k} scored replay to {m:+.1%} on official candles (hypothetical)" if k else ""
+    return (f"long entry check since {since[5:]} ({ENTRY_RULE.split()[0]}): {opened} opened, {n} recorded only because "
+            f"the exit was already determined when seen{scored}. The recorded ones are in no total and do not join "
+            "the registered sample")
 
 
 def stop_seen_line(db: OpsStore) -> str | None:

@@ -45,6 +45,7 @@ LONG = {"none": "no long setup filled", "missed": "long setup filled before the 
         "nowin": "long setup skipped: its target could not beat costs"}
 COSTLY = "long not bought: trading cost above 1%"   # owner 2026-11-20: listed with what it would have made
 SHORT_OPEN = "long not bought: our short on it was open"   # owner 2026-11-20 (one account, one side)
+OVER = "long not opened: already over when the book saw it"   # owner 2026-11-25: record-only, replayed nightly
 # owner 2026-11-19 ("yes"): a channel alert that never became a row is listed too, so nothing is unknown. These come
 # from the channel's own history (the caller reads it); they are never written to ``fade_trades``, so no rule, count
 # or repeat check can see them.
@@ -101,6 +102,8 @@ def long_words(status: str | None, net) -> str:
         return COSTLY + (f": would have made{_pct(net)}" if net is not None else "")
     if status == "short_open":
         return SHORT_OPEN + (f": would have made{_pct(net)}" if net is not None else "")
+    if status == "over":
+        return OVER + (f": its order replayed on official candles{_pct(net)}" if net is not None else "")
     return LONG.get(status, str(status)[:MAX_TEXT])
 
 

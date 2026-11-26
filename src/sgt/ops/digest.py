@@ -376,6 +376,8 @@ def long_today(db: OpsStore, day: date) -> tuple[list[str], float]:
     off += [f"\U0001F440 {dear}"] if dear else []
     both = long_book.short_open_line(db, day.isoformat())       # owner 2026-11-20: one account, one side
     off += [f"\U0001F440 {both}"] if both else []
+    gone = long_book.over_line(db, day.isoformat())             # owner 2026-11-25: never booked retrospectively
+    off += [f"\U0001F440 {gone}"] if gone else []
     from sgt.fast import text_px                                    # 2026-11-18: booked price vs the price at the text
 
     late = text_px.line(db, day.isoformat())
@@ -537,6 +539,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         ss = long_book.stop_seen_line(db)        # owner 2026-11-25: how the paper book saw its long stops
         if ss:
             lines.append(ss)
+        ol = long_book.over_check_line(db)       # owner 2026-11-25: opened against recorded-only, never silent
+        if ol:
+            lines.append(ol)
     except Exception:  # noqa: BLE001 - informational line
         lines.append("gates check: unavailable")
     try:                                         # audit 2026-11-21: the official record against the bot's own timing

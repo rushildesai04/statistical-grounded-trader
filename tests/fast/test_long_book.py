@@ -424,7 +424,15 @@ def test_a_fill_found_after_a_restart_is_missed_not_traded(db):
     assert lb.today_line(db, "2026-11-09") is None and lb.record_line(db) is None
     alert_row(db, sym="EFGH")
     on_time = (fill_bar + lb.LIVE_LAG).to_pydatetime()            # the edge still counts as live
-    assert lb.tick(db, feed(DAY), sent.append, now=on_time) == 1 and sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY EFGH')} @ {bold('$10.55')}")
+    # 2026-11-25 (owner: "Do not book a position retrospectively"): on DAY the 15:04 candle reached the target, so a
+    # fill first seen five minutes later is already over: recorded, not opened, no text (tests/fast/test_long_over.py)
+    assert lb.tick(db, feed(DAY), sent.append, now=on_time) == 0 and sent == []
+    assert [(t["symbol"], t["status"]) for t in trades(db)] == [("ABCD", "missed"), ("EFGH", "over")]
+    # the edge itself still counts as live when nothing has been determined meanwhile
+    calm = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.65, 500)]
+                + [(10.65, 10.8, 10.5, 10.7, 100)] * 50)
+    alert_row(db, sym="IJKL")
+    assert lb.tick(db, feed(calm), sent.append, now=on_time) == 1 and sent[0].startswith(f"[SGT] ✅ {bold('LONG IN')} · {bold('BUY IJKL')} @ {bold('$10.55')}")
 
 
 def test_live_exit_sells_at_the_target_on_the_fill_bar():
@@ -450,9 +458,18 @@ def test_risk_weight_caps_at_one_and_shrinks_wide_stops():
     assert lb.risk_weight(10.0, 10.0) == 0.0 and lb.risk_weight(10.0, 10.5) == 0.0 and lb.risk_weight(0.0, -1) == 0.0
 
 
-def test_a2_long_sells_at_the_next_open_after_a_red_fill_candle(db):
+def test_a2_long_sells_at_the_next_open_after_a_red_fill_candle(db, monkeypatch):
+    """The live red-candle exit of a long that is OPEN. Since 2026-11-25 (long-live-entry-v2) the book no longer opens
+    a long whose fill candle has already closed red when it sees the fill (it is recorded, status over:
+    tests/fast/test_long_over.py), so this path now serves longs opened before that version; the exit itself is
+    unchanged and is exercised here as the book ran before the rule."""
     alert_row(db)
     sent = []
+    assert lb.tick(db, feed(RED_DAY), sent.append, now=at(3)) == 0 and sent == []
+    assert [(t["status"], t["kind"]) for t in trades(db)] == [("over", "L4b")]
+    monkeypatch.setattr(lb, "already_over", lambda *a, **k: None)                # the book as it ran before the rule
+    with db.tx() as c:
+        c.execute("DELETE FROM long_trades")
     assert lb.tick(db, feed(RED_DAY), sent.append, now=at(3)) == 1                # filled on the 15:03 bar
     (t,) = trades(db)
     assert (t["kind"], t["est_entry"], t["rules"]) == ("L4b", 10.55, lb.RULES)
@@ -602,6 +619,14 @@ def test_a_long_whose_target_cannot_beat_costs_is_not_taken(db, monkeypatch):
     alert_row(db)
     monkeypatch.setattr(lb, "no_win", lambda sym, s, t: s.kind == "L4b")
     sent = []
+    # 2026-11-25: its 10.50 target traded in the fill candle, so when the book sees the fill it is already over:
+    # the setup the book turns to is still the red-candle close, recorded and not opened
+    assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == 0 and sent == []
+    (t,) = trades(db)
+    assert (t["kind"], t["est_entry"], t["status"]) == ("L4a", 10.3, "over") and t["reason"].startswith("its target was already")
+    monkeypatch.setattr(lb, "already_over", lambda *a, **k: None)                     # as the book ran before the rule
+    with db.tx() as c:
+        c.execute("DELETE FROM long_trades")
     assert lb.tick(db, feed(DAY), sent.append, now=at(3)) == 1
     (t,) = trades(db)
     assert (t["kind"], t["est_entry"]) == ("L4a", 10.3) and "red-candle close" in sent[0]
