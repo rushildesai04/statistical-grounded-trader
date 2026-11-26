@@ -625,7 +625,13 @@ def _why_json(why: dict | None) -> str | None:
 def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, status: str, now: datetime,
             reason: str | None = None, not_opened: dict | None = None, **facts) -> bool:
     v = nav(db)
-    w = weight(db, s, t, v) if t is not None else None          # SIZE x risk x drift, against the LONG book's value
+    # review 2026-11-26: a setup whose own levels are not usable prices is recorded (insufficient data) and must not
+    # fail here on the way to its row: no weight and no target are computed from a level that is not a price, and
+    # the level itself is stored as NULL. Any other row has usable levels and is written exactly as before.
+    levels = s is not None and t is not None and _usable(t.entry) and _usable(s.stop)
+    w = weight(db, s, t, v) if levels else None                 # SIZE x risk x drift, against the LONG book's value
+    stop = s.stop if s is not None and _usable(s.stop) else None
+    tgt = target(s, t) if levels else None
     rules = rules_of(s)
     seen, why = setup_seen(s), _why_json(not_opened)
     if why is not None:
@@ -636,13 +642,13 @@ def _insert(db: OpsStore, row: dict, s: pt.Setup | None, t: pt.Trade | None, sta
             "entry_ts, est_entry, est_last, created_at, rules, setup_info, reason, not_opened) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["id"], row["symbol"], row["session"], s.kind if s else None, status, s.trigger if s else None,
-             s.stop if s else None, target(s, t) if s else None, w, iso(t.entry_ts.to_pydatetime()) if t else None,
+             stop, tgt, w, iso(t.entry_ts.to_pydatetime()) if t else None,
              t.entry if t else None, t.entry if t else None, iso(now), rules, seen, reason, why))
         done, rid = cur.rowcount == 1, cur.lastrowid
     if done:       # audit 2026-11-22: the decision record (what the book did with this alert, and on what facts)
         db.decide("long", rid, row["symbol"], None, status, reason, f"{RULE_VERSION}; rules {rules}", fade_id=row["id"],
                   kind=s.kind if s else None, setup_ready=iso(s.ready.to_pydatetime()) if s else None,
-                  trigger=s.trigger if s else None, stop=s.stop if s else None, target=target(s, t) if s else None,
+                  trigger=s.trigger if s else None, stop=stop, target=tgt,
                   entry=t.entry if t else None, entry_ts=iso(t.entry_ts.to_pydatetime()) if t else None, weight=w,
                   decided_at=iso(now), posted_at=row.get("posted_at"), via=row.get("via"),
                   recovered_at=row.get("recovered_at"), setup=seen, **facts)
@@ -1003,6 +1009,10 @@ def _score(db: OpsStore, r: dict, bars: SipBars, cost_fn: Cost, now: datetime, s
                                           **({"settled_at": iso(now)} if seen else {"status": "void"})):
             return f"{r['symbol']} {r['kind']} void"
         return None                                    # review F-1 (shadow): an outage day is retried, never final
+    if seen and not _usable(r["stop"]):               # recorded with no usable stop (insufficient data): there is no
+        #                                                order to replay. Said once, never retried, never a number
+        return (f"{r['symbol']} {r['kind']} not opened (insufficient data when seen): not replayed, its stop is not on "
+                "record" if _set(db, r["id"], r["status"], settled_at=iso(now)) else None)
     trigger = None if r["trigger"] is None else float(r["trigger"])
     s = pt.Setup(r["kind"], "long", pd.Timestamp(r["entry_ts"]), trigger, float(r["stop"]))
     t = pt.simulate(f, s, latest=long_shadow._latest(r["session"]), red_exit=r.get("rules") == RULES)

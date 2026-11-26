@@ -65,7 +65,7 @@ cause in words, and the exit that was determined when there is one). The nightly
 | **expired** (the opportunity ran out) | the fill was more than 5 minutes old when seen (`LIVE_LAG`, the book's existing eligibility window), or its candle began before the listener was back | `missed`, as before this version | no, as before (the long shadow scores every setup anyway) |
 | **expired** | the 2R target was already on a closed candle; or the hold window, or the session, had ended | `over` | yes, hypothetical |
 | **invalidated** (the setup's own exit already said out) | its stop was already on a closed candle (every kind); or its fill candle closed under the entry where the specification has the red-candle exit | `over` | yes, hypothetical |
-| **insufficient data** (it cannot be told) | a candle from the fill on has no usable price (not a number, zero, negative) and nothing before it settles the question; or the long's own entry, stop or target is not a usable price; or the check itself failed | `over`, with the cause in words | yes, hypothetical |
+| **insufficient data** (it cannot be told) | a candle from the fill on has no usable price (not a number, zero, negative) and nothing before it settles the question; or the long's own entry, stop or target is not a usable price; or the check itself failed | `over`, with the cause in words | yes, hypothetical; a row whose stop is not a price has no order to replay: no size, target or stop is stored, and the settle says so once |
 
 Three things this fixes in place:
 

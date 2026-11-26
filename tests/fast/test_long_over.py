@@ -334,3 +334,29 @@ def test_a_row_whose_class_cannot_be_read_falls_back_to_the_plain_words():
         assert alert_feed.not_opened_words(bad) == "" and lb.not_opened(bad) == {}
     long = json.dumps({"class": "expired", "cause": "y" * 900})
     assert len(alert_feed.not_opened_words(long)) == alert_feed.MAX_WHY
+
+
+@pytest.mark.parametrize("stop", [NAN, None, 0.0])
+def test_a_setup_with_no_usable_stop_still_gets_its_row_and_its_reason(db, monkeypatch, stop):
+    """Review 2026-11-26: with a stop that is not a price the row could not be written (the size and the target are
+    computed from the stop), so an unknown case left NO record and was retried every pass. It is recorded once, with
+    no size, no target and no stop on the row, and the nightly settle says once that there is nothing to replay."""
+    s = pt.Setup("L4b", "long", T1 + 2 * pt.BAR, 10.55, stop)
+    t = pt.Trade("L4b", "long", T1 + 2 * pt.BAR, 10.55, T1 + 2 * pt.BAR, 10.55, "open", 0.0)
+    monkeypatch.setattr(lb, "fills", lambda f, row, latest: ((s, t), None))
+    alert_row(db)
+    sent = []
+    for k in range(0, 4):
+        assert lb.tick(db, feed(CALM), sent.append, now=at(3, 20 * k)) == 0
+    (r,) = trades(db)
+    why = json.loads(r["not_opened"])
+    assert (r["status"], r["stop"], r["target"], r["weight"], r["est_entry"]) == ("over", None, None, None, 10.55)
+    assert why["class"] == "insufficient data" and "could not be checked" in why["cause"] and sent == []
+    (d,) = decisions(db)
+    assert json.loads(d["facts"]).get("stop") is None and d["state_to"] == "over"     # never a non-price in the record
+    assert lb.settle(db, sip({"ABCD": CALM}), cost, now=NIGHT) == [
+        "ABCD L4b not opened (insufficient data when seen): not replayed, its stop is not on record"]
+    assert lb.settle(db, sip({"ABCD": CALM}), cost, now=NIGHT) == [] and trades(db)[0]["net"] is None
+    assert lb.over_check_line(db) == (
+        "long entry check since 11-09 (long-live-entry-v2): 0 opened, 1 recorded only (0 expired, 0 invalidated, "
+        "1 insufficient data). The recorded ones are in no total and do not join the registered sample")
