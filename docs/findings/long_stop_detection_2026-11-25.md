@@ -166,7 +166,8 @@ needs its own registered test first; none is proposed.
 **C. DECIDED 2026-11-25 evening: option C2 (the owner's "B"), record-only.** "Trigger setup discovered after its
 opportunity is over: B - record-only. Do not book a position retrospectively. Preserve the hypothetical replay
 separately and document the prospective effective version. Do not remove historical observations or silently change
-registered sample membership." Built in its own change as `long-live-entry-v2`; what it does to the live book and to
+registered sample membership." Scope confirmed 2026-11-26 (every setup kind by its own
+specification; expired / invalidated / insufficient data kept apart). Built in its own change as `long-live-entry-v2`; what it does to the live book and to
 the registered sample is in `long_over_record_only_2026-11-25.md`. The question as it was put:
 
 **A policy question, not an engineering one: a trigger setup seen after it is over.** The book reads closed

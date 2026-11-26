@@ -20,7 +20,7 @@ def specs(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_SPECS
             return []
         rows = c.execute(
             "SELECT f.symbol, f.session, f.alert_type, f.posted_at, f.status, f.reason, f.net, l.status AS l_status, "
-            "l.net AS l_net FROM fade_trades f LEFT JOIN long_trades l ON l.fade_id=f.id "
+            "l.net AS l_net, l.not_opened AS l_why FROM fade_trades f LEFT JOIN long_trades l ON l.fade_id=f.id "
             f"WHERE f.session IN ({','.join('?' * len(days))}) ORDER BY f.session DESC, f.posted_at, f.id",
             tuple(days)).fetchall()
     by: dict[tuple[str, str], dict] = {}
@@ -37,7 +37,7 @@ def specs(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_SPECS
         short = alert_feed.short_words(r["status"], r["net"])
         why = "" if entered or r["status"] in ("pending", "ask") else alert_feed.why(r["reason"])
         line = short + (f" ({why})" if why else "")
-        long = alert_feed.long_words(r["l_status"], r["l_net"])
+        long = alert_feed.long_words(r["l_status"], r["l_net"], r["l_why"])
         line += f"; {long}" if long else ""
         if line not in g["said"]:
             g["said"].append(line)

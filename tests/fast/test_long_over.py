@@ -1,7 +1,13 @@
 """A long whose exit is already determined when the book sees its fill is recorded, never opened (owner 2026-11-25
 evening, decision B: "Trigger setup discovered after its opportunity is over: B - record-only. Do not book a position
 retrospectively. Preserve the hypothetical replay separately and document the prospective effective version. Do not
-remove historical observations or silently change registered sample membership.")."""
+remove historical observations or silently change registered sample membership.").
+
+Owner 2026-11-26, confirming the scope: "Apply record-only handling to every long setup where its existing eligibility
+window or trigger opportunity has demonstrably expired. Define 'already over' using each setup's specification. Do not
+reject a still-valid setup merely because its qualifying candle completed earlier. Unknown cases need an explicit
+reason, not retrospective booking." and "Keep the reason on the site and in the nightly counts, distinguishing
+expired, invalidated, and insufficient-data cases."."""
 from __future__ import annotations
 
 import json
@@ -22,6 +28,8 @@ RED = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3
             (10.42, 10.5, 10.4, 10.45, 300)] + [(10.45, 10.5, 10.4, 10.45, 100)] * 50)      # fill candle closed under 10.55
 STOPPED = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.1, 10.6, 500),
                 (10.6, 10.7, 10.5, 10.6, 300)] + [(10.6, 10.7, 10.5, 10.6, 100)] * 50)      # fill candle's low under the stop
+CALM = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.6, 500)]
+            + [(10.6, 10.7, 10.5, 10.6, 100)] * 50)         # filled 15:03, closed above the entry, then nothing happens
 TARGET = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 11.4, 10.3, 11.3, 500),
                (11.3, 11.4, 11.2, 11.3, 300)] + [(11.3, 11.4, 11.2, 11.3, 100)] * 50)       # fill candle reached 11.25
 
@@ -44,11 +52,14 @@ def run(db, day, passes=9, sym="ABCD"):
     return sent
 
 
-@pytest.mark.parametrize("day, exit_, px, words", [
-    (RED, "red", None, "its red-candle exit was already determined when the book saw the fill (out at the next candle's open)"),
-    (STOPPED, "stop", 10.2, "its stop was already on a closed free-feed candle when the book saw the fill ($10.20, 10:03 ET candle)"),
-    (TARGET, "target", 11.25, "its target was already on a closed free-feed candle when the book saw the fill ($11.25, 10:03 ET candle)")])
-def test_a_fill_whose_exit_is_already_determined_is_recorded_and_never_opened(db, day, exit_, px, words):
+@pytest.mark.parametrize("day, exit_, px, cls, words", [
+    (RED, "red", None, "invalidated",
+     "its red-candle exit was already determined when the book saw the fill (out at the next candle's open)"),
+    (STOPPED, "stop", 10.2, "invalidated",
+     "its stop was already on a closed free-feed candle when the book saw the fill ($10.20, 10:03 ET candle)"),
+    (TARGET, "target", 11.25, "expired",
+     "its target was already on a closed free-feed candle when the book saw the fill ($11.25, 10:03 ET candle)")])
+def test_a_fill_whose_exit_is_already_determined_is_recorded_and_never_opened(db, day, exit_, px, cls, words):
     sent = run(db, day, passes=140)                        # the whole window: nothing is opened later either
     (t,) = trades(db)
     assert (t["status"], t["kind"], t["est_entry"], t["stop"], t["trigger"]) == ("over", "L4b", 10.55, 10.2, 10.55)
@@ -61,6 +72,10 @@ def test_a_fill_whose_exit_is_already_determined_is_recorded_and_never_opened(db
     assert facts["entry_rule"] == lb.ENTRY_RULE and facts["entry_rule"].startswith("long-live-entry-v2 2026-11-25")
     over = json.loads(facts["over"])
     assert (over["exit"], over["exit_px"]) == (exit_, pytest.approx(px) if px else None) and facts["seen_after_s"] == 60.0
+    why = json.loads(t["not_opened"])                      # the class and the cause, on the row and in the decision
+    assert (why["version"], why["class"], why["cause"], why["exit"]) == ("long-live-entry-v2", cls, words, exit_)
+    assert over["class"] == cls and json.loads(facts["not_opened"]) == why
+    assert alert_feed.long_words("over", None, t["not_opened"]) == f"long not opened ({cls}): {words}"
     assert lb.nav(db) == 100_000.0                         # never in the book's value
 
 
@@ -107,7 +122,7 @@ def test_the_nightly_settle_replays_the_recorded_order_on_official_candles_and_k
     run(db, RED)
     run(db, DAY, sym="GOOD")
     out = lb.settle(db, sip({"ABCD": DAY, "GOOD": DAY}), cost, now=NIGHT)      # the official tape: this one ran
-    assert out == ["ABCD L4b not opened (already over when seen): its order replayed on official candles +5.64% "
+    assert out == ["ABCD L4b not opened (invalidated when seen): its order replayed on official candles +5.64% "
                    "(hypothetical; no position existed)", "GOOD L4b +5.64%"]
     over, good = trades(db)
     assert (over["status"], over["net"], over["calc"], over["calc_v1"]) == ("over", pytest.approx(0.0564, abs=1e-4), None, None)
@@ -115,17 +130,22 @@ def test_the_nightly_settle_replays_the_recorded_order_on_official_candles_and_k
     assert lb.settle(db, sip({"ABCD": DAY, "GOOD": DAY}), cost, now=NIGHT) == []           # scored once
     assert lb.nav(db) == pytest.approx(100_000 * (1 + good["weight"] * good["net"]))       # the opened long alone
     assert lb.today_line(db, "2026-11-09") == "longs (paper) 1 trades: GOOD red-candle break +5.6%"
-    assert lb.over_line(db, "2026-11-09") == ("longs not opened, already over when seen (1; no position, not in the "
-                                              "total; replay on official candles): ABCD red-candle break +5.6%")
+    assert lb.over_line(db, "2026-11-09") == (
+        "long setups recorded, not opened (1; no position, not in the total; a figure is the order's replay on official "
+        "candles): expired 0; invalidated 1: ABCD red-candle break (fill candle closed under the entry) +5.6%; "
+        "insufficient data 0")
     assert lb.over_check_line(db) == (
-        "long entry check since 11-09 (long-live-entry-v2): 1 opened, 1 recorded only because the exit was already "
-        "determined when seen; the 1 scored replay to +5.6% on official candles (hypothetical). The recorded ones are in "
-        "no total and do not join the registered sample")
+        "long entry check since 11-09 (long-live-entry-v2): 1 opened, 1 recorded only (0 expired, 1 invalidated, "
+        "0 insufficient data); the 1 replayed on official candles average +5.6% (hypothetical). The recorded ones are "
+        "in no total and do not join the registered sample")
     # the ledger and the registered sample read settled trades only: the recorded one is not among them
     with db.read() as c:
         assert [r[0] for r in c.execute("SELECT symbol FROM long_trades WHERE status='settled'")] == ["GOOD"]
+    assert alert_feed.long_words("over", over["net"], over["not_opened"]) == (
+        "long not opened (invalidated): its red-candle exit was already determined when the book saw the fill (out at "
+        "the next candle's open): its order replayed on official candles +5.6%")
     assert alert_feed.long_words("over", over["net"]) == ("long not opened: already over when the book saw it: its order "
-                                                          "replayed on official candles +5.6%")
+                                                          "replayed on official candles +5.6%")      # a caller without it
     assert alert_feed.long_words("over", None) == "long not opened: already over when the book saw it"
 
 
@@ -185,3 +205,132 @@ def test_a_break_candle_that_spans_its_own_stop_and_target_does_not_make_a_buy_a
     assert lb.tick(db, tb.feed(day), sent.append, now=now) == 1 and bold("LONG IN") in sent[0]
     (r,) = tb.trades(db)
     assert (r["status"], r["kind"], r["est_entry"]) == ("open", "L8", 10.6)
+
+
+# ---- owner 2026-11-26: by each setup's specification; a still-valid setup is opened; unknown is said, never booked ----
+ROW = {"id": 1, "session": "2026-11-09"}
+NAN = float("nan")
+
+
+def test_the_class_names_on_the_site_are_the_books_own():
+    assert alert_feed.NOT_OPENED == lb.CLASSES == ("expired", "invalidated", "insufficient data")
+    assert lb.CLASS_OF == {"stop": "invalidated", "red": "invalidated", "target": "expired", "time": "expired"}
+
+
+def test_each_setup_is_judged_by_its_own_specification():
+    """The candle after the entry closes UNDER the entry, above the stop. A trigger setup's specification (rules A2)
+    has the red-candle exit: invalidated. A base break's (rules B1) has none: still valid, opened."""
+    day = bars([(10.0, 10.5, 10.0, 10.4, 900), (10.5, 10.55, 10.2, 10.3, 400), (10.3, 10.7, 10.3, 10.65, 500),
+                (10.6, 10.62, 10.45, 10.5, 300)])
+    entry_ts = T1 + 3 * pt.BAR                                                 # the 15:04 candle
+    flag = pt.Setup("L5v2", "long", entry_ts, 10.6, 10.2)
+    base = pt.Setup("L8", "long", entry_ts, None, 10.2)
+    t = pt.Trade("L5v2", "long", entry_ts, 10.6, entry_ts, 10.6, "open", 0.0)
+    assert (lb.rules_of(flag), lb.rules_of(base)) == (lb.RULES, lb.RULES_BASE)
+    got = lb.already_over(day, ROW, flag, t, at(4, 10))
+    assert (got["class"], got["exit"]) == ("invalidated", "red")
+    assert lb.already_over(day, ROW, base, t, at(4, 10)) is None
+    # the stop is in every specification: one more candle, down through 10.20, and both are invalidated
+    low = pd.concat([day, bars([(10.5, 10.5, 10.1, 10.15, 700)], start=T1 + 4 * pt.BAR)], ignore_index=True)
+    assert lb.already_over(low, ROW, base, t, at(5, 10))["class"] == "invalidated"
+
+
+def test_a_fill_whose_candle_closed_minutes_ago_is_still_opened_while_its_exit_is_undetermined(db):
+    """"Do not reject a still-valid setup merely because its qualifying candle completed earlier": first seen four and
+    a half minutes after the fill candle began (inside the book's five-minute window), three closed candles later,
+    none of them at the stop or the target and the fill candle not red. Opened, as before the rule."""
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(CALM), sent.append, now=at(6, 30)) == 1
+    (t,) = trades(db)
+    assert (t["status"], t["est_entry"], t["not_opened"]) == ("open", 10.55, None) and bold("LONG IN") in sent[0]
+    assert lb.over_line(db, "2026-11-09") is None and lb.over_check_line(db) is None
+
+
+def test_a_fill_past_the_books_five_minute_window_is_expired_and_says_which_window(db):
+    """The existing eligibility window (LIVE_LAG). The status stays ``missed``, as before; the row now carries the
+    class and the cause, and the site says them. A row made before this version keeps its old words."""
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(CALM), sent.append, now=at(7, 30)) == 0 and sent == []
+    (t,) = trades(db)
+    assert t["status"] == "missed" and json.loads(t["not_opened"]) == {
+        "version": "long-live-entry-v2", "class": "expired", "cause": "fill older than 5 min when seen"}
+    assert alert_feed.long_words("missed", None, t["not_opened"]) == "long not opened (expired): fill older than 5 min when seen"
+    assert alert_feed.long_words("missed", None) == "long setup filled before the book was on"
+    assert lb.over_line(db, "2026-11-09") == (
+        "long setups recorded, not opened (1; no position, not in the total; a figure is the order's replay on official "
+        "candles): expired 1: ABCD red-candle break (fill older than 5 min when seen); invalidated 0; insufficient data 0")
+    assert lb.over_check_line(db) == (
+        "long entry check since 11-09 (long-live-entry-v2): 0 opened, 1 recorded only (1 expired, 0 invalidated, "
+        "0 insufficient data). The recorded ones are in no total and do not join the registered sample")
+    assert lb.settle(db, sip({"ABCD": CALM}), cost, now=NIGHT) == []           # a missed fill is not replayed, as before
+
+
+def test_an_unknown_case_is_recorded_with_its_reason_and_never_opened(db):
+    """The candle after the fill candle has no usable low: whether the stop was reached cannot be told. Recorded as
+    insufficient data with the reason in words; nothing is opened then or later, and nothing is texted."""
+    day = CALM.copy()
+    day.loc[3, "low"] = NAN                                                     # the 15:04 candle
+    alert_row(db)
+    sent = []
+    for k in range(0, 60):
+        lb.tick(db, feed(day), sent.append, now=at(4, 5 + 30 * k))
+    (t,) = trades(db)
+    words = ("it could not be checked when the book saw the fill: the free-feed candle of 10:04 ET has no usable price, "
+             "so its stop and target cannot be checked")
+    assert (t["status"], t["reason"], t["est_exit"]) == ("over", words, None) and sent == []
+    why = json.loads(t["not_opened"])
+    assert (why["class"], why["cause"]) == ("insufficient data", words) and "exit" not in why
+    assert lb.over_line(db, "2026-11-09").endswith(f"expired 0; invalidated 0; insufficient data 1: ABCD red-candle break ({words})")
+    assert alert_feed.long_words("over", None, t["not_opened"]) == f"long not opened (insufficient data): {words}"
+    assert lb.nav(db) == 100_000.0
+
+
+def test_what_the_candles_before_an_unusable_one_already_settle_is_not_unknown():
+    stopped = STOPPED.copy()
+    stopped.loc[3, "high"] = NAN                         # the stop is on the fill candle, before the unusable one
+    s = pt.Setup("L4b", "long", T1 + 2 * pt.BAR, 10.55, 10.2)
+    t = pt.Trade("L4b", "long", T1 + 2 * pt.BAR, 10.55, T1 + 2 * pt.BAR, 10.55, "open", 0.0)
+    got = lb.already_over(stopped.iloc[:6], ROW, s, t, at(6, 5))
+    assert (got["class"], got["exit"], got["exit_px"]) == ("invalidated", "stop", 10.2)
+    red = RED.copy()
+    red.loc[3, "open"] = NAN                             # the fill candle closed red; the next open is unusable
+    assert (lambda g: (g["class"], g["exit"]))(lb.already_over(red.iloc[:6], ROW, s, t, at(6, 5))) == ("invalidated", "red")
+    calm = CALM.copy()
+    calm.loc[2, "close"] = NAN                           # the fill candle itself: nothing before it settles anything
+    assert lb.already_over(calm.iloc[:6], ROW, s, t, at(6, 5))["class"] == "insufficient data"
+
+
+@pytest.mark.parametrize("stop", [NAN, 0.0, -1.0, None, float("inf")])
+def test_a_long_whose_own_levels_are_not_prices_is_unknown(stop):
+    s = pt.Setup("L4b", "long", T1 + 2 * pt.BAR, 10.55, stop)
+    t = pt.Trade("L4b", "long", T1 + 2 * pt.BAR, 10.55, T1 + 2 * pt.BAR, 10.55, "open", 0.0)
+    got = lb.already_over(CALM.iloc[:4], ROW, s, t, at(4, 5))
+    assert got["class"] == "insufficient data" and got["exit"] is None
+    assert got["cause"] in ("the long's entry, stop or target is not a usable price",
+                            "the exit check could not be computed (TypeError)")
+
+
+def test_a_check_that_fails_is_recorded_as_unknown_and_the_pass_goes_on(db, monkeypatch):
+    def boom(*a, **k):
+        raise ZeroDivisionError("x")
+
+    monkeypatch.setattr(lb, "_exit", boom)
+    alert_row(db)
+    sent = []
+    assert lb.tick(db, feed(CALM), sent.append, now=at(3)) == 0 and sent == []
+    (t,) = trades(db)
+    why = json.loads(t["not_opened"])
+    assert t["status"] == "over" and why["class"] == "insufficient data"
+    assert why["cause"] == ("it could not be checked when the book saw the fill: the exit check could not be computed "
+                            "(ZeroDivisionError)")
+    monkeypatch.undo()
+    assert lb.tick(db, feed(CALM), sent.append, now=at(3, 30)) == 0 and len(trades(db)) == 1     # one row per alert
+
+
+def test_a_row_whose_class_cannot_be_read_falls_back_to_the_plain_words():
+    for bad in (None, "", "{", "[]", json.dumps({"class": "made up", "cause": "x"}), 7):
+        assert alert_feed.not_opened_words(bad) == "" and lb.not_opened(bad) == {}
+    long = json.dumps({"class": "expired", "cause": "y" * 900})
+    assert len(alert_feed.not_opened_words(long)) == alert_feed.MAX_WHY

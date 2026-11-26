@@ -990,7 +990,11 @@ night it cannot finish is texted and caught up on the next run.
   late) is recorded, never opened, no text (`long-live-entry-v2`, `long_over_record_only_2026-11-25.md`); its order
   is replayed nightly on official candles, labelled hypothetical, in no total. Prospective: no stored row changes.
   It narrows the live long book (no red-exit trade can be opened any more) and which future longs join the
-  registered sample; the nightly report counts opened against recorded. Wording
+  registered sample; the nightly report counts opened against recorded. Scope confirmed 2026-11-26: every setup
+  kind by its own specification (the base break has no red-candle exit), a still-valid setup is opened however long
+  ago its candle closed, and each recorded setup carries a class on the row, the site and the nightly count:
+  expired (window or target), invalidated (stop or red close), insufficient data (said with its cause, never
+  booked). Wording
   tightened: "valid on the free feed" is not "valid on the tape"; "no enhancement supported" covers only the
   candidates and definitions reviewed; the source-price check is an observation on six symbol-days, repeated before
   any further consumer is wired.

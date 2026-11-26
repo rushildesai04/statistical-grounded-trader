@@ -239,3 +239,37 @@ def test_a_recovered_alert_carries_its_replay_label_on_the_page(tmp_path):
         _alert(c, "LIVE", "2026-11-23", "15:10", "skipped", "alert received late")
     got = {r["symbol"]: r["short"] for r in alert_feed.rows(db)}
     assert got == {"BACK": "not shorted [recovered after a restart, 370 s after the post]", "LIVE": "not shorted"}
+
+
+def test_a_recorded_long_setup_shows_its_class_and_cause_on_the_alert_list_and_the_lab_page(tmp_path):
+    """Owner 2026-11-26: "Keep the reason on the site ... distinguishing expired, invalidated, and insufficient-data
+    cases." The class and cause are read from the row (``long_trades.not_opened``) through both pages' own queries;
+    a row without one keeps its old words."""
+    from sgt.lab import day as lab_day
+
+    db = OpsStore(tmp_path / "ops.db")
+    d = "2026-11-16"
+    why = lambda cls, cause: json.dumps({"version": "long-live-entry-v2", "class": cls, "cause": cause})  # noqa: E731
+    with db.tx() as c:
+        for sym, hhmm, status, w, net in (
+                ("STOP", "14:30", "over", why("invalidated", "its stop was already on a closed free-feed candle"), -0.031),
+                ("TARG", "14:40", "over", why("expired", "its target was already on a closed free-feed candle"), None),
+                ("NODT", "14:50", "over", why("insufficient data", "the free-feed candle of 09:51 ET has no usable price"), None),
+                ("LATE", "15:00", "missed", why("expired", "fill older than 5 min when seen"), None),
+                ("OLDM", "15:10", "missed", None, None)):
+            fid = _alert(c, sym, d, hhmm, "filtered", fade.NEWS_REASON)
+            c.execute("INSERT INTO long_trades(fade_id, symbol, session, status, net, not_opened, created_at) VALUES "
+                      "(?,?,?,?,?,?,?)", (fid, sym, d, status, net, w, "x"))
+    by = {r["symbol"]: r["long"] for r in alert_feed.rows(db)}
+    assert by == {
+        "STOP": "long not opened (invalidated): its stop was already on a closed free-feed candle: its order replayed on "
+                "official candles -3.1%",
+        "TARG": "long not opened (expired): its target was already on a closed free-feed candle",
+        "NODT": "long not opened (insufficient data): the free-feed candle of 09:51 ET has no usable price",
+        "LATE": "long not opened (expired): fill older than 5 min when seen",
+        "OLDM": "long setup filled before the book was on"}
+    assert not any(r["traded"] for r in alert_feed.rows(db))
+    lab = {g["symbol"]: g["live"] for g in lab_day.specs(db)}
+    assert "long not opened (insufficient data): the free-feed candle of 09:51 ET has no usable price" in lab["NODT"]
+    assert "long not opened (expired): fill older than 5 min when seen" in lab["LATE"]
+    assert lab["OLDM"].endswith("long setup filled before the book was on")
