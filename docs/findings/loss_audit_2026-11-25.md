@@ -129,7 +129,7 @@ the tape did. Here the price was 7.87 to 7.95 in between and it cost nothing; it
 | Longs: base length, width, target, hold | tested 2026-11-19: none is positive on the tape | not proposed |
 
 Evidence against inventing anything from these two trades: each lost for a reason its book's tested record already
-contains (16% of fades stop out; 63% of base breaks lose). Neither shows a mechanism that the earlier tests missed.
+contains (25.4% of fades stop out: 194 of 764, `prereg_fade_stop_slippage_2026-11-09`; 63% of base breaks lose). Neither shows a mechanism that the earlier tests missed.
 
 ## 5. Owner question
 
@@ -146,3 +146,7 @@ decisions meet here:
 
 Recommended: A. It is what the rule says and what you decided on 11-18, and the evidence to revisit it is now
 collected automatically. Nothing changes until you say otherwise.
+
+> **Corrected 2026-11-25 (afternoon).** Section 4 said "16% of fades stop out". That was the constant on the short
+> entry card (`fade_rule.STOP_RATE`), not the registered count, which is 25.4%. The sentence is corrected in place;
+> nothing else in this audit used the figure. See `edge_assessment_2026-11-25.md`, section 4, D0.
