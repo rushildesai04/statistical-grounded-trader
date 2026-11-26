@@ -156,12 +156,25 @@ LiveBars = Callable[[str, datetime], pd.DataFrame]          # (symbol, now) -> t
 
 
 def rth(f: pd.DataFrame, now: datetime) -> pd.DataFrame:
-    """Today's regular-session bars that have CLOSED by ``now`` (the research uses RTH bars only)."""
+    """Today's regular-session bars that have CLOSED by ``now`` (the research uses RTH bars only).
+
+    2026-11-26 (owner: "verify that entry cutoffs, exits, monitoring, and deployment guards use the same exchange
+    calendar"): the session's end is the exchange calendar's close for the day ``now`` falls on (13:00 ET on an early
+    close), the calendar every other cutoff of both books already uses (``fade.last_entry``, ``default_close``).
+    Until today this was a fixed 16:00, so on an early-close day the free feed's candles of 13:00 to 16:00 counted
+    as session candles: an open long whose exit check was late by a minute at the bell could be closed on a
+    post-close candle (reproduced on a fixture: a stop booked from the 13:00 candle). No entry was affected (the last
+    entry already follows the calendar) and no registered figure (the settle reads official regular-hours bars).
+    A full day is unchanged: its close is 16:00. If the calendar cannot be read, the fixed 16:00 stays (logged)."""
     if f is None or f.empty:
         return pd.DataFrame(columns=["ts", "open", "high", "low", "close", "volume"])
     et = f.ts.dt.tz_convert(ET)
     m = et.dt.hour * 60 + et.dt.minute
     keep = (m >= 9 * 60 + 30) & (m < 16 * 60) & (f.ts + pt.BAR <= pd.Timestamp(now))
+    try:
+        keep &= f.ts < pd.Timestamp(default_close(pd.Timestamp(now).tz_convert(ET).date().isoformat()))
+    except Exception:  # noqa: BLE001 - not a session, or no calendar: the fixed regular hours above, said in the log
+        log.exception("long book: no session close from the calendar; using 16:00 ET")
     return f[keep].sort_values("ts").reset_index(drop=True)
 
 
