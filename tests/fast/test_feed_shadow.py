@@ -173,6 +173,9 @@ def test_each_watched_minute_is_classified_as_what_it_was():
     assert got[at(4)]["cls"] == "never_held"                 # the free feed's finished record has it: missing data
     assert got[at(5)]["changed"] and got[at(5)]["outside_tape"]          # held 10.4, finished 10.3; the tape's high is 10.2
     assert got[at(6)]["cls"] == "live_only"
+    late_volume = fs.classify(looks, {at(1): live_row(at(2, 15), at(2, 0), values=(10.0, 10.1, 9.9, 10.0, 60.0))},
+                              {at(1): V}, {at(1): V}, OPEN, CLOSE)[1]
+    assert late_volume["ts"] == at(1) and late_volume["changed"] is False and late_volume["volume_changed"] is True
     assert got[at(7)]["cls"] == "no_trade_on_tape"           # a genuine no-trade minute, on both finished records
     assert got[at(8)]["cls"] == "never_held" and got[at(8)]["free_not_on_tape"]
     assert at(0) in got and at(14) not in got                # watched: a look before its end AND 60 s after it

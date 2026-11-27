@@ -234,6 +234,8 @@ class Recorder:
             del mem[key]
         if len(cache) > 2000:                                # bounded across symbols (a day has far fewer)
             cache.clear()
+        if len(last_look) > 5000:                            # bounded too (review 2026-11-27): the next look of each
+            last_look.clear()                                # symbol is then a first look again (censored, not wrong)
         last_look[symbol] = at_s
         self.written += 1
 
@@ -297,7 +299,8 @@ def classify(looks: list[pd.Timestamp], live: dict[pd.Timestamp, dict], free: di
     Extra flags, kept apart because they question the records themselves and are not assumed away:
       free_not_on_tape  the free feed's record has a candle for a minute the full-tape record has none for
       outside_tape      the free feed's high or low lies outside the full tape's range for that minute
-      changed           the candle the book held closed differs from the free feed's finished candle
+      changed           the candle the book held closed differs in PRICE (open, high, low, close) from the free
+                        feed's finished candle; ``volume_changed`` is kept apart (late prints add volume routinely)
     """
     out, looks = [], sorted(looks)
     if not looks:
@@ -327,8 +330,10 @@ def classify(looks: list[pd.Timestamp], live: dict[pd.Timestamp, dict], free: di
             prev_s = (pd.Timestamp(prev) - end).total_seconds() if prev else None
             row["lag_lo"] = prev_s if prev_s is not None and prev_s >= 0 else None
             row["censored"] = prev is None           # the symbol's first look in this process: the delay is unknown
-            if in_free:
-                row["changed"] = any(abs(a - b) > 1e-9 for a, b in zip(got["values"], free[m]))
+            if in_free:                              # prices and volume apart (review 2026-11-27): a live candle's
+                # volume is routinely below the finished candle's (late prints), which is not a price disagreement
+                row["changed"] = any(abs(a - b) > 1e-9 for a, b in zip(got["values"][:4], free[m][:4]))
+                row["volume_changed"] = abs(got["values"][4] - free[m][4]) > 1e-9
         if in_free and not in_tape:
             row["free_not_on_tape"] = True
         if in_free and in_tape and (free[m][1] > tape[m][1] + 1e-9 or free[m][2] < tape[m][2] - 1e-9):
@@ -381,6 +386,7 @@ def summarize(rows: list[dict]) -> dict:
         "proved_later_than_s": {str(e): sum(1 for r in held if r.get("lag_lo") is not None and r["lag_lo"] >= e)
                                 for e in LAG_EDGES},
         "changed": sum(bool(r.get("changed")) for r in rows),
+        "volume_changed": sum(bool(r.get("volume_changed")) for r in rows),
         "free_not_on_tape": sum(bool(r.get("free_not_on_tape")) for r in rows),
         "outside_tape": sum(bool(r.get("outside_tape")) for r in rows),
     }

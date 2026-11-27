@@ -1298,14 +1298,28 @@ night it cannot finish is texted and caught up on the next run.
   flagged / unflagged split already registered beside F1 (a new borrow test would duplicate it). Locate requests,
   broker setup and paid data are NOT authorised. Open policy question: a trigger setup seen after it is over
   (`long_stop_detection_2026-11-25.md`, 6 C). Decision dates unchanged.
-- **Real-time full-tape live feed: PROPOSAL only (2026-11-27, `proposal_realtime_feed_shadow_2026-11-27.md`).** The
-  owner authorized investigation and an integration proposal, not spending or a switch. Verified on the vendor's
-  documentation: Alpaca Algo Trader Plus is $99 a month, real-time on all US exchanges, 10,000 requests a minute; a
-  minute with no trade has no bar on that feed either. Open, the owner's to confirm in writing: whether the paper
-  keys the runner uses get the entitlement (the documentation says a paper-only account gets the single-exchange
-  feed only), any professional-status or exchange agreement, cloud use, billing. Designed before any data: Stage 0
-  (free, the recorder against the 16-minute-late tape), then a 10 to 20 session shadow (`feed-shadow-sip-v1`) with
-  nine measures and proposed criteria; no result of any trade is collected. A later switch is its own decision:
-  live paper path only, rows labelled with the feed version, registered replay and cohort unchanged, entries fail
-  closed (never a silent fallback to the free feed). Not claimed: that a better feed improves returns; nor that the
-  feed leaves live outcomes untouched (it decides which alerts become trades and when a stop is seen).
+- **Economic assessment and the ranked queue (2026-11-27, `economic_assessment_2026-11-27.md`).** No book shows
+  credible progress toward positive net expectancy. The largest unresolved constraint is whether the short edge
+  exists in stocks that can be borrowed: IBKR-listed live shorts -4.59% (28) against about +0.4% for the other 8,
+  the same direction as two earlier small observations (not a confirmation). The scheduled reviews can drop a rule
+  at or under zero; none can confirm +1.1% before about 800 trades. Longs on these alerts: exhausted as a research
+  source (engineering on them stops unless a defect is found; the book stays on at test size by the owner's word).
+  Recommended next action, awaiting the owner (a data account, and approval of one registered run on development
+  data): a point-in-time borrow test of the short rule on the roughly 2,345 training alerts; drafted in section 5
+  of that document, not registered, not run. If the short rule is then rejected, the one alternative is the
+  stock-loan list as its own event source, already registered and running.
+- **Real-time full-tape live feed (2026-11-27, `proposal_realtime_feed_shadow_2026-11-27.md`): Stage 0 built, the
+  paid stage a proposal.** Verified on the vendor's documentation: Alpaca Algo Trader Plus is $99 a month, real-time
+  on all US exchanges; a minute with no trade has no bar on that feed either. Open, the owner's to confirm in
+  writing: whether the paper keys get the entitlement (the documentation says a paper-only account gets the
+  single-exchange feed only), agreements, cloud use, billing. **Stage 0 (no cost, `sgt.fast.feed_shadow`, on with
+  `SGT_FEED_SHADOW=1`):** a passive record of which candles the long book's reader held at each look, written by its
+  own thread to its own file; the 21:40 ET job classifies every watched minute with no live candle as no trade on
+  the tape / traded on the tape only / never delivered, with delivery delays (`reports/feed_shadow/daily.jsonl`).
+  Validation on delayed data (one stock-day, an illustration): FCUV 2026-11-25, 133 of 279 minutes with no
+  free-feed candle traded on the tape. Paid stage `feed-shadow-sip-v1`: ten measures with criteria tied to the
+  books' own timing (candle held within 5 s of the minute at 95%; a stop seen within one pass of the tape's first
+  print through it; quote no older than 2 s; displayed size against the order); the nightly record is adjudicated
+  from the tape's prints, not assumed right; no automatic fallback to the free feed, for entries or for open
+  positions. Recommendation: do not buy yet; read Stage 0 for five sessions and settle the borrow question first.
+  Not claimed: that a better feed improves returns; nor that the feed leaves live outcomes untouched.

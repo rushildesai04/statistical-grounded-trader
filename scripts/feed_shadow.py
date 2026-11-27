@@ -167,7 +167,7 @@ def words(o: dict) -> str:
             f"(no trade on the tape {w['no_trade_on_tape']}, tape only {w['tape_only']}, never held {w['never_held']}); "
             f"delivered {o['delivered']} (held by: median {lag['median']} s, p95 {lag['p95']} s, max {lag['max']} s); "
             f"free feed had a candle in {o['free_feed_share_of_tape_minutes']} of tape-traded minutes; "
-            f"changed {o['changed']}, free not on tape {o['free_not_on_tape']}, outside tape {o['outside_tape']}; "
+            f"price changed {o['changed']} (volume {o['volume_changed']}), free not on tape {o['free_not_on_tape']}, outside tape {o['outside_tape']}; "
             f"failed symbols {len(o['symbols_failed'])}; recorder dropped {o['health'].get('dropped')}, "
             f"write fails {o['health'].get('fails')}")
 
