@@ -213,6 +213,7 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
             return "unknown", type(exc).__name__
     quote.since_aware = True
     quote.seen = seen
+    quote.source = "free feed (IEX), latest trade: its last round-lot print"     # written on an exit's row (11-27)
     quote.traded_between = traded_between
     return quote
 

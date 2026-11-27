@@ -25,7 +25,7 @@ from typing import Callable
 import pandas as pd
 
 from sgt.fast import est_costs
-from sgt.fast.fade import WEIGHT, day_est_pnl, nav
+from sgt.fast.fade import WEIGHT, day_est_pnl, exit_source, nav
 from sgt.fast.fade_rule import ET, STOP, VETO_EXIT
 from sgt.ops.store import OpsStore, iso, utcnow
 
@@ -33,6 +33,9 @@ log = logging.getLogger(__name__)
 DELAY = timedelta(minutes=16)            # an official minute bar is final and free this long after it started
 RECHECK = timedelta(minutes=25)          # a closed trade's last minutes arrive this late at most: checked until then
 LATE = "stop (official tape, seen late)"
+SRC = "official tape, one-minute candle, read once it is free (about 16 minutes old)"
+AT_LEVEL = "candle start, not a print time: the cover is the stop level (the candle's high reached it)"
+AT_OPEN = "candle start, not a print time: the cover is the candle's open (it opened above the stop)"
 CORRECTABLE = ("60 min", "close", VETO_EXIT)        # exits the live feed chose; a live "stop" is already the stop
 MAX_ROWS = 60
 Bars = Callable[[str, datetime, datetime], pd.DataFrame]   # (symbol, start, end) -> official 1-minute bars, ts = start
@@ -85,10 +88,20 @@ def check(db: OpsStore, send, bars: Bars, now: datetime | None = None) -> int:
             if hit is None:
                 continue
             at, px = hit
+            # 2026-11-27: this rewrite replaces the row's exit estimate, so it replaces the record of where that
+            # estimate came from too (the live look's own source stays in the decision log, on the row's first
+            # "est_closed" entry). ``est_exit_at`` stays the candle's start, as before; the time this check decided
+            # is ``exit_decided_at``. The cover is a rule price off a candle, not a print: the note says which.
+            src = exit_source(now, SRC, px, at)
+            src["exit_src_note"] = AT_OPEN if px > entry * (1 + STOP) + 1e-9 else AT_LEVEL
             with db.tx() as c:
                 done = c.execute("UPDATE fade_trades SET status='est_closed', est_exit=?, est_exit_at=?, est_last=?, "
-                                 "reason=? WHERE id=? AND status=? AND reason IS NOT ?",
-                                 (px, iso(at), px, LATE, r["id"], r["status"], LATE)).rowcount == 1
+                                 "est_last_print_at=NULL, reason=?, exit_decided_at=?, exit_src=?, exit_src_px=?, "
+                                 "exit_src_at=?, exit_src_age_s=?, exit_src_note=? "
+                                 "WHERE id=? AND status=? AND reason IS NOT ?",
+                                 (px, iso(at), px, LATE, src["exit_decided_at"], src["exit_src"], src["exit_src_px"],
+                                  src["exit_src_at"], src["exit_src_age_s"], src["exit_src_note"],
+                                  r["id"], r["status"], LATE)).rowcount == 1
                 if done and was_open:        # a NO after the exit is answered "already closed", never acted on
                     c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE "
                               "strategy=? AND kind='fadeexit' AND status='pending'", (iso(now), f"fade:{r['id']}"))

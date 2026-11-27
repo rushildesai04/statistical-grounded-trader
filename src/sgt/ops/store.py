@@ -139,6 +139,17 @@ COLUMNS = {
         # are binary-v0 too). The ``*_v1`` columns hold the SAME replay under price-decimal-v1, written beside it by
         # the settle and read by nothing but the nightly arithmetic line (sgt.fast.calc_v1).
         "calc": "TEXT", "cover_v1": "REAL", "net_v1": "REAL", "calc_v1": "TEXT",
+        # 2026-11-27 (owner: "Approve adding the exit-price source timestamp as a narrowly scoped recording change";
+        # KIDZ: closed at 13:00:05 ET on a print made 12:58:52, and the row held no trace of that). Where the live
+        # exit ESTIMATE came from, each fact in its own column: when the code decided (``exit_decided_at``), which
+        # reader gave the price (``exit_src``), the source price (``exit_src_px``), the time of the event that price
+        # belongs to (``exit_src_at``: a print's time, or an official candle's START), how old that was at the
+        # decision in seconds (``exit_src_age_s``), and ``exit_src_note``: "observed", or in words why the time is
+        # missing. A missing time stays NULL; it is never filled from another reading afterwards.
+        # ``est_last_print_at`` is the print time of the mark in ``est_last`` (NULL = that look gave none).
+        # A record only: no exit, price or result depends on any of these. Rows closed before this are NULL in all.
+        "est_last_print_at": "TEXT", "exit_decided_at": "TEXT", "exit_src": "TEXT", "exit_src_px": "REAL",
+        "exit_src_at": "TEXT", "exit_src_age_s": "REAL", "exit_src_note": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars
