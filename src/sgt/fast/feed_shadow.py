@@ -28,7 +28,8 @@ What it is not, and how that is kept true:
   file exists a restarted listener does not start the recorder either;
 - it switches ITSELF off, the same way, and writes that file with the reason, so it stays off until a person has
   looked: ``MAX_FAILS`` failed writes in a row; ``SLOW_MAX`` offers that each took over ``SLOW_MS`` in the book's
-  thread (it is in the book's way); ``DROP_MAX`` looks dropped (its writer cannot keep up); its database over
+  thread within ``TRIP_WINDOW_S`` (it is in the book's way); ``DROP_MAX`` looks dropped within the same window (its
+  writer cannot keep up); its database over
   ``MAX_DB_BYTES``; under ``MIN_FREE_BYTES`` free on its volume. These are safety trips, not the performance
   tolerance of the deploy check: that one is judged afterwards from the book's own cadence record;
 - no book, text, total, registered calculation or settle reads anything it writes.
@@ -62,8 +63,10 @@ MAX_FAILS = 5               # failed writes in a row before the recorder switche
 KEEP_DAYS = 45              # rows older than this are deleted when the recorder starts
 OFF_NAME = "OFF"            # a file beside the database: while it exists the recorder is off (and does not start)
 WATCH_S = 2.0               # the watchdog looks at that file and at the budgets below this often
-SLOW_MS, SLOW_MAX = 250.0, 3        # offers this slow, this many times: the recorder is in the book's way
-DROP_MAX = 500                      # looks dropped because the writer cannot keep up
+SLOW_MS, SLOW_MAX = 250.0, 3        # offers this slow, this many times in one window: it is in the book's way
+DROP_MAX = 500                      # looks dropped in one window because the writer cannot keep up
+TRIP_WINDOW_S = 600.0               # the window of those two counts (review 2026-11-27: counted for ever, three
+                                    # unrelated stalls over weeks of uptime would have switched the recorder off)
 MAX_DB_BYTES = 400_000_000          # its own database with its write-ahead file (the runner's volume is 5.2 GB,
                                     # 2.7 GB free on 2026-11-27; 45 days of looks are expected far below this)
 MIN_FREE_BYTES = 500_000_000        # free space left on the volume it writes to
@@ -120,12 +123,15 @@ class Recorder:
     def __init__(self, path: Path = DB, queue_max: int = QUEUE_MAX, clock: Callable[[], datetime] = _utc,
                  watch_s: float = WATCH_S, slow_ms: float = SLOW_MS, slow_max: int = SLOW_MAX,
                  drop_max: int = DROP_MAX, max_db_bytes: int = MAX_DB_BYTES, min_free_bytes: int = MIN_FREE_BYTES,
-                 free: Callable[[Path], int] | None = None) -> None:
+                 free: Callable[[Path], int] | None = None, window_s: float = TRIP_WINDOW_S,
+                 mono: Callable[[], float] = monotonic) -> None:
         self.path, self.clock = Path(path), clock
         self.q: queue.Queue = queue.Queue(maxsize=queue_max)
         self.on, self.why = True, None
         self.offered = self.written = self.dropped = self.errors = self.fails = self.slow = 0
         self.watch_s, self.slow_ms, self.slow_max, self.drop_max = watch_s, slow_ms, slow_max, drop_max
+        self.window_s, self._mono = window_s, mono
+        self._win, self._win_slow, self._win_drop = None, 0, 0           # the current window of the two trip counts
         self.max_db_bytes, self.min_free_bytes = max_db_bytes, min_free_bytes
         self._free = free or (lambda p: shutil.disk_usage(p).free)
         self._thread = threading.Thread(target=self._run, name="feed-shadow", daemon=True)
@@ -150,7 +156,9 @@ class Recorder:
         one attribute read. It times itself: an offer that is slow ``slow_max`` times switches the recorder off."""
         if not self.on:
             return
-        t0 = monotonic()
+        t0 = self._mono()
+        if self._win is None or t0 - self._win > self.window_s:          # a new window: the trip counts start again
+            self._win, self._win_slow, self._win_drop = t0, 0, 0
         try:
             n = 0 if frame is None else len(frame)
             rows = []
@@ -162,17 +170,20 @@ class Recorder:
             self.offered += 1
         except queue.Full:
             self.dropped += 1
-            if self.dropped >= self.drop_max:
-                self._trip(f"{self.dropped} looks dropped: its writer cannot keep up")
+            self._win_drop += 1
+            if self._win_drop >= self.drop_max:
+                self._trip(f"{self._win_drop} looks dropped within {self.window_s:g} s: its writer cannot keep up")
         except Exception:  # noqa: BLE001 - a measurement beside the book: its failure is counted, never raised
             self.errors += 1
             if not self._warned:
                 self._warned = True
                 log.exception("feed shadow: a look could not be offered (counted; said once)")
-        if (monotonic() - t0) * 1000.0 > self.slow_ms:
+        if (self._mono() - t0) * 1000.0 > self.slow_ms:
             self.slow += 1
-            if self.slow >= self.slow_max:
-                self._trip(f"{self.slow} offers each took over {self.slow_ms:g} ms in the book's thread")
+            self._win_slow += 1
+            if self._win_slow >= self.slow_max:
+                self._trip(f"{self._win_slow} offers within {self.window_s:g} s each took over {self.slow_ms:g} ms "
+                           "in the book's thread")
 
     # ---- the watchdog thread: the switch and the budgets, independent of the writer ----
     def _watch(self) -> None:

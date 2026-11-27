@@ -167,7 +167,7 @@ def test_slow_offers_in_the_books_thread_switch_it_off_and_leave_the_reason(tmp_
     for k in range(3):
         assert rec.on
         rec.offer("ABCD", at(1, k).to_pydatetime(), frame([0]), 1.0)
-    assert rec.on is False and rec.why == "3 offers each took over -1 ms in the book's thread"   # at once, no wait
+    assert rec.on is False and rec.why == "3 offers within 600 s each took over -1 ms in the book's thread"
     assert _until(rec.off_file.exists) and rec.why in rec.off_file.read_text()       # and it stays off after a restart
     rec._thread.join(5)
 
@@ -176,9 +176,28 @@ def test_a_writer_that_cannot_keep_up_switches_it_off(tmp_path):
     rec = fs.Recorder(tmp_path / "shadow.db", queue_max=1, drop_max=3)   # not started: nothing empties the queue
     for k in range(4):
         rec.offer("ABCD", at(1, k).to_pydatetime(), frame([0]), 1.0)
-    assert (rec.on, rec.dropped, rec.why) == (False, 3, "3 looks dropped: its writer cannot keep up")
+    assert (rec.on, rec.dropped, rec.why) == (False, 3, "3 looks dropped within 600 s: its writer cannot keep up")
     rec.offer("ABCD", at(2).to_pydatetime(), frame([0]), 1.0)
     assert rec.dropped == 3                                              # off: not even counted any more
+
+
+def test_the_two_trip_counts_are_per_window_so_rare_unrelated_stalls_never_add_up(tmp_path):
+    """Review 2026-11-27: counted for ever, three stalls over weeks of uptime would have switched it off."""
+    t = [0.0]
+
+    def mono():                                              # each offer reads the clock twice: 1 s apart = "slow"
+        t[0] += 1.0
+        return t[0]
+    rec = fs.Recorder(tmp_path / "shadow.db", queue_max=1, slow_ms=500.0, slow_max=3, drop_max=3, window_s=10.0,
+                      mono=mono)                             # not started: the second look on is dropped
+    for k in range(8):                                       # 2 slow offers (and 2 drops at most) per 10 s window
+        rec.offer("ABCD", at(1, k).to_pydatetime(), frame([0]), 1.0)
+        rec.offer("ABCD", at(1, k).to_pydatetime(), frame([0]), 1.0)
+        t[0] += 20.0                                         # the next pair falls in a new window
+    assert rec.on and (rec.slow, rec.dropped) == (16, 15)    # the totals are still counted, for the health row
+    for k in range(3):                                       # three in ONE window: off
+        rec.offer("ABCD", at(2, k).to_pydatetime(), frame([0]), 1.0)
+    assert rec.on is False and rec.why.startswith("3 ")
 
 
 @pytest.mark.parametrize("kw, why", [
