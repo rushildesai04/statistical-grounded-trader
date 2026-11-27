@@ -158,12 +158,35 @@ Compared: the first full session with the recorder on, regular hours, against th
 | Cadence | share of passes started within 1.1 x 15 s; late passes | at least 99.5%; 0 late |
 | Pass duration | longest pass per 10 minutes, 90th percentile and maximum over the session | not more than 0.1 s (the record's resolution) above the worse baseline session: 0.2 s and 0.5 s |
 
-The cadence and duration tolerances are **provisional**: two full sessions are a thin baseline, and a pass does
-more work on a day with more longs watched, so the number of longs watched is reported beside the figures. What is
-reported is the observed difference, whatever it is. A cost under 0.1 s a pass cannot be seen in this record, and
-one session inside the tolerance is not evidence of no effect on a busier day. Outside the tolerance on any line:
-the recorder is switched off at the next guarded deploy window (its authorization requires that it "does not
-interfere with production") and the cause is looked at before it goes back on.
+**What this comparison can and cannot carry.** The baseline is two full sessions. The record resolves 0.1 s and
+keeps one figure per 10 minutes (the longest pass), not a distribution: a cost under 0.1 s a pass cannot be seen in
+it, and one session inside the tolerance is not evidence of no effect on a busier day. A pass does more work on a
+day with more longs watched, so that count is reported beside the figures. The cadence and duration tolerances are
+**provisional** for those reasons. They are also **frozen**: written here before the recorder had run on the
+runner, and not tightened or loosened after its results are seen. A figure outside them is reported as outside,
+with the figure; a figure inside them is reported with the limits above, not as proof.
+
+**Two different failures, two different responses** (owner 2026-11-27: "Distinguish an ordinary
+performance-tolerance breach from active interference with trading tasks").
+
+| | Ordinary breach of the tolerance above | Active interference with the books |
+|---|---|---|
+| What it is | a session's cadence or pass-duration figure outside the table, judged after the session from the book's own record | the recorder demonstrably in the book's way or exhausting a resource while the books run |
+| How it is seen | the nightly read of `loop_gaps.jsonl` | by the recorder itself, at once: 3 offers that each took over 250 ms in the book's thread; 500 looks dropped (its writer cannot keep up); 5 failed writes in a row; its database over 400 MB; under 500 MB free on its volume (the runner's volume is 5.2 GB with 2.7 GB free on 2026-11-27); its watchdog unable to look. Or by a person: late-pass lines of the long book, a full volume |
+| Response | the recorder is switched off at the next guarded deploy window and the cause is looked at before it goes back on | **off at once, with no restart and nothing done to the books**: the recorder switches itself off (two assignments in memory; from then on a look costs one attribute read), or a person creates the file `reports/feed_shadow/OFF` on the runner and its watchdog switches it off within 2 seconds |
+| What stays running | everything | everything: the listener, both books, their threads and their open positions are not restarted, paused or touched. Only the recorder's two threads end |
+| Coming back | the next guarded deploy | the `OFF` file (written by the recorder with its reason when it switched itself off) keeps it off across restarts until a person removes it; then the next guarded deploy |
+
+The trips in the second column are safety limits, not the performance tolerance: they exist to end interference
+within seconds and are deliberately far outside normal operation (the busiest baseline pass took 0.4 s in total).
+They are covered by tests: the switch on a running recorder, a restart with the file present, slow offers, a writer
+that cannot keep up, each resource budget, and the nightly line saying that the recorder is off and why. What is
+NOT covered by any automatic trip: a cost below those limits that still matters. That is what the after-the-session
+comparison above is for, with its stated resolution.
+
+The switch has been exercised in tests only. A drill on the runner (create the file outside session hours, time
+the switch-off, confirm the listener's process did not restart) would leave the recorder off until the next guarded
+deploy; it is run only on the owner's word.
 
 ## 5. The shadow comparison (`feed-shadow-sip-v1`), fixed before any data
 

@@ -79,11 +79,25 @@ hour, at the price measured in section 4.
 
 Each of those is the owner's decision and none has been made. Nothing was done toward any of them.
 
-## 4. What our own lists show: a daily observation against the list at the alert
+## 4. Source-timestamp analysis of our own lists: a daily observation against the list stamped at the alert
+
+**This table is a source-timestamp analysis, not a record of what was known at the alert.** Each alert is set
+against the list whose OWN stamp is the latest at or before the alert, whenever that list reached our store. A list
+is stamped by the broker before we fetch it, so some lists counted here "at the alert" arrived after it. That is
+acceptable for the one question asked here (how far a daily list is from the intraday list) and for nothing else.
+
+Registered decisions do not work this way and must not. The short book reads only the list in hand at the decision
+(`BorrowBook` reads the latest stored file at that moment), stamps the alert's row once, and never re-stamps it: a
+list that arrives later is never applied to an earlier alert, whatever its stamp. The row keeps the list's source
+time (`ib_snap`); from PR #232 it also keeps when our job stored that list (`ib_received`) and when the book read
+it (`ib_read_at`), and each stored list carries its own receipt time beside its stamp. Lists stored before that
+change carry the source stamp only; the stored file's modification time is the one trace of their receipt and is
+not a preserved record. The forward split and the executable baseline read the row's own stamp, never this
+reconstruction.
 
 Population: all 552 alert rows of the listener from 2026-11-04 to 2026-11-27 13:11 ET (18 sessions), every alert
-type, taken or not. "Evening" is the previous session's last list at or before 16:05 ET. "At the alert" is the last
-list whose own stamp is at or before the alert, on the same day (median 8.5 minutes before it, 90th percentile 15;
+type, taken or not. "Evening" is the previous session's last list at or before 16:05 ET. "At the alert" means by
+source time throughout this section: the last list whose own stamp is at or before the alert, on the same day (median 8.5 minutes before it, 90th percentile 15;
 none used if older than 3 hours). One broker, one month, counts rounded to 100 and capped: a description of this
 sample, not an estimate for other periods.
 

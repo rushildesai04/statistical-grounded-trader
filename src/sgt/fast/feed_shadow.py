@@ -21,7 +21,16 @@ What it is not, and how that is kept true:
 - it writes to its OWN database file from its OWN thread, never the operations database, so it can hold no lock the
   books wait for;
 - it is off unless ``SGT_FEED_SHADOW=1``; off, ``tap`` returns the reader untouched (not even a wrapper);
-- it switches itself off after ``MAX_FAILS`` failed writes in a row and stays off until the process restarts;
+- it can be switched off while the listener runs, with no restart and nothing done to the books (owner 2026-11-27:
+  "demonstrated blocking or resource exhaustion needs a safe, prompt recorder shutoff without restarting or delaying
+  position management"): a file named ``OFF`` beside its database. Its watchdog thread sees the file within
+  ``WATCH_S`` seconds and the recorder is off: from then on ``offer`` is one attribute read and a return. While the
+  file exists a restarted listener does not start the recorder either;
+- it switches ITSELF off, the same way, and writes that file with the reason, so it stays off until a person has
+  looked: ``MAX_FAILS`` failed writes in a row; ``SLOW_MAX`` offers that each took over ``SLOW_MS`` in the book's
+  thread (it is in the book's way); ``DROP_MAX`` looks dropped (its writer cannot keep up); its database over
+  ``MAX_DB_BYTES``; under ``MIN_FREE_BYTES`` free on its volume. These are safety trips, not the performance
+  tolerance of the deploy check: that one is judged afterwards from the book's own cadence record;
 - no book, text, total, registered calculation or settle reads anything it writes.
 """
 from __future__ import annotations
@@ -30,6 +39,7 @@ import logging
 import math
 import os
 import queue
+import shutil
 import sqlite3
 import threading
 from datetime import date, datetime, timedelta, timezone
@@ -50,6 +60,13 @@ TAIL = 12                   # candles of a frame that are recorded per look (the
 FLUSH_S = 2.0               # the writer commits at least this often
 MAX_FAILS = 5               # failed writes in a row before the recorder switches itself off
 KEEP_DAYS = 45              # rows older than this are deleted when the recorder starts
+OFF_NAME = "OFF"            # a file beside the database: while it exists the recorder is off (and does not start)
+WATCH_S = 2.0               # the watchdog looks at that file and at the budgets below this often
+SLOW_MS, SLOW_MAX = 250.0, 3        # offers this slow, this many times: the recorder is in the book's way
+DROP_MAX = 500                      # looks dropped because the writer cannot keep up
+MAX_DB_BYTES = 400_000_000          # its own database with its write-ahead file (the runner's volume is 5.2 GB,
+                                    # 2.7 GB free on 2026-11-27; 45 days of looks are expected far below this)
+MIN_FREE_BYTES = 500_000_000        # free space left on the volume it writes to
 BAR = timedelta(minutes=1)
 SYMBOL_MAX = 12
 
@@ -100,19 +117,40 @@ def _iso(ts) -> str:
 class Recorder:
     """The queue and its writer thread. Everything the book's thread touches is ``offer`` (see the module doc)."""
 
-    def __init__(self, path: Path = DB, queue_max: int = QUEUE_MAX, clock: Callable[[], datetime] = _utc) -> None:
+    def __init__(self, path: Path = DB, queue_max: int = QUEUE_MAX, clock: Callable[[], datetime] = _utc,
+                 watch_s: float = WATCH_S, slow_ms: float = SLOW_MS, slow_max: int = SLOW_MAX,
+                 drop_max: int = DROP_MAX, max_db_bytes: int = MAX_DB_BYTES, min_free_bytes: int = MIN_FREE_BYTES,
+                 free: Callable[[Path], int] | None = None) -> None:
         self.path, self.clock = Path(path), clock
         self.q: queue.Queue = queue.Queue(maxsize=queue_max)
-        self.on = True
-        self.offered = self.written = self.dropped = self.errors = self.fails = 0
+        self.on, self.why = True, None
+        self.offered = self.written = self.dropped = self.errors = self.fails = self.slow = 0
+        self.watch_s, self.slow_ms, self.slow_max, self.drop_max = watch_s, slow_ms, slow_max, drop_max
+        self.max_db_bytes, self.min_free_bytes = max_db_bytes, min_free_bytes
+        self._free = free or (lambda p: shutil.disk_usage(p).free)
         self._thread = threading.Thread(target=self._run, name="feed-shadow", daemon=True)
-        self._warned = False
+        self._watcher = threading.Thread(target=self._watch, name="feed-shadow-watch", daemon=True)
+        self._halt = threading.Event()
+        self._warned = self._said = False
+
+    @property
+    def off_file(self) -> Path:
+        return self.path.parent / OFF_NAME
+
+    def _trip(self, why: str) -> None:
+        """Switch off from any thread: two assignments, no input or output (the book's thread may be the caller).
+        The watchdog says it in the log and writes the OFF file."""
+        if self.on:
+            self.why = why
+            self.on = False
 
     # ---- the book's thread ----
     def offer(self, symbol: str, book_now, frame, ms: float) -> None:
-        """Hand one look to the writer. Never raises, never waits, never keeps a reference to ``frame``."""
+        """Hand one look to the writer. Never raises, never waits, never keeps a reference to ``frame``. Off, it is
+        one attribute read. It times itself: an offer that is slow ``slow_max`` times switches the recorder off."""
         if not self.on:
             return
+        t0 = monotonic()
         try:
             n = 0 if frame is None else len(frame)
             rows = []
@@ -124,19 +162,60 @@ class Recorder:
             self.offered += 1
         except queue.Full:
             self.dropped += 1
+            if self.dropped >= self.drop_max:
+                self._trip(f"{self.dropped} looks dropped: its writer cannot keep up")
         except Exception:  # noqa: BLE001 - a measurement beside the book: its failure is counted, never raised
             self.errors += 1
             if not self._warned:
                 self._warned = True
                 log.exception("feed shadow: a look could not be offered (counted; said once)")
+        if (monotonic() - t0) * 1000.0 > self.slow_ms:
+            self.slow += 1
+            if self.slow >= self.slow_max:
+                self._trip(f"{self.slow} offers each took over {self.slow_ms:g} ms in the book's thread")
+
+    # ---- the watchdog thread: the switch and the budgets, independent of the writer ----
+    def _watch(self) -> None:
+        while not self._halt.wait(self.watch_s):
+            try:
+                if self.on and self.off_file.exists():
+                    self._trip("switched off by the OFF file")
+                if self.on:
+                    size = sum(p.stat().st_size for p in (self.path, Path(str(self.path) + "-wal")) if p.exists())
+                    if size > self.max_db_bytes:
+                        self._trip(f"its database is {size} bytes, over {self.max_db_bytes}")
+                    elif self.path.parent.exists() and self._free(self.path.parent) < self.min_free_bytes:
+                        self._trip(f"under {self.min_free_bytes} bytes free on its volume")
+            except Exception:  # noqa: BLE001 - a watchdog that cannot look switches the recorder off (fail closed)
+                log.exception("feed shadow: the watchdog could not look; recording is switched off")
+                self._trip("its watchdog could not look")
+            if not self.on:
+                self._say()
+                return
+
+    def _say(self) -> None:
+        """Once: the reason in the log, and the OFF file (with the reason) so a restart does not start it again."""
+        if self._said:
+            return
+        self._said = True
+        log.error("feed shadow: OFF (%s). The books are not affected. It stays off while %s exists.", self.why,
+                  self.off_file)
+        try:
+            if not self.off_file.exists():
+                self.off_file.parent.mkdir(parents=True, exist_ok=True)
+                self.off_file.write_text(f"{_iso(self.clock())} {self.why}\n", encoding="utf-8")
+        except Exception:  # noqa: BLE001 - e.g. the volume is full: it is off in this process all the same
+            log.exception("feed shadow: the OFF file could not be written (it is off until this process ends)")
 
     # ---- the writer thread ----
     def start(self) -> "Recorder":
         self._thread.start()
+        self._watcher.start()
         return self
 
     def stop(self, timeout: float = 10.0) -> None:
         """Flush and end the writer (tests, and a clean shutdown). The book never calls this."""
+        self._halt.set()
         try:
             self.q.put(_STOP, timeout=timeout)
         except queue.Full:
@@ -154,20 +233,37 @@ class Recorder:
         c.execute("DELETE FROM health WHERE at < ?", (old,))
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', ?)", (VERSION,))
         c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('started_at', ?)", (_iso(self.clock()),))
+        c.execute("DELETE FROM meta WHERE key IN ('off_at', 'off_why')")       # a fresh start: it is on again
         c.commit()
         return c
+
+    def _closing(self, c: sqlite3.Connection) -> None:
+        """The writer's last act once the recorder is off: say so in its own database, if it still can."""
+        try:
+            c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('off_at', ?)", (_iso(self.clock()),))
+            c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('off_why', ?)", (str(self.why)[:300],))
+            c.execute("INSERT OR REPLACE INTO health(at, offered, written, dropped, errors, fails, waiting) "
+                      "VALUES (?,?,?,?,?,?,?)", (_iso(self.clock()), self.offered, self.written, self.dropped,
+                                                 self.errors, self.fails, self.q.qsize()))
+            c.commit()
+            c.close()
+        except Exception:  # noqa: BLE001 - it is off either way; the log already says why
+            log.exception("feed shadow: its last note could not be written")
 
     def _run(self) -> None:
         try:
             c = self._open()
         except Exception:  # noqa: BLE001 - no database, no recording; the book is not told and is not affected
-            self.on = False
+            self._trip("its database could not be opened")
             log.exception("feed shadow: its database could not be opened; recording is off")
             return
         last_look: dict[str, str] = {}                       # symbol -> the previous look's time (this process)
         cache: dict[str, dict[str, tuple]] = {}              # symbol -> {candle ts: (values, closed)} of recent looks
         beat = monotonic()
         while True:
+            if not self.on:                                  # switched off (the OFF file, a trip): stop writing
+                self._closing(c)
+                return
             batch, stop = [], False
             try:
                 batch.append(self.q.get(timeout=FLUSH_S))
@@ -195,7 +291,7 @@ class Recorder:
                 except sqlite3.Error:
                     pass
                 if self.fails >= MAX_FAILS:
-                    self.on = False
+                    self._trip(f"{self.fails} failed writes in a row")
                     log.error("feed shadow: switched off after %d failed writes in a row", self.fails)
                     return
             if stop:
@@ -244,6 +340,9 @@ def start(path: Path = DB) -> Recorder | None:
     """The recorder when ``SGT_FEED_SHADOW=1``, else None. Never raises: a recorder that cannot start is no recorder."""
     try:
         if os.environ.get(ENV) != "1":
+            return None
+        if (Path(path).parent / OFF_NAME).exists():          # switched off by hand or by itself: stays off
+            log.warning("feed shadow: not started, %s exists", Path(path).parent / OFF_NAME)
             return None
         return Recorder(path).start()
     except Exception:  # noqa: BLE001 - see the module doc: the listener must start whatever happens here

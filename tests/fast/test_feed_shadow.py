@@ -122,6 +122,90 @@ def test_a_database_that_cannot_be_opened_means_no_recording_and_no_error(tmp_pa
     assert fs.tap(rec, lambda sym, now: f)("ABCD", at(1).to_pydatetime()) is f
 
 
+# ---- switching it off while the listener runs (owner 2026-11-27: "a safe, prompt recorder shutoff without
+# restarting or delaying position management") ----
+def _until(cond, seconds=5.0):
+    import time
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and not cond():
+        time.sleep(0.01)
+    return cond()
+
+
+def test_the_off_file_switches_a_running_recorder_off_and_the_reader_goes_on_untouched(tmp_path):
+    rec = fs.Recorder(tmp_path / "shadow.db", watch_s=0.02).start()
+    f = frame([0, 1])
+    read = fs.tap(rec, lambda sym, now: f)
+    assert read("ABCD", at(1).to_pydatetime()) is f and _until(lambda: rec.written == 1)
+    rec.off_file.write_text("by hand")                                   # the whole switch: one file, no restart
+    assert _until(lambda: not rec.on) and rec.why == "switched off by the OFF file"
+    before = rec.offered
+    assert read("ABCD", at(2).to_pydatetime()) is f and rec.offered == before and rec.q.qsize() == 0
+    rec._thread.join(5)
+    rec._watcher.join(5)
+    assert not rec._thread.is_alive() and not rec._watcher.is_alive()    # both of its threads have ended
+    assert rec.off_file.read_text() == "by hand"                         # a person's note is not overwritten
+    c = sqlite3.connect(tmp_path / "shadow.db")
+    assert dict(c.execute("SELECT key, value FROM meta WHERE key='off_why'"))["off_why"] == rec.why
+    c.close()
+
+
+def test_while_the_off_file_exists_a_restart_does_not_start_it(monkeypatch, tmp_path):
+    monkeypatch.setenv(fs.ENV, "1")
+    (tmp_path / fs.OFF_NAME).write_text("x")
+    assert fs.start(tmp_path / "shadow.db") is None and not (tmp_path / "shadow.db").exists()
+    reader = lambda sym, now: frame([0])                                 # noqa: E731
+    assert fs.tap(fs.start(tmp_path / "shadow.db"), reader) is reader    # the book's reader, not even a wrapper
+    (tmp_path / fs.OFF_NAME).unlink()
+    rec = fs.start(tmp_path / "shadow.db")
+    assert rec is not None and rec.on
+    rec.stop()
+
+
+def test_slow_offers_in_the_books_thread_switch_it_off_and_leave_the_reason(tmp_path):
+    rec = fs.Recorder(tmp_path / "shadow.db", watch_s=0.02, slow_ms=-1.0, slow_max=3).start()   # every offer "slow"
+    for k in range(3):
+        assert rec.on
+        rec.offer("ABCD", at(1, k).to_pydatetime(), frame([0]), 1.0)
+    assert rec.on is False and rec.why == "3 offers each took over -1 ms in the book's thread"   # at once, no wait
+    assert _until(rec.off_file.exists) and rec.why in rec.off_file.read_text()       # and it stays off after a restart
+    rec._thread.join(5)
+
+
+def test_a_writer_that_cannot_keep_up_switches_it_off(tmp_path):
+    rec = fs.Recorder(tmp_path / "shadow.db", queue_max=1, drop_max=3)   # not started: nothing empties the queue
+    for k in range(4):
+        rec.offer("ABCD", at(1, k).to_pydatetime(), frame([0]), 1.0)
+    assert (rec.on, rec.dropped, rec.why) == (False, 3, "3 looks dropped: its writer cannot keep up")
+    rec.offer("ABCD", at(2).to_pydatetime(), frame([0]), 1.0)
+    assert rec.dropped == 3                                              # off: not even counted any more
+
+
+@pytest.mark.parametrize("kw, why", [
+    ({"max_db_bytes": 1}, "its database is "),
+    ({"free": lambda p: 10}, f"under {fs.MIN_FREE_BYTES} bytes free on its volume"),
+    ({"free": lambda p: 1 / 0}, "its watchdog could not look"),
+])
+def test_a_resource_budget_that_is_spent_switches_it_off(tmp_path, kw, why):
+    rec = fs.Recorder(tmp_path / "shadow.db", watch_s=0.02, **kw).start()
+    assert _until(lambda: not rec.on) and rec.why.startswith(why)
+    assert _until(rec.off_file.exists)
+    f = frame([0])
+    assert fs.tap(rec, lambda sym, now: f)("ABCD", at(1).to_pydatetime()) is f       # the book reads on
+    rec._thread.join(5)
+
+
+def test_the_nightly_line_says_when_the_recorder_is_off(tmp_path):
+    rec = fs.Recorder(tmp_path / "shadow.db", watch_s=0.02).start()
+    rec.offer("ABCD", at(1).to_pydatetime(), frame([0]), 1.0)
+    assert _until(lambda: rec.written == 1)
+    rec._trip("3 offers each took over 250 ms in the book's thread")
+    rec._thread.join(5)
+    assert _until(rec.off_file.exists)
+    _, _, health = job.recorded(tmp_path / "shadow.db", at(1).tz_convert("America/New_York").date().isoformat())
+    assert health["off"]["why"] == "3 offers each took over 250 ms in the book's thread" and health["off"]["at"]
+
+
 # ---- what is recorded ----
 def test_the_first_closed_sighting_of_a_candle_and_the_look_before_it_are_kept(tmp_path):
     """Minute 2 (ends at 3:00). Looks at 2:50 (forming, held), 3:05 (NOT held), 3:20 (held closed, high revised)."""

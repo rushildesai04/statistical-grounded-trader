@@ -58,9 +58,18 @@ def recorded(db: Path, session: str) -> tuple[dict, dict, dict]:
             "closed_at": r["closed_at"], "closed_prev_look": r["closed_prev_look"],
             "values": (r["o"], r["h"], r["l"], r["c"], r["v"]), "revisions": r["revisions"]}
     h = c.execute("SELECT * FROM health ORDER BY at DESC LIMIT 1").fetchone()
+    off = dict(c.execute("SELECT key, value FROM meta WHERE key IN ('off_at', 'off_why')").fetchall())
     ms = [r[0] for r in c.execute("SELECT ms FROM looks WHERE session=? AND ms IS NOT NULL ORDER BY ms", (session,))]
     c.close()
     health = dict(h) if h else {}
+    marker = Path(db).parent / fs.OFF_NAME          # the off switch: by hand, or written by a safety trip
+    if off or marker.exists():
+        note = ""
+        try:
+            note = marker.read_text(encoding="utf-8")[:300].strip() if marker.exists() else ""
+        except OSError:
+            note = "its OFF file could not be read"
+        health["off"] = {"at": off.get("off_at"), "why": off.get("off_why") or note or "the OFF file exists"}
     if ms:
         health["request_ms"] = {"median": ms[len(ms) // 2], "p95": ms[min(len(ms) - 1, int(0.95 * len(ms)))], "max": ms[-1]}
     return looks, live, health
@@ -169,7 +178,9 @@ def words(o: dict) -> str:
             f"free feed had a candle in {o['free_feed_share_of_tape_minutes']} of tape-traded minutes; "
             f"price changed {o['changed']} (volume {o['volume_changed']}), free not on tape {o['free_not_on_tape']}, outside tape {o['outside_tape']}; "
             f"failed symbols {len(o['symbols_failed'])}; recorder dropped {o['health'].get('dropped')}, "
-            f"write fails {o['health'].get('fails')}")
+            f"write fails {o['health'].get('fails')}"
+            + (f"; RECORDER OFF since {o['health']['off'].get('at') or 'an unrecorded time'}: "
+               f"{o['health']['off'].get('why')}" if o["health"].get("off") else ""))
 
 
 def selftest(symbol: str, session: str) -> int:
