@@ -81,6 +81,15 @@ LIVE_LAG = pd.Timedelta(minutes=5)
 # break candle closes, at that close, while it is this fresh; the official result is the tape's price in that minute
 # (``_score``: the same market order, replayed from the minute the candle closed). Seen later than this (a restart, a
 # feed outage): the old path, the feed's next candle.
+# EFFECTIVE BEHAVIOUR since long-live-entry-v2 (owner 2026-11-27: "Keep the 90-second window and evidence requirement
+# as implemented. Do not add an exemption to permit entry across unknown data. Document its effective behavior; do not
+# imply the final 30 seconds remain operationally equivalent to the original window."): the window is still 90 s, and
+# a buy also needs every closed minute since the close to be a candle the book holds (``coverage``). A buy at the
+# close exists only while NO later candle is held, so from 60 s after the close the one closed minute is unobserved
+# and the buy is not made: on a feed that has no candle for that minute a buy at the close happens only when the
+# break is seen LESS THAN 60 s after its candle closed. Seen 60 to 90 s after: inside the window, not bought at the
+# close, nothing recorded; the feed's next candle decides (the old path). The last 30 s are therefore NOT equivalent
+# to the window as approved on 2026-11-20. How many buys used to fall there has not been measured.
 AT_CLOSE = pd.Timedelta(seconds=90)
 # prereg_long_risk_2026-11-12 addendum A2 (owner chose "both, test the combination first"; it passed): size each long
 # by its risk, w = min(1, RISK_D50 / stop distance), and sell at the next open when the fill candle closes below the
@@ -269,7 +278,10 @@ def at_close(f: pd.DataFrame, row: dict, now: datetime, latest: pd.Timestamp) ->
     """The base break whose candle has just closed, bought now at that close (see AT_CLOSE). None when the candle
     closed longer ago than AT_CLOSE, when the feed already shows a later candle (``fills`` decides then), when another
     long order of this alert is still pending (the first to fill is taken, as tested), or when the buy cannot beat
-    its cost (``no_win``: the feed's own fill is judged later, as before)."""
+    its cost (``no_win``: the feed's own fill is judged later, as before).
+
+    A fill returned here is not yet a buy: ``tick`` opens it only when every closed minute since the close is a held
+    candle, which from 60 s after the close it cannot be (see the note at ``AT_CLOSE``)."""
     from sgt.fast import long_armed
 
     live = [s for s in live_setups(f, row) if s.side == "long" and long_armed.pending(f, s, now, latest)]

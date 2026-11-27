@@ -35,6 +35,10 @@
 # Execution model (audit phase 2, 2026-11-21): each settled alert trade re-priced from the official quotes and trades
 # of its own decision time; appended to reports/exec_model/ledger.jsonl. Read-only on the ops database.
 25 21 * * 1-5  /app/deploy/entrypoint.sh job execledger
+# 2026-11-27 (owner: the no-cost Stage 0 of the feed shadow): what the live candle reader held at each look, set
+# beside the vendor's finished candles (free feed, and the full tape, free once 15 minutes old). One line a session
+# in reports/feed_shadow/daily.jsonl; no trade result is read; nothing but its own files is written.
+40 21 * * 1-5  /app/deploy/entrypoint.sh job feedshadow
 # Fade challengers in shadow (prereg_fade_challengers_2026-11-04), after the forward record's bars are stored.
 20 21 * * 1-5  /app/deploy/entrypoint.sh job fadechallengers
 # Fade exits in shadow (prereg_fade_exits_2026-11-05): trail / VWAP / EMA 9-21 / target vs the 60-min champion.
