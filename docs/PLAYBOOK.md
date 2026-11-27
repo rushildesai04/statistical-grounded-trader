@@ -1298,3 +1298,14 @@ night it cannot finish is texted and caught up on the next run.
   flagged / unflagged split already registered beside F1 (a new borrow test would duplicate it). Locate requests,
   broker setup and paid data are NOT authorised. Open policy question: a trigger setup seen after it is over
   (`long_stop_detection_2026-11-25.md`, 6 C). Decision dates unchanged.
+- **Real-time full-tape live feed: PROPOSAL only (2026-11-27, `proposal_realtime_feed_shadow_2026-11-27.md`).** The
+  owner authorized investigation and an integration proposal, not spending or a switch. Verified on the vendor's
+  documentation: Alpaca Algo Trader Plus is $99 a month, real-time on all US exchanges, 10,000 requests a minute; a
+  minute with no trade has no bar on that feed either. Open, the owner's to confirm in writing: whether the paper
+  keys the runner uses get the entitlement (the documentation says a paper-only account gets the single-exchange
+  feed only), any professional-status or exchange agreement, cloud use, billing. Designed before any data: Stage 0
+  (free, the recorder against the 16-minute-late tape), then a 10 to 20 session shadow (`feed-shadow-sip-v1`) with
+  nine measures and proposed criteria; no result of any trade is collected. A later switch is its own decision:
+  live paper path only, rows labelled with the feed version, registered replay and cohort unchanged, entries fail
+  closed (never a silent fallback to the free feed). Not claimed: that a better feed improves returns; nor that the
+  feed leaves live outcomes untouched (it decides which alerts become trades and when a stop is seen).
