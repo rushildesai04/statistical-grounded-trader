@@ -127,7 +127,7 @@ Which rows each statement stands on:
   counts in some types (new-high alerts: 56 of 111; news alerts: 25 of 112; intraday-high alerts: 14 of 24).
 
 **One row moved between two runs, and why.** The first run of this table (13:11 ET, 602 stored lists) read 320 and
-100 in its first two lines; this one (about 15:40 ET, the same 552 rows, 610 lists) reads 319 and 101, with 195 of 320
+100 in its first two lines; this one (15:10 ET, the same 552 rows, 610 lists) reads 319 and 101, with 195 of 320
 and 250 of 320 becoming 196 of 319 and 249 of 319. The alert that moved was posted at 13:05:34 ET on 2026-11-27. A
 list stamped 13:05:06 ET, before that alert, reached our store only after the first run, and the stock was not on
 it. The only inputs that differ between the two runs are the 8 lists stored after the first one. It shows a
