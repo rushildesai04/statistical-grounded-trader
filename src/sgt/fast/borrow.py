@@ -85,8 +85,11 @@ def snapshot(now: datetime, root: Path = ROOT, payload: bytes | None = None) -> 
     d = root / f"{at:%Y%m%d}"
     d.mkdir(parents=True, exist_ok=True)
     out = d / f"{at:%H%M}.parquet"
-    df.assign(snap=at.isoformat()).to_parquet(out)
-    df.assign(snap=at.isoformat()).to_parquet(root / "latest.parquet")
+    # ``snap`` = the list's own stamp (source time); ``received`` = when this job stored it (2026-11-27). The two
+    # differ by minutes: a list is stamped before we fetch it. A file's name and folder follow the source stamp.
+    df = df.assign(snap=at.isoformat(), received=now.isoformat())
+    df.to_parquet(out)
+    df.to_parquet(root / "latest.parquet")
     return out
 
 
@@ -108,12 +111,18 @@ class BorrowBook:
         return self._df
 
     def lookup(self, symbol: str, now: datetime) -> dict:
-        out: dict = {"ib_avail": None, "ib_fee": None, "ib_snap": None, "alp_etb": None, "alp_shortable": None}
+        out: dict = {"ib_avail": None, "ib_fee": None, "ib_snap": None, "alp_etb": None, "alp_shortable": None,
+                     "ib_received": None, "ib_read_at": None}
         df = self._latest()
         if df is not None and len(df):
             snap = datetime.fromisoformat(str(df.snap.iloc[0]))
             if now - snap <= STALE:
                 out["ib_snap"] = snap.isoformat()
+                # the list in hand NOW is the only one read: a list that arrives later, whatever its stamp, is
+                # never knowledge of this moment. Lists stored before 2026-11-27 carry no receipt time (None).
+                got = df.received.iloc[0] if "received" in df.columns else None
+                out["ib_received"] = got if isinstance(got, str) and got else None
+                out["ib_read_at"] = now.isoformat()
                 if symbol in df.index:
                     r = df.loc[symbol]
                     out["ib_avail"] = int(r.avail)

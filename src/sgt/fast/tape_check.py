@@ -18,6 +18,7 @@ one trade never stops the others.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Callable
@@ -25,7 +26,7 @@ from typing import Callable
 import pandas as pd
 
 from sgt.fast import est_costs
-from sgt.fast.fade import WEIGHT, day_est_pnl, nav
+from sgt.fast.fade import WEIGHT, day_est_pnl, exit_source_safe, nav
 from sgt.fast.fade_rule import ET, STOP, VETO_EXIT
 from sgt.ops.store import OpsStore, iso, utcnow
 
@@ -33,9 +34,28 @@ log = logging.getLogger(__name__)
 DELAY = timedelta(minutes=16)            # an official minute bar is final and free this long after it started
 RECHECK = timedelta(minutes=25)          # a closed trade's last minutes arrive this late at most: checked until then
 LATE = "stop (official tape, seen late)"
+SRC = "official tape, one-minute candle, read once it is free (about 16 minutes old)"
+AT_LEVEL = "candle start, not a print time: the cover is the stop level (the candle's high reached it)"
+AT_OPEN = "candle start, not a print time: the cover is the candle's open (it opened above the stop)"
 CORRECTABLE = ("60 min", "close", VETO_EXIT)        # exits the live feed chose; a live "stop" is already the stop
 MAX_ROWS = 60
 Bars = Callable[[str, datetime, datetime], pd.DataFrame]   # (symbol, start, end) -> official 1-minute bars, ts = start
+REPLACED = ("est_exit", "est_exit_at", "reason", "est_last", "est_last_print_at")   # what a revision overwrites
+
+
+def revision(r: dict, src: dict) -> str | None:
+    """The record of ONE revision of a live exit by this check, as JSON for ``exit_rev``: what the check read (the
+    same six facts as the ``exit_*`` columns, without the prefix) and the row's values it replaced. Never raises: a
+    record that cannot be built is logged and left empty, and the revision itself goes ahead."""
+    try:
+        return json.dumps({"by": "official-tape stop check", "decided_at": src.get("exit_decided_at"),
+                           "src": src.get("exit_src"), "src_px": src.get("exit_src_px"),
+                           "src_at": src.get("exit_src_at"), "src_age_s": src.get("exit_src_age_s"),
+                           "note": src.get("exit_src_note"), "replaced": {k: r.get(k) for k in REPLACED}},
+                          default=str)[:2000]
+    except Exception:  # noqa: BLE001 - a record: failing to build it must never stop the correction
+        log.exception("revision record not built for fade %s", r.get("id"))
+        return None
 
 
 def first_cross(bars: pd.DataFrame | None, after: datetime, before: datetime, level: float) -> tuple[datetime, float] | None:
@@ -85,10 +105,33 @@ def check(db: OpsStore, send, bars: Bars, now: datetime | None = None) -> int:
             if hit is None:
                 continue
             at, px = hit
+            # 2026-11-27. ``est_exit_at`` stays the candle's start, as before; the time this check decided is on
+            # record beside it. The cover is a rule price off a candle, not a print: the note says which.
+            # - A trade still OPEN gets its first exit estimate here: its provenance goes in the ``exit_*`` columns.
+            # - A trade the live book already closed is REVISED: its ``exit_*`` columns (the live look's own
+            #   observation) are not touched.
+            # Either way ``exit_rev`` holds what this check read and every value it replaced on the row, the last
+            # live mark and its print time included (owner: "Do not overwrite the evidence needed to explain a
+            # revision").
+            src = exit_source_safe(now, SRC, px, at)
+            if src:                                  # empty = the record could not be built (logged); the stop stands
+                src["exit_src_note"] = AT_OPEN if px > entry * (1 + STOP) + 1e-9 else AT_LEVEL
+            rev = revision(r, src)
             with db.tx() as c:
-                done = c.execute("UPDATE fade_trades SET status='est_closed', est_exit=?, est_exit_at=?, est_last=?, "
-                                 "reason=? WHERE id=? AND status=? AND reason IS NOT ?",
-                                 (px, iso(at), px, LATE, r["id"], r["status"], LATE)).rowcount == 1
+                if was_open:
+                    done = c.execute(
+                        "UPDATE fade_trades SET status='est_closed', est_exit=?, est_exit_at=?, est_last=?, "
+                        "est_last_print_at=NULL, reason=?, exit_decided_at=?, exit_src=?, exit_src_px=?, "
+                        "exit_src_at=?, exit_src_age_s=?, exit_src_note=?, exit_rev=? "
+                        "WHERE id=? AND status=? AND reason IS NOT ?",
+                        (px, iso(at), px, LATE, src.get("exit_decided_at"), src.get("exit_src"),
+                         src.get("exit_src_px"), src.get("exit_src_at"), src.get("exit_src_age_s"),
+                         src.get("exit_src_note"), rev, r["id"], r["status"], LATE)).rowcount == 1
+                else:
+                    done = c.execute(
+                        "UPDATE fade_trades SET status='est_closed', est_exit=?, est_exit_at=?, est_last=?, "
+                        "est_last_print_at=NULL, reason=?, exit_rev=? WHERE id=? AND status=? AND reason IS NOT ?",
+                        (px, iso(at), px, LATE, rev, r["id"], r["status"], LATE)).rowcount == 1
                 if done and was_open:        # a NO after the exit is answered "already closed", never acted on
                     c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE "
                               "strategy=? AND kind='fadeexit' AND status='pending'", (iso(now), f"fade:{r['id']}"))
@@ -96,7 +139,8 @@ def check(db: OpsStore, send, bars: Bars, now: datetime | None = None) -> int:
                 continue
             n += 1
             db.decide("short", r["id"], r["symbol"], r["status"], "est_closed", LATE, None, exit=px, exit_at=iso(at),
-                      official_tape_read_at=iso(now), was=r.get("reason"))
+                      official_tape_read_at=iso(now), was=r.get("reason"), was_exit=r.get("est_exit"),
+                      was_exit_at=r.get("est_exit_at"), src=src.get("exit_src"), src_note=src.get("exit_src_note"))
             cost = est_costs.cost("short", r["symbol"], r["est_entry_at"], entry) or 0.0
             g = (entry - px) / entry - cost
             v = nav(db)

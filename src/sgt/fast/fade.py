@@ -195,7 +195,7 @@ def entry_start(posted: datetime) -> datetime:
 Borrow = Callable[[str, datetime], dict]
 NewsCheck = Callable[[str, datetime], "dict | None"]          # company-news flags at a time; None = unknown
 BetaCheck = Callable[[str, datetime], "float | None"]         # the symbol's beta (sgt.fast.beta); None = unknown
-BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable")
+BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable", "ib_received", "ib_read_at")
 Official = Callable[[pd.DataFrame], pd.DataFrame]
 
 
@@ -649,7 +649,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
             return                                    # recorded, never shorted; no text (as every skip)
         elig = ELIG_EXEMPT + exempt
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), entry_elig=elig,
-            entry_rule=ENTRY_RULE, **when):
+            entry_rule=ENTRY_RULE, est_last_print_at=_print_at(saw, px), **when):
         out = _exit_at(r["session"], now)[0].astimezone(ET)
         if r["reason"] == VETO:
             _veto_text(db, send, r, px, now, out, context)
@@ -744,19 +744,97 @@ def _exit_at(session: str, started: datetime) -> tuple[datetime, str]:
     return (started + HOLD, "60 min") if started + HOLD <= close else (close, "close")
 
 
+SRC_UNNAMED = "the book's quote (reader not named)"
+SRC_CARRIED = "carried from an earlier look"
+AT_OBSERVED = "observed"
+AT_NONE = "source time missing: the reader gave a price without a time"
+AT_UNREADABLE = "source time missing: the time given is not a time with a zone"
+AT_CARRIED_NONE = "source time missing: the carried price has no print time on record"
+AT_UNBOUND = ("source time missing: the reader's record does not carry the price it returned, so its time cannot "
+              "be tied to this reading")
+
+
+def exit_source(now: datetime, src: str | None, px: float | None, at: object, carried: bool = False,
+                why: str | None = None, unbound: bool = False) -> dict:
+    """The columns that say where an exit ESTIMATE came from (owner 2026-11-27; a record, never a rule: nothing
+    reads these to decide or to price). ``px`` is the source price and ``at`` the time of the event it belongs to.
+    A time that is absent or not a zoned time is recorded as missing, in words, with the time and the age left
+    NULL: it is never rebuilt from another reading. ``carried``: no price at the decision, so the book used its
+    last mark; ``why`` is what the reader said about having no price then. ``unbound``: the reader's record could
+    not be tied to the price it returned (see ``_bound``), so no time is taken from it. The age may be large (a
+    quiet stock, or a carried mark) and is recorded as it is; it classifies nothing.
+
+    What the record establishes: when that price occurred on that reader. It does not establish that an order
+    could have been executed at it, then or at the decision."""
+    when, note = None, AT_CARRIED_NONE if carried else AT_UNBOUND if unbound else AT_NONE
+    if unbound:
+        at = None
+    if isinstance(at, datetime):
+        at = at.isoformat()
+    if isinstance(at, str) and at:
+        try:
+            t = datetime.fromisoformat(at)
+            when, note = (t, AT_OBSERVED) if t.tzinfo is not None else (None, AT_UNREADABLE)
+        except ValueError:
+            note = AT_UNREADABLE
+    name = src or SRC_UNNAMED
+    if carried:
+        name = f"{name}, {SRC_CARRIED}; at the decision: {why or 'no price'}"
+    return {"exit_decided_at": iso(now), "exit_src": name[:300],
+            "exit_src_px": float(px) if px is not None else None,
+            "exit_src_at": when.isoformat() if when is not None else None,
+            "exit_src_age_s": round((now - when).total_seconds(), 3) if when is not None else None,
+            "exit_src_note": note}
+
+
+def exit_source_safe(now: datetime, src: object, px: float | None, at: object, **kw) -> dict:
+    """``exit_source``, never in the way of an exit: a record that cannot be built is logged and left empty (every
+    new column NULL), and the exit goes ahead exactly as it would have."""
+    try:
+        return exit_source(now, src if isinstance(src, str) else None, px, at, **kw)
+    except Exception:  # noqa: BLE001 - a record: failing to build it must never stop or change an exit
+        log.exception("exit source not recorded")
+        return {}
+
+
+def _bound(saw: dict, px: float | None) -> bool:
+    """Is ``saw`` the record of the very reading that returned ``px``? Only when it carries that price itself. The
+    exit's source must be the exact observation used, never a second reading: a record without the price, or with
+    another price, is not taken as this reading's, whatever else it says."""
+    got = saw.get("px") if isinstance(saw, dict) else None
+    return (px is not None and isinstance(got, (int, float)) and not isinstance(got, bool) and got == px)
+
+
+def _print_at(saw: dict, px: float | None) -> str | None:
+    """The print time of the reading that returned ``px``: only from a record bound to it, only if it is text."""
+    at = saw.get("at") if _bound(saw, px) else None
+    return at if isinstance(at, str) and at else None
+
+
 def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     px = quote(r["symbol"])
+    saw = (getattr(quote, "seen", None) or {}).get(r["symbol"]) or {}     # what this look saw (a record, not a rule)
+    saw = saw if isinstance(saw, dict) else {}
     entry, started = r["est_entry"], datetime.fromisoformat(r["est_entry_at"])
-    if px is not None and px > 0:
-        _set(db, r["id"], "open", est_last=px)
-    last = px if px is not None and px > 0 else r["est_last"]
+    fresh = px is not None and px > 0
+    if fresh:
+        # the mark's own print time beside it; None when this look gave none, so an older time never stays on a
+        # newer price
+        _set(db, r["id"], "open", est_last=px, est_last_print_at=_print_at(saw, px))
+    last = px if fresh else r["est_last"]
     end, why_end = _exit_at(r["session"], started)
     vetoed = r["reason"] == VETO and _vetoed(db, r["id"])
     why = "stop" if last and last >= entry * (1 + STOP) else (VETO_EXIT if vetoed else (why_end if now >= end else None))
     if why is None:
         return
     exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
-    if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why):
+    src = getattr(quote, "source", None)
+    held = r["est_last_print_at"] if "est_last_print_at" in r.keys() else None
+    why_none = saw.get("why") if isinstance(saw.get("why"), str) else None
+    loose = bool(saw.get("at")) and not _bound(saw, px)      # a time on record that nothing ties to this price
+    source = (exit_source_safe(now, src, last, _print_at(saw, px), unbound=loose) if fresh else
+              exit_source_safe(now, src, last, held, carried=True, why=why_none))
+    if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why, **source):
         with db.tx() as c:                    # a NO after the exit is answered "already closed", never acted on
             c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE strategy=? "
                       "AND kind='fadeexit' AND status='pending'", (iso(now), f"fade:{r['id']}"))
