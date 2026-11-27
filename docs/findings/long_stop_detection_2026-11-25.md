@@ -163,7 +163,14 @@ estimate from quotes goes beside it (section 5, "Added"). An engineering change;
 replay moves. A price LIMIT (skip when the market has moved more than some amount) would be a new entry rule and
 needs its own registered test first; none is proposed.
 
-**C. OPEN, a policy question, not an engineering one: a trigger setup seen after it is over.** The book reads closed
+**C. DECIDED 2026-11-25 evening: option C2 (the owner's "B"), record-only.** "Trigger setup discovered after its
+opportunity is over: B - record-only. Do not book a position retrospectively. Preserve the hypothetical replay
+separately and document the prospective effective version. Do not remove historical observations or silently change
+registered sample membership." Scope confirmed 2026-11-26 (every setup kind by its own
+specification; expired / invalidated / insufficient data kept apart). Built in its own change as `long-live-entry-v2`; what it does to the live book and to
+the registered sample is in `long_over_record_only_2026-11-25.md`. The question as it was put:
+
+**A policy question, not an engineering one: a trigger setup seen after it is over.** The book reads closed
 candles, so a buy-stop that fills inside a candle is seen when that candle has closed. On 2026-11-25 FCUV was booked
 66 s after its fill candle began; that candle had closed red (the adopted exit: out at the next open) and the next
 open had already printed. The live estimate and both texts described a trade whose entry and exit were in the past.
@@ -177,4 +184,4 @@ This is a material limitation of the live paper record for trigger setups, not a
 
 What already measures this without any change: the nightly execution model prices every long from the bot's booking
 instant on official quotes (FCUV: bought 6.59, sold 6.53, -0.91%) and is the registered executable figure. No option
-is recommended for adoption before the long book's registered review; C1 with its labels is what runs.
+was recommended for adoption before the long book's registered review; the owner chose C2 (above).

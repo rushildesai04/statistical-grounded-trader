@@ -8,6 +8,7 @@ written to the page with ``textContent`` only.
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -45,6 +46,10 @@ LONG = {"none": "no long setup filled", "missed": "long setup filled before the 
         "nowin": "long setup skipped: its target could not beat costs"}
 COSTLY = "long not bought: trading cost above 1%"   # owner 2026-11-20: listed with what it would have made
 SHORT_OPEN = "long not bought: our short on it was open"   # owner 2026-11-20 (one account, one side)
+OVER = "long not opened: already over when the book saw it"   # owner 2026-11-25: record-only, replayed nightly
+# owner 2026-11-26: the reason stays on the site, by class. The names are long_book.CLASSES (a test pins them equal).
+NOT_OPENED = ("expired", "invalidated", "insufficient data")
+MAX_WHY = 220
 # owner 2026-11-19 ("yes"): a channel alert that never became a row is listed too, so nothing is unknown. These come
 # from the channel's own history (the caller reads it); they are never written to ``fade_trades``, so no rule, count
 # or repeat check can see them.
@@ -90,7 +95,21 @@ def recovered_words(via, posted_at, recovered_at) -> str:
     return f" [recovered after a restart{late}]"
 
 
-def long_words(status: str | None, net) -> str:
+def not_opened_words(why) -> str:
+    """"long not opened (class): cause" from ``long_trades.not_opened`` ("" when the row carries none, or it cannot
+    be read). Stored by our own book, still bounded and never trusted for its shape."""
+    try:
+        d = json.loads(why) if isinstance(why, str) and why else None
+    except ValueError:
+        return ""
+    if not isinstance(d, dict) or d.get("class") not in NOT_OPENED:
+        return ""
+    cause = str(d.get("cause") or "no reason recorded")
+    return f"long not opened ({d['class']}): {cause}"[:MAX_WHY]
+
+
+def long_words(status: str | None, net, why=None) -> str:
+    """``why``: the row's ``not_opened`` (the class and cause of a recorded setup), when the caller has it."""
     if status is None:
         return ""
     if status in ("settled", "est_closed"):
@@ -101,6 +120,11 @@ def long_words(status: str | None, net) -> str:
         return COSTLY + (f": would have made{_pct(net)}" if net is not None else "")
     if status == "short_open":
         return SHORT_OPEN + (f": would have made{_pct(net)}" if net is not None else "")
+    if status == "over":
+        return (not_opened_words(why) or OVER) + (f": its order replayed on official candles{_pct(net)}"
+                                                  if net is not None else "")
+    if status == "missed" and not_opened_words(why):     # rows from long-live-entry-v2 on say which window ran out
+        return not_opened_words(why)
     return LONG.get(status, str(status)[:MAX_TEXT])
 
 
@@ -175,7 +199,8 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
             "SELECT f.id, f.symbol, f.session, f.alert_type, f.posted_at, f.status, f.reason, f.net, f.wh_net, f.wh_note, "
             "f.via, f.recovered_at, "
             f"f.ctx_head, f.news_head, {', '.join('f.' + k.strip() for k in alert_context.CTX_COLS.split(','))}, "
-            "l.status AS l_status, l.net AS l_net FROM fade_trades f LEFT JOIN long_trades l ON l.fade_id=f.id "
+            "l.status AS l_status, l.net AS l_net, l.not_opened AS l_why FROM fade_trades f LEFT JOIN long_trades l "
+            "ON l.fade_id=f.id "
             f"WHERE f.session IN ({','.join('?' * len(days))}) ORDER BY f.session DESC, f.posted_at DESC, f.id DESC "
             "LIMIT ?", (*days, limit)).fetchall()
     out = []
@@ -188,7 +213,7 @@ def rows(db: OpsStore, max_sessions: int = MAX_SESSIONS, limit: int = MAX_ROWS,
                     "why": "" if shorted or r["status"] in ("pending", "ask") else why(r["reason"]),
                     "would": would_words(r["status"], r["wh_net"], r["wh_note"]),
                     "would_n": r["wh_net"] if r["status"] in would_have.NOT_TAKEN else None,
-                    "long": long_words(r["l_status"], r["l_net"]), "traded": bool(shorted or longed),
+                    "long": long_words(r["l_status"], r["l_net"], r["l_why"]), "traded": bool(shorted or longed),
                     "context": alert_context.words(r)[:160],
                     "headline": str(r["news_head"] or r["ctx_head"] or "")[:160]})
     extra = unlisted(db, channel_alerts, max_sessions, limit)

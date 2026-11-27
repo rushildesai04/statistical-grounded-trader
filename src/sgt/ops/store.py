@@ -167,7 +167,12 @@ COLUMNS = {
         # 2026-11-25 (owner: "approve the proposed between-candle long-stop check for paper measurement only"): set
         # when a stop exit was seen on a free-feed print before its candle closed (JSON: the print, when it was
         # looked at, the last closed candle). NULL = the exit was read from closed candles, as before.
-        "stop_seen": "TEXT"},
+        "stop_seen": "TEXT",
+        # 2026-11-26 (owner: "keep the reason on the site and in the nightly counts, distinguishing expired,
+        # invalidated, and insufficient-data cases"): why a long setup was recorded and not opened (JSON: the
+        # version, the class, the cause in words, the exit that was already determined). NULL = an opened long, or
+        # a row made before long-live-entry-v2. The nightly settle rewrites ``reason``; this stays as written.
+        "not_opened": "TEXT"},
     # 2026-11-11 (owner: notes feed Luna): the note version a review saw, and re-reviews spent on new notes
     "trade_ai": {"note_at": "TEXT", "note_reviews": "INTEGER"},
 }

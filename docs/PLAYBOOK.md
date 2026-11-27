@@ -985,9 +985,19 @@ night it cannot finish is texted and caught up on the next run.
   registered reference and put a quote beside it. Built: one exchange's offer at the booking (IEX; a BOUND, since
   the national best offer is at or under it and is not available live without paid data), with its age, its size
   against the order and its distance from the booked price; and the official offer at the booking instant, read
-  nightly into the ledger and reported in one line. A last trade is never called a price on offer. OPEN, a policy
-  question: a trigger setup seen only after its fill candle closed and its exit was determined (FCUV 11-25, booked
-  66 s late); three options in the findings document, none adopted. Wording
+  nightly into the ledger and reported in one line. A last trade is never called a price on offer. DECIDED the same evening (it was an open
+  policy question): a long whose exit is already determined when the book sees its fill (FCUV 11-25, booked 66 s
+  late) is recorded, never opened, no text (`long-live-entry-v2`, `long_over_record_only_2026-11-25.md`); its order
+  is replayed nightly on official candles, labelled hypothetical, in no total. Prospective: no stored row changes.
+  It narrows the live long book (no red-exit trade can be opened any more) and which future longs join the
+  registered sample; the nightly report counts opened against recorded. Scope confirmed 2026-11-26: every setup
+  kind by its own specification (the base break has no red-candle exit), a still-valid setup is opened however long
+  ago its candle closed, and each recorded setup carries a class on the row, the site and the nightly count:
+  expired (window or target), invalidated (stop or red close), insufficient data (said with its cause, never
+  booked). A minute with no free-feed candle is never taken as quiet, with or without a later candle (owner 2026-11-27:
+  label "missing candle; later data available"): the long is not opened across it, and insufficient data is
+  recorded if the existing five-minute window ends; no timer is added. The 90 s buy-at-close window is unchanged
+  and meets the same evidence requirement (seen 60 to 90 s late: not bought at the close, the next candle decides). Wording
   tightened: "valid on the free feed" is not "valid on the tape"; "no enhancement supported" covers only the
   candidates and definitions reviewed; the source-price check is an observation on six symbol-days, repeated before
   any further consumer is wired.
