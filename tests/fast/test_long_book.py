@@ -83,7 +83,14 @@ def test_first_long_to_fill_with_tie_order_and_honest_text(db):
                         "this trade."),
         "💵 $404 (paper, test size; full size $4,038) (sized to the stop)",
         "🛑 stop $10.20 (-3.3%; a trigger, not a cap) ≈ -$17 · 🎯 target $11.25 (+6.6%) · ⏰ out 10:33 ET",
+        # owner 2026-11-25: the price in the headline is a reference, and says how old it was when booked
+        "    Booked at $10.55: the buy-stop trigger, filled inside a free-feed candle, that candle began 60 s before the "
+        "booking. A reference price, not a fill.",
         "🔗 https://www.tradingview.com/chart/?symbol=ABCD"]
+    import json
+    ref = json.loads(trades(db)[0]["entry_ref"])
+    assert ref == {"basis": "the buy-stop trigger, filled inside a free-feed candle", "booked": 10.55,
+                   "ref_at": trades(db)[0]["entry_ts"], "age_s": 60.0, "age_from": "the start of the fill candle"}
     assert lb.tick(db, feed(DAY), sent.append, now=at(3, 30)) == 0 and len(trades(db)) == 1      # one long per alert
 
 
@@ -693,3 +700,120 @@ def test_the_setup_as_the_book_saw_it_is_kept_on_the_row_and_the_decision_line()
                     "base_width": round((8.18 - 7.89) / 7.89, 6), "feed": "free feed (the live candles)"}
     assert lb.setup_seen(None) is None and lb.setup_seen(pt.Setup("L4b", "long", T1, 1.1, 1.0)) is None
 
+
+def test_the_booked_price_of_a_long_is_recorded_as_a_reference_with_its_age_and_the_feeds_last_trade():
+    """BNAI 2026-11-25: booked 8.255, the break candle's close, 13.6 s after it closed, while the offer was 8.39. The
+    booking is unchanged (the 2026-11-20 rule); the record and the text now say what that price is."""
+    ready = pd.Timestamp("2026-11-25 15:32:00", tz="UTC")
+    now = (ready + pd.Timedelta(seconds=13.6)).to_pydatetime()
+    s = pt.Setup("L8", "long", ready, None, 7.89)
+    t = pt.Trade("L8", "long", ready, 8.255, ready, 8.255, "open", 0.0)
+
+    def last(symbol):
+        last.seen = {symbol: {"at": "2026-11-25T15:32:13.487000+00:00", "why": None}}
+        return 8.3852
+    ref = lb.entry_reference(s, t, now, True, last, "BNAI")
+    assert ref == {"basis": "the break candle's close", "booked": 8.255, "ref_at": "2026-11-25T15:32:00+00:00",
+                   "age_s": 13.6, "age_from": "the candle's close", "last_px": 8.3852,
+                   "last_at": "2026-11-25T15:32:13.487000+00:00",
+                   "last_vs_booked": round(8.3852 / 8.255 - 1, 5)}
+    assert lb.reference_line(ref) == ("\n    Booked at $8.26: the break candle's close, 14 s old when booked. A reference "
+                                      "price, not a fill; free feed last trade $8.39 at 10:32:13 (+1.6%; a past "
+                                      "trade, not a price on offer).")
+
+    def offer(symbol):                                               # one exchange's standing quote at the booking
+        return {"bid": 8.34, "ask": 8.39, "bid_size": 200, "ask_size": 100, "at": "2026-11-25T15:32:12.600000+00:00"}
+    both = lb.entry_reference(s, t, now, True, last, "BNAI", offer, 36.7)
+    assert {k: v for k, v in both.items() if not k.startswith("venue") and k != "order_shares"} == ref   # nothing replaced
+    assert (both["venue_ask"], both["venue_ask_size"], both["venue_age_s"], both["venue_covers_order"]) == (8.39, 100.0, 1.0, True)
+    assert both["venue_ask_vs_booked"] == round(8.39 / 8.255 - 1, 5) and both["booked"] == 8.255
+    assert lb.reference_line(both).endswith(
+        "a past trade, not a price on offer). IEX offer $8.39 x 100 at 10:32:12 (1 s old, +1.6% vs booked): one "
+        "exchange's offer, the most a market buy of those shares would cost, not a fill.")
+    assert lb._ref_json(both) == __import__("json").dumps(both, default=str)
+    assert __import__("json").loads(lb._ref_json({**both, "last_note": "x" * 3000})) == {
+        k: both[k] for k in lb.REF_CORE}                              # never a string cut off mid-way
+
+    def silent(symbol):                                              # the feed has no trade to give: said, not guessed
+        silent.seen = {symbol: {"at": None, "why": "the quote request failed"}}
+        return None
+    quiet = lb.entry_reference(s, t, now, True, silent, "BNAI")
+    assert quiet["last_note"] == "the quote request failed" and "last_px" not in quiet
+    assert lb.reference_line(quiet).endswith("A reference price, not a fill.")
+
+    def broken(symbol):
+        raise RuntimeError("boom")
+    assert lb.entry_reference(s, t, now, True, broken, "BNAI")["last_note"] == "read failed (RuntimeError)"
+    nxt = lb.entry_reference(s, t, now, False)                       # a market buy at the feed's next candle open
+    assert "last_note" not in nxt and (nxt["basis"], nxt["age_from"]) == ("the free feed's next candle open",
+                                                                         "the start of the fill candle")
+    trig = lb.entry_reference(pt.Setup("L5v2", "long", ready, 8.3, 7.89), t, now, False)     # a buy-stop: never "the open"
+    assert trig["basis"] == "the buy-stop trigger, filled inside a free-feed candle"
+    assert "that candle began 14 s before the booking" in lb.reference_line(trig)
+
+
+def test_the_live_pass_reads_the_last_trade_only_after_the_long_is_booked_and_keeps_its_exit_timer(db):
+    """The reader is handed to ``tick`` by name (``last_trade``): inside the pass ``last`` is the exit-check timer, and
+    the first version of this change overwrote one with the other. A failing reader changes nothing about the trade."""
+    import json
+
+    alert_row(db)
+    calls = []
+
+    def reader(symbol):
+        calls.append((symbol, len(trades(db))))                       # how many longs were booked when it was read
+        reader.seen = {symbol: {"at": at(2, 5).isoformat(), "why": None}}
+        return 10.61
+    sent = []
+
+    def offer(symbol):
+        calls.append(("offer", symbol, len(trades(db))))
+        return {"bid": 10.58, "ask": 10.64, "bid_size": 300, "ask_size": 1, "at": at(2, 5).isoformat()}
+    for k in range(0, 9):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader, venue_quote=offer)
+    (t,) = trades(db)
+    assert calls == [("ABCD", 1), ("offer", "ABCD", 1)]               # each once, and only after the booking
+    ref = json.loads(t["entry_ref"])
+    assert (ref["booked"], ref["last_px"], ref["last_vs_booked"]) == (10.55, 10.61, round(10.61 / 10.55 - 1, 5))
+    assert (ref["venue_ask"], ref["venue_ask_vs_booked"]) == (10.64, round(10.64 / 10.55 - 1, 5))
+    assert ref["order_shares"] > 1 and ref["venue_covers_order"] is False     # one share offered against the order
+    assert "IEX offer $10.64 x 1 at " in sent[0] and "it shows fewer shares than the order" in sent[0]
+    assert "free feed last trade $10.61" in sent[0] and "A reference price, not a fill" in sent[0]
+    assert t["est_entry"] == 10.55 and t["status"] in ("open", "est_closed")     # the booking itself is what it was
+
+
+def test_a_reference_that_cannot_be_built_never_costs_the_entry_text(db):
+    """The long is booked before the reference is read. A feed that hands back a time that cannot be parsed (external
+    data) must not leave an open long without its entry text."""
+    alert_row(db)
+
+    def reader(symbol):
+        reader.seen = {symbol: {"at": "not a time", "why": None}}
+        return 10.61
+    sent = []
+    for k in range(0, 9):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader)
+    (t,) = trades(db)
+    assert t["est_entry"] == 10.55 and len(sent) >= 1 and bold("LONG IN") in sent[0]
+    assert "Booked at" not in sent[0] and t["entry_ref"] is None      # no half-built line, no half-built record
+
+
+def test_a_quote_reader_that_fails_costs_neither_the_booking_nor_the_text_nor_the_rest_of_the_reference(db):
+    import json
+
+    alert_row(db)
+
+    def reader(symbol):
+        reader.seen = {symbol: {"at": at(2, 5).isoformat(), "why": None}}
+        return 10.61
+
+    def offer(symbol):
+        raise RuntimeError("down")
+    sent = []
+    for k in range(0, 9):
+        lb.tick(db, feed(DAY), sent.append, now=at(0, 30 * k), last_trade=reader, venue_quote=offer)
+    (t,) = trades(db)
+    ref = json.loads(t["entry_ref"])
+    assert ref["venue_note"] == "quote read failed (RuntimeError)" and ref["last_px"] == 10.61 and "venue_ask" not in ref
+    assert bold("LONG IN") in sent[0] and "IEX offer" not in sent[0] and "A reference price, not a fill" in sent[0]
+    assert t["est_entry"] == 10.55                                    # the registered reference is what it was

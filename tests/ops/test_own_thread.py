@@ -135,6 +135,20 @@ def test_the_intervals_between_stop_checks_are_measured_not_assumed(tmp_path):
         "stop checks: measured in alert hours: short book 74 checks, 95.9% within 11 s, longest gap 21 s, longest "
         "single check 10 s; none late, no restart in alert hours")
     assert ot.clause(tmp_path, day, lambda t: False) == "stop checks: none late, no restart in alert hours"   # not in hours
+    # 2026-11-25 (BNAI): the long book's figure is how often it LOOKS at closed free-feed candles, never how soon it
+    # sees a long's stop. The line says so for the long book and only for it.
+    lp = ot.Pace(tmp_path, "long book", 15, clock=lambda: clock[0])
+    lp.start()
+    for _ in range(5):
+        clock[0] += 15.0
+        lp.start()
+        lp.finish()
+    lp.flush()
+    text = ot.clause(tmp_path, day, noon)
+    assert ("long book 5 checks, 100.0% within 16 s, longest gap 15 s, longest single check 0 s (how often it LOOKS, "
+            "at closed free-feed candles and at the free feed's last trade; that feed shows a long's stop later than the "
+            "tape, or not at all: not stop protection); short book 74 checks") in text
+    assert text.count("not stop protection") == 1
 
 
 def test_a_loops_sign_of_life_is_a_file_not_a_database_write(tmp_path):

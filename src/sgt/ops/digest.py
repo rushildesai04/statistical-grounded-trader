@@ -534,6 +534,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         sl = long_book.short_check_line(db)      # owner 2026-11-20: no long while our short is open, against its test
         if sl:
             lines.append(sl)
+        ss = long_book.stop_seen_line(db)        # owner 2026-11-25: how the paper book saw its long stops
+        if ss:
+            lines.append(ss)
     except Exception:  # noqa: BLE001 - informational line
         lines.append("gates check: unavailable")
     try:                                         # audit 2026-11-21: the official record against the bot's own timing
@@ -555,6 +558,9 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
         el = el or exec_check.line(db)
         if el:
             lines.append(el)
+        gap = exec_book.reference_gap_line(ledger)      # 2026-11-25: a long's booked reference against a real offer
+        if gap:
+            lines.append(gap)
     except Exception:  # noqa: BLE001 - informational line; its own label, so a failure is not read as the gates'
         lines.append("execution check: unavailable")
     try:                                         # owner 2026-11-25 (option A): the two arithmetic versions, side by side

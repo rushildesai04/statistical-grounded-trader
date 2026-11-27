@@ -216,10 +216,16 @@ def test_a_base_break_taken_on_the_free_feed_gets_what_the_official_candles_show
 
     posted, ready = pd.Timestamp("2026-11-18 15:14:40", tz="UTC"), t0 + pd.Timedelta(minutes=17)
     wide = frame(quiet + tape_base + [brk])
-    assert ec.base_on(wide, posted, ready) == ("official tape: no base break at 10:31: the 10 minutes before it span 4.33% "
+    assert ec.base_on(wide, posted, ready) == ("feed-only: official tape: no base break at 10:31: the 10 minutes before it span 4.33% "
                                                "(7.85 to 8.1899; limit 4%)")
     narrow = frame(quiet + [(o, min(h, 8.18), max(lo, 7.89), c) for o, h, lo, c in tape_base] + [brk])
-    assert ec.base_on(narrow, posted, ready) == "official tape: the same base break at 10:31 (base 7.89 to 8.18, 3.68% wide)"
+    assert ec.base_on(narrow, posted, ready) == ("tape-confirmed: official tape: the same base break at 10:31 (base 7.89 to "
+                                                 "8.18, 3.68% wide)")
+    # owner 2026-11-25: four classes, kept apart. An earlier break on the tape is "timing-different", not confirmed
+    early = frame([(8.0, 8.0, 8.0, 8.0)] * 11 + [(8.0, 8.3, 8.0, 8.25)] + [(8.2, 8.25, 8.15, 8.2)] * 4 + [brk])
+    assert ec.base_on(early, posted, ready).startswith("timing-different: official tape: its first base break was at 10:26, not 10:31")
+    assert ec.base_on(frame(quiet[:3]), pd.Timestamp("2026-11-18 14:00", tz="UTC"), ready).startswith("unknown: ")
+    assert all(ec.base_on(x, posted, ready).startswith(ec.SETUP_CLASSES) for x in (wide, narrow, early))
     low_close = frame(quiet + [(o, min(h, 8.18), max(lo, 7.89), c) for o, h, lo, c in tape_base] + [(8.09, 8.32, 8.03, 8.15)])
     assert "its close 8.15 is not above their high 8.18" in ec.base_on(low_close, posted, ready)
     fid = short(db, sym="BNAI", posted=posted.isoformat(), status="filtered")
@@ -228,8 +234,8 @@ def test_a_base_break_taken_on_the_free_feed_gets_what_the_official_candles_show
                         "created_at) VALUES (?,?,?,?,?,?,?,?,?)", (fid, "BNAI", DAY, "L8", "est_closed", 7.89,
                                                                   ready.isoformat(), 8.255, "x")).lastrowid
     lines = run(db, {"BNAI": wide})
-    assert one(db, "long_trades", lid)["setup_official"].startswith("official tape: no base break at 10:31: the 10 minutes")
-    assert [x for x in lines if x.startswith("BNAI base break: official tape: no base break at 10:31")]
+    assert one(db, "long_trades", lid)["setup_official"].startswith("feed-only: official tape: no base break at 10:31: the 10 minutes")
+    assert [x for x in lines if x.startswith("BNAI base break: feed-only: official tape: no base break at 10:31")]
     assert not [x for x in run(db, {"BNAI": narrow}) if "base break" in x]            # written once, never rewritten
     assert one(db, "long_trades", lid)["status"] == "est_closed"                      # evidence only: nothing else moves
     # a long booked a minute AFTER its setup was ready (the feed had no candle in between): the break candle comes from
@@ -241,5 +247,6 @@ def test_a_base_break_taken_on_the_free_feed_gets_what_the_official_candles_show
                        (f2, "LATE", DAY, "L8", "est_closed", 7.89, (ready + pd.Timedelta(minutes=2)).isoformat(), 8.3,
                         '{"break_ts": "' + (ready - pd.Timedelta(minutes=1)).isoformat() + '"}', "x")).lastrowid
     run(db, {"LATE": narrow})
-    assert one(db, "long_trades", l2)["setup_official"] == "official tape: the same base break at 10:31 (base 7.89 to 8.18, 3.68% wide)"
+    assert one(db, "long_trades", l2)["setup_official"] == ("tape-confirmed: official tape: the same base break at 10:31 "
+                                                            "(base 7.89 to 8.18, 3.68% wide)")
 

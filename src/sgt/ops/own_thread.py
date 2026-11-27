@@ -176,6 +176,17 @@ def gaps(folder: Path, day: str) -> list[dict]:
     return out
 
 
+# 2026-11-25 (BNAI: the long book "checked" every 15 s and still saw the stop 2 min 47 s after the tape). A check of
+# the long book reads the free feed's CLOSED one-minute candles, so how often it looks says nothing about how soon it
+# sees a stop: on 15 past stop exits the candle that showed it closed a median 39 s and up to 22 minutes after the
+# tape's first print there (docs/findings/long_stop_detection_2026-11-25.md). The line says so; the short book's
+# figures are never evidence for the long book's exits.
+# 2026-11-25 (afternoon): the look now also reads the free feed's last trade for a print at the stop
+# (long_book.between_candles). Still one thin feed: the wording says what is looked at, and that it is not protection.
+LOOKS = {"long book": " (how often it LOOKS, at closed free-feed candles and at the free feed's last trade; that feed "
+                      "shows a long's stop later than the tape, or not at all: not stop protection)"}
+
+
 def _measured(rows: list[dict], in_hours) -> str:
     """What the intervals between stop checks WERE in alert hours, per loop ("" when nothing was measured)."""
     out = []
@@ -194,7 +205,7 @@ def _measured(rows: list[dict], in_hours) -> str:
                 continue
         if n:
             out.append(f"{name} {n:,} checks, {counts[0] / n:.1%} within {1.1 * every:.0f} s, longest gap {gap:.0f} s, "
-                       f"longest single check {work:.0f} s")
+                       f"longest single check {work:.0f} s" + LOOKS.get(str(name), ""))
     return ("measured in alert hours: " + "; ".join(out) + "; ") if out else ""
 
 

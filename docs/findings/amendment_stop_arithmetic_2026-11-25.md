@@ -171,8 +171,11 @@ float in between) and once the way the pipeline does, and both were compared wit
 shortest-form. Six symbol-days (GLXG and JZ and BENF 11-24, RAIN 11-17, ALGS and BNAI 11-25), 11,592 open / high /
 low / close values: the pipeline's value equals the number the source wrote in every case; the stored value equals
 it in all 9,508 that are in the store; no value was written with more than 6 decimal places (0, 1, 2, 3 or 4) and
-none looks like a float artefact. Not checked, and not checkable from here: what the vendor did to the exchange's
-price before writing it; the trade and quote feeds the execution model reads (same parsing path, not yet compared).
+none looks like a float artefact. **Scope of that result:** it is an observation on those six symbol-days of
+one-minute bars. It does not prove that every float conversion preserves a source decimal (a value with more than
+15 significant digits, another parser, a 32-bit column or arithmetic on the way would not), so each further consumer
+is checked the same way BEFORE it is wired. Not checked: what the vendor did to the exchange's price before writing
+it; the trade and quote feeds the execution model reads (same parsing path, not yet compared).
 
 **Not enabled, each to be validated separately before it is:** the fade's forward record and would-have record, the
 long shadow, the challengers and other nightly studies, the execution model (frozen) and every research file. The

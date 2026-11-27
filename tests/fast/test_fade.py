@@ -629,6 +629,59 @@ def test_stale_print_is_no_price_only_when_it_looks_halted():
     assert tb("bad sym", a, b)[0] == "unknown" and tb("ODD", b, a)[0] == "unknown"
 
 
+def test_the_free_feeds_raw_last_print_is_one_request_and_strict():
+    import httpx
+
+    seen = []
+    trades_ = {"/v2/stocks/OK/trades/latest": (200, {"trade": {"p": 10.15, "s": 100, "t": "2026-11-09T15:04:20.123456789Z"}}),
+               "/v2/stocks/DOWN/trades/latest": (503, {}),
+               "/v2/stocks/JUNK/trades/latest": (200, ["trade"]),
+               "/v2/stocks/ZERO/trades/latest": (200, {"trade": {"p": 0, "t": "2026-11-09T15:04:20Z"}}),
+               "/v2/stocks/TEXT/trades/latest": (200, {"trade": {"p": "10.15", "t": "2026-11-09T15:04:20Z"}}),
+               "/v2/stocks/NOTM/trades/latest": (200, {"trade": {"p": 10.15, "t": "2026-11-09T15:04:20"}})}
+
+    def handler(req):
+        seen.append(req.url.path)
+        assert req.url.params["feed"] == "iex"
+        code, body = trades_[req.url.path]
+        return httpx.Response(code, json=body)
+
+    last = fl.iex_last(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)))
+    assert last("OK") == {"px": 10.15, "at": "2026-11-09T15:04:20.123456+00:00"} and len(seen) == 1   # one request
+    assert last("DOWN") == {"why": "the request failed (HTTP 503)"}
+    assert last("JUNK") == {"why": "the answer carries no trade"}
+    assert last("ZERO") == {"why": "the print has no price"} == last("TEXT")
+    assert last("NOTM") == {"why": "the print carries no time"} and last("bad sym") == {"why": "not a symbol"}
+    assert len(seen) == 6                                       # never a second request for a quiet or stale print
+
+
+def test_the_free_feeds_standing_quote_is_read_strictly_one_exchange_and_never_guessed():
+    quotes = {"/v2/stocks/OK/quotes/latest": (200, {"quote": {"bp": 6.5, "bs": 100, "ap": 6.59, "as": 40,
+                                                               "t": "2026-11-25T17:52:04.890123456Z"}}),
+              "/v2/stocks/DOWN/quotes/latest": (500, {}),
+              "/v2/stocks/JUNK/quotes/latest": (200, ["quote"]),
+              "/v2/stocks/NONE/quotes/latest": (200, {"quote": None}),
+              "/v2/stocks/NOTM/quotes/latest": (200, {"quote": {"bp": 6.5, "ap": 6.59, "t": "2026-11-25T17:52:04"}}),
+              "/v2/stocks/TEXT/quotes/latest": (200, {"quote": {"bp": "6.5", "ap": True, "bs": None, "as": 40,
+                                                                 "t": "2026-11-25T17:52:04Z"}})}
+
+    import httpx
+
+    def handler(req):
+        assert req.url.params["feed"] == "iex"
+        code, body = quotes[req.url.path]
+        return httpx.Response(code, json=body)
+
+    book = fl.iex_book(httpx.Client(base_url="https://x", transport=httpx.MockTransport(handler)))
+    assert book("OK") == {"bid": 6.5, "ask": 6.59, "bid_size": 100, "ask_size": 40,
+                          "at": "2026-11-25T17:52:04.890123+00:00"}
+    assert book("DOWN") == {"why": "the quote request failed (HTTP 500)"}
+    assert book("JUNK") == {"why": "the answer carries no quote"} == book("NONE")
+    assert book("NOTM") == {"why": "the quote carries no time"} and book("bad sym") == {"why": "not a symbol"}
+    assert book("TEXT") == {"bid": None, "ask": None, "bid_size": None, "ask_size": 40,     # a string or a bool is no price
+                            "at": "2026-11-25T17:52:04+00:00"}
+
+
 def test_an_entry_that_waits_writes_down_why_once_and_the_print_it_used(db):
     """GLXG 2026-11-24: the live entry came 2 min 32 s after the tested bar started (no round-lot print on the free
     feed) and nothing on record said why. The live code's behaviour is unchanged (wait for a free-feed print at or

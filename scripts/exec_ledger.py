@@ -214,7 +214,32 @@ def long_row(api: Api, r: dict) -> dict:
     except em.NoData as exc:
         m, s5 = {"status": "no_data", "why": str(exc), "flags": ("no_data",)}, {}
     flags = list(m.get("flags") or ())
+    out["entry_quote"] = entry_quote(api, sym, decided, r.get("est_entry"), shares)
     return {**out, "model": m, "stress_latency_net": s5.get("net"), "flags": flags, "label": _label(m, flags)}
+
+
+def entry_quote(api: Api, symbol: str, decided: pd.Timestamp | None, booked, shares: float | None) -> dict:
+    """ADDITIVE (2026-11-25, owner: an executable-price estimate from quotes beside the registered reference): the
+    official best bid and offer standing AT the booking instant, the quote's age, its displayed size against the
+    order, and how far the offer was from the booked reference price. A quote, not a fill. The frozen model above is
+    untouched (it prices the entry one second later and is the registered figure); nothing reads this but a report
+    line (``exec_book.reference_gap``). One request. Never raises: a failure is a note on the row."""
+    try:
+        if decided is None:
+            return {"note": "no booking time"}
+        q = api.quote(symbol, decided)
+        if not q or not q.get("ask", 0) > 0:
+            return {"note": "no official offer at the booking"}
+        at = _t(q.get("t"))
+        out = {"feed": "official", "bid": q["bid"], "ask": q["ask"], "bid_size": q["bid_size"], "ask_size": q["ask_size"],
+               "quote_at": q.get("t"), "age_s": round((decided - at).total_seconds(), 3) if at is not None else None}
+        if isinstance(booked, (int, float)) and not isinstance(booked, bool) and booked > 0:
+            out["ask_vs_booked"] = round(q["ask"] / float(booked) - 1, 6)
+        if shares:
+            out.update(shares=round(float(shares), 1), covers_order=bool(q["ask_size"] >= float(shares)))
+        return out
+    except Exception as exc:  # noqa: BLE001 - an added measurement: it must never cost the row its model result
+        return {"note": f"not read ({type(exc).__name__})"}
 
 
 def forward_rows(api: Api, c: sqlite3.Connection, limit: int | None) -> tuple[list[dict], dict]:

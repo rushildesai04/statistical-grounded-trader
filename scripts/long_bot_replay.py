@@ -72,11 +72,13 @@ def configured(cfg: str):
     trader_rule.track = lambda *a, **k: None            # a measurement beside the book: not part of what it trades
     lb.matrix_line = lambda *a, **k: ""                 # an extra line of a text: not part of what it trades
     lb._looked.clear()
+    lb._stop_looked.clear()
     try:
         yield
     finally:
         lb.LIVE_KINDS, lb.LIVE_WATCH, pt.BASE_MAX_RANGE, trader_rule.track, lb.matrix_line = keep
         lb._looked.clear()
+        lb._stop_looked.clear()
 
 
 def frame(f) -> pd.DataFrame:

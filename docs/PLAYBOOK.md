@@ -51,6 +51,15 @@ registered end; `price-decimal-v1` runs beside them in separate, labelled fields
 the two inside one, never let the parallel figure change a registered review decision. The live paper checks follow
 the version of the record that settles them.
 
+**Long book: what the owner's permission is, and the open blocker (owner 2026-11-25).** "Continue the existing frozen
+paper measurement at its authorized test size. This is permission to measure the free-feed-defined rule, not
+evidence that its setups are confirmed or suitable for real trading." No filter is adopted from one trade. Each long
+is classed the same night as tape-confirmed, timing-different, feed-only or unknown, and the four are never pooled;
+any comparison between them is registered before its outcomes are read, and trades already reviewed are development
+data. **Blocker for any real long:** the bot sees a long's stop from a thin feed, a median 34 s and up to 21 minutes
+after the tape (`long_stop_detection_2026-11-25.md`); a real long needs its stop resting at the broker. The long
+book's "checks within 16 s" is how often it looks, never stop protection.
+
 **Loss reviews (owner 2026-11-25).** A review keeps three things apart under their own headings: VERIFIED MECHANICS
 (what the records establish: times, prices, which rule applied, what was detected when), UNCERTAIN ATTRIBUTION (what
 may have contributed and cannot be established from one trade), and EXPLORATORY HYPOTHESES (labelled as such). A
@@ -960,6 +969,28 @@ night it cannot finish is texted and caught up on the next run.
   listed; setup is the owner's (account, one check, one secret set in his terminal, never pasted in chat). Disk
   warnings: nightly line from 70%, text at 09:20 ET from 90%, watchdog when the heartbeat stops; on a full disk the
   watchdog would have texted every minute (it could not record that it had): now spaced by a marker file.
+- **Long stops seen late, long entries booked at a stale price (owner 2026-11-25, `long_stop_detection_2026-11-25.md`).**
+  Measured on 15 past stop exits: the free feed first printed at or under the stop a median 34 s after the tape (twice
+  after 13 and 21 minutes, twice not at all); the candle that showed it closed a median 39 s after. A between-candle
+  look on the feed's last print was approved by the owner the same day "for paper measurement only" and is built
+  (`long_book.between_candles`): same stop level, a print made after the booking at or under the stop closes the
+  live paper long; it stands aside when a fill candle closed red under A2 or the window has ended (the proposal's
+  "never a different decision" was wrong there); one request a look, at most 10 looks a check; target, time and
+  red-candle exits and every registered figure untouched. It gains at most one candle and does not remove the
+  blocker (section 0). Owner, evening: it closes the live paper long (decision A); its effective version
+  is `long-stop-look-v1 2026-11-25`, on every such exit's record. Its turn list shared a name with the candidate
+  rotation's on the merged code (each wiped the other's turns); found and fixed before any deploy. The entry rule has no
+  maximum price and no "market moved away" condition, so nothing existing was enforced; the booked price is now
+  recorded and texted as a reference with its age and the feed's last trade. Owner the same day: keep the
+  registered reference and put a quote beside it. Built: one exchange's offer at the booking (IEX; a BOUND, since
+  the national best offer is at or under it and is not available live without paid data), with its age, its size
+  against the order and its distance from the booked price; and the official offer at the booking instant, read
+  nightly into the ledger and reported in one line. A last trade is never called a price on offer. OPEN, a policy
+  question: a trigger setup seen only after its fill candle closed and its exit was determined (FCUV 11-25, booked
+  66 s late); three options in the findings document, none adopted. Wording
+  tightened: "valid on the free feed" is not "valid on the tape"; "no enhancement supported" covers only the
+  candidates and definitions reviewed; the source-price check is an observation on six symbol-days, repeated before
+  any further consumer is wired.
 - **Two losses audited, 2026-11-25 (ALGS short, BNAI long; `loss_audit_2026-11-25.md`; owner: no "normal variance",
   no new rule made to fit).** Both were rebuilt from the decision record, the tape and the free feed, with the three
   records apart. ALGS: an eligible entry, a correct no-news read, a stop detected 4.8 s after the tape in continuous

@@ -24,7 +24,7 @@ from typing import Callable
 
 import pandas as pd
 
-from sgt.fast import calc_v1, est_costs, fade, long_shadow, news
+from sgt.fast import calc_v1, est_costs, fade, long_quote, long_shadow, news
 from sgt.fast import patterns as pt
 from sgt.fast.fade_texts import live_note, stop_lines
 from sgt.fast.fade import ET
@@ -291,6 +291,69 @@ def at_close_line(s: pt.Setup, now: datetime) -> str:
     return f"\n⏱ Break candle closed {s.ready.tz_convert(ET):%H:%M:%S} ET ({ago}s ago): buy at market now"
 
 
+def entry_reference(s: pt.Setup, t: pt.Trade, now: datetime, at_close: bool, last=None, symbol: str | None = None,
+                    venue=None, shares: float | None = None) -> dict:
+    """What the booked price of a long IS (owner 2026-11-25): a reference, not a fill. Its basis (the break candle's
+    close, or the feed's next candle open), the time it refers to, how old it was when the book booked it, and the
+    free feed's last trade at that moment when ``last`` (the live quote, with its ``seen`` record) can give one.
+    ``venue`` (a quote reader, ``sgt.fast.long_quote``): what ONE exchange was offering at the booking, with the
+    quote's age, its displayed size against the order's ``shares`` and its distance from the booked price. A past
+    trade is never called a price on offer, and one exchange's offer is never called a fill.
+    Never raises and never decides anything: a failed read leaves that part out."""
+    ref_at = s.ready if at_close else t.entry_ts
+    # Three different things can be the booked price, and the label must not call one by another's name: the break
+    # candle's close (age = since that close); a buy-stop's trigger, filled somewhere inside a candle (age = since that
+    # candle BEGAN, so the fill itself is younger); the open of the feed's next candle (age = since that open).
+    basis = ("the break candle's close" if at_close else
+             "the buy-stop trigger, filled inside a free-feed candle" if s.trigger is not None else
+             "the free feed's next candle open")
+    out = {"basis": basis, "booked": float(t.entry), "ref_at": iso(pd.Timestamp(ref_at).to_pydatetime()),
+           "age_s": round(max(0.0, (pd.Timestamp(now) - pd.Timestamp(ref_at)).total_seconds()), 1),
+           "age_from": "the candle's close" if at_close else "the start of the fill candle"}
+    if last is not None and symbol:
+        try:
+            px = last(symbol)
+            seen = (getattr(last, "seen", None) or {}).get(symbol) or {}
+            if px is not None and px > 0 and seen.get("at"):
+                out.update(last_px=float(px), last_at=str(seen["at"]), last_vs_booked=round(float(px) / float(t.entry) - 1, 5))
+            else:
+                out["last_note"] = str(seen.get("why") or "no free-feed trade to read")[:120]
+        except Exception as exc:  # noqa: BLE001 - evidence only; the entry is already booked
+            out["last_note"] = f"read failed ({type(exc).__name__})"
+    if venue is not None and symbol:
+        out.update(long_quote.venue(venue, symbol, float(t.entry), now, shares))
+    return out
+
+
+REF_MAX = 2000          # characters of ``entry_ref``; its notes are bounded, so this is never reached in practice
+REF_CORE = ("basis", "booked", "ref_at", "age_s", "age_from")
+
+
+def _ref_json(ref: dict) -> str:
+    """``entry_ref`` as stored: whole, or (should it ever outgrow REF_MAX) its core fields. Never a cut-off string."""
+    out = json.dumps(ref, default=str)
+    return out if len(out) <= REF_MAX else json.dumps({k: ref.get(k) for k in REF_CORE}, default=str)
+
+
+def _shares(db: OpsStore, fade_id: int, entry: float) -> float | None:
+    """The shares the booked long stands for (its weight x the long book's value / its booked price)."""
+    with db.read() as c:
+        w = c.execute("SELECT weight FROM long_trades WHERE fade_id=?", (fade_id,)).fetchone()
+    return float(w[0]) * nav(db) / entry if w and w[0] and entry > 0 else None
+
+
+def reference_line(ref: dict) -> str:
+    """The LONG IN card's line that says the price in the headline is a reference (it starts with a newline)."""
+    age = (f"{ref['age_s']:.0f} s old when booked" if ref.get("age_from") == "the candle's close" else
+           f"that candle began {ref['age_s']:.0f} s before the booking")
+    line = f"\n    Booked at ${ref['booked']:.2f}: {ref['basis']}, {age}. A reference price, not a fill"
+    if ref.get("last_px"):
+        at = pd.Timestamp(ref["last_at"]).tz_convert(ET)
+        line += (f"; free feed last trade ${ref['last_px']:.2f} at {at:%H:%M:%S} ({ref['last_vs_booked']:+.1%}; a past "
+                 f"trade, not a price on offer)")
+    return line + "." + long_quote.venue_line(ref)
+
+
 def first_fill(f: pd.DataFrame, row: dict, latest: pd.Timestamp) -> Fill | None:
     """The first long setup to fill that the book would take (None = none yet)."""
     return fills(f, row, latest)[0]
@@ -362,7 +425,7 @@ SWEEP_EVERY = 15.0      # seconds: while candidates are being read, open longs a
 
 
 def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=None, rule=None,
-         up_since: datetime | None = None, on_sweep=None) -> int:
+         up_since: datetime | None = None, on_sweep=None, last_trade=None, venue_quote=None, stop_print=None) -> int:
     """One pass: advance the open longs FIRST, then look for new ones, then advance again when one was opened (its
     first exit check, in the pass that opened it, as before). Open longs first (operational risk review 2026-11-23):
     each candidate costs a bar request (up to MAX_LOOKS a pass, 5 s timeout each) and the exit check of the open
@@ -371,7 +434,14 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
     when its candle closes (``at_close``, owner 2026-11-20), any other fill when the feed shows it. ``arm`` (a text
     sender, owner 2026-11-18): a setup whose order is still pending is texted once BEFORE it fills
     (``sgt.fast.long_armed``); None = no armed texts. ``rule`` (a text sender): the trader's rule is texted when it would leave a long
-    (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way."""
+    (``sgt.fast.trader_rule``); None = recorded without a text. The book's own fills are the same either way.
+    ``last_trade`` (2026-11-25): the live quote (``last_trade(symbol)`` -> the free feed's last trade price, with its ``seen``
+    record); read once AFTER a long is booked, only to say on the record and in the text how far the booked
+    reference price was from the feed's last trade. It decides nothing. ``stop_print`` (2026-11-25): the free feed's
+    raw last print (``stop_print(symbol)`` -> ``{"px", "at"}`` or ``{"why"}``), read for OPEN longs at each exit check
+    (``between_candles``, at most TICK_LOOKS a check): a print at or under a long's stop closes the live paper long
+    before its candle closes. None = closed candles only. ``venue_quote`` (2026-11-25): a quote reader
+    (``sgt.fast.long_quote``), read at the same point, for what one exchange was offering. It decides nothing."""
     fixed, now = now, now or utcnow()
 
     def sweep(when: datetime) -> float:
@@ -382,7 +452,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
             except Exception:  # noqa: BLE001 - a measurement; the check itself goes on
                 log.exception("sweep hook failed")
         try:
-            _advance(db, bars, send, when)
+            _advance(db, bars, send, when, stop_print)
         finally:
             if callable(done):
                 try:
@@ -440,7 +510,22 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             if _insert(db, row, s, t, "open", now):
                 opened += 1
-                send(entry_text(db, row["symbol"], s, t, now_line + matrix_line(raw, now) + context_line(db, row["id"])))
+                # owner 2026-11-25: the booked price is a reference. Read AFTER the long is booked, so the read can
+                # delay the text by its timeout at most and never the booking; kept on the row and said in the text.
+                # Everything about the reference is inside one guard: the long is booked, so whatever goes wrong
+                # here (a malformed time from the feed, a write that fails) the entry text must still go out.
+                ref_line = ""
+                try:
+                    ref = entry_reference(s, t, now, bool(now_line), last_trade, row["symbol"], venue_quote,
+                                          _shares(db, row["id"], t.entry))
+                    ref_line = reference_line(ref)
+                    with db.tx() as c:
+                        c.execute("UPDATE long_trades SET entry_ref=? WHERE fade_id=? AND entry_ref IS NULL",
+                                  (_ref_json(ref), row["id"]))
+                except Exception:  # noqa: BLE001 - a label on the record; the trade and its text stand without it
+                    log.exception("entry reference of long for alert %s not recorded", row["id"])
+                send(entry_text(db, row["symbol"], s, t, now_line + ref_line + matrix_line(raw, now)
+                                + context_line(db, row["id"])))
         except Exception:  # noqa: BLE001 - one alert failing never stops the book; logged with its id
             log.exception("long candidate %s failed", row["id"])
     if opened:                                 # a long opened in this pass gets its first exit check in it, as before
@@ -534,15 +619,105 @@ def target(s: pt.Setup, t: pt.Trade) -> float:
     return t.entry + pt.RR * (t.entry - s.stop)
 
 
-def _advance(db: OpsStore, bars: LiveBars, send, now: datetime) -> None:
+STOP_SEEN_BY = "a free-feed print between candles"
+# The effective version of the live paper book's stop monitoring (owner 2026-11-25, decision A: "close the live paper
+# position when the valid stop condition is detected, using the documented execution estimate. Keep registered replay
+# unchanged and label the effective monitoring version."). Written into ``stop_seen`` and so into the decision line
+# of every exit it makes. A long closed with ``stop_seen`` NULL was seen on a closed candle (the only path before
+# this version, and still the path for the target, time and red-candle exits). The settled replay and the execution
+# model never read it.
+STOP_LOOK_VERSION = "long-stop-look-v1 2026-11-25"
+TICK_LOOKS = 10         # between-candle looks per exit check (one request each): bounded, whatever is open (MAX_OPEN)
+# long id -> when it last had a between-candle look (monotonic); open longs only. Its OWN name (2026-11-25): it was
+# first written as a second ``_looked``, the name of the candidate rotation's list above, and the two shared one
+# dict (found on the merged code before any deploy; tests/fast/test_long_stop_tick.py).
+_stop_looked: dict[int, float] = {}
+
+
+def _red_pending(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> bool:
+    """Has the fill candle closed red under the red-candle exit (rules A2)? Then the exit is already determined: out
+    at the next candle's open. ``_exit`` books it once that candle has closed; until then nothing may pre-empt it."""
+    if r.get("rules") != RULES:
+        return False
+    path = f[f.ts >= entry_ts]
+    return bool(len(path)) and float(path.iloc[0].close) < float(r["est_entry"])
+
+
+def _turns(ids: list[int]) -> set[int]:
+    """Which open longs get a between-candle look in this exit check: the TICK_LOOKS looked at longest ago (never
+    looked at first), so every open long is reached within a few checks however many are open."""
+    for gone in set(_stop_looked) - set(ids):
+        del _stop_looked[gone]
+    return set(sorted(ids, key=lambda i: (_stop_looked.get(i, 0.0), i))[:TICK_LOOKS])
+
+
+def between_candles(r: dict, f: pd.DataFrame, entry_ts: pd.Timestamp, now: datetime, stop_print,
+                    session_close: pd.Timestamp) -> tuple[pt.Trade, dict] | None:
+    """The existing stop of an open long, checked between candles (owner 2026-11-25: "Approve the proposed
+    between-candle long-stop check for paper measurement only, with the same stop level and no changes to registered
+    simulation results. Do not treat it as real stop protection.").
+
+    The candle path sees a stop when a free-feed candle with a low at or under it has CLOSED. This looks at the free
+    feed's last print as well (``stop_print(symbol)`` -> ``{"px", "at"}``; ONE request): a print made at or after the
+    long was booked, at or under the long's stop, closes the live paper long now, at the lower of the stop and that
+    print. Returns (the exit, what was seen) or None.
+
+    What it is not, and what it never does:
+    - not stop protection. The free feed carries about 1% of the volume and its "last trade" moves on round lots only;
+      15 past stop exits showed its first print at or under the stop a median 34 s after the tape and up to 21 minutes
+      (docs/findings/long_stop_detection_2026-11-25.md). A real long's stop must rest at the broker.
+    - it never changes the stop level, the target, the time exit or the red-candle exit, which stay on closed candles;
+    - it never touches the settled replay or the execution model (official bars, real quotes): registered figures
+      are computed as before. Only the LIVE estimate's exit time and price can differ.
+    - it never pre-empts an exit that is already determined: a fill candle that closed red under rules A2 leaves at
+      the next open (``_red_pending``), and a hold window that has ended belongs to the time exit;
+    - it never acts on bad data: a failed or malformed read, a print with no time or no zone, a print older than the
+      booking or later than this look: each is "no decision", and the candle path runs as before. No staleness rule
+      is needed: a print is used only if it was made after the booking, however long ago that was. The comparison is
+      the live book's own (``price <= stop`` as ``_exit`` writes it: the registered arithmetic, binary-v0; the live
+      checks follow their record's version)."""
+    if stop_print is None:
+        return None
+    try:
+        booked = pd.Timestamp(r["created_at"])
+        stop, entry = float(r["stop"]), float(r["est_entry"])
+        if booked.tzinfo is None or not (stop > 0 and entry > 0 and math.isfinite(stop) and math.isfinite(entry)):
+            return None
+        at_now = pd.Timestamp(now)
+        if not at_now < min(entry_ts + pt.HOLD, session_close) or _red_pending(f, r, entry_ts):
+            return None
+        got = stop_print(r["symbol"])
+        px = got.get("px") if isinstance(got, dict) else None
+        if not isinstance(px, (int, float)) or isinstance(px, bool) or not math.isfinite(px) or not px > 0:
+            return None
+        try:
+            printed = pd.Timestamp(str(got.get("at")))
+        except (ValueError, TypeError):      # external data: a time that cannot be read is no print
+            return None
+        if pd.isna(printed) or printed.tzinfo is None or printed < booked or printed > at_now or not float(px) <= stop:
+            return None
+        out = min(stop, float(px))
+        last_candle = iso(pd.Timestamp(f.ts.iloc[-1]).to_pydatetime()) if len(f) else None
+        return (pt.Trade(r["kind"], "long", entry_ts, entry, printed, out, "stop", out / entry - 1),
+                {"version": STOP_LOOK_VERSION, "by": STOP_SEEN_BY, "print_px": float(px), "print_at": iso(printed.to_pydatetime()),
+                 "looked_at": iso(at_now.to_pydatetime()), "last_closed_candle": last_candle, "stop": stop})
+    except Exception:  # noqa: BLE001 - an extra look; whatever goes wrong, the candle path decides as before
+        log.exception("between-candle stop look of long %s failed", r.get("id"))
+        return None
+
+
+def _advance(db: OpsStore, bars: LiveBars, send, now: datetime, stop_print=None) -> None:
     """Close open longs when the simulator's exit is final on closed bars: a stop or target, or a time exit once the
-    whole hold window (or the session) has closed.
+    whole hold window (or the session) has closed. Between candles the existing stop is also looked for on the free
+    feed's last print (``between_candles``; ``stop_print`` None = closed candles only, as before 2026-11-25), for at
+    most TICK_LOOKS open longs a check, those looked at longest ago first.
 
     The list of open longs is a read (2026-11-24): under ``tx()`` this exit check queued for the write lock before it
     looked at anything (0.43 s on 11-24 behind another block that was only reading)."""
     with db.read() as c:
         rows = [dict(r) for r in c.execute("SELECT t.*, f.posted_at, f.status AS fstatus FROM long_trades t JOIN "
                                            "fade_trades f ON f.id=t.fade_id WHERE t.status='open' ORDER BY t.id")]
+    turns = _turns([r["id"] for r in rows]) if stop_print is not None else set()
     for r in rows:
         try:
             f = rth(bars(r["symbol"], now), now)
@@ -550,16 +725,25 @@ def _advance(db: OpsStore, bars: LiveBars, send, now: datetime) -> None:
                 continue
             entry_ts = pd.Timestamp(r["entry_ts"])
             t = _exit(f, r, entry_ts)
+            close = pd.Timestamp(default_close(r["session"]))
+            final = t is not None and (t.reason != "time" or pd.Timestamp(now) >= min(entry_ts + pt.HOLD, close))
+            seen = None
+            if not final and stop_print is not None and r["id"] in turns:
+                _stop_looked[r["id"]] = monotonic()   # closed candles have no final exit yet: the stop, between candles
+                hit = between_candles(r, f, entry_ts, now, stop_print, close)
+                if hit is not None:
+                    (t, seen), final = hit, True
             if t is None:
                 continue
-            close = pd.Timestamp(default_close(r["session"]))
-            final = t.reason != "time" or pd.Timestamp(now) >= min(entry_ts + pt.HOLD, close)
             if not final:
                 _set(db, r["id"], "open", est_last=float(f.close.iloc[-1]))
                 continue
-            if _set(db, r["id"], "open", status="est_closed", est_exit=t.exit, est_exit_at=iso(t.exit_ts.to_pydatetime()),
-                    est_last=t.exit, reason=t.reason):
-                send(exit_text(db, r, t))
+            cols = {"status": "est_closed", "est_exit": t.exit, "est_exit_at": iso(t.exit_ts.to_pydatetime()),
+                    "est_last": t.exit, "reason": t.reason}
+            if seen is not None:
+                cols["stop_seen"] = json.dumps(seen)
+            if _set(db, r["id"], "open", **cols):
+                send(exit_text(db, r, t, seen))
         except Exception:  # noqa: BLE001 - one trade failing never stops the book; logged with its id
             log.exception("long trade %s failed", r["id"])
 
@@ -786,7 +970,7 @@ def _day(db: OpsStore, session: str) -> tuple[int, float]:
     return n, usd
 
 
-def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
+def exit_text(db: OpsStore, r: dict, t: pt.Trade, seen: dict | None = None) -> str:
     """The LONG OUT card, laid out like FADE OUT (owner 2026-11-20): result first, the two prices and why it closed,
     what the price did, the day so far, the links. Quoted after the estimated round-trip spread (2026-11-16)."""
     cost = est_costs.cost("long", r["symbol"], dict(r).get("entry_ts"), t.entry) or 0.0
@@ -801,6 +985,10 @@ def exit_text(db: OpsStore, r: dict, t: pt.Trade) -> str:
                               f"price fell {abs(move):.1%} while we were long" if move < 0 else "price did not move"))
     if t.reason == "stop" and dict(r).get("stop"):     # owner 2026-11-25: the stop's loss in its parts, never "capped"
         lines += stop_lines("long", t.entry, float(r["stop"]), t.exit, cost)
+    if seen:                                           # 2026-11-25: how this stop was seen, and what that is not
+        at = pd.Timestamp(seen["print_at"]).tz_convert(ET)
+        lines.append(italic(f"Seen on a free-feed print of ${seen['print_px']:.2f} at {at:%H:%M:%S} ET, before its candle "
+                            f"closed. A paper measurement on a thin feed, not stop protection."))
     session = dict(r).get("session")
     n_day, day_usd = _day(db, session) if session else (0, 0.0)
     if n_day:
@@ -892,6 +1080,19 @@ def short_check_line(db: OpsStore) -> str | None:
         return None
     return (f"long short-open check (longs not bought, since {since[5:]}, in no total): {n} at {m:+.1%} "
             f"(tested {SHORT_TESTED:+.1%}; reread at {SHORT_REREAD})")
+
+
+def stop_seen_line(db: OpsStore) -> str | None:
+    """One sentence for the nightly report: of the long stop exits since the between-candle look began, how many were
+    seen on a print before their candle closed. A count of how the paper book saw its stops; None before any."""
+    with db.read() as c:
+        first = c.execute("SELECT MIN(session) FROM long_trades WHERE stop_seen IS NOT NULL").fetchone()[0]
+        if first is None:
+            return None
+        n, k = c.execute("SELECT COUNT(*), SUM(stop_seen IS NOT NULL) FROM long_trades WHERE session>=? AND reason='stop' "
+                         "AND status IN ('est_closed', 'settled')", (first,)).fetchone()
+    return (f"long stops since {first[5:]} (live paper estimate, {STOP_LOOK_VERSION.split()[0]}): {k or 0} of {n} seen on a free-feed print before the "
+            f"candle closed, the rest when a candle closed. A measurement on a thin feed, not stop protection")
 
 
 def record_line(db: OpsStore) -> str | None:
