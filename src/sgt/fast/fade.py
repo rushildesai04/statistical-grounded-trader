@@ -965,12 +965,14 @@ def channel_health(db: OpsStore, session: str) -> list[str]:
     return []
 
 
-def digest_warnings(db: OpsStore, day: date, now: datetime | None = None) -> list[str]:
-    """Listener down / channel quiet: lines the owner must see first."""
+def digest_warnings(db: OpsStore, day: date, now: datetime | None = None, session: bool = True) -> list[str]:
+    """Listener down / channel quiet: lines the owner must see first. ``session`` False (the exchange calendar says
+    the market is closed on ``day``): no alerts is the expected count, so the channel is not called quiet (2026-11-26,
+    Thanksgiving: "channel quiet: 0 alerts today vs usual 32" went out). The listener line is said on any day."""
     beat = db.flag("fade_heartbeat")
     down = beat and (now or utcnow()) - datetime.fromisoformat(beat) > HEARTBEAT_STALE
     warn = [f"! fade listener DOWN since {datetime.fromisoformat(beat).astimezone(ET):%m-%d %H:%M} ET"] if down else []
-    return warn + channel_health(db, day.isoformat())
+    return warn + (channel_health(db, day.isoformat()) if session else [])
 
 
 def _record(db: OpsStore) -> tuple[int, float | None, tuple, list[tuple[str, int, float]]]:
