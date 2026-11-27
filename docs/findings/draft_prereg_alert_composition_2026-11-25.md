@@ -6,6 +6,12 @@ missing-data handling, comparisons, and what decision a composition difference w
 can identify differences, not establish their effect on profitability." It becomes a registration only when the
 owner says so; until then every number in it is a proposal.
 
+**Decided by the owner, 2026-11-25 evening (reference population):** "B - training only initially. Do not open
+held-out rows, even features only, until a specific need and access boundary are reviewed. Feature-only access can
+still influence later research choices." Sections 3, 6 and 7 are rewritten to that: no held-out row is read, and
+the yardstick the held-out period would have given is replaced by one inside the training period (weaker; section 6
+says how). Still a draft: accepting this text is a separate step from the decision above.
+
 ## 1. Question
 
 The fade's tested figures come from alerts of 2024-01 to 2026-10. The forward record starts 2026-10-30. Are the
@@ -29,12 +35,18 @@ this check did not use.
 | Name | Events | Source |
 |---|---|---|
 | TRAIN | first in-cell alert per symbol-day, status ok, sessions 2024-01 to 2026-06 (2,349 rows) | `reports/telegram/trades_pooled_first.csv`, `split == "train"` |
-| HELD | the same, sessions 2026-07-01 to 2026-10-29 (764 rows) | the same file, `split == "holdout"` |
+| (not read) HELD | the same, sessions 2026-07-01 to 2026-10-29 (764 rows) | the same file, `split == "holdout"`: **closed to this check by the owner's decision** |
 | FWD | the forward record's events (`alert_fade_forward.forward_events`, status ok), sessions from 2026-10-30 to the last complete session before the registration is frozen | the list is written to a file at the freeze and not extended |
 
-**For the owner to decide before the freeze:** whether HELD may be read at all for this. No outcome column of it is
-loaded, but its rows are. The alternative is TRAIN as the only reference, which loses the yardstick of section 6.
-Recommended: read it, features only, with the column whitelist of section 7 enforced by a test.
+TRAIN is also used in two halves for the yardstick of section 6: TRAIN-EARLY (sessions before 2025-04-01) and
+TRAIN-LATE (from 2025-04-01). The boundary is the calendar midpoint of 2024-01 to 2026-06, fixed here from the
+calendar alone; no row count or feature was looked at to place it.
+
+**Held-out rows.** Not read: not their outcomes and not their features. The loader keeps `split == "train"` rows
+only and drops every other row before any column is used (section 7). The first draft recommended reading them for
+features; the owner's point stands against it: knowing how the held-out mix looks can steer later research choices
+even with no outcome loaded. Opening them later needs its own reviewed request, stating the specific question that
+TRAIN cannot answer, the columns, the one run, and who reads the output.
 
 ## 4. Features: each known at the alert, each from the same source in every period
 
@@ -75,17 +87,25 @@ Price arithmetic: `price-decimal-v1` (band edges compared as exact decimals; a t
 
 ## 6. Comparisons
 
-For each feature, three pairs: FWD against TRAIN, FWD against HELD, and HELD against TRAIN. The third is the
-yardstick: it shows how much the mix moved between two historical periods in which the tested result was observed
-to hold.
+For each feature, two pairs: FWD against TRAIN (the question), and TRAIN-LATE against TRAIN-EARLY (the yardstick:
+how much the mix moved between two historical periods).
+
+**What the yardstick is worth without the held-out period.** Both halves lie inside the period the rule was fitted
+on, so the yardstick shows how much the mix drifts over about fifteen months, not how much drift the tested result
+has been observed to survive out of sample. That second reading needed the held-out rows and is given up with
+them. A forward mix inside the yardstick is "no larger than ordinary drift within the training period"; it is not
+"a drift the result is known to withstand".
 
 - Statistic: the total variation distance between the two band distributions (half the sum of absolute differences
   in band shares), and the band shares themselves.
+- Like for like: the distance grows with small samples by chance alone, and FWD is small. In every resample the
+  yardstick is therefore computed on a draw of TRAIN-LATE sessions equal in number to FWD's sessions, against
+  TRAIN-EARLY; the full-sample yardstick is shown beside it and is not the one compared.
 - Uncertainty: 10,000 resamples of whole sessions within each population (seed 20261125), 95% interval for each
-  share and for the distance.
+  share and for each distance.
 - A difference is called NOTABLE for a feature only if both hold: (a) the FWD-TRAIN distance is larger than the
-  HELD-TRAIN distance, and (b) the interval of (FWD-TRAIN distance minus HELD-TRAIN distance), at 99.4% (0.05 / 8
-  features), excludes zero. Otherwise: "no notable difference at this sample size".
+  size-matched yardstick, and (b) the interval of (FWD-TRAIN distance minus the size-matched yardstick), at 99.4%
+  (0.05 / 8 features), excludes zero. Otherwise: "no notable difference at this sample size".
 - Reported beside every statement: the smallest share difference this sample could have shown. With about 120 to
   150 forward alerts in 18 to 25 sessions that is on the order of 12 points for a band holding a third of the
   alerts. A "no notable difference" at this size is weak, and the report says so in those words.
@@ -95,6 +115,10 @@ to hold.
 - The script loads the columns `symbol, alert_type, posted_at, session, status, split, cell` and nothing else from
   the events files. A test fails the build if any column whose name begins `gross`, `net`, `cover`, `exit` or `cost`
   is requested.
+- Held-out rows never reach the feature code: the loader filters `split == "train"` first, and asserts that no kept
+  session is on or after 2026-07-01. A test hands it a file with held-out rows and requires that none is returned,
+  that no bar of a held-out symbol-day is opened, and that the output carries no count of them beyond "rows not
+  read: n".
 - Bars are read only up to the alert minute. A test feeds a day whose later bars are poisoned and requires an
   identical result.
 - One run. Its output is stored; the run is entered in the trial ledger. No band, feature or threshold is changed
@@ -102,7 +126,8 @@ to hold.
 
 ## 8. Limits known now
 
-One channel. A parser that has changed over time may itself move feature 1. The forward list is small. The check
+One channel. A parser that has changed over time may itself move feature 1. The forward list is small. The
+reference is the training period alone, and the yardstick is drift inside it (section 6). The check
 sees eight features; a population can differ on something not listed. The bands are choices: they are fixed here so
 that they are not chosen after seeing the forward mix.
 
