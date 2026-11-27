@@ -422,6 +422,33 @@ def _safe(fn, fallback: str, *a):
         return [fallback], 0.0
 
 
+def market_day(day: date) -> tuple[bool | None, str]:
+    """(is ``day`` a session of the exchange, the words for the report's first line when it is not).
+
+    Owner 2026-11-27: the report of a closed day says so. The nightly job runs Monday to Friday by the clock, so on a
+    holiday it reported "+$0 today" under the day's date, which reads like a session with no trades, or like a job
+    that produced nothing. The answer comes from the exchange calendar only: never from "there were no trades".
+    None when the calendar cannot be read: the caller says that and reports the day as a session (every warning of a
+    session day is kept), so a calendar failure can never hide a problem behind "market closed"."""
+    try:
+        from sgt.intraday.calendar import default_calendar
+
+        cal = default_calendar()
+        if cal.is_session(day):
+            return True, ""
+        last = day - timedelta(days=1)
+        for _ in range(10):                          # the longest closure on the calendar is far shorter
+            if cal.is_session(last):
+                break
+            last -= timedelta(days=1)
+        else:
+            return False, "market closed (exchange calendar: no session today)"
+        return False, f"market closed (exchange calendar: no session today; last session {last:%a %m-%d})"
+    except Exception:  # noqa: BLE001 - said in the report by the caller; never a reason to send no report
+        logging.getLogger(__name__).exception("exchange calendar unavailable for the report's first line")
+        return None, ""
+
+
 def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[str],
           broker: str | None, research: list[str], marks: dict | None = None) -> str:
     """``marks``: a dict of the caller's; it receives what the job stores AFTER the report was sent (the revision
@@ -438,7 +465,10 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
     total = sum(groups.values())
 
     needs = (["PAUSED: no new trades until RESUME"] if db.paused() else [])
-    needs += [w.removeprefix("! ") for w in fade.digest_warnings(db, day, now_et)]
+    open_day, closed_words = market_day(day)
+    if open_day is None:
+        needs.append("exchange calendar unavailable: this report cannot say whether today was a session")
+    needs += [w.removeprefix("! ") for w in fade.digest_warnings(db, day, now_et, open_day is not False)]
     for p in approvals.pending(db):
         needs.append(f"pending {p['strategy']}: OK {p['code']} by {approvals.fmt_et(datetime.fromisoformat(p['expires_at']))}")
     stuck = approvals.attention(db, now_et - timedelta(hours=24))
@@ -473,7 +503,10 @@ def build(db: OpsStore, now_et: datetime, *, fills: list[dict], problems: list[s
 
     split = ", ".join(f"{k} {usd(v)}" for k, v in sorted(groups.items(), key=lambda kv: -abs(kv[1])) if abs(v) >= 0.5)
     not_counted = ", ".join(f"{k} {usd(v)}" for k, v in aside.items() if abs(v) >= 0.5)
-    lines = [f"[SGT] \U0001F4CA {bold(f'{now_et:%a %m-%d}')}: {bold(usd(total))} today {italic('(paper, trading books)')}"
+    # a closed day is said first, from the calendar. Whatever the books still show for the date follows it unchanged
+    # (normally $0), and so does every NEEDS YOU line, job failures included: closed is never a reason to hide one
+    said = f"{bold(closed_words)}; " if open_day is False else ""
+    lines = [f"[SGT] \U0001F4CA {bold(f'{now_et:%a %m-%d}')}: {said}{bold(usd(total))} today {italic('(paper, trading books)')}"
              + (f"\n{split}" if split else "") + (f"\n{italic('not in the total:')} {not_counted}" if not_counted else "")]
     lines += ((["", f"\U0001F6A8 {bold('NEEDS YOU')}"] + [f"\u2022 {n}" for n in needs]) if needs else
               ["\u2705 Nothing needs you. Jobs OK (24h)."])

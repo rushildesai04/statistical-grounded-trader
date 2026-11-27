@@ -183,6 +183,66 @@ def test_quiet_night_says_nothing_needs_you(db):
     assert text.splitlines()[1] == "\u2705 Nothing needs you. Jobs OK (24h)."
 
 
+# ---- owner 2026-11-27: a closed day is said first, from the exchange calendar; it hides no problem ----
+HOLIDAY = datetime(2026, 11, 26, 20, 50, tzinfo=ET)                     # Thanksgiving, a Thursday: the job still runs
+HALF = datetime(2026, 11, 27, 20, 50, tzinfo=ET)                        # the early-close session after it
+
+
+def busy_channel(db):
+    """Six past sessions of alerts, none on the closed day or the half day: the channel-quiet warning's condition."""
+    for d in ("2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25"):
+        for k in range(8):
+            fade_row(db, f"S{k}", d, "skipped")
+
+
+def test_a_closed_day_says_market_closed_first_and_does_not_call_the_channel_quiet(db):
+    busy_channel(db)
+    text = digest.build(db, HOLIDAY, fills=[], problems=[], broker=None, research=[])
+    first = text.splitlines()[0]
+    closed = "market closed (exchange calendar: no session today; last session Wed 11-25)"
+    assert first == (f"[SGT] \U0001F4CA {bold('Thu 11-26')}: {bold(closed)}; {bold('+$0')} today "
+                     f"{italic('(paper, trading books)')}")
+    assert "channel quiet" not in text and text.splitlines()[1] == "\u2705 Nothing needs you. Jobs OK (24h)."
+    assert digest.market_day(date(2026, 11, 26)) == (False, closed)
+
+
+def test_a_session_day_is_reported_as_before_and_an_early_close_day_is_a_session(db):
+    busy_channel(db)
+    assert digest.market_day(date(2026, 11, 27)) == (True, "") and digest.market_day(date(2026, 11, 25)) == (True, "")
+    assert digest.market_day(date(2026, 11, 28))[0] is False              # a Saturday, should the job ever run on one
+    text = digest.build(db, HALF, fills=[], problems=[], broker=None, research=[])
+    assert text.splitlines()[0] == (f"[SGT] \U0001F4CA {bold('Fri 11-27')}: {bold('+$0')} today "
+                                    f"{italic('(paper, trading books)')}")
+    assert "market closed" not in text
+    assert "\u2022 channel quiet: 0 alerts today vs usual 8 (listener or channel change?)" in text   # a session: said
+
+
+def test_a_closed_day_still_reports_a_failed_job_a_down_listener_and_a_problem(db, tmp_path):
+    busy_channel(db)
+    db.set_flag("fade_heartbeat", "2026-11-26T15:00:00+00:00")               # last beat 10:00 ET: stale by the report
+    log = tmp_path / "reports" / "ops" / "run.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("=== 2026-11-26 20:40:00 EST python /app/scripts/x.py\n!!! exit 1\n")
+    text = digest.build(db, HOLIDAY, fills=[], problems=["megacap: no decision file"], broker=None, research=[])
+    assert bold("market closed (exchange calendar: no session today; last session Wed 11-25)") in text.splitlines()[0]
+    assert "Nothing needs you" not in text
+    assert "\u2022 fade listener DOWN since 11-26 10:00 ET" in text
+    assert "\u2022 jobs FAILED: ops 11-26 20:40" in text and "\u2022 megacap: no decision file" in text
+    assert "channel quiet" not in text
+
+
+def test_a_calendar_that_cannot_be_read_is_said_and_the_day_is_reported_as_a_session(db, monkeypatch):
+    import sgt.intraday.calendar as cal
+
+    busy_channel(db)
+    monkeypatch.setattr(cal, "default_calendar", lambda: (_ for _ in ()).throw(RuntimeError("no calendar")))
+    assert digest.market_day(date(2026, 11, 26)) == (None, "")
+    text = digest.build(db, HOLIDAY, fills=[], problems=[], broker=None, research=[])
+    assert "market closed" not in text
+    assert "\u2022 exchange calendar unavailable: this report cannot say whether today was a session" in text
+    assert "\u2022 channel quiet: 0 alerts today vs usual 8 (listener or channel change?)" in text   # nothing hidden
+
+
 def test_fills_show_the_last_position_per_symbol(db):
     fills = [dict(strategy="megacap", symbol="META", target=0.0, price=641.37),
              dict(strategy="megacap", symbol="META", target=-0.25, price=641.37),
