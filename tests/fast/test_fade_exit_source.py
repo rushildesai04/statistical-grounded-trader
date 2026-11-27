@@ -155,6 +155,26 @@ def test_a_stop_exit_is_recorded_the_same_way(tmp_path):
     assert (r["reason"], r["est_exit"], r["exit_src_px"], r["exit_src_age_s"]) == ("stop", 12.5, 12.5, 1.0)
 
 
+def test_a_record_that_cannot_be_built_never_stops_or_changes_the_exit(tmp_path, monkeypatch, caplog):
+    def broken(*a, **k):
+        raise RuntimeError("no record")
+    monkeypatch.setattr(fade, "exit_source", broken)
+    db, q = book(tmp_path), Feed()
+    q.seen = {"ABC": "not a dict"}
+    sent = opened(db, q)
+    now = T10 + timedelta(minutes=61)
+    q.next = (9.0, now - timedelta(seconds=3), None)
+    fade.monitor(db, sent.append, q, now=now)
+    r = row(db)
+    assert (r["status"], r["reason"], r["est_exit"], r["est_exit_at"]) == ("est_closed", "60 min", 9.0, iso(now))
+    assert all(r[k] is None for k in NEW) and len(sent) == 2 and "exit source not recorded" in caplog.text
+    late, sent2 = book(tmp_path, "late.db"), []
+    short(late)
+    assert tc.check(late, sent2.append, tape(("10:54", 1.81, 2.05)), now=minute("11:11")) == 1     # the stop stands
+    r = row(late)
+    assert (r["reason"], r["est_exit_at"]) == (tc.LATE, iso(minute("10:54"))) and all(r[k] is None for k in NEW)
+
+
 NOW = datetime(2026, 11, 27, 18, 0, 5, 89000, tzinfo=timezone.utc)
 
 

@@ -649,7 +649,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
             return                                    # recorded, never shorted; no text (as every skip)
         elig = ELIG_EXEMPT + exempt
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), entry_elig=elig,
-            entry_rule=ENTRY_RULE, est_last_print_at=saw.get("at"), **when):
+            entry_rule=ENTRY_RULE, est_last_print_at=_print_at(saw), **when):
         out = _exit_at(r["session"], now)[0].astimezone(ET)
         if r["reason"] == VETO:
             _veto_text(db, send, r, px, now, out, context)
@@ -782,15 +782,32 @@ def exit_source(now: datetime, src: str | None, px: float | None, at: object, ca
             "exit_src_note": note}
 
 
+def exit_source_safe(now: datetime, src: object, px: float | None, at: object, **kw) -> dict:
+    """``exit_source``, never in the way of an exit: a record that cannot be built is logged and left empty (every
+    new column NULL), and the exit goes ahead exactly as it would have."""
+    try:
+        return exit_source(now, src if isinstance(src, str) else None, px, at, **kw)
+    except Exception:  # noqa: BLE001 - a record: failing to build it must never stop or change an exit
+        log.exception("exit source not recorded")
+        return {}
+
+
+def _print_at(saw: dict) -> str | None:
+    """The print time a look reported, only if it is text (it is bound into the row as it is)."""
+    at = saw.get("at") if isinstance(saw, dict) else None
+    return at if isinstance(at, str) and at else None
+
+
 def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     px = quote(r["symbol"])
     saw = (getattr(quote, "seen", None) or {}).get(r["symbol"]) or {}     # what this look saw (a record, not a rule)
+    saw = saw if isinstance(saw, dict) else {}
     entry, started = r["est_entry"], datetime.fromisoformat(r["est_entry_at"])
     fresh = px is not None and px > 0
     if fresh:
         # the mark's own print time beside it; None when this look gave none, so an older time never stays on a
         # newer price
-        _set(db, r["id"], "open", est_last=px, est_last_print_at=saw.get("at"))
+        _set(db, r["id"], "open", est_last=px, est_last_print_at=_print_at(saw))
     last = px if fresh else r["est_last"]
     end, why_end = _exit_at(r["session"], started)
     vetoed = r["reason"] == VETO and _vetoed(db, r["id"])
@@ -800,8 +817,9 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     exit_px = max(last, entry * (1 + STOP)) if why == "stop" else last
     src = getattr(quote, "source", None)
     held = r["est_last_print_at"] if "est_last_print_at" in r.keys() else None
-    source = (exit_source(now, src, last, saw.get("at")) if fresh else
-              exit_source(now, src, last, held, carried=True, why=saw.get("why")))
+    why_none = saw.get("why") if isinstance(saw.get("why"), str) else None
+    source = (exit_source_safe(now, src, last, _print_at(saw)) if fresh else
+              exit_source_safe(now, src, last, held, carried=True, why=why_none))
     if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why, **source):
         with db.tx() as c:                    # a NO after the exit is answered "already closed", never acted on
             c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE strategy=? "

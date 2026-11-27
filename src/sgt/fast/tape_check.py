@@ -25,7 +25,7 @@ from typing import Callable
 import pandas as pd
 
 from sgt.fast import est_costs
-from sgt.fast.fade import WEIGHT, day_est_pnl, exit_source, nav
+from sgt.fast.fade import WEIGHT, day_est_pnl, exit_source_safe, nav
 from sgt.fast.fade_rule import ET, STOP, VETO_EXIT
 from sgt.ops.store import OpsStore, iso, utcnow
 
@@ -92,15 +92,17 @@ def check(db: OpsStore, send, bars: Bars, now: datetime | None = None) -> int:
             # estimate came from too (the live look's own source stays in the decision log, on the row's first
             # "est_closed" entry). ``est_exit_at`` stays the candle's start, as before; the time this check decided
             # is ``exit_decided_at``. The cover is a rule price off a candle, not a print: the note says which.
-            src = exit_source(now, SRC, px, at)
-            src["exit_src_note"] = AT_OPEN if px > entry * (1 + STOP) + 1e-9 else AT_LEVEL
+            src = exit_source_safe(now, SRC, px, at)
+            if src:                                  # empty = the record could not be built (logged); the stop stands
+                src["exit_src_note"] = AT_OPEN if px > entry * (1 + STOP) + 1e-9 else AT_LEVEL
             with db.tx() as c:
                 done = c.execute("UPDATE fade_trades SET status='est_closed', est_exit=?, est_exit_at=?, est_last=?, "
                                  "est_last_print_at=NULL, reason=?, exit_decided_at=?, exit_src=?, exit_src_px=?, "
                                  "exit_src_at=?, exit_src_age_s=?, exit_src_note=? "
                                  "WHERE id=? AND status=? AND reason IS NOT ?",
-                                 (px, iso(at), px, LATE, src["exit_decided_at"], src["exit_src"], src["exit_src_px"],
-                                  src["exit_src_at"], src["exit_src_age_s"], src["exit_src_note"],
+                                 (px, iso(at), px, LATE, src.get("exit_decided_at"), src.get("exit_src"),
+                                  src.get("exit_src_px"), src.get("exit_src_at"), src.get("exit_src_age_s"),
+                                  src.get("exit_src_note"),
                                   r["id"], r["status"], LATE)).rowcount == 1
                 if done and was_open:        # a NO after the exit is answered "already closed", never acted on
                     c.execute("UPDATE approvals SET status='expired', decided_at=?, result='trade closed' WHERE "
