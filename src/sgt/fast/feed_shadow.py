@@ -181,7 +181,7 @@ class Recorder:
                 if self.on and self.off_file.exists():
                     self._trip("switched off by the OFF file")
                 if self.on:
-                    size = sum(p.stat().st_size for p in (self.path, Path(str(self.path) + "-wal")) if p.exists())
+                    size = self._size()
                     if size > self.max_db_bytes:
                         self._trip(f"its database is {size} bytes, over {self.max_db_bytes}")
                     elif self.path.parent.exists() and self._free(self.path.parent) < self.min_free_bytes:
@@ -192,6 +192,17 @@ class Recorder:
             if not self.on:
                 self._say()
                 return
+
+    def _size(self) -> int:
+        """Bytes of the database and its write-ahead file. A file that is not there (the write-ahead file comes
+        and goes) counts as 0: its absence is not a failure to look."""
+        total = 0
+        for p in (self.path, Path(str(self.path) + "-wal")):
+            try:
+                total += p.stat().st_size
+            except FileNotFoundError:
+                pass
+        return total
 
     def _say(self) -> None:
         """Once: the reason in the log, and the OFF file (with the reason) so a restart does not start it again."""

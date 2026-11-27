@@ -195,6 +195,15 @@ def test_a_resource_budget_that_is_spent_switches_it_off(tmp_path, kw, why):
     rec._thread.join(5)
 
 
+def test_a_write_ahead_file_that_comes_and_goes_is_not_a_failure_to_look(tmp_path):
+    rec = fs.Recorder(tmp_path / "shadow.db")
+    assert rec._size() == 0                                              # neither file exists yet
+    (tmp_path / "shadow.db").write_bytes(b"x" * 10)
+    assert rec._size() == 10                                             # no write-ahead file: still a size
+    (tmp_path / "shadow.db-wal").write_bytes(b"y" * 5)
+    assert rec._size() == 15
+
+
 def test_the_nightly_line_says_when_the_recorder_is_off(tmp_path):
     rec = fs.Recorder(tmp_path / "shadow.db", watch_s=0.02).start()
     rec.offer("ABCD", at(1).to_pydatetime(), frame([0]), 1.0)
