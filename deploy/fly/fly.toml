@@ -8,6 +8,7 @@ primary_region = "iad"
 [env]
   SGT_SECRET_STORE_DIR = "/data/sgt/secrets"   # rotating Schwab login (red-team F-1); 0700, sgt-owned
   SGT_MAX_ORDER_NOTIONAL = "75000"
+  SGT_FEED_SHADOW = "1"                        # 2026-11-27: Stage 0 recorder on (sgt.fast.feed_shadow); remove to switch off
 
 [[mounts]]
   source = "sgt_data"

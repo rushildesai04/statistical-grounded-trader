@@ -817,7 +817,7 @@ async def run() -> int:
     arm_send = CappedSms(db, "armed_text", MAX_ARMED_TEXTS_DAY, "armed long setup")
 
     async def long_loop():
-        from sgt.fast import long_book
+        from sgt.fast import feed_shadow, long_book
 
         long_last = iex_quote(lc)                # 2026-11-25: the feed's last trade, read after a long is booked (a label)
         # 2026-11-25: the feed's raw last print, read at each exit check of an open long for a print at its stop
@@ -829,8 +829,13 @@ async def run() -> int:
         def long_tick(*a):                       # the book's pass, with those readers handed over by name
             return long_book.tick(*a, last_trade=long_last, venue_quote=long_venue, stop_print=long_print)
 
+        # 2026-11-27 (owner: the no-cost Stage 0 recorder): with SGT_FEED_SHADOW=1 every frame this reader returns is
+        # also offered to a recorder with its own thread and its own database (sgt.fast.feed_shadow). The frame is
+        # returned unchanged; off (the default) this is the plain reader, with no wrapper at all.
+        long_bars = feed_shadow.tap(feed_shadow.start(), lambda sym, now: live_bars(lc, sym, now))
+
         def long_pass() -> None:
-            long_tick(db, lambda sym, now: live_bars(lc, sym, now), long_send,
+            long_tick(db, long_bars, long_send,
                       None, arm_send, None, rec.up_since, long_pace.sweep)   # armed text. No text for the trend-hold exit
 
         while True:

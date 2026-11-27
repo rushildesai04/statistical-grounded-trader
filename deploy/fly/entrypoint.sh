@@ -80,6 +80,8 @@ if [ "${1:-}" = "job" ]; then
     # 2026-11-19 (prereg_noise_area_forward; owner: "Record forward"): the frozen intraday trend rule on SPY and QQQ,
     # scored on finished sessions. A ledger and one summary line: no order, no text.
     noiseforward) run reports/noise_area_forward/run.log python /app/scripts/noise_area_forward.py record ;;
+    feedshadow) mkdir -p reports/feed_shadow
+                run reports/feed_shadow/run.log python /app/scripts/feed_shadow.py compare ;;
     execledger) mkdir -p reports/exec_model
                run reports/exec_model/run.log python /app/scripts/exec_ledger.py --append reports/exec_model/ledger.jsonl ;;
     fadechallengers) run reports/fade_challengers/run.log python /app/scripts/fade_challengers.py shadow ;;
