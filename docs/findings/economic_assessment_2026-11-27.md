@@ -14,9 +14,9 @@ was opened. Everything is paper.
 | What is the largest unresolved economic constraint? | **Whether the short edge exists in stocks that can actually be borrowed.** Every measurement closest to execution says it does not: IBKR-listed live shorts -4.59% (28) against about +0.4% for the other 8; names Alpaca lists easy to borrow -0.55% (64, held-out, look-ahead status); modelled shorts with no exclusion flag -8.87% (15) against +6.29% for flagged ones (14). Small, overlapping samples: an observation three times over, not a confirmation |
 | Will the scheduled reviews settle it? | **Not soon, and mostly only in one direction.** At about 19 points of dispersion a trade, the reviews on the calendar can drop a rule that is at or under zero; none can confirm a +1.1% edge before roughly 800 to 1,900 trades (`edge_assessment_2026-11-25.md` section 7) |
 | Is the live data feed the constraint? | **It is a real measurement and selection problem, not the binding economic one.** It changes which alerts become trades and when stops are seen (section 3). It cannot create an edge that the full-tape record does not show |
-| Should the paid feed be bought now? | **No.** Run the free Stage 0 (built today), settle the borrow question, and buy the month only if a book is still a candidate |
-| Is the alert universe exhausted? | **For longs: yes.** For shorts: not yet; it is one test away from an answer (section 5) |
-| The single next action | **A point-in-time borrow test of the short rule on the training history** (section 5): about 2,300 alerts instead of the 36 traded so far. It needs two owner decisions (a data account; approval to run one registered analysis on development data). No spending |
+| Should the paid feed be bought now? | **No.** Run the free Stage 0 (built today) first; buy the month only if a book is still worth researching with it once the forward records have spoken |
+| Is the alert universe exhausted? | **For longs: yes.** For shorts: not yet; the open question is borrow, history cannot answer it with any source available today (section 5), and the forward records will |
+| The single next action | It was: establish whether a valid point-in-time borrow source exists. **Done the same day; the answer is no** (section 5, `borrow_source_feasibility_2026-11-27.md`). The historical study is withdrawn. The borrow question is answered forward, by records already registered. The most valuable work that can be done now is therefore operational: the deploy and the Stage 0 recorder (section 4, A1 and B2) |
 
 ## 1. The books: what is supported, what is failing
 
@@ -90,7 +90,7 @@ Each active task: intended improvement / acceptance criterion / deliverable / bl
 
 | # | Task | Improvement | Accepted when | Deliverable | Blocker | Stop |
 |---|---|---|---|---|---|---|
-| B1 | **Borrow executability of the short rule** (section 5) | replaces 36 trades of evidence with about 2,300 on the question that decides the book | one registered run, both strata reported with intervals | a result and a keep / retire recommendation | owner: a data account and approval of one analysis on development data | data covers under 80% of alert stock-days: stop, report, no run |
+| B1 | **Borrow-source feasibility** (section 5): DONE 2026-11-27, verdict "not established" | says whether the question "is the short edge in borrowable stocks" can be asked of history at all | every item answered from an authoritative source or from our own stored lists, or named as unanswerable | `borrow_source_feasibility_2026-11-27.md` | closed | stop condition met: the source cannot be shown point-in-time and a daily list misstates the alert-time state for about one alert in four. No study on it |
 | B2 | Stage 0 feed recorder | says, per session, how much of "no candle" was no trade, another exchange, or missing data, and how late candles arrive | 5 sessions of nightly lines with zero dropped looks and zero write failures | `reports/feed_shadow/daily.jsonl`, one summary after 5 sessions | none: built, in review | it slows the book's pass or fails writes: it switches itself off; then removed |
 | B3 | Paper-key entitlement at the data vendor | removes the gating unknown of any purchase | the vendor's written answer | the answer, filed with the proposal | owner: only the account holder can ask | answer is no: the Alpaca path is closed and section 3 of the proposal is redone |
 
@@ -119,77 +119,57 @@ Closed with evidence: the live candle reader's 1,000-row limit cannot truncate a
 minutes); the closed-day report was not a failed job (job log: sent, no failure marker) and its false "channel
 quiet" warning is fixed.
 
-Why B1 ranks above everything else in B and C: it is the only item whose result changes what the short book is.
-B2 improves a measurement; B3 unblocks a purchase that is not yet justified; C2 cannot be hurried. If B1 says the
-borrowable subset is negative on 1,000 or more trades, the short book stops being a real-money candidate at this
-kind of broker, the paid feed loses its main customer, and the remaining effort moves to the two records that do
-not need a borrow. If it says positive, the book has for the first time a sample that supports it, and the feed,
-the locate question and the cohort all become worth their cost.
+B1 was ranked first because it was the only item aimed at the question the short book turns on, and it could be
+settled quickly either way. It was settled the same day, against the shortcut. With it closed, nothing in C can be
+started validly at no cost, so the queue's live items are A1, A2, B2 and B3: the first two are in hand, B2 waits
+for its merge, B3 is the owner's question to the data vendor.
 
-## 5. Recommended next action: a point-in-time borrow test of the short rule on the training history
+## 5. The borrow question: source checked first, historical study withdrawn
 
-**The hypothesis, stated so it can fail.** The tested short edge is concentrated in stocks with no shares to
-borrow. If that is true, the rule's mean on alerts where the broker listed enough shares the evening before is at
-or under zero, and the edge is not executable at a broker of this kind.
+Owner 2026-11-27: "Prioritize validating the borrow-data source before approving the proposed outcome test." and
+"Prepare one registered development-data study only after feasibility is established." The first version of this
+section drafted the study before the source was validated and made two claims that are withdrawn:
 
-**Why it is causal and not a chart explanation.** A stock that can be shorted freely is shorted by others on the
-way up; the squeeze-then-collapse pattern the rule harvests is strongest where short selling is constrained
-(limits to arbitrage). The mechanism predicts the split before looking at it, and the three small observations in
-section 0 all point the same way.
+| Withdrawn claim | Correction |
+|---|---|
+| The study "decides" whether the short rule is a real-money candidate | A study of this kind could at most inform whether to continue researching the short rule. It could not decide live readiness: listed shares are not a locate, a locate is not an approved order, and an approved order is not a fill |
+| An evening list is an upper bound on what could be borrowed the next day, so a negative result is decisive | Measured on our own stored lists and false: of 320 alerts with shares listed both the evening before and at the alert, the count at the alert was HIGHER in 68 and lower in 183; of 420 listed the evening before, 100 were off the list at the alert (`borrow_source_feasibility_2026-11-27.md` section 4). A negative result would not have been decisive |
 
-**What earlier tests actually addressed.** None used point-in-time availability. The held-out secondary used a
-present-day easy-to-borrow flag (look-ahead, 64 trades). The live and modelled splits use the right data but hold
-36 and 29 trades. The registered forward split beside F1 will answer the same question on about 300 alerts, in
-January, as a direction. This test asks it on the roughly 2,345 training alerts (2024-01 to 2026-06) now. It does
-not duplicate the forward split; it is the historical counterpart on development data.
+**The hypothesis that made the question worth asking** (still only a hypothesis): the tested short edge is
+concentrated in stocks with no shares to borrow, by limits to arbitrage. Three small, overlapping observations
+point that way (section 0). None is a point-in-time test on a large sample.
 
-**Plan.**
+**Feasibility result (no cost, no account, nothing uploaded, no result read).**
 
-| Step | What | Who | Cost |
-|---|---|---|---|
-| 1 | Choose the availability source. Candidates: (a) QuantConnect's US Equities Short Availability: shortable quantity, fee and rebate per symbol per day from January 2018, 10,500 US equities, free inside its cloud (official pages; export terms, snapshot time and small-cap coverage are not stated there). (b) The stock-loan history tool of an Interactive Brokers account (about 3 years; reported, not verified). (c) A paid estimate vendor: not proposed | owner decides: (a) and (b) both need an account, and (a) means the alert list (symbols and dates) is processed on that platform | $0 for (a) as described; (b) unverified |
-| 2 | Coverage check, no outcome read: for the training alerts, the share of stock-days the source has a row for on the session before the alert | me | none |
-| 3 | Register, before any result: populations, definitions, the single run, the decision rule (draft below) | me; owner approves | none |
-| 4 | Run once. Report every stratum with its count, mean and interval | me | about a day |
+| Question | Finding |
+|---|---|
+| Source identity | sound: the candidate history is a daily copy of the same public broker file this project stores |
+| Point-in-time | not verifiable: the hour of the daily pull is not published |
+| Terms | data may not leave the vendor's platform; a study there needs an account, accepted terms and the alert history placed there: three decisions not made |
+| Resolution | a daily list is wrong about the alert-time state for about one alert in four on the "listed" side alone |
+| Execution meaning | quantity, annual fee, locate charge and broker approval are four separate things; a list carries the first two only |
 
-**Draft registration (NOT registered, NOT run).**
+**Consequence.** No development-data study is prepared. Had one been run on a daily list it would have measured
+"listed the day before", and the mixing measured above would have blurred any real difference. The question stays
+where it can be answered properly: on the forward records, which stamp every alert with the list's own state and
+time (the split beside the forward record, read once at the first month-end with 300 or more; the executable
+baseline, early look at 25).
 
-- *Population:* the training alerts of the registered rule (`prereg_alert_fade_2026-11-01`), same replay, same costs.
-  The held-out file is not opened. The forward record, the cohort and H1 are not touched.
-- *Borrow state, from the last list before the alert's session:* LISTED ENOUGH (shares at least the registered full
-  paper order, $5,000 at the entry price), LISTED SHORT (fewer), ZERO LISTED, NOT ON THE LIST, UNKNOWN (no row).
-  Five strata, never pooled; the fee is taken from the same row and charged pro rata for one day in place of the
-  assumed 0.5%.
-- *Primary:* mean net of LISTED ENOUGH, bootstrap by session, one-sided 95% lower bound.
-- *Decision:* lower bound above zero: the book has a borrowable sample that supports it; proceed to the locate and
-  feed questions. Mean at or under zero: recommend retiring the short rule as a real-money candidate at a broker
-  with this kind of list (paper measurement and the registered reviews continue unchanged). Otherwise: no change.
-- *One run.* No second definition of "enough", no second window, no re-cut by price or news after the result.
+**What a future registration would have to state, should a valid source ever exist:** the existing entry and exit
+rule unchanged, on training alerts only, held-out closed; the position size as it would have been at each alert,
+fixed before the run and never searched; the eligible universe and the reason for each exclusion; the borrow state
+from the last observation provably available before the alert; quantity, annual fee, locate charge and broker
+approval kept apart, the last two recorded as not observed; missing data as its own stratum, described before any
+return is read; cost assumptions labelled as assumptions; what a positive, a negative and an inconclusive result
+would each justify, which is at most more or less research; one run.
 
-**Validation boundary.** Development data: the rule was built on these alerts, so a positive result is not a
-confirmation and would still need the forward cohort. A negative result needs no such caution: an optimistic test
-that fails is informative.
+**What would change this.** A source with verified timing and resolution near the alert that needs no decision the
+owner has not made. None is known.
 
-**Strongest counter-argument.** An evening list overstates what could be borrowed the next day in the middle of a
-spike: shares vanish when a stock runs. So LISTED ENOUGH is an upper bound on what was executable. That biases the
-test toward the rule, which is the right direction for a test whose useful outcome is a rejection. Second: if the
-source's coverage of small caps is thin, UNKNOWN swallows the sample; step 2 exists to catch that before anything
-is run.
+## 6. If research on the short rule is stopped
 
-**Applicability limits.** One broker's list; one size ($5,000); intraday fee treatment differs by broker; a locate
-desk at a specialist broker is a different product with a different cost and is not tested here.
-
-**Stopping conditions.** Coverage under 80% of alert stock-days: stop before running. The run is the end: no
-variant follows it whatever it shows.
-
-**What would change my mind about recommending it.** Evidence that a point-in-time source cannot be had without
-spending; or the owner preferring to wait for the January forward split, accepting that it gives a direction on
-about 300 alerts instead of an estimate on about 2,300.
-
-## 6. If the short rule is rejected
-
-Then this alert universe has produced no executable edge on either side, after a long list of registered tests,
-and further cuts of the same alerts should stop. One bounded alternative is already running at no cost and needs
+Then this alert universe has produced no supported edge on either side, after a long list of registered tests, and
+further cuts of the same alerts should stop. One bounded alternative is already running at no cost and needs
 nothing new: the stock-loan list as its own event source (`prereg_borrow_scan_forward_2026-11-18`: shares drying
 up, fees jumping; scored long and short over 1 and 5 sessions; decided once at 300 events with a result). Its
 rationale is the same mechanism read from the other side: every event is, by construction, a change in whether a

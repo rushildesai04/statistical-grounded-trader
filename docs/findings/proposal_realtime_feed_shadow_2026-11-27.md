@@ -109,7 +109,7 @@ interfere with production." Built in the same PR as this revision: `sgt.fast.fee
 | What it records | at each look of the live long book: which one-minute candles its reader returned, when each was first held closed, and the look before that (so the delivery delay is an interval, not a guess) |
 | How it stays out of the way | it looks only at frames the book already fetched (no request in session hours); the frame is handed back unchanged; a look is put on a bounded queue without waiting and dropped when full; its own thread and its own database file; off unless `SGT_FEED_SHADOW=1`; switches itself off after five failed writes in a row |
 | Nightly job (21:40 ET) | asks the vendor for the FINISHED candles of the looked-at symbols on the free feed and on the full tape (free once 15 minutes old), classifies every watched minute, appends one line to `reports/feed_shadow/daily.jsonl` |
-| Not covered yet | the short book's price reader is not tapped (its registered entry path is left untouched in this version); a candle delivered more than 12 minutes late is not seen; delay resolution is the book's 15 s pass |
+| Not covered, and not planned | the short book's price reader is not tapped. Owner 2026-11-27: "Do not add short-reader instrumentation unless it resolves a specific remaining question." None is named today, so none is added. Also: a candle delivered more than 12 minutes late is not seen; delay resolution is the book's 15 s pass |
 
 **A missing live candle is one of three different things**, and the record now says which:
 
@@ -148,32 +148,41 @@ session counts and is labelled). If fewer than 40 traded alerts (both books toge
 one session at a time to at most 20. No measure is read before the last session ends, except the health counters
 (M9, M10), which exist to stop a faulty run.
 
-**Why each criterion is where it is.** The numbers the criteria rest on are the book's own:
+**What the criteria rest on, and which of them are provisional.** Owner 2026-11-27: "Keep the paid-feed criteria
+provisional where unsupported. Do not assume a linear cost from the one-minute-delay result to a 20-second delay."
+and "Distinguish feed quality from market capacity." Each criterion below carries one of three labels:
 
-- The books look every 15 s (long) and about every 10 s (short). A polling design cannot see anything faster than
-  its pass, so the pass is the floor for every "seen within" criterion.
-- For a long, the same buy one minute later made 0.46 points less per trade on the 403 training base-break trades
-  (`long_entry_timing_2026-11-20.md`). Spread evenly over the minute (an assumption: the comparison was made at one
-  minute only), 20 s of extra delay is about 0.15 points a trade and 5 s about 0.04. The tested base break is
-  -0.24% a trade at the close against -0.67% a minute later, so 20 s is a material share of the whole difference: **20 s is not adequate for the entry rule, and the
-  first draft's 20 s is withdrawn.**
-- The base break is bought at its candle's close only when the break is seen less than 60 s after that close; the
-  short is taken only inside its registered entry minute. Both are lost, not degraded, by a late candle or quote.
-- A stop is a trigger, not a cap: what is lost beyond it grows with every second it is not seen. On the tape, stop
-  fills slipped 0.82% and 1.44% on average in the two samples (median about 0.35%;
-  `prereg_fade_stop_slippage_2026-11-09`). The one stop timed end to end (FCUV 2026-11-25) was detected 7.2 s after
-  the tape's first print through it.
+- **structural**: follows from how the books work, not from an estimate (a polling book cannot see anything faster
+  than its pass: 15 s long, about 10 s short; an entitlement either answers or does not);
+- **measured**: rests on a figure already on file, used only for what it measured;
+- **provisional**: a working threshold with no measurement behind the number. It is fixed before the paid stage
+  from Stage 0's own figures, or stays report-only if Stage 0 cannot support one.
+
+What is on file, and what it does and does not say:
+
+- The same long buy made ONE MINUTE later did 0.46 points worse per trade on the 403 training base-break trades
+  (-0.67% against -0.24%; `long_entry_timing_2026-11-20.md`). That is a measurement at one minute. **It says
+  nothing about 5, 20 or 30 seconds: no cost is interpolated from it here**, and the first version of this section,
+  which spread it evenly over the minute, is withdrawn. What it does support: delay in the entry is not free, so
+  candle latency is measured rather than assumed harmless. The 20 s figure of the first draft is withdrawn for the
+  same reason it was unsupported, not because 5 s is known to be right.
+- The base break is bought at its candle's close only when the break is seen less than 60 s after that close, and
+  the short is taken only inside its registered entry minute. A candle or quote that arrives after those windows
+  loses the entry outright. That is structural.
+- On the tape, stop fills slipped 0.82% and 1.44% on average in the two samples (median about 0.35%;
+  `prereg_fade_stop_slippage_2026-11-09`), and the one stop timed end to end (FCUV 2026-11-25) was seen 7.2 s
+  after the tape's first print through it. Neither figure gives a cost per second of late detection.
 
 | | Measure | How it is computed | Criterion (proposed; fixed once accepted) |
 |---|---|---|---|
 | M1 | Entitlement and shape | a full-tape latest-trade, latest-quote and bars request from the runner with the paper keys at every pre-open check; fields present and typed as the parser expects | every probe answers 200 with the expected fields. One refusal for entitlement fails the trial |
-| M2 | Candle delivery | seconds from a minute's end to the first look that holds its closed candle, as an interval (the look before proves a lower bound) | at least 95% held within 5 s of the minute's end and at least 99.5% within 15 s (one pass). If polling cannot meet 5 s, the same measure is taken on the vendor's minute-bar stream for timing only, and the result says which transport the entry rule needs |
+| M2 | Candle delivery | seconds from a minute's end to the first look that holds its closed candle, as an interval (the look before proves a lower bound) | **structural:** at least 99.5% held within one pass (15 s) of the minute's end, so a closed candle is acted on at the first pass after it or the one after. **provisional:** a tighter bound (a working figure of 5 s at 95%) is NOT a pass/fail line until Stage 0 shows what the free feed delivers and how the entry windows above are actually being missed; until then it is reported |
 | M3 | Completeness: missing data against no-trade minutes | each watched minute with no live full-tape candle, classified from the next day's finished candles AND the tape's own trade prints for that minute: (a) no print, no finished candle: verified no-trade; (b) prints that form no candle under the vendor's rules: listed with their trade conditions; (c) a finished candle or eligible prints exist: missing data | class (c) at most 0.5% of watched traded minutes, every case listed. Only if this passes can a missing full-tape candle be treated as resolved by the coverage rule, and that remains the owner's decision |
 | M4 | Discrepancies between records | every minute where the live full-tape candle, the next-day finished candle, and the tape's prints disagree (existence or range). Each is adjudicated from the prints with their conditions, and counted as: live wrong, finished record wrong, or rule difference (late print, correction, condition excluded from candles) | report with the adjudication. The nightly replay is NOT assumed correct: a "finished record wrong" count above zero is reported against the registered replay's inputs, separately, and corrects nothing by itself |
 | M5 | Setup agreement | for each alert: the setup, fill minute and exit the book's functions give on each feed's frame at the same look, and each against the nightly replay; disagreements traced to their minute and adjudicated as in M4 | the full-tape frame agrees with the adjudicated record on setup kind, fill minute and exit reason in at least 95% of compared alerts, AND in more of them than the free-feed frame does (paired, same alerts). If not, a switch is not supported by this trial |
-| M6 | Stop-detection delay | for each open paper trade whose stop the tape traded through: seconds from the tape's FIRST PRINT at or through the stop (trade prints, not candles) to the first look whose data showed it, per feed | on the full tape: at least 95% within one pass plus 2 s (17 s long book, 12 s short book), none later than 60 s. The free feed's figures are reported beside it |
-| M7 | Quote freshness and stale data | at each entry decision: age of the latest full-tape trade and quote, and whether both sides are present. A decision is "stale" when the quote is older than 2 s although the tape printed in the last 10 s, or when no trade printed in the last 90 s without a halt status | at least 99% of entry decisions on symbols that printed in the last 10 s have a two-sided quote no older than 2 s. Every stale case is listed with what the trading-status channel said (halt or not). A switch would refuse an entry on stale data instead of guessing; this measure says how often |
-| M8 | Executable size | at each entry decision: the displayed size on the side the order would take, against the order's shares at today's paper size and at full size; the spread | at today's size the displayed size covers the order in at least 90% of decisions. At full size it is reported, and a result under 50% is a finding about the size plan, not about the feed. Depth beyond the best bid and offer is not offered on the pages read and is reported as absent |
+| M6 | Stop-detection delay | for each open paper trade whose stop the tape traded through: seconds from the tape's FIRST PRINT at or through the stop (trade prints, not candles) to the first look whose data showed it, per feed | **structural:** on the full tape, at least 95% within one pass plus 2 s (17 s long book, 12 s short book): a book that polls cannot do better, so anything worse is a feed or transport fault. **provisional:** "none later than 60 s". The free feed's figures are reported beside it. No cost per second of late detection is claimed |
+| M7 | Quote freshness and stale data | at each entry decision: age of the latest full-tape trade and quote, and whether both sides are present. A decision is "stale" when the quote is older than 2 s although the tape printed in the last 10 s, or when no trade printed in the last 90 s without a halt status | **provisional:** the 2 s, 10 s and 99% figures are working definitions of "stale" with no measurement behind them; they are fixed from the trial's own first sessions before the rest is read, or the measure stays a report. **structural:** every decision is labelled fresh or stale by a stated rule, every stale case is listed with what the trading-status channel said, and a switch would refuse an entry on stale data instead of guessing |
+| M8 | Market capacity at the decision (NOT a feed criterion) | at each entry decision: the displayed size on the side the order would take, against the order's shares at today's paper size and at full size; the spread | **no pass/fail for the feed.** Too little displayed size is a fact about the market at that moment: it can invalidate an ORDER (that size could not have been taken at that quote) and it never makes the feed defective. Reported per decision as: quote present and fresh (a feed property, judged under M7) and, separately, size against the order (a capacity property, an input to the size plan and to the execution model). Depth beyond the best bid and offer is not offered on the pages read and is reported as absent |
 | M9 | Failures and recovery | requests by outcome (ok, timeout, 429, 5xx, 403) per feed; longest run of failed looks; looks dropped by the queue. One forced test before the trial: an invalid feed value must raise the alarm of section 7 within two passes and must not fall back | no run of failed looks longer than two passes without the alarm having fired; the forced test passes |
 | M10 | Resource use | requests per minute at the busiest minute against the plan's limit; the book's pass duration with the second reader on against the sessions before; operations-database lock waits | peak requests under 25% of the plan's limit; the book's pass duration at the 95th percentile not more than 10% above the sessions before; no new lock wait attributed to the recorder |
 
@@ -188,8 +197,9 @@ one session at a time to at most 20. No measure is read before the last session 
 | whether displayed size covers the orders the books send | borrow, locate cost, or any constraint outside market data |
 
 **The purchase decision, stated before any spending.** Total cost of the trial as designed: one month, $99. The
-cancel-or-continue point is the trial report: any failed criterion among M1, M2, M3, M5, M6 means cancel before the
-second charge unless a specific, cheap remedy is named in the report. A pass is a reason to consider a switch, not
+cancel-or-continue point is the trial report: any failed STRUCTURAL criterion among M1, M2, M3, M5, M6 means cancel before the
+second charge unless a specific, cheap remedy is named in the report. Provisional thresholds decide nothing until
+they have been fixed as described above; M8 never decides the purchase. A pass is a reason to consider a switch, not
 to make one. Today the economic case for paying is weak, and section 4 of `economic_assessment_2026-11-27.md` says
 why: neither alert book has a demonstrated executable edge, and a feed cannot supply one. The recommendation there
 is to run Stage 0 (free), resolve the short book's borrow question first, and buy the month only if a book is still
@@ -219,18 +229,22 @@ A switch is a separate authorization after the trial. It would be a versioned ch
   the free feed instead. The look is recorded as feed unavailable, no new paper trade is opened on it, and the
   owner gets one alarm text (rate-limited). An entry on a silently substituted feed is the failure this rule exists
   to prevent.
-- **Open positions when the feed fails: no automatic fallback. Three designs, their risks, and a recommendation.**
+- **Open paper positions when the feed fails (owner 2026-11-27: "explicitly mark the position unmonitored and its
+  outcome uncertain. No silent fallback or claim of protection.").** From the first failed pass the row is marked
+  UNMONITORED with the time it began; no exit check runs and none is simulated; the owner is texted once. No other
+  feed is read in its place. When the feed answers again the checks resume and the row records how long it was
+  blind. For any trade that was unmonitored at any point, the live estimate is labelled OUTCOME UNCERTAIN: it is
+  not a stop, not a result, and is shown as such in the texts and the nightly report. The registered replay scores
+  the trade at night from the official record, as it does every trade; that is a measurement after the fact and
+  protects nothing.
 
-  | Design | What happens to an open paper position | Risk |
-  |---|---|---|
-  | A. Blind hold, alarmed | no exit check runs until the configured feed answers again; the row is marked unmonitored from the first failed pass; the owner is texted once; the time exit still happens by the clock and is priced from the official record at night | a stop is not seen while blind. On paper the official replay still scores the trade, so the record is intact and the live estimate is simply absent. With real money this design is acceptable only if a stop order already rests at the broker |
-  | B. Degraded watch on the free feed, by choice | after K failed passes the exit check reads the free feed; the row carries the feed used for every check from then on; alarm | exits decided on the feed the switch was made to leave; the mixed-feed trade must be flagged in every report that splits by feed version. It hides nothing but it does mix |
-  | C. Flatten when blind | after K failed passes the position is closed at the last known price | books a price nobody could have traded at; in real trading it is a market order sent without a quote |
+  Two alternatives are recorded so the choice is visible, not recommended: reading the free feed for a blind
+  position (mixes feeds inside one trade and is a fallback, which the owner has ruled out as an automatic
+  behaviour), and closing the position when blind (books a price nobody could have traded at).
 
-  Recommended: **A for the paper books, B only if the owner chooses it explicitly in the switch document, C never.**
-  And one requirement that outlives this proposal: no real-money version of either book may depend on the runner's
-  own feed for its stop. The stop rests at the broker from the moment of entry, so a feed outage degrades
-  monitoring, not protection. The switch document will ask the owner to choose between A and B.
+  Nothing here is protection. A stop in these books is a trigger evaluated by the runner; when the runner is blind
+  the trigger does not exist. A resting stop order at a broker is also a trigger, filled at whatever the market
+  gives, and is a real-money design question outside this proposal.
 - **Rollback.** Set the value back to `iex` and restart inside a deploy window with no alert trade open. Rows made
   after the rollback carry `iex-v0` again. Nothing is deleted. The subscription can be cancelled independently;
   the terms read say no refund is owed for the rest of a paid month.

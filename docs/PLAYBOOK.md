@@ -1304,10 +1304,14 @@ night it cannot finish is texted and caught up on the next run.
   the same direction as two earlier small observations (not a confirmation). The scheduled reviews can drop a rule
   at or under zero; none can confirm +1.1% before about 800 trades. Longs on these alerts: exhausted as a research
   source (engineering on them stops unless a defect is found; the book stays on at test size by the owner's word).
-  Recommended next action, awaiting the owner (a data account, and approval of one registered run on development
-  data): a point-in-time borrow test of the short rule on the roughly 2,345 training alerts; drafted in section 5
-  of that document, not registered, not run. If the short rule is then rejected, the one alternative is the
-  stock-loan list as its own event source, already registered and running.
+  Borrow source checked first (owner 2026-11-27; `borrow_source_feasibility_2026-11-27.md`; no account, nothing
+  uploaded, no result read): the candidate history is a daily copy of the same public broker file we store, but
+  the hour of its daily pull is not published, its terms keep the data on the vendor's platform, and on our own
+  15-minute lists a daily list misstates the alert-time state (of 420 alerts with shares listed the evening before,
+  100 were off the list at the alert; of 320 listed both times the count was lower in 183 and HIGHER in 68).
+  Feasibility not established; the historical study is withdrawn; the borrow question is answered forward by the
+  registered records. Rule kept from this: borrow state is read at the alert, never from a daily file. If research
+  on the short rule stops, the one alternative is the stock-loan list as its own event source, already running.
 - **Real-time full-tape live feed (2026-11-27, `proposal_realtime_feed_shadow_2026-11-27.md`): Stage 0 built, the
   paid stage a proposal.** Verified on the vendor's documentation: Alpaca Algo Trader Plus is $99 a month, real-time
   on all US exchanges; a minute with no trade has no bar on that feed either. Open, the owner's to confirm in
@@ -1317,9 +1321,11 @@ night it cannot finish is texted and caught up on the next run.
   own thread to its own file; the 21:40 ET job classifies every watched minute with no live candle as no trade on
   the tape / traded on the tape only / never delivered, with delivery delays (`reports/feed_shadow/daily.jsonl`).
   Validation on delayed data (one stock-day, an illustration): FCUV 2026-11-25, 133 of 279 minutes with no
-  free-feed candle traded on the tape. Paid stage `feed-shadow-sip-v1`: ten measures with criteria tied to the
-  books' own timing (candle held within 5 s of the minute at 95%; a stop seen within one pass of the tape's first
-  print through it; quote no older than 2 s; displayed size against the order); the nightly record is adjudicated
-  from the tape's prints, not assumed right; no automatic fallback to the free feed, for entries or for open
-  positions. Recommendation: do not buy yet; read Stage 0 for five sessions and settle the borrow question first.
+  free-feed candle traded on the tape. Paid stage `feed-shadow-sip-v1`: ten measures, each labelled structural
+  (follows from the 15 s and 10 s passes and the entry windows), measured, or provisional (a working threshold with
+  no measurement behind it, fixed from Stage 0 before it decides anything). No cost per second of delay is
+  interpolated from the one-minute result. Displayed size against the order is market capacity, not feed quality,
+  and never decides the purchase. The nightly record is adjudicated from the tape's prints, not assumed right. On a
+  feed failure an open paper position is marked unmonitored and its live estimate outcome uncertain: no other feed
+  is read and nothing is called protection. Recommendation: do not buy yet; read Stage 0 for five sessions first.
   Not claimed: that a better feed improves returns; nor that the feed leaves live outcomes untouched.
