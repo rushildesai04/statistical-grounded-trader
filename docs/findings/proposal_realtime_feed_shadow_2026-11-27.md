@@ -158,6 +158,15 @@ Compared: the first full session with the recorder on, regular hours, against th
 | Cadence | share of passes started within 1.1 x 15 s; late passes | at least 99.5%; 0 late |
 | Pass duration | longest pass per 10 minutes, 90th percentile and maximum over the session | not more than 0.1 s (the record's resolution) above the worse baseline session: 0.2 s and 0.5 s |
 
+**Who makes the comparison.** The nightly `feedshadow` job itself (from 2026-11-27, `scripts/feed_shadow.py`): the
+session's line in `reports/feed_shadow/daily.jsonl` carries `pace` (the figures of the cadence and pass-duration rows,
+read from `loop_gaps.jsonl` for the same window as the baseline: rows stamped from 09:40 ET to the close), `integrity`
+(the output-integrity row) and the tolerance it was held against, and the job's printed line says each figure beside
+its limit and "inside", "outside: <which>" or "not measured: <which>". The four numbers are constants in that script,
+pinned by a test. A session that is not a full session is labelled and is not the comparison session. The job
+switches nothing and texts nothing: an outside figure is acted on as the table below says. The isolation row is
+checked once after the deploy, by hand.
+
 **What this comparison can and cannot carry.** The baseline is two full sessions. The record resolves 0.1 s and
 keeps one figure per 10 minutes (the longest pass), not a distribution: a cost under 0.1 s a pass cannot be seen in
 it, and one session inside the tolerance is not evidence of no effect on a busier day. A pass does more work on a
