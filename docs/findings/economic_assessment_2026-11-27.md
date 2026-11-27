@@ -133,7 +133,7 @@ section drafted the study before the source was validated and made two claims th
 | Withdrawn claim | Correction |
 |---|---|
 | The study "decides" whether the short rule is a real-money candidate | A study of this kind could at most inform whether to continue researching the short rule. It could not decide live readiness: listed shares are not a locate, a locate is not an approved order, and an approved order is not a fill |
-| An evening list is an upper bound on what could be borrowed the next day, so a negative result is decisive | Measured on our own stored lists and false: of 320 alerts with shares listed both the evening before and at the alert, the count at the alert was HIGHER in 68 and lower in 183; of 420 listed the evening before, 100 were off the list at the alert (`borrow_source_feasibility_2026-11-27.md` section 4). A negative result would not have been decisive |
+| An evening list is an upper bound on what could be borrowed the next day, so a negative result is decisive | Measured on our own stored lists and false: of 319 alerts with shares listed both the evening before and at the alert, the count at the alert was HIGHER in 68 and lower in 183; of the 420 listed the evening before that had a list before the alert, 101 were off the list at the alert (`borrow_source_feasibility_2026-11-27.md` section 4). A negative result would not have been decisive |
 
 **The hypothesis that made the question worth asking** (still only a hypothesis): the tested short edge is
 concentrated in stocks with no shares to borrow, by limits to arbitrage. Three small, overlapping observations
@@ -146,7 +146,7 @@ point that way (section 0). None is a point-in-time test on a large sample.
 | Source identity | sound: the candidate history is a daily copy of the same public broker file this project stores |
 | Point-in-time | not verifiable: the hour of the daily pull is not published |
 | Terms | data may not leave the vendor's platform; a study there needs an account, accepted terms and the alert history placed there: three decisions not made |
-| Resolution | a daily list is wrong about the alert-time state for about one alert in four on the "listed" side alone |
+| Resolution | a daily list is wrong about the alert-time state for 101 of 420 alerts (24%) on the "listed" side alone; all 552 rows are accounted for in section 4 of the feasibility document |
 | Execution meaning | quantity, annual fee, locate charge and broker approval are four separate things; a list carries the first two only |
 
 **Consequence.** No development-data study is prepared. Had one been run on a daily list it would have measured

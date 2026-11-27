@@ -19,8 +19,8 @@ return comparison was run.**
 | Do quantity and fee refer to the same broker, time and security? | **Yes within a day's row** (same line of the same file). Whether fees before March 2024 were backfilled is not stated | section 1 |
 | When was each observation actually available? | **Not established, and not establishable from public sources.** A row carries the date its job ran; the time of day of the pull is not published, and the vendor's engine serves a date's row for that whole date | section 2 |
 | Do the terms allow the processing? | Only on the vendor's platform. Export of the data "by any means" is prohibited, with no exception for small amounts; the study would need an account, the terms accepted, and the alert history processed there. Whether it is free is contradicted between the vendor's own pages | section 3 |
-| Is a once-a-day list a valid stand-in for the list at the alert? | **No, on our own data.** Of alerts whose stock had shares listed the evening before, 24% were off the list entirely by the last list before the alert; of those still listed, 57% showed fewer shares and 21% showed more | section 4 |
-| Is evening inventory an upper bound on intraday availability? | **No.** It was higher at the alert in 68 of 320 cases and a stock absent the evening before was listed at the alert in 11 of 81. The claim is withdrawn | section 4 |
+| Is a once-a-day list a valid stand-in for the list at the alert? | **No, on our own data.** Of the 420 alerts whose stock had shares listed the evening before and a list before the alert, 101 (24%) were off the list entirely by that list; of the 319 still listed, 57% showed fewer shares and 21% showed more | section 4 |
+| Is evening inventory an upper bound on intraday availability? | **No.** It was higher at the alert in 68 of 319 cases and a stock absent the evening before was listed at the alert in 11 of 81. The claim is withdrawn | section 4 |
 | Is feasibility established? | **No.** The source's identity is sound and its history is real, but its timing cannot be verified, its terms need decisions that have not been made, and a daily observation does not measure what the question is about | section 6 |
 | So where can the borrow question be answered? | Forward only, on the 15-minute archive this project has kept since 2026-11-04, where every alert is stamped with the list's own state and time. That is the registered split beside the forward record: about 300 alerts near early January, read once, as a direction | section 6 |
 
@@ -60,7 +60,7 @@ stock with nothing to lend is simply absent); 748 rows sit at the 10,000,000 cap
 | When a row is served | the engine returns the row of the algorithm's local DATE, for any time on that date. If the pull is made after the open, the row is ahead of an alert earlier that day |
 | Revisions | a date is written once from that day's pull; a date can be re-run only from the vendor's archive of the same raw file. No restatement mechanism was found |
 | Symbol changes and corporate actions | section 1: keyed by the ticker of the date; counts unadjusted |
-| Our own archive, for comparison | each stored list carries the file's own timestamp (file names are that stamp in UTC: verified on all 602 files); lists arrive about every 15.7 minutes between about 07:50 and 16:30 ET; 20 to 36 a session |
+| Our own archive, for comparison | each stored list carries the file's own timestamp (file names are that stamp in UTC: verified on all 610 files); lists arrive about every 15.7 minutes between about 07:50 and 16:30 ET; 20 to 36 a session |
 
 So the one thing that decides whether a daily row can be used for an alert at 09:45 on the same date, the hour of
 the pull, cannot be learned without asking the vendor. Using the previous date's row avoids look-ahead whatever the
@@ -81,35 +81,64 @@ Each of those is the owner's decision and none has been made. Nothing was done t
 
 ## 4. What our own lists show: a daily observation against the list at the alert
 
-Population: all 552 alert rows of the listener from 2026-11-04 to 2026-11-27 midday (18 sessions), every alert
+Population: all 552 alert rows of the listener from 2026-11-04 to 2026-11-27 13:11 ET (18 sessions), every alert
 type, taken or not. "Evening" is the previous session's last list at or before 16:05 ET. "At the alert" is the last
-list before the alert on the same day (median 8.5 minutes before it; none used if older than 3 hours). One broker,
-one month, counts rounded to 100 and capped: a description of this sample, not an estimate for other periods.
+list whose own stamp is at or before the alert, on the same day (median 8.5 minutes before it, 90th percentile 15;
+none used if older than 3 hours). One broker, one month, counts rounded to 100 and capped: a description of this
+sample, not an estimate for other periods.
+
+Every one of the 552 rows is in exactly one line:
 
 | Evening before | At the alert | Alerts |
 |---|---|---|
-| shares listed | shares listed | 320 |
-| shares listed | **not on the list** | 100 |
+| shares listed | shares listed | 319 |
+| shares listed | **not on the list** | 101 |
+| shares listed | no list in the 3 hours before the alert | 28 |
 | not on the list | not on the list | 70 |
 | not on the list | shares listed | 11 |
-| shares listed | no list before the alert (early pre-market) | 28 |
-| not on the list | no list before the alert | 3 |
-| no evening list | any | 20 |
+| not on the list | no list in the 3 hours before the alert | 3 |
+| no evening list | shares listed | 13 |
+| no evening list | not on the list | 6 |
+| no evening list | no list in the 3 hours before the alert | 1 |
+| **Total** | | **552** |
 
-- Of the 420 alerts with shares listed the evening before and a list before the alert, **100 (24%) were off the
-  list at the alert.**
-- Of the 320 listed both times: fewer shares at the alert in 183 (57%), more in 68 (21%), the same in 69 (22%).
-  The ratio of the two counts runs from 0.13 (10th percentile) to 1.7 (90th); in 31 cases the count at the alert
+- The 20 rows with no evening list are all alerts of 2026-11-04, the archive's first day.
+- The 32 rows with no list before the alert are 28 alerts before 08:00 ET (a day's first list is stamped about
+  07:50 ET) and 4 after 19:00 ET (its last about 16:30 ET). Their state at the alert is unknown; they are counted on
+  neither side of any share below.
+- No row had a list entry with zero shares (the file drops a stock with nothing to lend).
+
+Which rows each statement stands on:
+
+| Statement | Count | Out of | The denominator is | Rows it leaves out |
+|---|---|---|---|---|
+| off the list at the alert, having been listed the evening before | 101 | 420 (24%) | 319 + 101: listed the evening before AND a list before the alert | 28 listed the evening before with no list before the alert; 84 not listed the evening before; 20 with no evening list |
+| the same, if the 28 unknown rows are placed on one side or the other | 101 to 129 | 448 (23% to 29%) | every row listed the evening before | 84; 20 |
+| listed at the alert, having been absent the evening before | 11 | 81 (14%) | 70 + 11 | 3 absent the evening before with no list before the alert |
+| fewer / more / the same number of shares at the alert | 183 / 68 / 68 | 319 | listed both times | all others |
+| not on the list just before the alert | 177 | 520 (34%) | every row with a list before the alert, whatever the evening: 319 + 101 + 70 + 11 + 13 + 6 | the 32 with none |
+
+- Of the 319 listed both times: fewer shares at the alert in 183 (57%), more in 68 (21%), the same in 68 (21%).
+  The ratio of the two counts runs from 0.10 (10th percentile) to 1.7 (90th); in 31 cases the count at the alert
   was under a tenth of the evening's.
-- In the 60 minutes after the alert the list showed fewer shares than just before it in 195 of the 320 (61%).
-- The fee differed between the evening and the alert in 250 of the 320 (78%).
-- Just before the alert, 176 of the 520 alerts with a list (34%) were not on it. By alert type the share not on the
-  list runs from about 15% to almost 60%, on small counts in some types (new-high alerts: 55 of 111; news alerts:
-  25 of 112; intraday-high alerts: 14 of 24).
+- In the 60 minutes after the alert the list showed fewer shares than just before it in 196 of the 319 (61%).
+- The fee differed between the evening and the alert in 249 of the 319 (78%).
+- By alert type the share not on the list just before the alert runs from about 15% to almost 60%, on small
+  counts in some types (new-high alerts: 56 of 111; news alerts: 25 of 112; intraday-high alerts: 14 of 24).
+
+**One row moved between two runs, and why.** The first run of this table (13:11 ET, 602 stored lists) read 320 and
+100 in its first two lines; this one (about 15:40 ET, the same 552 rows, 610 lists) reads 319 and 101, with 195 of 320
+and 250 of 320 becoming 196 of 319 and 249 of 319. The alert that moved was posted at 13:05:34 ET on 2026-11-27. A
+list stamped 13:05:06 ET, before that alert, reached our store only after the first run, and the stock was not on
+it. The only inputs that differ between the two runs are the 8 lists stored after the first one. It shows a
+limit this table cannot remove: "at the alert" here means by the list's own
+stamp, and on 2026-11-27 a list reached our store a median 8 minutes after its stamp (at most 16). The last list
+actually in hand at an alert is therefore often one list older than the one counted here. The registered forward
+records use the list in hand, stamped on the alert's row at the time; this table is a reconstruction.
 
 What follows, and what does not:
 
-- A list from the evening before misstates the state at the alert for roughly one alert in four on the "listed"
+- A list from the evening before misstates the state at the alert for 101 of the 420 alerts (24%) on the "listed"
   side alone. A study that classifies by a daily list measures "listed the day before", not "could be borrowed at
   the alert", and any real difference between the two groups would be blurred toward nothing by that much mixing.
 - Evening inventory is not an upper bound: it was exceeded at the alert in about a fifth of the cases.

@@ -1307,8 +1307,9 @@ night it cannot finish is texted and caught up on the next run.
   Borrow source checked first (owner 2026-11-27; `borrow_source_feasibility_2026-11-27.md`; no account, nothing
   uploaded, no result read): the candidate history is a daily copy of the same public broker file we store, but
   the hour of its daily pull is not published, its terms keep the data on the vendor's platform, and on our own
-  15-minute lists a daily list misstates the alert-time state (of 420 alerts with shares listed the evening before,
-  100 were off the list at the alert; of 320 listed both times the count was lower in 183 and HIGHER in 68).
+  15-minute lists a daily list misstates the alert-time state (of 420 alerts with shares listed the evening before
+  and a list before the alert, 101 were off it at the alert; of 319 listed both times the count was lower in 183
+  and HIGHER in 68; all 552 rows accounted for in that document's section 4).
   Feasibility not established; the historical study is withdrawn; the borrow question is answered forward by the
   registered records. Rule kept from this: borrow state is read at the alert, never from a daily file. If research
   on the short rule stops, the one alternative is the stock-loan list as its own event source, already running.
