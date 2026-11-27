@@ -146,7 +146,9 @@ its break candle's close for up to 90 s after that close while no later candle i
 | 60 to 90 s | one | not bought in that pass, nothing recorded; the feed's next candle decides, exactly as for a break first seen after the window (`test_a_break_seen_late_is_bought_the_old_way_on_the_feeds_next_candle`) |
 
 So on this feed the last 30 s of the window cannot produce a buy at the close: not because the window ended, but
-because the one closed minute is unobserved. A source that covers that minute would make the whole 90 s usable
+because the one closed minute is unobserved. The effective buy-at-close window on this feed is the first 60 s; it is
+not operationally equivalent to the 90 s approved on 2026-11-20, and how many buys used to fall in the last 30 s has
+not been measured (`long_entry_timing_2026-11-20.md`, note of 2026-11-27). A source that covers that minute would make the whole 90 s usable
 without changing the window. BNAI 2026-11-25, the one live case looked at, was booked 13.6 s after the close.
 
 ## 2c. The allowed late discovery, step by step (a fill first seen 4.5 minutes after its candle began)

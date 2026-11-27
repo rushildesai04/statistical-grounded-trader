@@ -85,6 +85,24 @@ within 90 seconds of the close), at that candle's close:
 - NOT bought at the close (the old path, the feed's next candle): a break the book first sees more than 90 seconds
   late (restart, feed outage), and an alert with another long order still pending (first to fill, as tested).
 
+**Note added 2026-11-27 (effective behaviour; this section above is the change as approved on 2026-11-20 and is left
+as written).** Since `long-live-entry-v2` a live paper long also needs every closed minute since its entry to be a
+candle the book holds (owner 2026-11-26 and 2026-11-27, `long_over_record_only_2026-11-25.md` section 2b). The 90 s
+window was not changed. A buy at the close exists only while no later candle is held, so from 60 s after the close
+the one closed minute is unobserved and the buy is not made:
+
+| Break first seen after its candle closed | Before 2026-11-27 | Since |
+|---|---|---|
+| less than 60 s | bought at the close | bought at the close |
+| 60 to 90 s | bought at the close | NOT bought at the close; nothing recorded; the feed's next candle decides (the old path) |
+| more than 90 s | the old path | the old path |
+
+The last 30 s of the window are therefore not operationally equivalent to the window described above. How many of
+the buys at the close made so far fell between 60 and 90 s has not been measured (the one case looked at, BNAI
+2026-11-25, was 13.6 s). The only measurement that bears on what such a break gives up is the training comparison
+above (the same buy one minute late made 0.46 points less per trade); it was not made for this case, so it is not a
+figure for it. No exemption exists and none is to be added without the owner's word.
+
 ## 6. End-to-end check (the changed book replayed on the training events, `scripts/long_bot_replay.py`'s method)
 The whole changed book run alert by alert on the free feed's candles with official results, training events only
 (2,464 alerts; this replay has no short book, so "no long while our short is open" is not in it):
