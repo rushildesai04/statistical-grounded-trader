@@ -419,10 +419,17 @@ def test_a_break_seen_late_is_bought_the_old_way_on_the_feeds_next_candle(db):
     assert pd.Timestamp(t["entry_ts"]) == T1 + 16 * pt.BAR and t["est_entry"] == 10.6 and "⏱" not in sent[0]
 
 
-def test_exactly_ninety_seconds_after_the_close_is_still_bought_at_the_close(db):
+def test_the_buy_at_the_close_has_a_ninety_second_window_and_needs_every_closed_minute_since_observed(db):
+    """The window is 90 s (owner 2026-11-20, unchanged). Evidence is a separate requirement (owner 2026-11-27): the
+    last second before a minute closes is bought at the close; at exactly 90 s one closed minute has no candle on this
+    feed, so nothing is bought in that pass (tests/fast/test_long_over.py has the path that follows)."""
     alert_row(db)
     assert lb.AT_CLOSE == pd.Timedelta(seconds=90)
-    assert lb.tick(db, feed(THIN), [].append, now=at(13, 90)) == 1
+    row = {"id": 1, "symbol": "ABCD", "session": "2026-11-09", "posted_at": POSTED.isoformat()}
+    assert lb.at_close(lb.rth(THIN, at(13, 90)), row, at(13, 90), ls._latest("2026-11-09")) is not None   # in the window
+    assert lb.at_close(lb.rth(THIN, at(13, 91)), row, at(13, 91), ls._latest("2026-11-09")) is None       # past it
+    assert lb.tick(db, feed(THIN), [].append, now=at(13, 90)) == 0 and trades(db) == []
+    assert lb.tick(db, feed(THIN), [].append, now=at(13, 59)) == 1
     assert pd.Timestamp(trades(db)[0]["entry_ts"]) == T1 + 13 * pt.BAR
 
 

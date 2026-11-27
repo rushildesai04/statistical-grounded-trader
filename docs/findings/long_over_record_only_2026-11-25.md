@@ -18,8 +18,18 @@ untouched. Distinguish confirmed quiet intervals from unknown coverage. If entry
 interval and cannot be established, record insufficient data rather than open retrospectively. Verify this without
 changing the registered replay. Document the allowed 4.5-minute discovery case clearly: what establishes that the
 setup remains eligible, and which current price is used? Keep historical trigger prices separate from executable
-paper estimates." Sections 2b and 2c are written to that. The version was never deployed in its
-earlier form, so there is one `long-live-entry-v2`, the one described here.
+paper estimates." Sections 2b and 2c are written to that.
+
+**Correction, 2026-11-27 (verbatim):** "A later candle does not prove an earlier missing minute had no trades, even on
+the free feed, unless the provider guarantees completeness and that guarantee is verified. Label such intervals
+'missing candle; later data available,' not 'confirmed quiet.' If eligibility requires establishing that no stop,
+target, or invalidation occurred during that interval, treat it as unknown unless adequate evidence resolves it. This
+applies throughout the existing window; do not replace missing evidence with a new arbitrary timeout. Preserve
+registered replay and historical records." and "Keep the approved 90-second buy-at-close window unchanged. Do not
+shorten it merely to accommodate the coverage implementation. Window duration and sufficient evidence for entry are
+separate requirements." The first version of section 2b called a missing minute with a later candle held "confirmed
+quiet" and opened across it. That was wrong and is replaced below. No version was deployed in an earlier form, so
+there is one `long-live-entry-v2`, the one described here.
 
 Paper only. A change to what the LIVE paper long book opens. The setup rules, the stop, the target, the exits, the
 registered replay, the long shadow, the execution model and every stored row are unchanged. It answers question C
@@ -85,43 +95,59 @@ Three things this fixes in place:
   leaving no record; a candle with no usable low compared as "stop not reached". Now each is recorded at once as
   insufficient data with its cause, nothing is opened then or later, and it is counted every night. What the candles
   BEFORE an unusable one already settle still counts (a stop on the fill candle is invalidated, not unknown).
-- **A minute with no candle is quiet only when that is confirmed** (section 2b).
+- **A minute with no candle is never taken as quiet** (section 2b).
 
 Target-already-reached is classed expired (the move the setup was for has happened), not invalidated; the owner
 confirmed it 2026-11-26. The mapping is one table (`long_book.CLASS_OF`).
 The `missed` rows get the class from this version on; rows made before it are untouched and keep their old words.
 
-## 2b. A confirmed quiet minute against unknown coverage (`long_book.coverage`)
+## 2b. A minute with no candle is unknown, with or without later data (`long_book.coverage`)
 
-The free feed has no candle for a minute in which nothing traded on its exchange. A missing candle therefore has two
-possible meanings, and they look the same: nothing traded there, or the feed has not delivered that minute yet. For
-every closed session minute from the entry's candle up to the moment the book looks:
+The free feed has no candle for a minute in which nothing traded on its exchange. It also has none for a minute it
+did not deliver. The book cannot tell the two apart, and a later candle does not settle it: that the feed reported a
+later minute does not show it reported every earlier one, and no completeness guarantee of the feed has been verified
+here. For every closed session minute from the entry's candle up to the moment the book looks:
 
-| The minute | Meaning | What the book does |
+| The minute | Label | What the book does |
 |---|---|---|
 | a closed candle is held | observed: the exit check reads it | as section 2 |
-| no candle, and a LATER candle is held | **confirmed quiet on the free feed**: the feed had reported past that minute and showed no trade in it | the setup stays eligible. The number of such minutes is kept on the row (`entry_ref.quiet_minutes`) and said in the text. It is NOT evidence that the official tape was quiet (the free feed carries about 1% of the volume) |
-| no candle and none after it | **unknown coverage**: quiet, or not delivered yet | the long is not opened in that pass. The book looks again each pass. If a later candle arrives the minute becomes confirmed quiet (or shows what happened). If the five-minute window ends first, the setup is recorded as insufficient data, with the window and the uncovered span both in the cause |
+| no candle, and a LATER candle is held | **missing candle; later data available** | unknown: the long is not opened in that pass |
+| no candle and none after it | no candle and none after | unknown: the long is not opened in that pass |
+
+Both unknown kinds are treated the same. The book looks again each pass (a late candle would show what happened in
+that minute). If the existing five-minute window ends first, the setup is recorded as insufficient data, and the
+cause carries the label and the minutes. No timer is added: nothing is assumed quiet after some wait, and no window
+is shortened. Nothing the book reads today is adequate evidence to resolve such a minute (the free feed's last
+trade is one exchange's, with no verified completeness); if a complete, verified source is added later, this is
+where it would be read.
+
+An exit that is already on a held candle is still decided (the setup is over either way). When a missing candle
+lies before that candle, the cause says so: "after a missing candle: an earlier exit cannot be excluded".
 
 While the book is in measure-only mode the same holds for its "seen" text: it is sent for what the book would
-open, so it waits for the coverage too, and is not sent for a setup that ends as insufficient data (review
-2026-11-26; the books are on, so nothing changes today).
+open, so it is not sent across an unobserved minute (the books are on, so nothing changes today).
 
-No request is made for this (it reads the frame the book already holds) and no threshold is added (the only clock
-is the existing five-minute window). An exit that is already on a held candle is decided whatever is unknown after
-it. A fill seen when its own candle closes, the normal case, has one closed minute, its candle: the rule changes
-nothing for it (the 23 live longs measured in `long_entry_timing_2026-11-20.md` were booked 62 to 88 s after their
-fill candle began, that is within 28 s of its close; how often a fill is first seen two or more minutes late has not
-been measured). The registered replay is untouched: it runs on the official candles at night, as before, for opened and
-recorded rows alike (tests: the settle lines and totals).
+No request is made for this (it reads the frame the book already holds). A fill seen when its own candle closes,
+the normal case, has one closed minute, its candle: the rule changes nothing for it (the 23 live longs measured in
+`long_entry_timing_2026-11-20.md` were booked 62 to 88 s after their fill candle began, that is within 28 s of its
+close; how often a fill is first seen two or more minutes late, and how often such a fill has a minute with no
+candle, has not been measured). On a thinly traded stock a late discovery will usually have such a minute, so it
+will usually end as insufficient data: that is the stated cost of this rule on this feed. The registered replay is
+untouched: it runs on the official candles at night, as before, for opened and recorded rows alike (tests: the
+settle lines and totals).
 
-**One case is left as approved, and is the owner's to decide.** A base break is bought at its break candle's close
-for up to 90 s after that close while no later candle is held (`AT_CLOSE`, owner 2026-11-20: "the
-buy-at-candle-close changes only on the owner's word"). Between 60 and 90 s one closed minute has no candle, which
-by the rule above is unknown coverage. Applying the rule there would end that window at 60 s. It is NOT applied: the
-buy is made as approved, and the row says so (`entry_ref.unobserved_minutes`, with a note). BNAI 2026-11-25, the one
-live case looked at, was booked 13.6 s after the close. To make the two consistent, say "end the at-close window at
-60 s"; it is a one-line change.
+**The buy at the break candle's close: window unchanged, evidence required inside it.** A base break is bought at
+its break candle's close for up to 90 s after that close while no later candle is held (`AT_CLOSE`, owner
+2026-11-20; the constant is not changed). Evidence is a separate requirement and has no exemption:
+
+| Seen after the break candle's close | Closed minutes since with no candle | Result |
+|---|---|---|
+| up to 60 s | none (the next minute has not closed) | bought at the close, as approved |
+| 60 to 90 s | one | not bought in that pass, nothing recorded; the feed's next candle decides, exactly as for a break first seen after the window (`test_a_break_seen_late_is_bought_the_old_way_on_the_feeds_next_candle`) |
+
+So on this feed the last 30 s of the window cannot produce a buy at the close: not because the window ended, but
+because the one closed minute is unobserved. A source that covers that minute would make the whole 90 s usable
+without changing the window. BNAI 2026-11-25, the one live case looked at, was booked 13.6 s after the close.
 
 ## 2c. The allowed late discovery, step by step (a fill first seen 4.5 minutes after its candle began)
 
@@ -135,7 +161,7 @@ Example: a buy-stop at 10.55 fills inside the 10:03 candle; the book first looks
 | estimated cost at or under the cap; our own short on the stock not open | not bought (their own existing statuses) |
 | every closed candle from the fill candle on: low above the stop, high under the 2R target | invalidated / expired |
 | where the specification has the red-candle exit: the fill candle closed at or above the entry | invalidated |
-| every closed minute since the entry is a held candle or a confirmed quiet minute (2b) | not opened yet; insufficient data if the window ends |
+| every closed minute since the entry is a held candle (2b): a missing candle is unknown, with or without later data | not opened yet; insufficient data if the window ends |
 | every value compared is a usable price | insufficient data |
 
 **Which price is used.** Three different prices exist, and none is written into another's field:

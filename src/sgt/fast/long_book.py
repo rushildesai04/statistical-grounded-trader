@@ -334,9 +334,6 @@ def reference_line(ref: dict) -> str:
     age = (f"{ref['age_s']:.0f} s old when booked" if ref.get("age_from") == "the candle's close" else
            f"that candle began {ref['age_s']:.0f} s before the booking")
     line = f"\n    Booked at ${ref['booked']:.2f}: {ref['basis']}, {age}. A reference price, not a fill"
-    if ref.get("quiet_minutes"):
-        n = int(ref["quiet_minutes"])
-        line += f"; {n} minute{'s' if n != 1 else ''} since had no trade on the free feed (not proof the tape was quiet)"
     if ref.get("last_px"):
         at = pd.Timestamp(ref["last_at"]).tz_convert(ET)
         line += (f"; free feed last trade ${ref['last_px']:.2f} at {at:%H:%M:%S} ({ref['last_vs_booked']:+.1%}; a past "
@@ -374,8 +371,8 @@ SHORT_OPEN = "short_open"           # filled, not bought: our own short on the s
 # in the registered sample). docs/findings/long_over_record_only_2026-11-25.md says what this does to the samples.
 OVER = "over"                       # filled, not opened: recorded under long-live-entry-v2 (its class says why)
 ENTRY_RULE = ("long-live-entry-v2 2026-11-25: a live paper long is opened only while its exit is still undetermined on "
-              "the candles the book holds and every closed minute since its entry is a candle or a confirmed quiet "
-              "minute; else record-only, classed expired / invalidated / insufficient data")
+              "the candles the book holds and every closed minute since its entry is a candle the book holds; else "
+              "record-only, classed expired / invalidated / insufficient data")
 # Owner 2026-11-26, confirming the scope: "Apply record-only handling to every long setup where its existing
 # eligibility window or trigger opportunity has demonstrably expired. Define 'already over' using each setup's
 # specification. Do not reject a still-valid setup merely because its qualifying candle completed earlier. Unknown
@@ -397,12 +394,22 @@ ENTRY_RULE = ("long-live-entry-v2 2026-11-25: a live paper long is opened only w
 # Owner 2026-11-26 (second message): "A missing free-feed candle need not automatically invalidate a setup, but it
 # also cannot prove that the stop or target was untouched. Distinguish confirmed quiet intervals from unknown
 # coverage. If entry eligibility depends on an unobserved interval and cannot be established, record insufficient
-# data rather than open retrospectively." ``coverage``: a closed minute with no candle is a CONFIRMED QUIET minute
-# on the free feed only when the feed has delivered a later candle (it had reported past that minute and showed no
-# trade in it); with no later candle it is UNKNOWN coverage (quiet, or not delivered yet: the two look the same).
-# While any minute since the entry is unknown the long is not opened; the book looks again each pass, and if its
-# five-minute window ends first the setup is recorded as insufficient data. A confirmed quiet minute says nothing
-# about the official tape (the free feed carries about 1% of the volume): the count is kept on the row.
+# data rather than open retrospectively."
+# Owner 2026-11-27, correcting the first version of this (which called a missing minute with a later candle held
+# "confirmed quiet" and opened across it): "A later candle does not prove an earlier missing minute had no trades,
+# even on the free feed, unless the provider guarantees completeness and that guarantee is verified. Label such
+# intervals 'missing candle; later data available', not 'confirmed quiet'. If eligibility requires establishing that
+# no stop, target, or invalidation occurred during that interval, treat it as unknown unless adequate evidence
+# resolves it. This applies throughout the existing window; do not replace missing evidence with a new arbitrary
+# timeout." and "Keep the approved 90-second buy-at-close window unchanged ... Window duration and sufficient evidence
+# for entry are separate requirements."
+# ``coverage``: a closed minute since the entry with no candle is either MISSING (a later candle is held: "missing
+# candle; later data available") or has NO CANDLE AND NONE AFTER. Neither shows that nothing traded there, and
+# nothing the book reads today can resolve either (no completeness guarantee of the feed is verified), so both are
+# unknown: while any exists the long is not opened; the book looks again each pass; if the existing five-minute
+# window ends first the setup is recorded as insufficient data, with the label in its cause. No timer is added. The
+# buy at the break candle's close keeps its 90 s window (``AT_CLOSE``, unchanged) and meets the same evidence
+# requirement inside it: no exemption.
 EXPIRED, INVALIDATED, NO_DATA = "expired", "invalidated", "insufficient data"
 CLASSES = (EXPIRED, INVALIDATED, NO_DATA)
 CLASS_OF = {"stop": INVALIDATED, "red": INVALIDATED, "target": EXPIRED, "time": EXPIRED}
@@ -532,7 +539,7 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 why = "fill older than 5 min when seen" if stale else "fill candle began before the listener was back"
                 # owner 2026-11-26: the window ran out. Where the feed's coverage since the entry was never
                 # established either, that is the class (insufficient data), with both facts in the cause
-                gone = ({"class": NO_DATA, "cause": f"{why}; {unknown_words(seen_to)}"} if seen_to["unknown"] else
+                gone = ({"class": NO_DATA, "cause": f"{why}; {unobserved_words(seen_to)}"} if unobserved(seen_to) else
                         {"class": EXPIRED, "cause": why})
                 _insert(db, row, s, t, "missed", now, not_opened=gone, missed_why=why,
                         live_since=iso(since.to_pydatetime()) if since is not None else None)
@@ -546,18 +553,18 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 continue
             over = already_over(f, row, s, t, now)         # owner 2026-11-25: never booked retrospectively
             if over is not None:
-                why = over_reason(over)
+                why = over_reason(over) + gap_before(seen_to, over)
                 _insert(db, row, s, t, OVER, now, reason=why, not_opened={**over, "cause": why}, entry_rule=ENTRY_RULE,
                         over=json.dumps(over), seen_after_s=round((pd.Timestamp(now) - t.entry_ts).total_seconds(), 1))
                 log.info("long %s %s: recorded, not opened (%s: %s)", row["symbol"], s.kind, over["class"], why)
                 continue
-            # owner 2026-11-26: not opened across an unobserved minute. NOT applied to a base break bought at its
-            # candle's close (``now_line``): that buy's own window is AT_CLOSE = 90 s with no later candle held
-            # (owner 2026-11-20), and "the buy-at-candle-close changes only on the owner's word". Between 60 and 90 s
-            # one closed minute has no candle; the buy is made as approved and the row says so (``unobserved_minutes``).
-            # Whether that window should end at 60 s is put to the owner, not decided here.
-            if seen_to["unknown"] and not now_line:
-                log.info("long %s %s: not opened in this pass: %s", row["symbol"], s.kind, unknown_words(seen_to))
+            # owner 2026-11-26 and 2026-11-27: not opened across a minute the book holds no candle for, whether or
+            # not later candles are held. The buy at the break candle's close is under the same requirement inside its
+            # own 90 s window (window duration and evidence are separate requirements): seen 60 to 90 s after that
+            # close, one closed minute has no candle, so it is not bought in that pass; the feed's next candle
+            # decides, as for a break first seen after the window.
+            if unobserved(seen_to):
+                log.info("long %s %s: not opened in this pass: %s", row["symbol"], s.kind, unobserved_words(seen_to))
                 continue                                   # looked at again next pass; recorded when the window ends
             if off:
                 if _insert(db, row, s, t, SEEN, now):
@@ -573,12 +580,6 @@ def tick(db: OpsStore, bars: LiveBars, send, now: datetime | None = None, arm=No
                 try:
                     ref = entry_reference(s, t, now, bool(now_line), last_trade, row["symbol"], venue_quote,
                                           _shares(db, row["id"], t.entry))
-                    if seen_to["quiet"]:                   # said on the row and in the text; it decides nothing
-                        ref["quiet_minutes"] = len(seen_to["quiet"])
-                        ref["quiet_note"] = QUIET_NOTE
-                    if seen_to["unknown"]:                 # only a buy at the candle's close can get here (above)
-                        ref["unobserved_minutes"] = len(seen_to["unknown"])
-                        ref["unobserved_note"] = UNOBSERVED_NOTE
                     ref_line = reference_line(ref)
                     with db.tx() as c:
                         c.execute("UPDATE long_trades SET entry_ref=? WHERE fade_id=? AND entry_ref IS NULL",
@@ -860,28 +861,24 @@ def _exit(f: pd.DataFrame, r: dict, entry_ts: pd.Timestamp) -> pt.Trade | None:
     return pt.Trade(r["kind"], "long", entry_ts, entry, last.ts, float(last.close), "time", float(last.close) / entry - 1)
 
 
-QUIET_NOTE = ("minutes with no candle that a later free-feed candle shows the feed had reported past: quiet on that "
-              "feed, which carries about 1% of the volume; not evidence about the official tape")
-
-
-UNOBSERVED_NOTE = ("bought at the break candle's close inside its 90 s window (owner 2026-11-20) although a closed minute "
-                   "since has no free-feed candle: that minute was not observed")
+MISSING = "missing candle; later data available"       # owner 2026-11-27: the label, never "confirmed quiet"
 
 
 def coverage(f: pd.DataFrame, session: str, entry_ts: pd.Timestamp, now: datetime) -> dict:
-    """What the book has OBSERVED of the closed session minutes from the entry's candle up to ``now`` (owner
-    2026-11-26). Each such minute is one of:
+    """What the book HOLDS of the closed session minutes from the entry's candle up to ``now`` (owner 2026-11-26,
+    corrected 2026-11-27). Each such minute is one of:
 
     - held: a closed candle is in ``f`` (the exit check reads it);
-    - quiet: no candle, and a LATER candle is held. The feed had reported past that minute and showed no trade in
-      it: a confirmed quiet minute on the free feed. Not a statement about the official tape;
-    - unknown: no candle and none after it. Either nothing traded there or the feed has not delivered it yet; the
-      two cannot be told apart, so the stop and the target cannot be said to be untouched.
+    - missing: no candle, and a LATER candle is held (``MISSING``). The later candle does NOT show that nothing
+      traded in the missing minute, on the free feed or on the tape: no completeness guarantee of the feed is
+      verified here;
+    - unknown: no candle and none after it (nothing traded there, or not delivered yet).
 
-    Returns ``{"held": n, "quiet": [minute starts], "unknown": [minute starts]}``. A fill seen when its own candle
-    closes has one closed minute, its candle: nothing is quiet or unknown, and no request is made here in any case
-    (it reads the frame the book already holds). Minutes at or after the session's close are not session minutes.
-    A session whose close cannot be read counts every closed minute (fail towards "unknown")."""
+    Neither of the last two establishes that the stop or the target was untouched (``unobserved``). Returns
+    ``{"held": n, "missing": [minute starts], "unknown": [minute starts]}``. A fill seen when its own candle closes
+    has one closed minute, its candle: nothing is missing or unknown, and no request is made here in any case (it
+    reads the frame the book already holds). Minutes at or after the session's close are not session minutes. A
+    session whose close cannot be read counts every closed minute (fail towards "unknown")."""
     at, first = pd.Timestamp(now), pd.Timestamp(entry_ts)
     try:
         end = min(at, pd.Timestamp(default_close(session)))
@@ -890,26 +887,51 @@ def coverage(f: pd.DataFrame, session: str, entry_ts: pd.Timestamp, now: datetim
         end = at
     have = set(pd.to_datetime(f.ts)) if len(f) else set()
     last = max((x for x in have if x >= first), default=None)
-    held, quiet, unknown, m = 0, [], [], first
+    held, missing, unknown, m = 0, [], [], first
     while m + pt.BAR <= end:
         if m in have:
             held += 1
         elif last is not None and m < last:
-            quiet.append(m)
+            missing.append(m)
         else:
             unknown.append(m)
         m += pt.BAR
-    return {"held": held, "quiet": quiet, "unknown": unknown}
+    return {"held": held, "missing": missing, "unknown": unknown}
 
 
-def unknown_words(seen_to: dict) -> str:
-    """The unknown minutes of ``coverage``, in words ("" when there are none)."""
-    u = seen_to.get("unknown") or []
-    if not u:
+def unobserved(seen_to: dict) -> bool:
+    """Is any closed minute since the entry one the book holds no candle for (``coverage``)? Then whether the stop or
+    the target was reached there is not established, and no live paper long is opened."""
+    return bool(seen_to.get("missing") or seen_to.get("unknown"))
+
+
+def _hm(ts) -> str:
+    return pd.Timestamp(ts).tz_convert(ET).strftime("%H:%M")
+
+
+def unobserved_words(seen_to: dict) -> str:
+    """The minutes of ``coverage`` with no candle, in words ("" when there are none): the missing ones under their
+    label, the ones with nothing after them, and what follows from both."""
+    miss, unk = seen_to.get("missing") or [], seen_to.get("unknown") or []
+    parts = []
+    if miss:
+        parts.append(f"{MISSING} ({len(miss)} min, {_hm(miss[0])}-{_hm(miss[-1] + pt.BAR)} ET)")
+    if unk:
+        parts.append(f"no free-feed candle from {_hm(unk[0])} ET on")
+    return "; ".join(parts) + ": the stop and target there cannot be established" if parts else ""
+
+
+def gap_before(seen_to: dict, over: dict) -> str:
+    """For a setup whose exit was found on a held candle: the words to add when a missing candle lies BEFORE that
+    candle ("" otherwise). The exit found is on the record; an earlier, different one cannot be excluded."""
+    try:
+        at = over.get("exit_candle")
+        if not at or not any(m < pd.Timestamp(at) for m in seen_to.get("missing") or []):
+            return ""
+        return "; after a missing candle: an earlier exit cannot be excluded"
+    except Exception:  # noqa: BLE001 - words on a record; never a reason to fail the pass
+        log.exception("gap before a recorded exit not described")
         return ""
-    a, b = (pd.Timestamp(x).tz_convert(ET).strftime("%H:%M") for x in (u[0], u[-1] + pt.BAR))
-    return (f"the free feed delivered no candle for {a} to {b} ET and none after, so whether the stop or target was "
-            "reached there cannot be established")
 
 
 def _usable(v) -> bool:
