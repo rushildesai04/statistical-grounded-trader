@@ -195,7 +195,7 @@ def entry_start(posted: datetime) -> datetime:
 Borrow = Callable[[str, datetime], dict]
 NewsCheck = Callable[[str, datetime], "dict | None"]          # company-news flags at a time; None = unknown
 BetaCheck = Callable[[str, datetime], "float | None"]         # the symbol's beta (sgt.fast.beta); None = unknown
-BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable")
+BORROW_COLS = ("ib_avail", "ib_fee", "ib_snap", "alp_etb", "alp_shortable", "ib_received", "ib_read_at")
 Official = Callable[[pd.DataFrame], pd.DataFrame]
 
 
@@ -649,7 +649,7 @@ def _enter(db: OpsStore, send, quote: Quote, r, now: datetime, context=None, new
             return                                    # recorded, never shorted; no text (as every skip)
         elig = ELIG_EXEMPT + exempt
     if _set(db, r["id"], "pending", status="open", est_entry=px, est_last=px, est_entry_at=iso(now), entry_elig=elig,
-            entry_rule=ENTRY_RULE, est_last_print_at=_print_at(saw), **when):
+            entry_rule=ENTRY_RULE, est_last_print_at=_print_at(saw, px), **when):
         out = _exit_at(r["session"], now)[0].astimezone(ET)
         if r["reason"] == VETO:
             _veto_text(db, send, r, px, now, out, context)
@@ -750,20 +750,25 @@ AT_OBSERVED = "observed"
 AT_NONE = "source time missing: the reader gave a price without a time"
 AT_UNREADABLE = "source time missing: the time given is not a time with a zone"
 AT_CARRIED_NONE = "source time missing: the carried price has no print time on record"
+AT_UNBOUND = ("source time missing: the reader's record does not carry the price it returned, so its time cannot "
+              "be tied to this reading")
 
 
 def exit_source(now: datetime, src: str | None, px: float | None, at: object, carried: bool = False,
-                why: str | None = None) -> dict:
+                why: str | None = None, unbound: bool = False) -> dict:
     """The columns that say where an exit ESTIMATE came from (owner 2026-11-27; a record, never a rule: nothing
     reads these to decide or to price). ``px`` is the source price and ``at`` the time of the event it belongs to.
     A time that is absent or not a zoned time is recorded as missing, in words, with the time and the age left
     NULL: it is never rebuilt from another reading. ``carried``: no price at the decision, so the book used its
-    last mark; ``why`` is what the reader said about having no price then. The age may be large (a quiet stock, or
-    a carried mark) and is recorded as it is; it classifies nothing.
+    last mark; ``why`` is what the reader said about having no price then. ``unbound``: the reader's record could
+    not be tied to the price it returned (see ``_bound``), so no time is taken from it. The age may be large (a
+    quiet stock, or a carried mark) and is recorded as it is; it classifies nothing.
 
     What the record establishes: when that price occurred on that reader. It does not establish that an order
     could have been executed at it, then or at the decision."""
-    when, note = None, AT_CARRIED_NONE if carried else AT_NONE
+    when, note = None, AT_CARRIED_NONE if carried else AT_UNBOUND if unbound else AT_NONE
+    if unbound:
+        at = None
     if isinstance(at, datetime):
         at = at.isoformat()
     if isinstance(at, str) and at:
@@ -792,9 +797,17 @@ def exit_source_safe(now: datetime, src: object, px: float | None, at: object, *
         return {}
 
 
-def _print_at(saw: dict) -> str | None:
-    """The print time a look reported, only if it is text (it is bound into the row as it is)."""
-    at = saw.get("at") if isinstance(saw, dict) else None
+def _bound(saw: dict, px: float | None) -> bool:
+    """Is ``saw`` the record of the very reading that returned ``px``? Only when it carries that price itself. The
+    exit's source must be the exact observation used, never a second reading: a record without the price, or with
+    another price, is not taken as this reading's, whatever else it says."""
+    got = saw.get("px") if isinstance(saw, dict) else None
+    return (px is not None and isinstance(got, (int, float)) and not isinstance(got, bool) and got == px)
+
+
+def _print_at(saw: dict, px: float | None) -> str | None:
+    """The print time of the reading that returned ``px``: only from a record bound to it, only if it is text."""
+    at = saw.get("at") if _bound(saw, px) else None
     return at if isinstance(at, str) and at else None
 
 
@@ -807,7 +820,7 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     if fresh:
         # the mark's own print time beside it; None when this look gave none, so an older time never stays on a
         # newer price
-        _set(db, r["id"], "open", est_last=px, est_last_print_at=_print_at(saw))
+        _set(db, r["id"], "open", est_last=px, est_last_print_at=_print_at(saw, px))
     last = px if fresh else r["est_last"]
     end, why_end = _exit_at(r["session"], started)
     vetoed = r["reason"] == VETO and _vetoed(db, r["id"])
@@ -818,7 +831,8 @@ def _exit(db: OpsStore, send, quote: Quote, r, now: datetime) -> None:
     src = getattr(quote, "source", None)
     held = r["est_last_print_at"] if "est_last_print_at" in r.keys() else None
     why_none = saw.get("why") if isinstance(saw.get("why"), str) else None
-    source = (exit_source_safe(now, src, last, _print_at(saw)) if fresh else
+    loose = bool(saw.get("at")) and not _bound(saw, px)      # a time on record that nothing ties to this price
+    source = (exit_source_safe(now, src, last, _print_at(saw, px), unbound=loose) if fresh else
               exit_source_safe(now, src, last, held, carried=True, why=why_none))
     if _set(db, r["id"], "open", status="est_closed", est_exit=exit_px, est_exit_at=iso(now), reason=why, **source):
         with db.tx() as c:                    # a NO after the exit is answered "already closed", never acted on

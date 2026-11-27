@@ -150,6 +150,17 @@ COLUMNS = {
         # A record only: no exit, price or result depends on any of these. Rows closed before this are NULL in all.
         "est_last_print_at": "TEXT", "exit_decided_at": "TEXT", "exit_src": "TEXT", "exit_src_px": "REAL",
         "exit_src_at": "TEXT", "exit_src_age_s": "REAL", "exit_src_note": "TEXT",
+        # The ``exit_*`` columns are the FIRST exit estimate's provenance and are written once. When the official-
+        # tape stop check later REVISES a live exit, they are left as the live look wrote them and the revision goes
+        # in ``exit_rev``: one JSON record of what the check read (reader, price, candle start, when it decided) and
+        # of every value it replaced on the row (owner 2026-11-27: "Do not overwrite the evidence needed to explain
+        # a revision").
+        "exit_rev": "TEXT",
+        # Owner 2026-11-27: "Preserve source time and receipt time separately; later-arriving snapshots must never
+        # be used retrospectively as entry-time knowledge." ``ib_snap`` is the lending list's OWN stamp (source
+        # time). ``ib_received`` is when our job stored that list, ``ib_read_at`` when the book read it for this
+        # alert. The book reads only the list in hand (``BorrowBook``), and a row is stamped once.
+        "ib_received": "TEXT", "ib_read_at": "TEXT",
     },
     "scan_trades": {"beta": "REAL"},         # owner 2026-11-10 ground rule: beta >= 3 first (sgt.fast.beta)
     "long_trades": {                         # 2026-11-11: official result = the live order replayed on SIP bars

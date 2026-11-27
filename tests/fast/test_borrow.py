@@ -47,7 +47,9 @@ def test_snapshot_refuses_a_truncated_file_and_lookup_rules(tmp_path):
     big.to_parquet(tmp_path / "latest.parquet")
     book = borrow.BorrowBook(tmp_path, alpaca_asset=asset)
     assert book.lookup("ABC", T10) == {"ib_avail": 12000, "ib_fee": 45.0, "ib_snap": T10.isoformat(),
-                                       "alp_etb": 1, "alp_shortable": 1}
+                                       "alp_etb": 1, "alp_shortable": 1,
+                                       "ib_received": None,              # this list was stored without a receipt time
+                                       "ib_read_at": T10.isoformat()}    # 2026-11-27: when the book read it
     assert book.lookup("NOPE", T10)["ib_avail"] == 0                       # not lendable at IBKR
     assert book.lookup("NAF", T10 - timedelta(minutes=1))["ib_fee"] is None  # lendable, fee unpublished
     assert fade.borrow_note({"ib_avail": 900, "ib_fee": None}) == "IBKR 900 sh fee n/a"

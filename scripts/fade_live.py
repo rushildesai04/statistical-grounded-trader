@@ -146,8 +146,9 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
 
     def quote(symbol: str, since: datetime | None = None) -> float | None:
         """``since``: only a print at or after it is a price (entry: the tested bar's start, fade.entry_start).
-        ``quote.seen[symbol]`` holds what this call saw: the print's time (``at``) and, when it gave no price, why
-        (``why``); the short book writes both on the trade's row."""
+        ``quote.seen[symbol]`` holds what this call saw: the print's time (``at``), the price it returned (``px``,
+        only when it returned one) and, when it gave no price, why (``why``); the short book writes them on the
+        trade's row. Only the short book's own thread calls this quote."""
         if not _SYMBOL.match(symbol):
             return None
         note = seen[symbol] = {"at": None, "why": "the quote request failed"}
@@ -177,6 +178,8 @@ def iex_quote(client: httpx.Client, now=lambda: datetime.now(timezone.utc)):
                                f"{int(STALE_QUOTE.total_seconds())} s old after a large move (likely halted)")
                 return None
             note["why"] = None if p > 0 else "the feed's last print has no price"
+            if p > 0:
+                note["px"] = p                  # 2026-11-27: ties this record to the price returned (fade._bound)
             return p if p > 0 else None
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             log.warning("quote %s failed: %s", symbol, type(exc).__name__)

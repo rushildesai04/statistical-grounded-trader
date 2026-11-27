@@ -6,12 +6,15 @@ KIDZ 2026-11-27: the book closed the short at 13:00:05 ET at $1.045, the free fe
 that the exit itself (when, at what price, for what reason, with what text) is the same with and without it."""
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from sgt.fast import fade, tape_check as tc
+import pandas as pd
+
+from sgt.fast import borrow, fade, tape_check as tc
 from sgt.ops import approvals as ap
 from sgt.ops.store import OpsStore, iso
 
@@ -23,7 +26,7 @@ NEW = ("exit_decided_at", "exit_src", "exit_src_px", "exit_src_at", "exit_src_ag
 
 class Feed:
     """A quote whose every look is scripted: (price or None, print time or None, why or None)."""
-    since_aware = True
+    since_aware, binds = True, True
 
     def __init__(self, source=SRC):
         self.next, self.seen = (None, None, None), {}
@@ -33,6 +36,8 @@ class Feed:
     def __call__(self, symbol, since=None):
         px, at, why = self.next
         self.seen = {symbol: {"at": None if at is None else at if isinstance(at, str) else at.isoformat(), "why": why}}
+        if px is not None and self.binds:
+            self.seen[symbol]["px"] = px                 # as the live reader: the record carries the price returned
         return px
 
 
@@ -145,6 +150,43 @@ def test_a_newer_mark_without_a_print_time_never_keeps_an_older_marks_time(tmp_p
     assert r["exit_src_note"] == fade.AT_CARRIED_NONE and r["exit_src"].endswith("the quote request failed")
 
 
+def test_the_time_is_taken_only_from_the_record_of_the_very_reading_that_gave_the_price(tmp_path):
+    """Owner 2026-11-27: "Ensure the recorded source is the exact observation used for the exit, not a second
+    reading." A record that does not carry the price returned, or carries another price, is not this reading's."""
+    db, q = book(tmp_path), Feed()
+    sent = opened(db, q)
+    now = T10 + timedelta(minutes=61)
+    q.binds = False                                         # a time on record, but nothing ties it to this price
+    q.next = (9.0, now - timedelta(seconds=3), None)
+    fade.monitor(db, sent.append, q, now=now)
+    r = row(db)
+    assert (r["status"], r["est_exit"], r["exit_src_px"]) == ("est_closed", 9.0, 9.0)       # the exit is unchanged
+    assert (r["exit_src_at"], r["exit_src_age_s"], r["exit_src_note"]) == (None, None, fade.AT_UNBOUND)
+    assert r["est_last_print_at"] is None                    # and the mark did not take that time either
+    saw = {"at": "2026-11-02T15:00:00+00:00", "px": 9.01}
+    assert not fade._bound(saw, 9.0) and fade._bound(saw, 9.01) and not fade._bound({"at": "x"}, 9.0)
+    assert not fade._bound({"px": True}, 1.0) and not fade._bound("not a dict", 9.0) and not fade._bound(saw, None)
+
+
+def test_the_live_reader_puts_the_price_it_returned_in_its_own_record():
+    import sys
+    from pathlib import Path as P
+
+    import httpx
+
+    sys.path.insert(0, str(P(__file__).resolve().parents[2] / "scripts"))
+    import fade_live as fl
+
+    at = datetime(2026, 11, 2, 15, 0, 1, 250000, tzinfo=timezone.utc)
+    answers = iter([{"trade": {"p": 4.25, "t": at.isoformat()}}, {"trade": {"p": 0, "t": at.isoformat()}}])
+    client = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=next(answers))),
+                          base_url="https://example.invalid")
+    q = fl.iex_quote(client, now=lambda: at + timedelta(seconds=2))
+    assert q("ABC") == 4.25 and q.seen["ABC"] == {"at": at.isoformat(), "why": None, "px": 4.25}
+    assert fade._bound(q.seen["ABC"], 4.25) and q.source.startswith("free feed (IEX), latest trade")
+    assert q("ABC") is None and "px" not in q.seen["ABC"]    # no price returned: nothing to bind
+
+
 def test_a_stop_exit_is_recorded_the_same_way(tmp_path):
     db, q = book(tmp_path), Feed()
     sent = opened(db, q)
@@ -235,18 +277,68 @@ def test_a_late_official_stop_records_the_candle_as_the_source_and_keeps_the_two
     assert (r["exit_src"], r["exit_src_px"]) == (tc.SRC, pytest.approx(1.54 * 1.2))
     assert (r["exit_src_at"], r["exit_src_age_s"]) == (minute("10:54").isoformat(), 17 * 60.0)
     assert r["exit_src_note"] == tc.AT_LEVEL and r["est_last_print_at"] is None      # a rule price, not a print
+    rev = json.loads(r["exit_rev"])                                          # the open mark it replaced is kept
+    assert rev["replaced"] == {"est_exit": None, "est_exit_at": None, "reason": fade.VETO, "est_last": 1.54,
+                               "est_last_print_at": iso(IN)}
 
 
-def test_a_corrected_cover_replaces_the_live_source_and_a_gap_open_is_named(tmp_path):
+def test_a_revision_never_overwrites_the_live_exits_own_provenance(tmp_path):
+    """Owner 2026-11-27: "If the official-tape check subsequently revises the estimate, preserve the original live
+    exit provenance separately ... Do not overwrite the evidence needed to explain a revision." """
     db, sent = book(tmp_path), []
-    rid = short(db, "est_closed", "60 min", minute("11:03") + timedelta(seconds=11), 1.75)
+    live_at = minute("11:03") + timedelta(seconds=11)
+    rid = short(db, "est_closed", "60 min", live_at, 1.75)
+    before = row(db)
     now = minute("11:12")
     assert tc.check(db, sent.append, tape(("10:54", 1.95, 2.05)), now=now) == 1      # opened above the 1.848 stop
     r = row(db)
-    assert (r["reason"], r["est_exit"], r["exit_src"]) == (tc.LATE, 1.95, tc.SRC)
-    assert (r["exit_src_px"], r["exit_src_note"], r["exit_decided_at"]) == (1.95, tc.AT_OPEN, iso(now))
-    assert r["exit_src_at"] == minute("10:54").isoformat() and r["exit_src_age_s"] == 18 * 60.0
-    assert [d["state_to"] for d in db.decisions("short", rid)] == ["est_closed"]      # the correction is logged
+    assert (r["reason"], r["est_exit"], r["est_exit_at"]) == (tc.LATE, 1.95, iso(minute("10:54")))   # as before
+    assert {k: r[k] for k in NEW} == {k: before[k] for k in NEW}             # the live look's record: untouched
+    assert (r["exit_src"], r["exit_src_px"], r["exit_decided_at"]) == (SRC, 1.75, iso(live_at))
+    rev = json.loads(r["exit_rev"])
+    assert rev == {"by": "official-tape stop check", "decided_at": iso(now), "src": tc.SRC, "src_px": 1.95,
+                   "src_at": minute("10:54").isoformat(), "src_age_s": 18 * 60.0, "note": tc.AT_OPEN,
+                   "replaced": {"est_exit": 1.75, "est_exit_at": iso(live_at), "reason": "60 min", "est_last": 1.75,
+                                "est_last_print_at": iso(IN)}}
+    (d,) = db.decisions("short", rid)                                        # and the append-only log has it too
+    facts = json.loads(d["facts"])
+    assert (d["state_to"], facts["was"], facts["was_exit"], facts["was_exit_at"]) == ("est_closed", "60 min", 1.75,
+                                                                                    iso(live_at))
+    assert tc.check(db, sent.append, tape(("10:54", 1.95, 2.05)), now=minute("11:13")) == 0     # revised once
+    assert row(db)["exit_rev"] == r["exit_rev"]
+
+
+def test_the_book_reads_only_the_lending_list_in_hand_and_keeps_its_source_and_receipt_times_apart(tmp_path):
+    """Owner 2026-11-27: "Registered decisions must continue using only snapshots received before the decision.
+    Preserve source time and receipt time separately; later-arriving snapshots must never be used retrospectively
+    as entry-time knowledge." KIDZ's second alert that day: a list stamped 13:05:06 ET, before the 13:05:34 alert,
+    reached the store only after it."""
+    from itertools import product
+
+    def payload(stamp, avail):
+        """The broker's file: a stamp line, then SYM|CUR|NAME|CON|ISIN|REBATE|FEE|AVAILABLE. A stock with nothing to
+        lend is simply absent from it."""
+        rows = "".join(f"Q{a}{b}{c}|USD|N|1|I|1|0.5|1000|\n" for a, b, c in product("ABCDEFGHIJK", repeat=3))
+        kidz = f"KIDZ|USD|K|1|X|1|12.5|{avail}|\n" if avail else ""
+        return (f"#BOF|{stamp:%Y.%m.%d}|{stamp:%H:%M:%S}\n" + kidz + rows + "#EOF|1\n").encode()
+
+    et = lambda h, m, s=0: datetime(2026, 11, 27, h, m, s, tzinfo=ET)       # noqa: E731
+    root, bk = tmp_path / "borrow", None
+    borrow.snapshot(et(12, 57).astimezone(timezone.utc), root, payload(et(12, 49, 30), 5000))
+    bk = borrow.BorrowBook(root)
+    alert = et(13, 5, 34).astimezone(timezone.utc)
+    at_alert = bk.lookup("KIDZ", alert)                      # the decision: only the 12:49:30 list is in hand
+    borrow.snapshot(et(13, 15).astimezone(timezone.utc), root, payload(et(13, 5, 6), 0))     # stamped BEFORE the alert,
+    later = bk.lookup("KIDZ", et(13, 16).astimezone(timezone.utc))                           # received after it
+    assert (at_alert["ib_avail"], at_alert["ib_fee"]) == (5000, 12.5) and later["ib_avail"] == 0
+    assert datetime.fromisoformat(at_alert["ib_snap"]) == et(12, 49, 30)     # source time: the list's own stamp
+    assert datetime.fromisoformat(at_alert["ib_received"]) == et(12, 57)     # receipt time: when we stored it
+    assert datetime.fromisoformat(at_alert["ib_read_at"]) == alert           # when the book read it
+    assert datetime.fromisoformat(later["ib_snap"]) == et(13, 5, 6) < alert < datetime.fromisoformat(later["ib_received"])
+    old = pd.read_parquet(root / "latest.parquet").drop(columns=["received"])               # a list stored before
+    old.to_parquet(root / "latest.parquet")                                                  # 2026-11-27
+    assert borrow.BorrowBook(root).lookup("KIDZ", et(13, 16).astimezone(timezone.utc))["ib_received"] is None
+    assert {"ib_received", "ib_read_at"} <= set(fade.BORROW_COLS)
 
 
 def test_old_rows_keep_every_new_column_empty(tmp_path):
@@ -256,5 +348,5 @@ def test_old_rows_keep_every_new_column_empty(tmp_path):
                   " est_entry, est_entry_at, est_exit, est_exit_at, created_at) VALUES "
                   "('KIDZ','2026-11-27','volume_spike','x','-1',9,'est_closed','close',1.24,'a',1.045,'b','c')")
     r = row(db)
-    assert all(r[k] is None for k in (*NEW, "est_last_print_at"))            # nothing is filled in afterwards
+    assert all(r[k] is None for k in (*NEW, "est_last_print_at", "exit_rev", "ib_received", "ib_read_at"))
     assert date.fromisoformat(r["session"]) == date(2026, 11, 27)
