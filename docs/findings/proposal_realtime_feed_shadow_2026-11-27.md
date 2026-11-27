@@ -132,6 +132,39 @@ On that one thin stock-day, 133 of the 279 minutes with no free-feed candle trad
 what a single-exchange feed cannot see there; it is one symbol on one day and says nothing about how typical it is.
 The recorder on the runner will say that for every symbol the book looks at, with real delivery times.
 
+### 4a. The check after the recorder is deployed, fixed before it has run on the runner (2026-11-27)
+
+Owner 2026-11-27: "verify recorder isolation, output integrity, and measured overhead. Avoid promising literally
+unchanged timing; report the observed difference against the predefined tolerance."
+
+The long book already writes down its own cadence (`loop_gaps.jsonl`, loop "long book": every 10 minutes the number
+of passes, how many started within 1.1 x the intended 15 s, and the longest single pass, to 0.1 s; a late pass gets
+its own line). No instrumentation is added for this check. Baseline read on 2026-11-27 before the deploy, regular
+hours, all the days the record holds:
+
+| Day | Passes | Started within 1.1 x 15 s | Late passes | Longest pass per 10 minutes: 90th percentile / maximum |
+|---|---|---|---|---|
+| 2026-11-24 (full session) | 1,521 | 100.0% | 0 | 0.1 s / 0.3 s |
+| 2026-11-25 (full session) | 1,482 | 100.0% | 0 | 0.1 s / 0.4 s |
+| 2026-11-26 (market closed) | 1,560 | 100.0% | 0 | 0.0 s / 0.2 s |
+| 2026-11-27 (early close) | 1,360 | 100.0% | 0 | 0.0 s / 0.1 s |
+
+Compared: the first full session with the recorder on, regular hours, against the two full sessions above.
+
+| Check | Measured from | Tolerance |
+|---|---|---|
+| Isolation | the recorder's file is `reports/feed_shadow/shadow.db` and nothing else; the operations database gains no table and no row from it; with the switch off the book's reader is the same function object as before (tested) | exact |
+| Output integrity | the recorder's health rows: looks offered, written, dropped, write failures; every written candle readable back; the nightly `feedshadow` line present with its class counts adding to the minutes watched | dropped 0, write failures 0, the recorder not switched off by itself, counts add up |
+| Cadence | share of passes started within 1.1 x 15 s; late passes | at least 99.5%; 0 late |
+| Pass duration | longest pass per 10 minutes, 90th percentile and maximum over the session | not more than 0.1 s (the record's resolution) above the worse baseline session: 0.2 s and 0.5 s |
+
+The cadence and duration tolerances are **provisional**: two full sessions are a thin baseline, and a pass does
+more work on a day with more longs watched, so the number of longs watched is reported beside the figures. What is
+reported is the observed difference, whatever it is. A cost under 0.1 s a pass cannot be seen in this record, and
+one session inside the tolerance is not evidence of no effect on a busier day. Outside the tolerance on any line:
+the recorder is switched off at the next guarded deploy window (its authorization requires that it "does not
+interfere with production") and the cause is looked at before it goes back on.
+
 ## 5. The shadow comparison (`feed-shadow-sip-v1`), fixed before any data
 
 **What runs in the paid stage.** The Stage 0 recorder, plus a second reader: at each look, off the book's thread
