@@ -176,11 +176,41 @@ not measured. The 20 minutes is twice the record's own row interval: a rule for 
 numbers before the first session was read, and not a tolerance. A session that is not a full session is labelled
 and is not the comparison session.
 
-The job switches nothing, changes no flag, size, registered result or cohort (both databases are opened read-only;
-its one output is its own line), and sends no text of its own. For an outside figure the line states the response
-of the table below. The switching off is done by a person or a working session at the next guarded window: on a
-night when nobody acts, the recorder stays on, and each later session is judged and reported the same way. The
-isolation row is checked once after the deploy, by hand.
+**A confirmed breach switches the recorder off, by the job itself** (owner 2026-11-27, evening: "On a confirmed
+tolerance breach, atomically create the recorder's OFF file"; this replaces "at the next guarded deploy window" in
+the table below, which needed a person). Confirmed means a check that is outside; "not measured" alone never
+switches, and an outside figure counts even when another figure is not measured. It applies to every session's
+check, a full one or an early close. What the job does, in this order: keeps the evidence (the session's line and
+the long book's raw cadence rows of the window, `reports/feed_shadow/evidence/<session>.json`, never written
+over); creates `reports/feed_shadow/OFF` whole or not at all and never over an existing file (a temporary file
+linked into place), with the session, each failed figure, what was observed and its limit; waits up to 10 seconds
+for the recorder's own database to say it is off. The recorder's watchdog sees the file within 2 seconds and ends
+the recorder's two threads. Nothing else is touched: no restart, no book, size, flag or registered figure; every
+database is opened read-only by this job.
+
+What it never does: it never removes the file and nothing puts the recorder back on but a person (remove the file,
+then the next guarded deploy). It makes the switch once per session: a second run of the same session's check (a
+closed weekday, a run by hand) does not make it again, and a run for a named session reports and never switches.
+A recorder that already says it is off is left as it is and no file is made.
+
+The summary text says what happened, before the other figures: the failed figure, the observed value, the limit,
+and one of: switched off and confirmed after N seconds; file created but the recorder did not confirm (it cannot
+start while the file exists); file was already there; already off; or **SHUTOFF FAILED, THE RECORDER IS STILL ON**
+with the error, in which case the job also ends with a failure, which the runner texts and the next digest lists.
+Whenever the OFF file exists the summary line says so, whatever else it says. The isolation row is checked once
+after the deploy, by hand.
+
+**The cadence record this check reads** (`sgt.ops.own_thread`, changed 2026-11-27). It was one file that stopped
+taking rows for good at 1 MB: 194 KB after four days, about 48 KB a day, so full around 2026-12-14, after which
+this check would have said "not measured" every night. It is now one file per UTC day,
+`reports/ops/loop_gaps.<day>.jsonl`; a session's regular hours lie inside one UTC day all year, so no evaluation
+window is split and no day's file is cut while its session runs. The old file is read (the day of the change has
+rows in both) and never written or removed. Bounds: late-pass rows stop at 1 MB for the day and the 10-minute
+interval rows, which this check needs, at 2 MB; both stops are said in the nightly health line, and at the first
+stop this check says "late passes: not measured" instead of "0". Day files older than 60 days are removed by the
+nightly health line's own process (never by a thread of a book), and the line says how many. At most 61 day
+files: about 3 MB as measured, 122 MB if every day reached both stops. The evidence of a breach is kept outside
+this retention. A write is one `stat` and one append of one line, with no lock, no sync and no read of the file.
 
 **What this comparison can and cannot carry.** The baseline is two full sessions. The record resolves 0.1 s and
 keeps one figure per 10 minutes (the longest pass), not a distribution: a cost under 0.1 s a pass cannot be seen in
@@ -196,10 +226,10 @@ performance-tolerance breach from active interference with trading tasks").
 | | Ordinary breach of the tolerance above | Active interference with the books |
 |---|---|---|
 | What it is | a session's cadence or pass-duration figure outside the table, judged after the session from the book's own record | the recorder demonstrably in the book's way or exhausting a resource while the books run |
-| How it is seen | the nightly read of `loop_gaps.jsonl` | by the recorder itself, at once: 3 offers within 10 minutes that each took over 250 ms in the book's thread; 500 looks dropped within 10 minutes (its writer cannot keep up); 5 failed writes in a row; its database over 400 MB; under 500 MB free on its volume (the runner's volume is 5.2 GB with 2.7 GB free on 2026-11-27); its watchdog unable to look. Or by a person: late-pass lines of the long book, a full volume |
-| Response | the recorder is switched off at the next guarded deploy window and the cause is looked at before it goes back on | **off at once, with no restart and nothing done to the books**: the recorder switches itself off (two assignments in memory; from then on a look costs one attribute read), or a person creates the file `reports/feed_shadow/OFF` on the runner and its watchdog switches it off within 2 seconds |
+| How it is seen | the nightly read of the long book's cadence record | by the recorder itself, at once: 3 offers within 10 minutes that each took over 250 ms in the book's thread; 500 looks dropped within 10 minutes (its writer cannot keep up); 5 failed writes in a row; its database over 400 MB; under 500 MB free on its volume (the runner's volume is 5.2 GB with 2.7 GB free on 2026-11-27); its watchdog unable to look. Or by a person: late-pass lines of the long book, a full volume |
+| Response | the nightly job creates the `OFF` file itself when its check finds a figure outside (owner 2026-11-27, evening; it was: switched off at the next guarded deploy window); the cause is looked at before a person puts it back on | **off at once, with no restart and nothing done to the books**: the recorder switches itself off (two assignments in memory; from then on a look costs one attribute read), or a person creates the file `reports/feed_shadow/OFF` on the runner and its watchdog switches it off within 2 seconds |
 | What stays running | everything | everything: the listener, both books, their threads and their open positions are not restarted, paused or touched. Only the recorder's two threads end |
-| Coming back | the next guarded deploy | the `OFF` file (written by the recorder with its reason when it switched itself off) keeps it off across restarts until a person removes it; then the next guarded deploy |
+| Coming back | a person removes the `OFF` file; then the next guarded deploy | the `OFF` file (written by the recorder with its reason when it switched itself off) keeps it off across restarts until a person removes it; then the next guarded deploy |
 
 The trips in the second column are safety limits, not the performance tolerance: they exist to end interference
 within seconds and are deliberately far outside normal operation (the busiest baseline pass took 0.4 s in total).

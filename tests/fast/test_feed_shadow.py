@@ -501,32 +501,195 @@ def test_the_nightly_line_carries_the_check_with_each_figure_beside_its_limit(tm
     assert "the cadence record could not be read (FileNotFoundError)" in empty["report"] and job.POLICY not in empty["report"]
 
 
-def test_an_outside_figure_is_named_in_the_report_with_the_response_fixed_beforehand(tmp_path):
-    """Owner 2026-11-27: a breach identifies the failed metric and follows the shutoff policy already fixed (section
-    4a: off at the next guarded window). The job says it; it switches nothing and no flag, size or book is touched."""
+GOOD = {"dropped_0": True, "write_fails_0": True, "not_switched_off": True, "counts_add_up": True}
+
+
+def breached(tmp_path, work=0.7, **more):
     rows_ = whole()
-    rows_[7] = summary(80, work=0.7)
-    o = {"session": DAY, "pace": job.pace(DAY, gaps(tmp_path, rows_)), "longs_entered": 3,
-         "integrity": {"dropped_0": True, "write_fails_0": True, "not_switched_off": True, "counts_add_up": True}}
+    rows_[7] = summary(80, work=work)
+    return {"session": DAY, "pace": job.pace(DAY, gaps(tmp_path, rows_)), "longs_entered": 3, "integrity": dict(GOOD), **more}
+
+
+def test_an_outside_figure_is_named_with_what_was_observed_and_its_limit(tmp_path):
+    o = breached(tmp_path)
+    assert job.breaches(o) == [{"check": "work_max", "metric": "longest pass (maximum)", "observed": "0.7 s", "limit": "0.5 s"}]
     assert job.report(o) == (
-        "⚠️ feed recorder 2026-11-09: timing OUTSIDE: longest pass (maximum); integrity inside. 1520 passes, 100.00% on time (limit at least 99.5%), "
-        "late 0 (limit 0), longest pass per 10 min: 90th percentile 0.1 s (limit 0.2), maximum 0.7 s (limit 0.5), "
-        "3 longs entered. By the policy of 2026-11-27 the recorder goes off at the next guarded window and the cause is "
-        "looked at before it goes back on.")
-    off = job.report({**o, "pace": job.pace(DAY, gaps(tmp_path, whole())), "health": {"off": {"why": "switched off by the OFF file"}},
-                      "integrity": {**o["integrity"], "dropped_0": False, "not_switched_off": False}})
-    assert off.startswith("⚠️ feed recorder 2026-11-09: timing inside; integrity OUTSIDE: looks dropped, recorder switched off. ")
-    assert "; recorder OFF: switched off by the OFF file. By the policy" in off
+        "⚠️ feed recorder 2026-11-09: timing OUTSIDE: longest pass (maximum); integrity inside. Outside: longest pass "
+        "(maximum) 0.7 s (limit 0.5 s). A confirmed breach switches the recorder off (the nightly job creates its OFF "
+        "file); only a person puts it back on. 1520 passes, 100.00% on time (limit at least 99.5%), late 0 (limit 0), "
+        "longest pass per 10 min: 90th percentile 0.1 s (limit 0.2), maximum 0.7 s (limit 0.5), 3 longs entered.")
+    every = {"session": DAY, "pace": job.pace(DAY, gaps(tmp_path, [summary(10, n=1000, counts=(900, 98, 0, 2), work=0.9)] + whole()[1:] + [
+        {"at": at(45).isoformat(), "loop": "long book", "gap": 36.0, "every": 15.0}])),
+        "health": {"dropped": 4, "fails": 2, "off": {"why": "500 looks dropped within 600 s"}}, "watched_minutes": 40,
+        **{k: 9 for k in fs.CLASSES}, "integrity": {k: False for k in GOOD}}
+    assert [(b["check"], b["observed"], b["limit"]) for b in job.breaches(every)] == [
+        ("cadence", "95.97%", "at least 99.5%"), ("late", "1", "0"), ("work_max", "0.9 s", "0.5 s"), ("dropped_0", "4", "0"),
+        ("write_fails_0", "2", "0"), ("not_switched_off", "500 looks dropped within 600 s", "not switched off"),
+        ("counts_add_up", "45 classified of 40 watched", "equal")]
     assert set(job.PLAIN) == set(o["pace"]["inside"]) | set(o["integrity"])
+    assert job.breaches({"session": DAY, "integrity": {"counts_add_up": False}}) == [                 # the figure is gone:
+        {"check": "counts_add_up", "metric": "class counts", "observed": "figure unavailable", "limit": "see the session's line"}]
 
 
-def test_the_job_only_reads_the_books_database_and_writes_its_own_file():
-    """It cannot change a flag, a size, a registered result or who is in a cohort: both databases are opened
-    read-only and the only file it writes is its own line."""
-    src = (Path(job.__file__)).read_text()
+def test_a_confirmed_breach_switches_a_running_recorder_off_and_touches_nothing_else(tmp_path):
+    """Owner 2026-11-27: "On a confirmed tolerance breach, atomically create the recorder's OFF file." The recorder
+    runs with production settings; the job's switch is the file; the recorder's own watchdog does the rest."""
+    db = tmp_path / "rec" / "shadow.db"
+    rec = fs.Recorder(db).start()
+    try:
+        assert _until(lambda: db.exists()) and rec.on
+        o = breached(tmp_path)
+        rows_ = job._pace(DAY, tmp_path / "loop_gaps.jsonl")[1]
+        sh = job.shutoff(o, db, rows_, tmp_path / "evidence")
+        assert sh["result"] == "created" and sh["confirmed_after_s"] is not None and sh["confirmed_after_s"] <= 6
+        assert rec.on is False and rec.why == "switched off by the OFF file"
+        said = (db.parent / "OFF").read_text()
+        assert said.endswith("switched off by the nightly check of session 2026-11-09: longest pass (maximum) 0.7 s (limit 0.5 s)\n")
+        assert sorted(f.name for f in db.parent.iterdir() if "OFF" in f.name) == ["OFF"]             # no temporary file left
+        kept = json.loads((tmp_path / "evidence" / "2026-11-09.json").read_text())
+        assert len(kept["cadence_rows"]) == 38 and kept["line"]["pace"]["work_max_s"] == 0.7 and sh["evidence"].endswith("2026-11-09.json")
+        o["shutoff"] = sh
+        text = job.report(o)
+        assert ("Outside: longest pass (maximum) 0.7 s (limit 0.5 s). RECORDER SWITCHED OFF by this check at ") in text
+        assert "OFF file created; the recorder confirmed off after " in text and "It stays off until a person removes the file." in text
+        again = job.shutoff(o, db, rows_, tmp_path / "evidence")                                     # the file stands
+        assert again["result"] == "already present" and (db.parent / "OFF").read_text() == said
+        assert again["evidence"].endswith("(already kept)")
+        assert "OFF file was already there and is left as it is" in job.report({**o, "shutoff": again})
+    finally:
+        rec.stop()
+    assert fs.start(db) is None                                                                      # nothing puts it back on
+
+
+def test_not_measured_alone_never_switches_and_a_breach_beside_an_unknown_does(tmp_path):
+    db = tmp_path / "rec" / "shadow.db"
+    unknown = {"session": DAY, "pace": job.pace(DAY, tmp_path / "none.jsonl"), "integrity": {k: None for k in GOOD}}
+    partial = {"session": DAY, "pace": job.pace(DAY, gaps(tmp_path, whole(minutes=range(10, 130, 10)))), "integrity": dict(GOOD)}
+    for o in (unknown, partial, {"session": DAY, "pace": job.pace(DAY, gaps(tmp_path, whole())), "integrity": dict(GOOD)}):
+        assert job.breaches(o) == [] and job.shutoff(o, db, [], tmp_path / "evidence") is None
+    assert not (db.parent / "OFF").exists() and not (tmp_path / "evidence").exists()
+    both = {"session": DAY, "integrity": {k: None for k in GOOD},                                    # one outside, the rest unknown
+            "pace": job.pace(DAY, gaps(tmp_path, whole(minutes=range(10, 130, 10)) + [summary(125, work=0.9)]))}
+    assert both["pace"]["inside"] == {"cadence": None, "late": None, "work_p90": None, "work_max": False}
+    sh = job.shutoff(both, db, [], tmp_path / "evidence", wait_s=1.0, sleep=lambda s: None)
+    assert sh["result"] == "created" and sh["confirmed_after_s"] is None and (db.parent / "OFF").exists()    # no recorder runs here
+    assert "the recorder did not confirm within 10 s (not running, or no answer); it cannot start while the file exists" in \
+        job.report({**both, "shutoff": sh})
+
+
+def test_a_recorder_that_is_already_off_is_left_as_it_is_and_no_file_is_made(tmp_path):
+    """Its counters stay as they were while it is off, so the next night's check finds the same figures outside. A
+    person who removed the file to bring the recorder back at the next deploy must not find it made again."""
+    db = tmp_path / "rec" / "shadow.db"
+    o = breached(tmp_path, health={"dropped": 500, "fails": 0, "off": {"at": "2026-11-09T18:00:00+00:00", "why": "500 looks dropped within 600 s"}},
+                 integrity={**GOOD, "dropped_0": False, "not_switched_off": False})
+    sh = job.shutoff(o, db, [], tmp_path / "evidence")
+    assert sh["result"] == "already off" and sh["file_present"] is False and len(sh["breaches"]) == 3
+    assert not db.parent.exists() and not (tmp_path / "evidence").exists()
+    text = job.report({**o, "shutoff": sh})
+    assert ("The recorder was already off (off since 2026-11-09T18:00:00+00:00: 500 looks dropped within 600 s): nothing was "
+            "switched; OFF file not present: it stays off until its process restarts.") in text
+
+
+@pytest.mark.parametrize("error", [PermissionError("no"), OSError(28, "No space left on device")])
+def test_a_switch_that_cannot_be_made_says_the_recorder_is_still_on(tmp_path, monkeypatch, error):
+    from sgt.fast import feed_shadow_check as check
+
+    def fail(*a, **k):
+        raise error
+    monkeypatch.setattr(check.os, "link", fail)
+    db = tmp_path / "rec" / "shadow.db"
+    o = breached(tmp_path)
+    sh = job.shutoff(o, db, [], tmp_path / "evidence", wait_s=0.0)
+    assert sh["result"] == "failed" and type(error).__name__ in sh["error"] and not (db.parent / "OFF").exists()
+    assert [f.name for f in db.parent.iterdir()] == []                                               # no half-made file
+    assert sh["evidence"].startswith("not kept (")                                                   # said, and the switch was still tried
+    text = job.report({**o, "shutoff": sh})
+    assert "SHUTOFF FAILED at " in text and "THE RECORDER IS STILL ON. Create reports/feed_shadow/OFF on the runner by hand." in text
+
+
+def test_the_scheduled_run_switches_once_and_a_named_run_or_a_second_run_never_does(tmp_path, monkeypatch):
+    """Never re-enabled by the job, and never switched off twice for the same session: after a person removes the
+    file, a second run of the same session's check (a closed day) leaves the recorder as the person left it."""
+    db = tmp_path / "feed_shadow" / "shadow.db"
+    db.parent.mkdir()
+    db.write_bytes(b"")
+    monkeypatch.setattr(fs, "DB", db)
+    monkeypatch.setattr(job, "OUT", tmp_path / "feed_shadow" / "daily.jsonl")
+    monkeypatch.setattr(job, "EVIDENCE", tmp_path / "feed_shadow" / "evidence")
+    monkeypatch.setattr(job, "PACE", gaps(tmp_path, whole()))
+    monkeypatch.setattr(job, "last_session", lambda now: DAY)
+    monkeypatch.setattr(job, "shutoff", lambda o, d, rows, ev: job_shutoff(o, d, rows, ev, wait_s=0.0))
+    job_shutoff = __import__("sgt.fast.feed_shadow_check", fromlist=["shutoff"]).shutoff
+    state = {"work": 0.7}
+    monkeypatch.setattr(job, "compare", lambda session, *a: breached(tmp_path, work=state["work"], session=session, note="stub"))
+    off = db.parent / "OFF"
+    assert job.main(["compare", "--session", DAY]) == 0 and not off.exists()                         # named: reports only
+    line = job.line_of(DAY, job.OUT)
+    assert line["shutoff"]["result"] == "not attempted" and "was not switched by this run" in line["report"]
+    assert job.main(["compare"]) == 0 and off.exists()                                               # the nightly run
+    line = job.line_of(DAY, job.OUT)
+    assert line["shutoff"]["result"] == "created" and "RECORDER SWITCHED OFF by this check" in line["report"]
+    assert len(line["shutoff"]["breaches"]) == 1 and (job.EVIDENCE / f"{DAY}.json").exists()
+    off.unlink()                                                                                     # a person puts it back on
+    assert job.main(["compare"]) == 0 and not off.exists()                                           # same session again
+    assert job.line_of(DAY, job.OUT)["shutoff"]["repeated"] is False
+    state["work"] = 0.1                                                                              # a clean session: nothing
+    monkeypatch.setattr(job, "last_session", lambda now: "2026-11-10")
+    monkeypatch.setattr(job, "compare", lambda session, *a: {"session": session, "note": "stub", "pace": job.pace(DAY, gaps(tmp_path, whole())), "integrity": dict(GOOD)})
+    assert job.main(["compare"]) == 0 and not off.exists() and "shutoff" not in job.line_of("2026-11-10", job.OUT)
+    monkeypatch.setattr(job, "shutoff", lambda *a: {"result": "failed", "error": "PermissionError: no", "at": None, "breaches": []})
+    monkeypatch.setattr(job, "last_session", lambda now: "2026-11-11")
+    monkeypatch.setattr(job, "compare", lambda session, *a: breached(tmp_path, session=session, note="stub"))
+    assert job.main(["compare"]) == 1                                                                # a failed switch fails the job
+
+
+def test_the_job_and_the_check_write_only_their_own_files_and_never_remove_the_off_file():
+    """It cannot change a flag, a size, a registered result or who is in a cohort: every database is opened
+    read-only; the files written are the session's line, the evidence and the OFF file; the OFF file is never
+    removed or written over by this code."""
+    from sgt.fast import feed_shadow_check as check
+
+    src, chk = Path(job.__file__).read_text(), Path(check.__file__).read_text()
     assert src.count("sqlite3.connect(") == 2 and src.count("?mode=ro\", uri=True") == 2
-    assert "OpsStore" not in src and "set_flag" not in src and ".tx(" not in src
+    assert chk.count("sqlite3.connect(") == 1 and chk.count("?mode=ro\", uri=True") == 1
+    for text in (src, chk):
+        assert "OpsStore" not in text and "set_flag" not in text and ".tx(" not in text and "fade_trades" not in text
     assert src.count("write_text(") == 1 and "tmp.replace(path)" in src and str(job.OUT) == "reports/feed_shadow/daily.jsonl"
+    assert chk.count("write_text(") == 2 and chk.count("os.link(tmp, ") == 2 and ".replace(" not in chk.replace("str.replace", "")
+    assert chk.count(".unlink(") == 2 and chk.count("tmp.unlink(missing_ok=True)") == 2             # only its temporary files
+
+
+def test_a_sessions_regular_hours_lie_inside_one_utc_day_in_both_halves_of_the_year():
+    """The cadence record is one file per UTC day (2026-11-27): no evaluation window is split across two files."""
+    for day in ("2026-11-30", "2026-07-06", "2026-11-27"):
+        first, close = fs.session_minutes(day)
+        assert first.date() == close.date() == (close + pd.Timedelta(seconds=59)).date() == pd.Timestamp(day).date()
+
+
+def test_the_nightly_reader_reads_the_old_file_and_the_days_own_file_as_one_record(tmp_path):
+    """The day of the change: the morning's rows are in the old single file, the afternoon's in the day file."""
+    from sgt.ops import own_thread
+
+    rows_ = whole()
+    old = gaps(tmp_path, [summary(-600, work=9.0)] + rows_[:15])                                      # an earlier day too
+    own_thread.part(tmp_path, DAY).write_text("\n".join(json.dumps(r) for r in rows_[15:]) + "\n")
+    own_thread.part(tmp_path, "2026-11-10").write_text(json.dumps(summary(60, work=9.0, day=OPEN + pd.Timedelta(days=1))) + "\n")
+    o, kept = job._pace(DAY, old)
+    assert (o["passes"], o["periods"], o["whole"], job.verdict(o["inside"]), len(kept)) == (1520, 38, True, "inside", 38)
+    old.unlink()                                                                                     # only day files, later on
+    assert job.pace(DAY, old)["periods"] == 23 and job.pace(DAY, old)["whole"] is False
+    assert job.pace("2026-11-12", old)["note"] == "the cadence record could not be read (FileNotFoundError)"
+
+
+def test_a_day_file_at_its_size_limit_cannot_say_no_late_pass(tmp_path, monkeypatch):
+    from sgt.ops import own_thread
+
+    own_thread.part(tmp_path, DAY).write_text("\n".join(json.dumps(r) for r in whole()) + "\n")
+    monkeypatch.setattr(own_thread, "GAPS_MAX_BYTES", 100)
+    o = job.pace(DAY, tmp_path / own_thread.GAPS_NAME)
+    assert o["inside"] == {"cadence": True, "late": None, "work_p90": True, "work_max": True}
+    assert "late-pass rows may be missing" in o["incomplete"] and job.verdict(o["inside"]) == "not measured: late"
 
 
 def test_a_vendor_request_that_fails_is_reported_and_the_symbol_is_left_out(tmp_path):

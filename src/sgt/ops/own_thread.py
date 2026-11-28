@@ -10,6 +10,21 @@ Why a record. "The stop check runs every 10 seconds" was an assumption nothing m
 pass that started later than it should have (whatever the cause: a slow pass before it, the event loop held up, a
 busy database), and every start of the listener after a silence; the nightly health line reports them
 (``clause``). Nothing here is on a decision path, and nothing here raises.
+
+Where the record is kept (2026-11-27). One file per UTC day next to the ops database, ``loop_gaps.<day>.jsonl``.
+Until then it was one file, ``loop_gaps.jsonl``, that stopped taking rows for good at 1 MB (it held 194 KB after
+four days: full about 2026-12-14, and the nightly check of the feed recorder reads this record). The old file is
+read and never written or removed. A session's regular hours lie inside one UTC day in both halves of the year
+(13:30-20:00 or 14:30-21:00 UTC), so no evaluation window is split across files and a day's file is never cut
+while its session runs.
+
+Bounds. A normal day is about 48 KB. Late-pass and restart rows stop at GAPS_MAX_BYTES (1 MB) for the day; the
+10-minute interval rows, which the evaluation needs and of which a day has at most a few hundred, go on to twice
+that. Both stops are said in the nightly line. Day files older than GAPS_KEEP_DAYS (60) are removed by ``prune``,
+which the nightly line calls from its own process: no thread of a book ever lists, reads or deletes. So the record
+is at most 61 day files: about 3 MB as measured, 122 MB if every day hit both stops. A write is one ``stat`` and
+one append of one line, as before; nothing is read or rewritten on the write path except the last byte of the
+day's file once per process (a line torn by a crash or a full disk must not swallow the row after it).
 """
 from __future__ import annotations
 
@@ -17,14 +32,18 @@ import asyncio
 import functools
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger(__name__)
-GAPS_NAME = "loop_gaps.jsonl"               # next to the ops database
-GAPS_MAX_BYTES, GAPS_MAX_LINES = 1_000_000, 10_000
+GAPS_NAME = "loop_gaps.jsonl"               # the one file used until 2026-11-27: read, never written or removed
+GAPS_MAX_BYTES, GAPS_MAX_LINES = 1_000_000, 10_000      # per day file (it was: for the one file, for good)
+GAPS_KEEP_DAYS = 60                         # day files older than this are removed by ``prune``
+_DAY_FILE = re.compile(r"loop_gaps\.(\d{4}-\d{2}-\d{2})\.jsonl")
+_tail_seen: str | None = None               # the day file whose last byte this process knows to be a line end
 RESTART = "listener restart"
 EVENT_LOOP = "event loop"
 DOWN_MIN_S = 60.0                           # a start after a heartbeat silence this long is written down
@@ -47,15 +66,80 @@ def late_after(every: float) -> float:
     return 2 * every + 5
 
 
-def _write(folder: Path, row: dict) -> None:
+def part(folder: Path, day: str) -> Path:
+    """The record's file for one UTC day (ISO date)."""
+    return Path(folder) / f"loop_gaps.{day}.jsonl"
+
+
+def files(folder: Path, days) -> list[Path]:
+    """Where the rows of these UTC days can be, in the order they were written: the old single file, then each
+    day's own file. A file that does not exist is simply not there."""
+    return [Path(folder) / GAPS_NAME] + [part(folder, d) for d in sorted({str(d) for d in days})]
+
+
+def capped(folder: Path, day: str) -> bool:
+    """Whether the day's file has reached the size at which late-pass rows are no longer written."""
     try:
-        p = Path(folder) / GAPS_NAME
-        if p.exists() and p.stat().st_size > GAPS_MAX_BYTES:
+        return part(folder, day).stat().st_size > GAPS_MAX_BYTES
+    except OSError:
+        return False
+
+
+def _write(folder: Path, row: dict) -> None:
+    """Append one row to its day's file. One ``stat`` and one small append; never raises, never waits on a lock.
+    Late-pass rows stop at GAPS_MAX_BYTES for the day and interval rows at twice that (see the module's text)."""
+    global _tail_seen
+    key = None
+    try:
+        day = str(row.get("at", ""))[:10]
+        if not _DAY_FILE.fullmatch(f"loop_gaps.{day}.jsonl"):
+            day = datetime.now(timezone.utc).date().isoformat()
+        p = part(folder, day)
+        try:
+            size = p.stat().st_size
+        except FileNotFoundError:
+            size = 0
+        if size > GAPS_MAX_BYTES * (2 if row.get("kind") == "summary" else 1):
             return
+        line, key = json.dumps(row) + "\n", str(p)
+        if size and _tail_seen != key:                  # once per process and day: is the last line whole?
+            with p.open("rb") as f:
+                f.seek(-1, 2)
+                if f.read(1) != b"\n":
+                    line = "\n" + line                  # a torn line stays one unreadable line; this row is its own
         with p.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+            f.write(line)
+        _tail_seen = key
     except Exception:  # noqa: BLE001 - a measurement: it must never break the pass it measures
+        if key is not None and _tail_seen == key:
+            _tail_seen = None                           # e.g. a full disk tore this line: look again before the next
         log.exception("late pass not recorded")
+
+
+def prune(folder: Path, today: date | None = None, keep_days: int = GAPS_KEEP_DAYS) -> list[str]:
+    """Remove the day files older than ``keep_days`` and return their names. Only files named exactly like a day
+    file with a real date: never the old single file, never today's or a later day's, nothing else in the folder.
+    Called by the nightly health line, in its own process and long after each day was read. Never raises."""
+    gone = []
+    try:
+        today = today or datetime.now(timezone.utc).date()
+        for p in sorted(Path(folder).glob("loop_gaps.*.jsonl")):
+            m = _DAY_FILE.fullmatch(p.name)
+            try:
+                old = m is not None and (today - date.fromisoformat(m.group(1))).days > keep_days
+            except ValueError:
+                continue
+            if old:
+                try:
+                    p.unlink()
+                    gone.append(p.name)
+                except OSError:                         # one file that cannot go does not keep the others
+                    log.exception("an old day file of the stop-check record could not be removed: %s", p.name)
+    except Exception:  # noqa: BLE001 - housekeeping: said in the log, never raised into the summary
+        log.exception("old day files of the stop-check record could not be removed")
+    if gone:
+        log.warning("stop-check record: removed %d day files older than %d days: %s", len(gone), keep_days, ", ".join(gone))
+    return gone
 
 
 def beat(folder: Path, name: str) -> None:
@@ -161,16 +245,18 @@ def note_restart(folder: Path, heartbeat: str | None, now: datetime | None = Non
 
 
 def gaps(folder: Path, day: str) -> list[dict]:
-    """The late passes and restarts written down on one UTC day (ISO date)."""
-    p, out = Path(folder) / GAPS_NAME, []
+    """The late passes and restarts written down on one UTC day (ISO date): from the old single file and from the
+    day's own file, in the order they were written."""
+    out = []
     try:
-        for raw in (p.read_text(encoding="utf-8").splitlines() if p.exists() else [])[-GAPS_MAX_LINES:]:
-            try:
-                r = json.loads(raw)
-            except ValueError:
-                continue
-            if isinstance(r, dict) and str(r.get("at", "")).startswith(day):
-                out.append(r)
+        for p in files(folder, [day]):
+            for raw in (p.read_text(encoding="utf-8", errors="replace").splitlines() if p.exists() else [])[-GAPS_MAX_LINES:]:
+                try:
+                    r = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and str(r.get("at", "")).startswith(day):
+                    out.append(r)
     except OSError:
         log.exception("the record of late passes cannot be read")
     return out
@@ -234,13 +320,12 @@ def clause(folder: Path, day: str, in_hours=None) -> str:
         if down:
             at, gap = max(down, key=lambda x: x[1])
             bad.append(f"listener restarted {len(down)}x in alert hours, longest silence {gap:.0f} s (at {at:%H:%M} UTC)")
-        try:                                                # a full record stops taking rows: say so, never silently
-            if (Path(folder) / GAPS_NAME).stat().st_size > GAPS_MAX_BYTES:
-                bad.append("the record of stop checks is full (later checks are not in it)")
-        except OSError:
-            pass
-        return ("⚠️ stop checks: " + measured + "; ".join(bad)) if bad else \
-            f"stop checks: {measured}none late, no restart in alert hours"
+        if capped(folder, day):                             # a full day stops taking rows: say so, never silently
+            bad.append("the record of stop checks is full for this day (later late checks are not in it)")
+        gone = prune(folder)                                # this process, at night: never a book's thread
+        kept = f"; {len(gone)} day files of the record older than {GAPS_KEEP_DAYS} days removed" if gone else ""
+        return (("⚠️ stop checks: " + measured + "; ".join(bad)) if bad else
+                f"stop checks: {measured}none late, no restart in alert hours") + kept
     except Exception as e:  # noqa: BLE001 - the summary must go out
         log.exception("stop checks clause failed")
         return f"⚠️ stop checks: check failed ({type(e).__name__})"

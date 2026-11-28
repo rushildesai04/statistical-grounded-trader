@@ -151,6 +151,10 @@ def test_the_feed_recorders_frozen_check_is_in_the_summary_text(tmp_path, monkey
     assert line.startswith("📡 " + said + " second line xxx") and "\n" not in line and len(line) == 2 + summary.RECORDER_CHARS
     text = summary.build(db, DAY).split("\n")
     assert text[-2] == line and "Paper total" in plain(text[-1])           # with the day's other lines, before the total
+    (tmp_path / "reports" / "feed_shadow" / "OFF").write_text("2026-11-05T21:40 switched off by the nightly check\n")
+    assert summary.recorder_line(db, DAY) == line + " [OFF file present: the recorder is off until a person removes it]"
+    assert summary.recorder_line(db, date(2026, 11, 3)).endswith(                                    # no line, but it IS off
+        "not measured: its nightly job wrote no line for this session [OFF file present: the recorder is off until a person removes it]")
 
 
 def test_a_missing_recorder_result_is_said_as_not_measured_and_never_left_out(tmp_path, monkeypatch):

@@ -18,7 +18,7 @@ from sgt.ops.store import OpsStore
 
 ENTERED = ("open", "est_closed", "settled")
 RECORDER_ENV = "SGT_FEED_SHADOW"            # sgt.fast.feed_shadow.ENV (pinned equal by a test)
-RECORDER_BYTES, RECORDER_CHARS = 5_000_000, 700
+RECORDER_BYTES, RECORDER_CHARS = 5_000_000, 900
 
 
 def _usd(x: float) -> str:
@@ -124,13 +124,15 @@ def recorder_line(db: OpsStore, day: date) -> str:
     is delivered in this text and not only in a file somebody has to read. "" only where the recorder is not
     switched on and its job never wrote a line. A missing line or a line without the check is said as "not
     measured", never left out and never read as a pass. The text comes from our own job's file: read as data, one
-    line, bounded in size."""
+    line, bounded in size. Whenever the recorder's OFF file exists the line says so, whatever the job wrote: a
+    recorder that is off is never shown as running (the nightly job creates that file on a confirmed breach)."""
     p = Path(db.path).resolve().parent.parent / "feed_shadow" / "daily.jsonl"
     head = f"📡 feed recorder {day.isoformat()}: not measured: "
+    off = " [OFF file present: the recorder is off until a person removes it]" if (p.parent / "OFF").exists() else ""
     if not p.exists():
-        return head + "its nightly job has written no line" if os.environ.get(RECORDER_ENV) == "1" else ""
+        return (head + "its nightly job has written no line" + off) if os.environ.get(RECORDER_ENV) == "1" or off else ""
     if p.stat().st_size > RECORDER_BYTES:
-        return head + "its nightly file is too large to read"
+        return head + "its nightly file is too large to read" + off
     last = None
     for ln in p.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
@@ -140,11 +142,11 @@ def recorder_line(db: OpsStore, day: date) -> str:
         if isinstance(r, dict) and r.get("session") == day.isoformat():
             last = r
     if last is None:
-        return head + "its nightly job wrote no line for this session"
+        return head + "its nightly job wrote no line for this session" + off
     said = last.get("report")
     if not isinstance(said, str) or not said.strip():
-        return head + "the session's line carries no check (written before the check was deployed)"
-    return "📡 " + " ".join(said.split())[:RECORDER_CHARS]
+        return head + "the session's line carries no check (written before the check was deployed)" + off
+    return "📡 " + " ".join(said.split())[:RECORDER_CHARS] + off
 
 
 def build(db: OpsStore, day: date) -> str:
