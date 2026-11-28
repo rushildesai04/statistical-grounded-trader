@@ -364,53 +364,106 @@ def summary(minute, n=40, counts=(40, 0, 0, 0), work=0.1, loop="long book", day=
             "counts": list(counts), "max_gap": 15.1, "max_work": work, "every": 15.0}
 
 
+def whole(work=0.1, minutes=range(10, 390, 10), day=OPEN, **kw):
+    """One row every 10 minutes over the window: 38 rows in a full session, stamped 09:40:17 to 15:50:17 ET."""
+    return [summary(m, work=work, day=day, **kw) for m in minutes]
+
+
 def test_the_tolerance_is_the_table_written_before_the_recorder_ran():
-    """Pinned: these four numbers are section 4a's table of 2026-11-27 and are not moved after a result is seen."""
+    """Pinned: these four numbers are section 4a's table of 2026-11-27 and are not moved after a result is seen. The
+    rule for a whole record (no stretch of two row intervals without a row) is not a tolerance and is pinned too."""
     assert job.TOL == {"within_min": 0.995, "late_max": 0, "work_p90_max_s": 0.2, "work_max_max_s": 0.5}
     assert (job.LOOP, str(job.PACE)) == ("long book", "reports/ops/loop_gaps.jsonl")
+    from sgt.ops import own_thread
+    assert (job.HOLE_S, own_thread.FLUSH_S) == (1200.0, 600.0)
 
 
 def test_the_long_books_own_cadence_record_is_read_for_the_sessions_regular_hours_only(tmp_path):
-    work = [0.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.4]
-    p = gaps(tmp_path, [summary(10 + 10 * k, work=w) for k, w in enumerate(work)] + [
-        summary(5, n=999, counts=(0, 0, 0, 999), work=9.0),                    # stamped before 09:40: before the window
+    work = [0.1] * 33 + [0.2, 0.2, 0.2, 0.2, 0.4]
+    p = gaps(tmp_path, [summary(5, n=999, counts=(0, 0, 0, 999), work=9.0)] + [   # stamped before 09:40
+        summary(10 + 10 * k, work=w) for k, w in enumerate(work)] + [
         summary(391, n=999, counts=(0, 0, 0, 999), work=9.0),                  # stamped after the close
         summary(60, n=999, counts=(0, 0, 0, 999), work=9.0, loop="stop check"),   # another loop
         summary(60, n=999, counts=(0, 0, 0, 999), work=9.0, day=OPEN + pd.Timedelta(days=1)),   # another day
-        {"at": (OPEN - pd.Timedelta(hours=2)).isoformat(), "loop": "long book", "gap": 61.0, "every": 15.0},  # late, pre-market
-        "not json", json.dumps([1, 2]), json.dumps({"at": at(30).isoformat(), "loop": "long book", "kind": "summary", "n": "x"})])
+        {"at": (OPEN + pd.Timedelta(hours=8)).isoformat(), "loop": "long book", "gap": 61.0, "every": 15.0},   # late, at night
+        "torn line after the session"])                                        # its neighbours place it after the close
     o = job.pace(DAY, p)
-    assert (o["passes"], o["counts"], o["late"], o["periods"], o["unreadable_lines"]) == (400, [400, 0, 0, 0], 0, 10, 3)
-    assert (o["within"], o["work_p90_s"], o["work_max_s"]) == (1.0, 0.2, 0.4)      # sorted[int(0.9 * 9)]: the baseline's rule
+    assert (o["passes"], o["counts"], o["late"], o["periods"], o["unreadable_lines"]) == (1520, [1520, 0, 0, 0], 0, 38, 0)
+    assert (o["within"], o["work_p90_s"], o["work_max_s"]) == (1.0, 0.2, 0.4)      # sorted[int(0.9 * 37)]: the baseline's rule
     assert o["window_et"] == "09:40-16:00" and o["full_session"] is True
+    assert o["whole"] is True and o["longest_stretch_without_a_row_s"] == 642 and "incomplete" not in o
     assert o["inside"] == {"cadence": True, "late": True, "work_p90": True, "work_max": True} and job.verdict(o["inside"]) == "inside"
     assert o["tolerance"] is job.TOL and "not proof of no effect" in o["limits"]
 
 
-@pytest.mark.parametrize("rows_, outside", [
-    ([summary(10, n=1000, counts=(995, 5, 0, 0), work=0.2), summary(20, n=0, counts=(0, 0, 0, 0), work=0.5)], []),   # at each limit
-    ([summary(10, n=1000, counts=(994, 6, 0, 0), work=0.1)], ["cadence"]),
-    ([summary(10, work=0.6)], ["work_p90", "work_max"]),
-    ([summary(10, work=0.1), summary(20, work=0.6)], ["work_max"]),
-    ([summary(10), {"at": at(45).isoformat(), "loop": "long book", "gap": 36.0, "every": 15.0}], ["late"]),
+@pytest.mark.parametrize("change, outside", [
+    ({0: summary(10, n=1000, counts=(995, 5, 0, 0), work=0.2), 1: summary(20, n=0, counts=(0, 0, 0, 0), work=0.5)}, None),
+    ({0: summary(10, n=40000, counts=(39000, 1000, 0, 0))}, ["cadence"]),
+    ({k: summary(10 + 10 * k, work=0.6) for k in range(5)}, ["work_p90", "work_max"]),     # sorted[33] of 38
+    ({3: summary(40, work=0.6)}, ["work_max"]),
+    ({}, ["late"]),
 ])
-def test_a_figure_at_the_limit_is_inside_and_one_past_it_is_outside_by_name(tmp_path, rows_, outside):
+def test_a_figure_at_the_limit_is_inside_and_one_past_it_is_outside_by_name(tmp_path, change, outside):
+    rows_ = whole(work=0.2 if outside is None else 0.1)
+    for k, r in change.items():
+        rows_[k] = r
+    if outside == ["late"]:
+        rows_.append({"at": at(45).isoformat(), "loop": "long book", "gap": 36.0, "every": 15.0})
     o = job.pace(DAY, gaps(tmp_path, rows_))
-    assert [k for k, v in o["inside"].items() if v is False] == outside
+    assert o["whole"] and [k for k, v in o["inside"].items() if v is False] == (outside or [])
     assert job.verdict(o["inside"]) == ("outside: " + ", ".join(outside) if outside else "inside")
 
 
 def test_a_record_that_is_missing_or_empty_is_not_measured_and_never_a_pass(tmp_path):
-    for o in (job.pace(DAY, tmp_path / "none.jsonl"), job.pace(DAY, gaps(tmp_path, [summary(60, loop="stop check")]))):
+    raw = tmp_path / "bytes.jsonl"
+    raw.write_bytes(b"\xff\xfe\x00not text")
+    for o in (job.pace(DAY, tmp_path / "none.jsonl"), job.pace(DAY, gaps(tmp_path, [summary(60, loop="stop check")])),
+              job.pace(DAY, raw)):
         assert o["note"] and set(o["inside"].values()) == {None}
         assert job.verdict(o["inside"]) == "not measured: cadence, late, work_p90, work_max"
 
 
+def test_a_record_with_a_row_missing_cannot_say_inside_and_still_says_outside(tmp_path):
+    """Owner 2026-11-27: partial sessions, missing observations and too little timing data are said, never passed.
+    A listener restart or a full record leaves a stretch of the window without a row: every figure that would have
+    been inside is 'not measured'; a figure that is outside on the rows that exist stays outside, by name."""
+    o = job.pace(DAY, gaps(tmp_path, whole(minutes=range(10, 130, 10))))             # rows until 11:30 only
+    assert o["whole"] is False and o["periods"] == 12 and o["longest_stretch_without_a_row_s"] == 16242
+    assert set(o["inside"].values()) == {None} and "longest stretch of the window without a row 271 min" in o["incomplete"]
+    assert job.verdict(o["inside"]) == "not measured: cadence, late, work_p90, work_max"
+    one = job.pace(DAY, gaps(tmp_path, whole(minutes=[m for m in range(10, 390, 10) if m not in (200, 210)])))
+    assert one["whole"] is False and one["periods"] == 36                             # two rows in a row are missing
+    assert job.pace(DAY, gaps(tmp_path, whole(minutes=[m for m in range(10, 390, 10) if m != 200])))["whole"] is False
+    bad = job.pace(DAY, gaps(tmp_path, whole(minutes=range(10, 130, 10)) + [summary(125, work=0.9)]))
+    assert bad["inside"] == {"cadence": None, "late": None, "work_p90": None, "work_max": False}
+    assert job.verdict(bad["inside"]) == "outside: work_max; not measured: cadence, late, work_p90"
+    said = job.report({"session": DAY, "pace": bad, "integrity": {}, "longs_entered": 0})
+    assert said.startswith("⚠️ feed recorder 2026-11-09: timing OUTSIDE: longest pass (maximum); not measured: passes on "
+                           "time, late passes, longest pass (90th percentile); integrity not measured. ")
+    assert "maximum 0.9 s (limit 0.5)" in said and "the cadence record is not whole" in said and job.POLICY in said
+
+
+def test_a_line_that_cannot_be_read_inside_the_window_means_not_measured(tmp_path):
+    rows_ = whole()
+    torn = rows_[:20] + ["{\"at\": \"2026-11-09T18:0", json.dumps([1, 2])] + rows_[20:] + [
+        json.dumps({"at": at(30).isoformat(), "loop": "long book", "kind": "summary", "n": "x"})]
+    o = job.pace(DAY, gaps(tmp_path, torn))
+    assert o["unreadable_lines"] == 3 and o["whole"] is False and set(o["inside"].values()) == {None}
+    assert "3 lines that cannot be read and may belong to the window" in o["incomplete"]
+    before = job.pace(DAY, gaps(tmp_path, ["torn", summary(-60)] + rows_))            # torn before a pre-market row
+    assert before["unreadable_lines"] == 0 and before["whole"] is True and job.verdict(before["inside"]) == "inside"
+    naive = job.pace(DAY, gaps(tmp_path, rows_ + [{"at": "2026-11-09T18:00:00", "loop": "long book", "gap": 99.0}]))
+    assert naive["unreadable_lines"] == 1 and naive["late"] == 0 and naive["whole"] is False   # a stamp with no zone
+
+
 def test_an_early_close_is_labelled_and_is_not_the_comparison_session(tmp_path):
     half = pd.Timestamp("2026-11-27 14:30", tz="UTC")
-    o = job.pace("2026-11-27", gaps(tmp_path, [summary(30, day=half), summary(215, n=7, counts=(0, 0, 0, 7), day=half)]))
-    assert (o["window_et"], o["full_session"], o["passes"]) == ("09:40-13:00", False, 40)     # 13:05 is after its close
+    o = job.pace("2026-11-27", gaps(tmp_path, whole(minutes=range(10, 210, 10), day=half)
+                                    + [summary(215, n=7, counts=(0, 0, 0, 7), day=half)]))
+    assert (o["window_et"], o["full_session"], o["passes"], o["whole"]) == ("09:40-13:00", False, 800, True)   # 13:05: after its close
     assert "(not a full session)" in job.pace_words({"pace": o, "longs_entered": 0})
+    assert job.report({"session": "2026-11-27", "pace": o, "integrity": {}}).startswith(
+        "feed recorder 2026-11-27 (not a full session): timing inside; integrity not measured. 800 passes")
 
 
 def test_the_integrity_row_says_what_failed_and_what_was_not_measured():
@@ -419,22 +472,61 @@ def test_the_integrity_row_says_what_failed_and_what_was_not_measured():
     assert job.verdict(job.integrity({**good, "health": {"dropped": 2, "fails": 0, "off": {"why": "x"}}})) == "outside: dropped_0, not_switched_off"
     assert job.verdict(job.integrity({**good, "delivered": 3})) == "outside: counts_add_up"
     assert job.verdict(job.integrity({"health": {}})) == "not measured: dropped_0, write_fails_0, not_switched_off, counts_add_up"
+    half = job.integrity({"health": {"dropped": 0, "fails": 3}})                 # a failed check never hides an unknown one
+    assert job.verdict(half) == "outside: write_fails_0; not measured: counts_add_up"
 
 
 def test_the_nightly_line_carries_the_check_with_each_figure_beside_its_limit(tmp_path):
     looks = [(at(0, 30) + pd.Timedelta(seconds=15 * k), "ABCD", frame([0] if k > 6 else [])) for k in range(0, 20)]
     run(tmp_path, looks)
     px = (10.0, 10.1, 9.9, 10.0, 100.0)
-    p = gaps(tmp_path, [summary(10, work=0.1), summary(20, work=0.3)])
+    rows_ = whole()
+    rows_[5] = summary(60, work=0.3)
+    p = gaps(tmp_path, rows_)
     o = job.compare(DAY, tmp_path / "shadow.db", tmp_path / "no-ops.db", fetch=lambda *a: ({"ABCD": {at(0): px}}, []), gaps=p)
-    assert o["pace"]["passes"] == 80 and o["longs_entered"] == 0 and job.verdict(o["integrity"]) == "inside"
+    assert o["pace"]["passes"] == 1520 and o["longs_entered"] == 0 and job.verdict(o["integrity"]) == "inside"
     said = job.words(o)
-    assert ("frozen check, long book 09:40-16:00 ET: 80 passes, 100.00% started within 1.1 x 15 s (limit at least 99.5%), "
+    assert ("frozen check, long book 09:40-16:00 ET: 1520 passes, 100.00% started within 1.1 x 15 s (limit at least 99.5%), "
             "late 0 (limit 0), longest pass per 10 minutes: 90th percentile 0.1 s (limit 0.2), maximum 0.3 s (limit 0.5), "
-            "0 longs entered; timing inside; integrity inside") in said
+            "38 ten-minute rows, 0 longs entered; timing inside; integrity inside") in said
+    assert o["report"] == (                                              # the one line the midnight summary text carries
+        "feed recorder 2026-11-09: timing inside; integrity inside. 1520 passes, 100.00% on time (limit at least 99.5%), "
+        "late 0 (limit 0), longest pass per 10 min: 90th percentile 0.1 s (limit 0.2), maximum 0.3 s (limit 0.5), "
+        "0 longs entered. The record resolves 0.1 s per 10 minutes: inside is not proof of no effect.")
     json.dumps(o)                                                        # the line is written as JSON
     empty = job.compare("2026-11-10", tmp_path / "shadow.db", tmp_path / "no-ops.db", fetch=None, gaps=tmp_path / "none.jsonl")
     assert "no look was recorded" in job.words(empty) and "timing not measured" in job.words(empty)
+    assert empty["report"].startswith("feed recorder 2026-11-10: timing not measured: passes on time, late passes, ")
+    assert "; integrity not measured: " in empty["report"] and "not proof of no effect" not in empty["report"]
+    assert "the cadence record could not be read (FileNotFoundError)" in empty["report"] and job.POLICY not in empty["report"]
+
+
+def test_an_outside_figure_is_named_in_the_report_with_the_response_fixed_beforehand(tmp_path):
+    """Owner 2026-11-27: a breach identifies the failed metric and follows the shutoff policy already fixed (section
+    4a: off at the next guarded window). The job says it; it switches nothing and no flag, size or book is touched."""
+    rows_ = whole()
+    rows_[7] = summary(80, work=0.7)
+    o = {"session": DAY, "pace": job.pace(DAY, gaps(tmp_path, rows_)), "longs_entered": 3,
+         "integrity": {"dropped_0": True, "write_fails_0": True, "not_switched_off": True, "counts_add_up": True}}
+    assert job.report(o) == (
+        "⚠️ feed recorder 2026-11-09: timing OUTSIDE: longest pass (maximum); integrity inside. 1520 passes, 100.00% on time (limit at least 99.5%), "
+        "late 0 (limit 0), longest pass per 10 min: 90th percentile 0.1 s (limit 0.2), maximum 0.7 s (limit 0.5), "
+        "3 longs entered. By the policy of 2026-11-27 the recorder goes off at the next guarded window and the cause is "
+        "looked at before it goes back on.")
+    off = job.report({**o, "pace": job.pace(DAY, gaps(tmp_path, whole())), "health": {"off": {"why": "switched off by the OFF file"}},
+                      "integrity": {**o["integrity"], "dropped_0": False, "not_switched_off": False}})
+    assert off.startswith("⚠️ feed recorder 2026-11-09: timing inside; integrity OUTSIDE: looks dropped, recorder switched off. ")
+    assert "; recorder OFF: switched off by the OFF file. By the policy" in off
+    assert set(job.PLAIN) == set(o["pace"]["inside"]) | set(o["integrity"])
+
+
+def test_the_job_only_reads_the_books_database_and_writes_its_own_file():
+    """It cannot change a flag, a size, a registered result or who is in a cohort: both databases are opened
+    read-only and the only file it writes is its own line."""
+    src = (Path(job.__file__)).read_text()
+    assert src.count("sqlite3.connect(") == 2 and src.count("?mode=ro\", uri=True") == 2
+    assert "OpsStore" not in src and "set_flag" not in src and ".tx(" not in src
+    assert src.count("write_text(") == 1 and "tmp.replace(path)" in src and str(job.OUT) == "reports/feed_shadow/daily.jsonl"
 
 
 def test_a_vendor_request_that_fails_is_reported_and_the_symbol_is_left_out(tmp_path):

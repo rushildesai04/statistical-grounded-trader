@@ -417,7 +417,8 @@ def cmd_summary(db: OpsStore) -> int:
     text = summary.build(db, day)
     sms = Sms()
     try:
-        sms.send(text)
+        for part in digest.parts(text):             # 2026-11-27: Sms.send cuts at SMS_MAX; no line of it is dropped
+            sms.send(part)
     finally:
         sms.close()
     mark_done(db, f"summary:{day}")

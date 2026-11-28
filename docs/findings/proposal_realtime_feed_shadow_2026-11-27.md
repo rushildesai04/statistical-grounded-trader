@@ -158,14 +158,29 @@ Compared: the first full session with the recorder on, regular hours, against th
 | Cadence | share of passes started within 1.1 x 15 s; late passes | at least 99.5%; 0 late |
 | Pass duration | longest pass per 10 minutes, 90th percentile and maximum over the session | not more than 0.1 s (the record's resolution) above the worse baseline session: 0.2 s and 0.5 s |
 
-**Who makes the comparison.** The nightly `feedshadow` job itself (from 2026-11-27, `scripts/feed_shadow.py`): the
-session's line in `reports/feed_shadow/daily.jsonl` carries `pace` (the figures of the cadence and pass-duration rows,
-read from `loop_gaps.jsonl` for the same window as the baseline: rows stamped from 09:40 ET to the close), `integrity`
-(the output-integrity row) and the tolerance it was held against, and the job's printed line says each figure beside
-its limit and "inside", "outside: <which>" or "not measured: <which>". The four numbers are constants in that script,
-pinned by a test. A session that is not a full session is labelled and is not the comparison session. The job
-switches nothing and texts nothing: an outside figure is acted on as the table below says. The isolation row is
-checked once after the deploy, by hand.
+**Who makes the comparison, and how the result reaches the owner.** The nightly `feedshadow` job itself (21:40 ET,
+`scripts/feed_shadow.py`): the session's line in `reports/feed_shadow/daily.jsonl` carries `pace` (the figures of
+the cadence and pass-duration rows, read from `loop_gaps.jsonl` for the same window as the baseline: rows stamped
+from 09:40 ET to the close), `integrity` (the output-integrity row), the tolerance it was held against, and
+`report`: one line with the timing verdict, the integrity verdict, each figure beside its limit, and a failed
+figure by name. The midnight summary text (00:05 ET, `sgt.ops.summary`) carries that line for the session, so the
+result is delivered without anybody reading a file; where the job wrote no line the text says "not measured",
+never nothing. The four numbers are constants in the script, pinned by a test.
+
+Three answers, never two: **inside**, **outside** (by name), **not measured**. Not measured, each said in words:
+no cadence row in the window; a record that cannot be read; a stretch of the window of 20 minutes or more without
+a row (the book writes one every 10 minutes: a row is missing, after a restart or when the record is full); a line
+that cannot be read and may belong to the window; no look recorded, so the class counts cannot be added up. On a
+record that is not whole a figure outside its limit stays outside (what was seen was seen) and a figure inside is
+not measured. The 20 minutes is twice the record's own row interval: a rule for a whole record, fixed with the four
+numbers before the first session was read, and not a tolerance. A session that is not a full session is labelled
+and is not the comparison session.
+
+The job switches nothing, changes no flag, size, registered result or cohort (both databases are opened read-only;
+its one output is its own line), and sends no text of its own. For an outside figure the line states the response
+of the table below. The switching off is done by a person or a working session at the next guarded window: on a
+night when nobody acts, the recorder stays on, and each later session is judged and reported the same way. The
+isolation row is checked once after the deploy, by hand.
 
 **What this comparison can and cannot carry.** The baseline is two full sessions. The record resolves 0.1 s and
 keeps one figure per 10 minutes (the longest pass), not a distribution: a cost under 0.1 s a pass cannot be seen in
