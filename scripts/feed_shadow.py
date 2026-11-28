@@ -28,34 +28,14 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sgt.fast import feed_shadow as fs  # noqa: E402
-from sgt.ops.own_thread import FLUSH_S  # noqa: E402
+from sgt.fast.feed_shadow_check import (  # noqa: E402, F401 - the check lives there; the names stay reachable here
+    CONFIRM_S, EVIDENCE, HOLE_S, LIMITS, LOOP, PACE, PLAIN, POLICY, TOL, _pace, breaches, integrity, keep_evidence, pace,
+    report, shutoff, verdict,
+)
 
 OUT = Path("reports/feed_shadow/daily.jsonl")
 OPS = Path("reports/ops/ops.db")
 CHUNK, PAUSE_S, MAX_SYMBOLS, LIST_MAX = 20, 0.6, 200, 40
-
-# The after-the-session check of docs/findings/proposal_realtime_feed_shadow_2026-11-27.md, section 4a, made by the
-# job itself so that it does not depend on a person reading two files (owner 2026-11-27: "Collect the first full
-# session's recorder measurements against the predefined tolerances"). FROZEN on 2026-11-27, before the recorder had
-# run on the runner (owner: "Do not tighten or loosen thresholds after seeing the recorder's results to manufacture a
-# pass"): these four numbers are that section's table and change only on the owner's word. The figures come from the
-# long book's own cadence record (sgt.ops.own_thread.Pace); nothing is measured anew and nothing is switched by it.
-PACE, LOOP = Path("reports/ops/loop_gaps.jsonl"), "long book"
-TOL = {"within_min": 0.995, "late_max": 0, "work_p90_max_s": 0.2, "work_max_max_s": 0.5}
-LIMITS = ("baseline of two full sessions; the record keeps one figure per 10 minutes (the longest pass) to 0.1 s, so "
-          "a cost under 0.1 s a pass cannot be seen; a figure inside the tolerance is not proof of no effect")
-# Not a tolerance: whether the record is whole enough to say "inside" at all. The book writes one row every FLUSH_S
-# (10 minutes); a stretch of the window twice that long without a row means at least one row is missing (a restart,
-# a full record). Fixed 2026-11-27 with the four numbers, before the first session was read. A figure OUTSIDE its
-# limit stays outside on a partial record (what was seen was seen); a figure inside becomes "not measured".
-HOLE_S = 2 * FLUSH_S
-# The check in the owner's words, for the one line that goes into the midnight summary text (sgt.ops.summary).
-PLAIN = {"cadence": "passes on time", "late": "late passes", "work_p90": "longest pass (90th percentile)",
-         "work_max": "longest pass (maximum)", "dropped_0": "looks dropped", "write_fails_0": "failed writes",
-         "not_switched_off": "recorder switched off", "counts_add_up": "class counts"}
-POLICY = ("By the policy of 2026-11-27 the recorder goes off at the next guarded window and the cause is looked at "
-          "before it goes back on")
-
 
 def last_session(now: datetime) -> str:
     from sgt.intraday.calendar import default_calendar
@@ -120,123 +100,6 @@ def finished(feed: str, symbols: list[str], start: datetime, end: datetime, slee
     return out, failed
 
 
-def pace(session: str, path: Path = PACE) -> dict:
-    """The long book's own cadence record over the session's regular hours, set against the frozen tolerance (TOL).
-    The window is the baseline read's: rows stamped from 10 minutes after the open (a row is written at the END of
-    its 10 minutes) to the minute of the close. Never raises: a record that cannot be read is said in ``note`` and
-    every verdict stays None (not measured), never True. A record with a row missing from the window (HOLE_S) or
-    with a line that cannot be read is ``whole: False``: an outside figure stays outside, an inside one is None."""
-    first, close = fs.session_minutes(session)
-    lo, hi = first + timedelta(minutes=10), close + timedelta(seconds=59)
-    out = {"loop": LOOP, "window_et": f"{lo.tz_convert(fs.ET):%H:%M}-{close.tz_convert(fs.ET):%H:%M}",
-           "full_session": close - first == timedelta(hours=6, minutes=30), "tolerance": TOL, "limits": LIMITS,
-           "inside": {"cadence": None, "late": None, "work_p90": None, "work_max": None}}
-    try:
-        raw = Path(path).read_text(encoding="utf-8").splitlines()
-    except (OSError, ValueError) as e:                  # ValueError: bytes that are not text
-        return {**out, "note": f"the cadence record could not be read ({type(e).__name__})"}
-    n, counts, work, late, stamps = 0, [0, 0, 0, 0], [], 0, []
-    unread, pending, prev = 0, 0, None      # a line that cannot be read counts unless its neighbours place it outside
-    for ln in raw:
-        if not ln.strip():
-            continue
-        try:
-            r = json.loads(ln)
-            at = pd.Timestamp(r["at"])
-            if at.tzinfo is None:                       # NaT too: a stamp that cannot be placed
-                raise ValueError("stamp")
-        except (ValueError, TypeError, KeyError, AttributeError):
-            pending += 1
-            continue
-        if pending:                                     # the file is written in time order
-            unread += 0 if (at < lo or (prev is not None and prev > hi)) else pending
-            pending = 0
-        prev = at
-        if r.get("loop") != LOOP or not lo <= at <= hi:
-            continue
-        try:
-            if r.get("kind") == "summary":
-                c = [int(x) for x in r["counts"]]
-                if len(c) != 4:
-                    raise ValueError("counts")
-                n, counts, work = n + int(r["n"]), [x + y for x, y in zip(counts, c)], work + [float(r["max_work"])]
-                stamps.append(at)
-            elif "gap" in r:
-                late += 1                               # a late pass has a line of its own
-        except (ValueError, TypeError, KeyError):
-            unread += 1
-    if pending and not (prev is not None and prev > hi):
-        unread += pending
-    edges = [lo] + sorted(stamps) + [hi]
-    hole = max((b - a).total_seconds() for a, b in zip(edges, edges[1:]))
-    out.update(passes=n, counts=counts, late=late, periods=len(work), unreadable_lines=unread,
-               longest_stretch_without_a_row_s=round(hole), whole=hole < HOLE_S and not unread)
-    if not n:
-        return {**out, "note": "no cadence row of the long book in the session's regular hours"}
-    w = sorted(work)
-    share, p90, top = counts[0] / n, w[int(0.9 * (len(w) - 1))], w[-1]     # the 90th percentile as the baseline took it
-    out.update(within=round(share, 5), work_p90_s=p90, work_max_s=top)
-    seen = {"cadence": share >= TOL["within_min"], "late": late <= TOL["late_max"],
-            "work_p90": p90 <= TOL["work_p90_max_s"], "work_max": top <= TOL["work_max_max_s"]}
-    if not out["whole"]:
-        why = ([f"longest stretch of the window without a row {hole / 60:.0f} min"] if hole >= HOLE_S else []) + (
-            [f"{unread} lines that cannot be read and may belong to the window"] if unread else [])
-        out["incomplete"] = "the cadence record is not whole (" + "; ".join(why) + "): a figure inside its limit is not measured"
-        seen = {k: (False if v is False else None) for k, v in seen.items()}
-    out["inside"] = seen
-    return out
-
-
-def integrity(o: dict) -> dict:
-    """Section 4a's output-integrity row from the line itself: True, False, or None where it was not measured."""
-    h = o.get("health") or {}
-    zero = lambda k: (h[k] == 0) if h.get(k) is not None else None        # noqa: E731
-    return {"dropped_0": zero("dropped"), "write_fails_0": zero("fails"), "not_switched_off": (not h.get("off")) if h else None,
-            "counts_add_up": (sum(o[k] for k in fs.CLASSES) == o["watched_minutes"]) if "watched_minutes" in o else None}
-
-
-def verdict(checks: dict) -> str:
-    """'outside: a, b' for the checks that failed and 'not measured: c' for the unknown ones (both when there are
-    both: an unknown check is never hidden behind a failed one, nor read as a pass); 'inside' only when all hold."""
-    bad, unknown = [k for k, v in checks.items() if v is False], [k for k, v in checks.items() if v is None]
-    return "; ".join(x for x in (bad and "outside: " + ", ".join(bad), unknown and "not measured: " + ", ".join(unknown))
-                     if x) or "inside"
-
-
-def _plain(checks: dict) -> tuple[str, bool]:
-    """A group of checks in the owner's words, and whether any failed. No check at all is 'not measured'."""
-    bad, unknown = [PLAIN[k] for k, v in checks.items() if v is False], [PLAIN[k] for k, v in checks.items() if v is None]
-    if not checks:
-        return "not measured", False
-    return "; ".join(x for x in (bad and "OUTSIDE: " + ", ".join(bad), unknown and "not measured: " + ", ".join(unknown))
-                     if x) or "inside", bool(bad)
-
-
-def report(o: dict) -> str:
-    """The frozen check of one session as ONE short line for the midnight summary text (``sgt.ops.summary`` reads it
-    from this session's line): the timing verdict and the integrity verdict, a failed figure by name, each figure
-    beside its limit, what was not measured, and for an outside figure the response the owner fixed on 2026-11-27.
-    The job itself switches nothing."""
-    p = o.get("pace") or {}
-    timing, bad_t = _plain(p.get("inside") or {})
-    whole, bad_i = _plain(o.get("integrity") or {})
-    if "within" in p:
-        t = p["tolerance"]
-        figures = (f"{p['passes']} passes, {100 * p['within']:.2f}% on time (limit at least {100 * t['within_min']:.1f}%), "
-                   f"late {p['late']} (limit {t['late_max']}), longest pass per 10 min: 90th percentile {p['work_p90_s']} s "
-                   f"(limit {t['work_p90_max_s']}), maximum {p['work_max_s']} s (limit {t['work_max_max_s']}), "
-                   f"{o.get('longs_entered', 0)} longs entered")
-    else:
-        figures = p.get("note") or "no timing figure"
-    off = (o.get("health") or {}).get("off")
-    return (("⚠️ " if bad_t or bad_i else "") + f"feed recorder {o['session']}"
-            + ("" if p.get("full_session") else " (not a full session)") + f": timing {timing}; integrity {whole}. {figures}"
-            + (f"; {p['incomplete']}" if p.get("incomplete") else "")
-            + (f"; recorder OFF: {str(off.get('why'))[:120]}" if off else "")
-            + (f". {POLICY}." if bad_t or bad_i else
-               ". The record resolves 0.1 s per 10 minutes: inside is not proof of no effect." if timing == "inside" else "."))
-
-
 def longs_of(ops: Path, session: str) -> list[dict]:
     if not ops.exists():
         return []
@@ -293,6 +156,39 @@ def compare(session: str, db: Path = fs.DB, ops: Path = OPS, fetch=finished, gap
     out["long_stops"] = stops
     out["report"] = report(out)
     return out
+
+
+def line_of(session: str, path: Path = OUT) -> dict | None:
+    """The line already written for this session, if any (its ``shutoff`` says whether the switch was made)."""
+    last = None
+    try:
+        for ln in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and r.get("session") == session:
+                last = r
+    except OSError:
+        return None
+    return last
+
+
+def act(o: dict, named: bool) -> None:
+    """A confirmed breach switches the recorder off (``feed_shadow_check.shutoff``), once per session: a second
+    run of the same session's check (a closed day, a run by hand) does not make the switch again, so a person who
+    has put the recorder back on is not overruled by an old session. A run for a named session reports and never
+    switches. Without a confirmed breach nothing happens: "not measured" alone never switches."""
+    if not breaches(o):
+        return
+    done = (line_of(o["session"], OUT) or {}).get("shutoff") or {}
+    if named:
+        o["shutoff"] = {"result": "not attempted", "note": "a run for a named session reports and never switches"}
+    elif done.get("result") in ("created", "already present", "already off"):
+        o["shutoff"] = {**done, "repeated": False}
+    else:
+        o["shutoff"] = shutoff(o, fs.DB, _pace(o["session"], PACE)[1], EVIDENCE)
+    o["report"] = report(o)
 
 
 def write(line: dict, path: Path = OUT) -> None:
@@ -396,10 +292,14 @@ def main(argv: list[str] | None = None) -> int:
     if not fs.DB.exists():
         print(f"feed shadow {session}: no recorder database (the recorder is off or has not run)")
         return 0
-    o = compare(session)
-    write(o)
+    o = compare(session, fs.DB, OPS, finished, PACE)
+    act(o, named=bool(args.session))
+    write(o, OUT)
     print(words(o))
-    return 1 if o.get("symbols") and len(o.get("symbols_failed", [])) == o["symbols"] else 0
+    if o.get("shutoff"):
+        print("shutoff:", json.dumps(o["shutoff"], sort_keys=True))
+    failed = (o.get("shutoff") or {}).get("result") == "failed"
+    return 1 if failed or (o.get("symbols") and len(o.get("symbols_failed", [])) == o["symbols"]) else 0
 
 
 if __name__ == "__main__":

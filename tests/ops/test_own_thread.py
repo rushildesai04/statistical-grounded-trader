@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from sgt.ops import own_thread as ot
 from sgt.ops.store import OpsStore
@@ -177,7 +179,116 @@ def test_an_event_loop_that_stands_still_is_written_down_whatever_held_it(tmp_pa
         ot.clause(tmp_path, day)
 
 
-def test_a_full_record_of_stop_checks_says_so(tmp_path, monkeypatch):
-    monkeypatch.setattr(ot, "GAPS_MAX_BYTES", 10)
-    (tmp_path / ot.GAPS_NAME).write_text("x" * 50)
-    assert "the record of stop checks is full" in ot.clause(tmp_path, "2026-11-23")
+def row(at, loop="long book", **kw):
+    return {"at": at, "loop": loop, **kw}
+
+
+def test_the_record_is_one_file_a_utc_day_and_the_old_single_file_is_read_and_never_written(tmp_path):
+    """2026-11-27: the one file stopped taking rows for good at 1 MB (full about 2026-12-14). Now a file per day."""
+    old = tmp_path / ot.GAPS_NAME
+    old.write_text(json.dumps(row("2026-11-17T15:00:00+00:00", gap=40.0, every=15.0)) + "\n")
+    before = old.read_bytes()
+    ot._write(tmp_path, row("2026-11-17T23:59:59.999999+00:00", gap=41.0, every=15.0))               # the last instant of a day
+    ot._write(tmp_path, row("2026-11-18T00:00:00+00:00", gap=42.0, every=15.0))                      # the first of the next
+    assert old.read_bytes() == before
+    assert sorted(f.name for f in tmp_path.iterdir()) == ["loop_gaps.2026-11-17.jsonl", "loop_gaps.2026-11-18.jsonl", "loop_gaps.jsonl"]
+    assert [g["gap"] for g in ot.gaps(tmp_path, "2026-11-17")] == [40.0, 41.0]                       # old file first: time order
+    assert [g["gap"] for g in ot.gaps(tmp_path, "2026-11-18")] == [42.0] and ot.gaps(tmp_path, "2026-11-19") == []
+    assert ot.files(tmp_path, ["2026-11-18", "2026-11-17", "2026-11-17"]) == [old, ot.part(tmp_path, "2026-11-17"), ot.part(tmp_path, "2026-11-18")]
+    ot._write(tmp_path, {"loop": "long book", "gap": 43.0})                                          # a row without a stamp: today's file
+    assert ot.part(tmp_path, datetime.now(timezone.utc).date().isoformat()).exists()
+    ot._write(tmp_path, row("../../etc/x", gap=1.0))                                                 # a stamp is never a path
+    assert all(f.parent == tmp_path for f in tmp_path.rglob("*")) and len(list(tmp_path.iterdir())) == 4
+
+
+def test_a_full_day_stops_late_rows_first_keeps_the_interval_rows_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(ot, "GAPS_MAX_BYTES", 400)
+    day, p = "2026-11-30", ot.part(tmp_path, "2026-11-30")
+    late = row(f"{day}T15:00:00+00:00", gap=40.0, every=15.0)
+    while p.stat().st_size <= 400 if p.exists() else True:
+        ot._write(tmp_path, late)
+    full = p.stat().st_size
+    assert ot.capped(tmp_path, day) and not ot.capped(tmp_path, "2026-12-01")
+    ot._write(tmp_path, late)
+    assert p.stat().st_size == full                                                                  # a late row: not written
+    ot._write(tmp_path, row(f"{day}T15:10:00+00:00", kind="summary", n=40, counts=[40, 0, 0, 0], max_gap=15.0, max_work=0.1, every=15.0))
+    assert p.stat().st_size > full                                                                   # an interval row: still written
+    while p.stat().st_size <= 800:
+        ot._write(tmp_path, row(f"{day}T15:10:00+00:00", kind="summary", n=40, counts=[40, 0, 0, 0], max_gap=15.0, max_work=0.1, every=15.0))
+    top = p.stat().st_size
+    ot._write(tmp_path, row(f"{day}T15:20:00+00:00", kind="summary", n=40, counts=[40, 0, 0, 0], max_gap=15.0, max_work=0.1, every=15.0))
+    assert p.stat().st_size == top                                                                   # the day's hard stop
+    assert "the record of stop checks is full for this day (later late checks are not in it)" in ot.clause(tmp_path, day)
+    ot._write(tmp_path, row("2026-12-01T15:00:00+00:00", gap=40.0, every=15.0))                      # the next day starts clean
+    assert len(ot.gaps(tmp_path, "2026-12-01")) == 1 and "is full" not in ot.clause(tmp_path, "2026-12-01")
+
+
+def test_a_line_torn_by_a_crash_or_a_full_disk_costs_one_line_and_never_the_row_after_it(tmp_path, monkeypatch):
+    day, p = "2026-11-30", ot.part(tmp_path, "2026-11-30")
+    ot._write(tmp_path, row(f"{day}T15:00:00+00:00", gap=40.0, every=15.0))
+    with p.open("a") as f:
+        f.write('{"at": "2026-11-30T15:00:15+00:00", "loop": "long bo')                              # the process died mid-line
+    monkeypatch.setattr(ot, "_tail_seen", None)                                                      # a restart: a new process
+    ot._write(tmp_path, row(f"{day}T15:01:00+00:00", gap=41.0, every=15.0))
+    ot._write(tmp_path, row(f"{day}T15:02:00+00:00", gap=42.0, every=15.0))
+    assert [g["gap"] for g in ot.gaps(tmp_path, day)] == [40.0, 41.0, 42.0]                          # the torn line is skipped
+    assert len(p.read_text().splitlines()) == 4 and p.read_text().endswith("\n")
+    real = type(p).open
+
+    def no_room(self, mode="r", *a, **k):                                                            # the volume is full
+        if "a" in mode:
+            raise OSError(28, "No space left on device")
+        return real(self, mode, *a, **k)
+    monkeypatch.setattr(type(p), "open", no_room)
+    pace, clock = ot.Pace(tmp_path, "long book", 15, clock=lambda: clock[0]), [0.0]
+    pace.start()
+    clock[0] = 99.0
+    assert pace.start() == 99.0                                                                      # a late pass: not raised
+    pace.flush()                                                                                     # nor the interval row
+    ot._write(tmp_path, row(f"{day}T15:02:30+00:00", gap=99.0, every=15.0))
+    assert ot._tail_seen is None                                                                     # look at the tail again next time
+    monkeypatch.setattr(type(p), "open", real)
+    with p.open("a") as f:
+        f.write('{"torn by the full disk')
+    ot._write(tmp_path, row(f"{day}T15:03:00+00:00", gap=43.0, every=15.0))
+    assert [g["gap"] for g in ot.gaps(tmp_path, day)] == [40.0, 41.0, 42.0, 43.0]
+
+
+def test_a_write_does_not_read_the_file_or_list_the_folder(tmp_path, monkeypatch):
+    """Lightweight and never waiting: one stat and one append; the last byte is looked at once per process and day."""
+    day, p = "2026-11-30", ot.part(tmp_path, "2026-11-30")
+    ot._write(tmp_path, row(f"{day}T15:00:00+00:00", gap=40.0, every=15.0))
+    src = Path(ot.__file__).read_text()
+    opened, real = [], type(p).open
+
+    def spy(self, mode="r", *a, **k):
+        opened.append(mode)
+        return real(self, mode, *a, **k)
+    monkeypatch.setattr(type(p), "open", spy)
+    monkeypatch.setattr(type(p), "glob", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr(type(p), "iterdir", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr(type(p), "read_text", lambda *a, **k: 1 / 0)
+    for k in range(5):
+        ot._write(tmp_path, row(f"{day}T15:0{k + 1}:00+00:00", gap=40.0, every=15.0))
+    assert opened == ["a"] * 5 and len(real(p).read().splitlines()) == 6
+    assert "fsync" not in src and "flock" not in src and src.count("prune(folder)") == 1             # only the nightly line prunes
+
+
+def test_day_files_older_than_the_retention_are_removed_and_nothing_else_is(tmp_path):
+    today = date(2027, 2, 1)
+    names = {"loop_gaps.2026-12-02.jsonl": False,          # 61 days old: removed
+             "loop_gaps.2026-12-03.jsonl": True,           # exactly 60: kept
+             "loop_gaps.2027-02-01.jsonl": True, "loop_gaps.2027-02-02.jsonl": True,   # today's and a later day's
+             "loop_gaps.jsonl": True,                      # the old single file: never removed
+             "loop_gaps.2026-13-45.jsonl": True, "loop_gaps.backup.jsonl": True, "loop_gaps.2026-01-01.jsonl.bak": True,
+             "ops.db": True, "beat.long_book": True}
+    for n in names:
+        (tmp_path / n).write_text("x\n")
+    (tmp_path / "loop_gaps.2026-01-01.jsonl").mkdir()                                                # not a file: left, not raised
+    assert ot.GAPS_KEEP_DAYS == 60 and ot.prune(tmp_path, today) == ["loop_gaps.2026-12-02.jsonl"]
+    assert {n for n in names if (tmp_path / n).exists()} == {n for n, kept in names.items() if kept}
+    assert ot.prune(tmp_path, today) == [] and ot.prune(tmp_path / "missing", today) == []
+    (tmp_path / "loop_gaps.2020-01-01.jsonl").write_text("x\n")
+    text = ot.clause(tmp_path, "2026-11-23")                                                         # the nightly line prunes and says so
+    assert text == "stop checks: none late, no restart in alert hours; 1 day files of the record older than 60 days removed"
+    assert not (tmp_path / "loop_gaps.2020-01-01.jsonl").exists() and (tmp_path / "loop_gaps.2026-12-03.jsonl").exists()
