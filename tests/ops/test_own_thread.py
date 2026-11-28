@@ -271,7 +271,7 @@ def test_a_write_does_not_read_the_file_or_list_the_folder(tmp_path, monkeypatch
     for k in range(5):
         ot._write(tmp_path, row(f"{day}T15:0{k + 1}:00+00:00", gap=40.0, every=15.0))
     assert opened == ["a"] * 5 and len(real(p).read().splitlines()) == 6
-    assert "fsync" not in src and "flock" not in src and src.count("prune(folder)") == 1             # only the nightly line prunes
+    assert "fsync" not in src and "flock" not in src and src.count("= prune(") == 1                  # only the nightly line prunes
 
 
 def test_day_files_older_than_the_retention_are_removed_and_nothing_else_is(tmp_path):
@@ -292,3 +292,37 @@ def test_day_files_older_than_the_retention_are_removed_and_nothing_else_is(tmp_
     text = ot.clause(tmp_path, "2026-11-23")                                                         # the nightly line prunes and says so
     assert text == "stop checks: none late, no restart in alert hours; 1 day files of the record older than 60 days removed"
     assert not (tmp_path / "loop_gaps.2020-01-01.jsonl").exists() and (tmp_path / "loop_gaps.2026-12-03.jsonl").exists()
+
+
+def test_a_day_whose_session_has_no_recorder_check_is_never_pruned_and_nothing_outside_the_record_is_touched(tmp_path):
+    """Owner 2026-11-27 (night): pruning cannot remove unevaluated session data, research evidence or the records
+    kept for a breach."""
+    ops, shadow, today = tmp_path / "reports" / "ops", tmp_path / "reports" / "feed_shadow", date(2027, 3, 1)
+    ops.mkdir(parents=True)
+    (shadow / "evidence").mkdir(parents=True)
+    days = {"2026-11-30": "a session, checked", "2026-12-01": "a session, NO line", "2026-12-05": "a Saturday",
+            "2026-12-25": "the exchange is closed", "2027-02-26": "inside the retention"}
+    for d in days:
+        ot.part(ops, d).write_text("x\n")
+    (shadow / "daily.jsonl").write_text(json.dumps({"session": "2026-11-30", "report": "feed recorder 2026-11-30: timing inside"})
+                                        + "\nnot json\n" + json.dumps({"session": "2026-12-02"}) + "\n")
+    others = [shadow / "OFF", shadow / "shadow.db", shadow / "evidence" / "2026-11-30.json", shadow / "loop_gaps.2020-01-01.jsonl",
+              ops / "ops.db", ops / "loop_gaps.jsonl", tmp_path / "reports" / "alert_fade" / "trades.csv", tmp_path / "data" / "fast" / "bars.parquet"]
+    for f in others:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("keep\n")
+    held: list[str] = []
+    assert ot.prune(ops, today, kept=held) == ["loop_gaps.2026-11-30.jsonl", "loop_gaps.2026-12-05.jsonl", "loop_gaps.2026-12-25.jsonl"]
+    assert held == ["loop_gaps.2026-12-01.jsonl"] and ot.part(ops, "2026-12-01").exists() and ot.part(ops, "2027-02-26").exists()
+    assert all(f.read_text() == "keep\n" for f in others) and (shadow / "daily.jsonl").read_text().count("\n") == 3
+    (shadow / "daily.jsonl").unlink()                                                                # the check is not in use: nothing waits
+    assert ot.prune(ops, today) == ["loop_gaps.2026-12-01.jsonl"]
+    ot.part(ops, "2026-12-08").write_text("x\n")
+    (shadow / "daily.jsonl").mkdir()                                                                 # cannot be read: undecided, keep
+    held = []
+    assert ot.prune(ops, today, kept=held) == [] and held == ["loop_gaps.2026-12-08.jsonl"]
+    (shadow / "daily.jsonl").rmdir()
+    (shadow / "daily.jsonl").write_text("")                                                          # in use, no line at all
+    ot.part(ops, "2020-01-02").write_text("x\n")
+    text = ot.clause(ops, "2026-11-23")
+    assert text.endswith("; 1 older day files kept: their sessions have no recorder check yet") and ot.part(ops, "2020-01-02").exists()   # 2026-12-08 is not old yet

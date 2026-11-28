@@ -572,9 +572,11 @@ def test_not_measured_alone_never_switches_and_a_breach_beside_an_unknown_does(t
             "pace": job.pace(DAY, gaps(tmp_path, whole(minutes=range(10, 130, 10)) + [summary(125, work=0.9)]))}
     assert both["pace"]["inside"] == {"cadence": None, "late": None, "work_p90": None, "work_max": False}
     sh = job.shutoff(both, db, [], tmp_path / "evidence", wait_s=1.0, sleep=lambda s: None)
-    assert sh["result"] == "created" and sh["confirmed_after_s"] is None and (db.parent / "OFF").exists()    # no recorder runs here
-    assert "the recorder did not confirm within 10 s (not running, or no answer); it cannot start while the file exists" in \
-        job.report({**both, "shutoff": sh})
+    assert sh["result"] == "unconfirmed" and sh["made"] == "created" and (db.parent / "OFF").exists()         # no recorder runs here
+    text = job.report({**both, "shutoff": sh})
+    assert text.startswith("⚠️ ") and "SHUTOFF UNCONFIRMED at " in text and "RECORDER SWITCHED OFF" not in text
+    assert ("the OFF file is in place, but the running recorder did not acknowledge within 10 s. It cannot start again while "
+            "the file exists; whether it still records in the running process is not known. No trading process was stopped.") in text
 
 
 def test_a_recorder_that_is_already_off_is_left_as_it_is_and_no_file_is_made(tmp_path):
@@ -608,40 +610,208 @@ def test_a_switch_that_cannot_be_made_says_the_recorder_is_still_on(tmp_path, mo
     assert "SHUTOFF FAILED at " in text and "THE RECORDER IS STILL ON. Create reports/feed_shadow/OFF on the runner by hand." in text
 
 
-def test_the_scheduled_run_switches_once_and_a_named_run_or_a_second_run_never_does(tmp_path, monkeypatch):
-    """Never re-enabled by the job, and never switched off twice for the same session: after a person removes the
-    file, a second run of the same session's check (a closed day) leaves the recorder as the person left it."""
-    db = tmp_path / "feed_shadow" / "shadow.db"
-    db.parent.mkdir()
-    db.write_bytes(b"")
-    monkeypatch.setattr(fs, "DB", db)
+def recorder_db(path, off=False):
+    """The recorder's own database as the job reads it: ``off`` = it has said that it is off (its writer's last act)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(path)
+    c.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
+    c.execute("DELETE FROM meta")
+    if off:
+        c.execute("INSERT INTO meta VALUES ('off_at', '2026-11-10T02:40:03+00:00')")
+    c.commit()
+    c.close()
+
+
+@pytest.fixture
+def night(tmp_path, monkeypatch):
+    """The nightly job on a runner of its own: ``night.run(session, work)`` is one scheduled run for a session whose
+    longest pass was ``work`` seconds; ``night.answers`` = whether the recorder acknowledges the OFF file."""
+    from sgt.fast import feed_shadow_check as check
+
+    class Night:
+        db = tmp_path / "feed_shadow" / "shadow.db"
+        off = tmp_path / "feed_shadow" / "OFF"
+        answers, slept = True, []
+
+        def line(self, session):
+            return job.line_of(session, job.OUT)
+
+        def run(self, session, work=0.1, named=False):
+            monkeypatch.setattr(job, "last_session", lambda now: session)
+            monkeypatch.setattr(job, "compare", lambda sess, *a: breached(tmp_path, work=work, session=sess, note="stub"))
+            return job.main(["compare", "--session", session] if named else ["compare"])
+    n = Night()
+    recorder_db(n.db)
+
+    def nap(seconds):
+        n.slept.append(seconds)
+        if n.answers and n.off.exists():
+            recorder_db(n.db, off=True)
+    monkeypatch.setattr(fs, "DB", n.db)
     monkeypatch.setattr(job, "OUT", tmp_path / "feed_shadow" / "daily.jsonl")
     monkeypatch.setattr(job, "EVIDENCE", tmp_path / "feed_shadow" / "evidence")
-    monkeypatch.setattr(job, "PACE", gaps(tmp_path, whole()))
-    monkeypatch.setattr(job, "last_session", lambda now: DAY)
-    monkeypatch.setattr(job, "shutoff", lambda o, d, rows, ev: job_shutoff(o, d, rows, ev, wait_s=0.0))
-    job_shutoff = __import__("sgt.fast.feed_shadow_check", fromlist=["shutoff"]).shutoff
-    state = {"work": 0.7}
-    monkeypatch.setattr(job, "compare", lambda session, *a: breached(tmp_path, work=state["work"], session=session, note="stub"))
-    off = db.parent / "OFF"
-    assert job.main(["compare", "--session", DAY]) == 0 and not off.exists()                         # named: reports only
-    line = job.line_of(DAY, job.OUT)
-    assert line["shutoff"]["result"] == "not attempted" and "was not switched by this run" in line["report"]
-    assert job.main(["compare"]) == 0 and off.exists()                                               # the nightly run
-    line = job.line_of(DAY, job.OUT)
-    assert line["shutoff"]["result"] == "created" and "RECORDER SWITCHED OFF by this check" in line["report"]
+    monkeypatch.setattr(job, "PACE", tmp_path / "loop_gaps.jsonl")
+    monkeypatch.setattr(job, "shutoff", lambda o, d, rows, ev, found=None: check.shutoff(o, d, rows, ev, 2.0, nap, found))
+    monkeypatch.setattr(job, "recheck", lambda prev, d: check.recheck(prev, d, 2.0, nap))
+    return n
+
+
+def test_the_scheduled_run_switches_once_and_a_named_run_or_a_second_run_never_does(night):
+    """Never re-enabled by the job, and never switched off twice for the same session: after a person removes the
+    file, a second run of the same session's check (a closed day) leaves the recorder as the person left it."""
+    assert night.run(DAY, 0.7, named=True) == 0 and not night.off.exists()                           # named: reports only
+    assert night.line(DAY)["shutoff"]["result"] == "not attempted" and "was not switched by this run" in night.line(DAY)["report"]
+    assert night.run(DAY, 0.7) == 0 and night.off.exists()                                           # the nightly run
+    line = night.line(DAY)
+    assert line["shutoff"]["result"] == "created" and line["shutoff"]["confirmed_after_s"] == 0.5
+    assert "RECORDER SWITCHED OFF by this check" in line["report"] and "confirmed off after 0.5 s" in line["report"]
     assert len(line["shutoff"]["breaches"]) == 1 and (job.EVIDENCE / f"{DAY}.json").exists()
-    off.unlink()                                                                                     # a person puts it back on
-    assert job.main(["compare"]) == 0 and not off.exists()                                           # same session again
-    assert job.line_of(DAY, job.OUT)["shutoff"]["repeated"] is False
-    state["work"] = 0.1                                                                              # a clean session: nothing
-    monkeypatch.setattr(job, "last_session", lambda now: "2026-11-10")
-    monkeypatch.setattr(job, "compare", lambda session, *a: {"session": session, "note": "stub", "pace": job.pace(DAY, gaps(tmp_path, whole())), "integrity": dict(GOOD)})
-    assert job.main(["compare"]) == 0 and not off.exists() and "shutoff" not in job.line_of("2026-11-10", job.OUT)
-    monkeypatch.setattr(job, "shutoff", lambda *a: {"result": "failed", "error": "PermissionError: no", "at": None, "breaches": []})
-    monkeypatch.setattr(job, "last_session", lambda now: "2026-11-11")
-    monkeypatch.setattr(job, "compare", lambda session, *a: breached(tmp_path, session=session, note="stub"))
-    assert job.main(["compare"]) == 1                                                                # a failed switch fails the job
+    night.off.unlink()                                                                               # a person puts it back on
+    recorder_db(night.db)                                                                            # and it runs again
+    assert night.run(DAY, 0.7) == 0 and not night.off.exists()                                       # same session again
+    assert night.line(DAY)["shutoff"]["repeated"] is False
+    assert night.run("2026-11-10", 0.1) == 0 and not night.off.exists()                              # a clean session: nothing
+    assert "shutoff" not in night.line("2026-11-10")
+    assert night.run("2026-11-11", 0.7) == 0 and night.off.exists()                                  # a NEW breach: switched again
+
+
+def test_a_switch_the_running_recorder_does_not_acknowledge_is_unconfirmed_and_fails_the_job(night, tmp_path):
+    """Owner 2026-11-27 (night): no acknowledgment within 10 s is "shutoff unconfirmed", not success, and goes out
+    through the job-failure path. Later runs only look again; the file is never made twice."""
+    night.answers = False
+    assert night.run(DAY, 0.7) == 1 and night.off.exists()                                           # the job FAILS: texted
+    sh = night.line(DAY)["shutoff"]
+    assert (sh["result"], sh["made"], sh["nights"]) == ("unconfirmed", "created", 1)
+    assert "SHUTOFF UNCONFIRMED" in night.line(DAY)["report"] and "The next scheduled run tries again (run 1 of 5)." in night.line(DAY)["report"]
+    said = night.off.read_text()
+    assert night.run("2026-11-10", 0.1) == 1 and night.off.read_text() == said                       # next night: looked at again
+    line = night.line("2026-11-10")
+    assert (line["shutoff"]["result"], line["shutoff"]["pending_from"], line["shutoff"]["nights"]) == ("unconfirmed", DAY, 2)
+    assert line["report"].startswith("⚠️ feed recorder 2026-11-10: timing inside; integrity inside. Switch still open from session "
+                                     "2026-11-09 (longest pass (maximum) 0.7 s (limit 0.5 s)): SHUTOFF UNCONFIRMED at ")
+    night.answers = True                                                                             # now it answers
+    recorder_db(night.db, off=True)
+    assert night.run("2026-11-11", 0.1) == 0
+    line = night.line("2026-11-11")
+    assert (line["shutoff"]["result"], line["shutoff"]["pending_from"], line["shutoff"]["nights"]) == ("created", DAY, 3)
+    assert night.run("2026-11-12", 0.1) == 0 and "shutoff" not in night.line("2026-11-12")           # closed: nothing more
+
+
+def test_a_person_who_removes_the_file_of_an_unconfirmed_switch_is_never_overruled(night):
+    night.answers = False
+    assert night.run(DAY, 0.7) == 1 and night.off.exists()
+    night.off.unlink()                                                                               # the owner's re-enable
+    assert night.run(DAY, 0.7) == 0 and not night.off.exists()                                       # same session, a second run
+    assert night.line(DAY)["shutoff"]["result"] == "removed by a person"
+    night.answers = False
+    assert night.run("2026-11-10", 0.1) == 0 and not night.off.exists() and "shutoff" not in night.line("2026-11-10")
+
+
+def test_a_failed_file_is_tried_three_times_a_run_and_on_the_following_runs_five_in_all(night, monkeypatch):
+    """"Once per session" stops a second successful switch, not a retry after a failed one: bounded both ways."""
+    from sgt.fast import feed_shadow_check as check
+
+    real, calls = check.os.link, []
+
+    def refuse(a, b):
+        calls.append(b)
+        raise PermissionError("no")
+    monkeypatch.setattr(check.os, "link", refuse)
+    assert night.run(DAY, 0.7) == 1 and not night.off.exists()
+    sh = night.line(DAY)["shutoff"]
+    assert (sh["result"], sh["attempts"], sh["nights"]) == ("failed", 3, 1) and night.slept == [2.0, 2.0]
+    assert [Path(c).name for c in calls] == [f"{DAY}.json", "OFF", "OFF", "OFF"]                      # the evidence, then three tries
+    assert "SHUTOFF FAILED at " in night.line(DAY)["report"] and "after 3 tries (PermissionError: no): THE RECORDER IS STILL ON" in night.line(DAY)["report"]
+    assert night.run(DAY, 0.7) == 1 and len(calls) == 8                                              # same session again: retried
+    for k, day in enumerate(("2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"), start=2):      # clean sessions after it
+        assert night.run(day, 0.1) == 1
+        sh = night.line(day)["shutoff"]
+        assert (sh["result"], sh["pending_from"], sh["nights"]) == ("failed", DAY, k)
+    assert len(calls) == 24 and "No further automatic retry: act by hand." in night.line("2026-11-13")["report"]
+    assert "The next scheduled run tries again (run 4 of 5)." in night.line("2026-11-12")["report"]
+    assert night.run("2026-11-16", 0.1) == 0 and len(calls) == 24 and "shutoff" not in night.line("2026-11-16")   # bounded
+
+
+def test_a_file_that_failed_one_night_is_made_on_the_next_run(night, monkeypatch):
+    from sgt.fast import feed_shadow_check as check
+
+    real = check.os.link
+    monkeypatch.setattr(check.os, "link", lambda a, b: (_ for _ in ()).throw(OSError(28, "No space left on device")))
+    assert night.run(DAY, 0.7) == 1 and not night.off.exists()
+    monkeypatch.setattr(check.os, "link", real)                                                      # room again
+    assert night.run("2026-11-10", 0.1) == 0 and night.off.exists()
+    line = night.line("2026-11-10")
+    assert (line["shutoff"]["result"], line["shutoff"]["pending_from"], line["shutoff"]["nights"]) == ("created", DAY, 2)
+    assert "switched off by the nightly check of session 2026-11-09: longest pass (maximum) 0.7 s (limit 0.5 s)" in night.off.read_text()
+    assert "Switch still open from session 2026-11-09 (longest pass (maximum) 0.7 s (limit 0.5 s)): RECORDER SWITCHED OFF" in line["report"]
+    assert json.loads((job.EVIDENCE / f"{DAY}.json").read_text())["line"]["session"] == DAY           # the breach's own evidence
+    night.off.unlink()                                                                               # a person re-enables
+    recorder_db(night.db)
+    assert night.run("2026-11-11", 0.1) == 0 and not night.off.exists()                              # a made file is never made again
+
+
+def test_one_refusal_inside_a_run_is_retried_and_a_file_already_there_needs_the_recorders_word_too(tmp_path, monkeypatch):
+    from sgt.fast import feed_shadow_check as check
+
+    db, real, n = tmp_path / "rec" / "shadow.db", check.os.link, []
+    recorder_db(db, off=True)
+
+    def twice(a, b):
+        n.append(1)
+        if len(n) < 3:
+            raise OSError(5, "Input/output error")
+        return real(a, b)
+    monkeypatch.setattr(check.os, "link", twice)
+    sh = job.shutoff(breached(tmp_path), db, [], tmp_path / "evidence", sleep=lambda s: None)
+    assert (sh["result"], sh["attempts"], sh["confirmed_after_s"]) == ("created", 2, 0.0)             # the evidence took the first refusal
+    assert sh["evidence"].startswith("not kept (OSError")
+    assert sorted(f.name for f in db.parent.iterdir() if "OFF" in f.name) == ["OFF"]
+    again = job.shutoff(breached(tmp_path), db, [], tmp_path / "evidence", sleep=lambda s: None)     # there, and it says off
+    assert again["result"] == "already present" and "the recorder confirms it is off" in job.report({**breached(tmp_path), "shutoff": again})
+    recorder_db(db)                                                                                  # there, but it says nothing
+    quiet = job.shutoff(breached(tmp_path), db, [], tmp_path / "evidence", wait_s=1.0, sleep=lambda s: None)
+    assert (quiet["result"], quiet["made"]) == ("unconfirmed", "already present")
+
+
+def test_a_stored_line_that_says_created_without_the_recorders_word_counts_as_unconfirmed(night, tmp_path):
+    """Review 2026-11-27: the first version of the switch could write "created" with no acknowledgment. Such a line,
+    met again on a closed day's rerun, is never worded as switched off and never breaks the night's line."""
+    old = {"result": "created", "confirmed_after_s": None, "at": "2026-11-10T02:40:02+00:00", "breaches": [], "file": "x"}
+    assert job.state(old) == "unconfirmed" and job.state({**old, "confirmed_after_s": 2.0}) == "created"
+    text = job.report({**breached(tmp_path), "shutoff": old})
+    assert "SHUTOFF UNCONFIRMED" in text and "RECORDER SWITCHED OFF" not in text
+    assert "SHUTOFF UNCONFIRMED" in job.report({**breached(tmp_path), "shutoff": {**old, "at": "not a time", "nights": "x"}})
+    job.write({**breached(tmp_path), "note": "stub", "shutoff": old}, job.OUT)                       # the stored line
+    night.off.write_text("made by the first version\n")
+    night.answers = False
+    assert night.run(DAY, 0.7) == 1 and night.line(DAY)["shutoff"]["result"] == "unconfirmed"        # looked at again, not "done"
+    assert night.off.read_text() == "made by the first version\n"
+    recorder_db(night.db, off=True)
+    assert night.run("2026-11-10", 0.1) == 0 and night.line("2026-11-10")["shutoff"]["result"] == "created"
+    job.write({**breached(tmp_path), "note": "stub", "session": "2026-11-12", "shutoff": {"result": "failed", "at": 5, "nights": [1]}}, job.OUT)
+    night.off.unlink()
+    recorder_db(night.db)
+    night.answers = True
+    assert night.run("2026-11-13", 0.1) == 0 and night.line("2026-11-13")["shutoff"]["result"] == "created"   # odd stored values: no crash
+    assert night.line("2026-11-13")["shutoff"]["nights"] == 2
+
+
+def test_the_failure_text_says_what_happened_to_the_switch(tmp_path):
+    """The existing job-failure text (scripts/ops_notify.py), for this job only when its switch is the reason."""
+    import ops_notify
+
+    log = tmp_path / "run.log"
+    log.write_text('=== 2026-11-09 21:40:00 EST python feed_shadow.py compare\nshutoff: {"result": "failed"}\n!!! exit 1\n'
+                   '=== 2026-11-10 21:40:00 EST python feed_shadow.py compare\nfeed shadow 2026-11-10: ...\n'
+                   'shutoff: {"at": "x", "made": "created", "result": "unconfirmed"}\n!!! exit 1\n')
+    text = ops_notify.build_message("feedshadow", log)
+    assert "switch-off is UNCONFIRMED: the OFF file is in place but the running recorder did not acknowledge within 10 s." in text
+    assert "no trading process was stopped" in text and "No action needed" not in text
+    log.write_text(log.read_text() + '=== 2026-11-11 21:40:00 EST python feed_shadow.py compare\nshutoff: {"error": "x", "result": "failed"}\n!!! exit 1\n')
+    assert "switch-off could NOT be made: the recorder is still on." in ops_notify.build_message("feedshadow", log)
+    log.write_text(log.read_text() + '=== 2026-11-12 21:40:00 EST python feed_shadow.py compare\nTraceback\n!!! exit 1\n')
+    assert "the feed shadow comparison did not finish" in ops_notify.build_message("feedshadow", log)   # another failure: as before
+    assert "feed shadow" not in ops_notify.build_message("digest", log)
 
 
 def test_the_job_and_the_check_write_only_their_own_files_and_never_remove_the_off_file():
@@ -682,14 +852,25 @@ def test_the_nightly_reader_reads_the_old_file_and_the_days_own_file_as_one_reco
     assert job.pace("2026-11-12", old)["note"] == "the cadence record could not be read (FileNotFoundError)"
 
 
-def test_a_day_file_at_its_size_limit_cannot_say_no_late_pass(tmp_path, monkeypatch):
+def test_a_day_file_at_a_size_stop_is_not_measured_and_never_a_pass(tmp_path, monkeypatch):
+    """Storage caps produce "not measured" where coverage is incomplete, never a false pass (owner 2026-11-27)."""
     from sgt.ops import own_thread
 
     own_thread.part(tmp_path, DAY).write_text("\n".join(json.dumps(r) for r in whole()) + "\n")
-    monkeypatch.setattr(own_thread, "GAPS_MAX_BYTES", 100)
+    size = own_thread.part(tmp_path, DAY).stat().st_size
+    monkeypatch.setattr(own_thread, "GAPS_MAX_BYTES", size - 1)                                      # the first stop: late rows
     o = job.pace(DAY, tmp_path / own_thread.GAPS_NAME)
-    assert o["inside"] == {"cadence": True, "late": None, "work_p90": True, "work_max": True}
+    assert o["inside"] == {"cadence": True, "late": None, "work_p90": True, "work_max": True} and o["whole"] is True
     assert "late-pass rows may be missing" in o["incomplete"] and job.verdict(o["inside"]) == "not measured: late"
+    monkeypatch.setattr(own_thread, "GAPS_MAX_BYTES", size // 2 - 1)                                 # the second: every row
+    o = job.pace(DAY, tmp_path / own_thread.GAPS_NAME)
+    assert o["whole"] is False and set(o["inside"].values()) == {None} and o["longest_stretch_without_a_row_s"] < job.HOLE_S
+    assert "the day's record reached the size at which no row is written any more" in o["incomplete"]
+    rows_ = whole()
+    rows_[7] = summary(80, work=0.7)                                                                 # an outside figure stays
+    own_thread.part(tmp_path, DAY).write_text("\n".join(json.dumps(r) for r in rows_) + "\n")
+    monkeypatch.setattr(own_thread, "GAPS_MAX_BYTES", 10)
+    assert job.pace(DAY, tmp_path / own_thread.GAPS_NAME)["inside"] == {"cadence": None, "late": None, "work_p90": None, "work_max": False}
 
 
 def test_a_vendor_request_that_fails_is_reported_and_the_symbol_is_left_out(tmp_path):

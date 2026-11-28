@@ -29,8 +29,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sgt.fast import feed_shadow as fs  # noqa: E402
 from sgt.fast.feed_shadow_check import (  # noqa: E402, F401 - the check lives there; the names stay reachable here
-    CONFIRM_S, EVIDENCE, HOLE_S, LIMITS, LOOP, PACE, PLAIN, POLICY, TOL, _pace, breaches, integrity, keep_evidence, pace,
-    report, shutoff, verdict,
+    ATTEMPTS, CONFIRM_S, DONE, EVIDENCE, HOLE_S, LIMITS, LOOP, MAX_NIGHTS, OPEN, PACE, PLAIN, POLICY, TOL, _pace, breaches,
+    integrity, keep_evidence, pace, recheck, report, shutoff, state, still_open, verdict,
 )
 
 OUT = Path("reports/feed_shadow/daily.jsonl")
@@ -174,21 +174,60 @@ def line_of(session: str, path: Path = OUT) -> dict | None:
     return last
 
 
+def line_before(session: str, path: Path = OUT) -> dict | None:
+    """The line of the latest session before this one."""
+    last = None
+    try:
+        for ln in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and str(r.get("session", "")) < session and (last is None or r["session"] >= last["session"]):
+                last = r
+    except OSError:
+        return None
+    return last
+
+
 def act(o: dict, named: bool) -> None:
-    """A confirmed breach switches the recorder off (``feed_shadow_check.shutoff``), once per session: a second
-    run of the same session's check (a closed day, a run by hand) does not make the switch again, so a person who
-    has put the recorder back on is not overruled by an old session. A run for a named session reports and never
-    switches. Without a confirmed breach nothing happens: "not measured" alone never switches."""
-    if not breaches(o):
-        return
+    """What a scheduled run does about the recorder's switch (``feed_shadow_check``). A run for a named session
+    reports and never switches. "Not measured" alone never switches.
+
+    This session has a confirmed breach: the switch is made, unless an earlier run of this same session's check
+    already made it (DONE: a person who has put the recorder back on since is not overruled). A switch of this
+    session that failed is tried again; one that was made but not acknowledged is only looked at again, the file is
+    never made twice.
+
+    This session has none, but the session before left a switch open (failed or unconfirmed): it is taken up again,
+    MAX_NIGHTS scheduled runs in all, and said in this session's line."""
+    found = breaches(o)
     done = (line_of(o["session"], OUT) or {}).get("shutoff") or {}
-    if named:
+    was_here, nights = state(done), done.get("nights") if isinstance(done.get("nights"), int) else 1
+    if found and named:
         o["shutoff"] = {"result": "not attempted", "note": "a run for a named session reports and never switches"}
-    elif done.get("result") in ("created", "already present", "already off"):
+    elif found and was_here in DONE:
         o["shutoff"] = {**done, "repeated": False}
-    else:
-        o["shutoff"] = shutoff(o, fs.DB, _pace(o["session"], PACE)[1], EVIDENCE)
-    o["report"] = report(o)
+    elif found and was_here == "unconfirmed":
+        o["shutoff"] = {**recheck(done, fs.DB), "nights": nights}
+    elif found:
+        o["shutoff"] = {**shutoff(o, fs.DB, _pace(o["session"], PACE)[1], EVIDENCE), "nights": nights}
+    elif not named:
+        before = line_before(o["session"], OUT)
+        was = still_open(before)
+        if was:
+            src = {**before, "health": o.get("health")}
+            sh = (recheck(was, fs.DB) if was["result"] == "unconfirmed"
+                  else shutoff(src, fs.DB, _pace(before["session"], PACE)[1], EVIDENCE, found=was.get("breaches")))
+            sh = sh or {"result": "not attempted", "note": "the open switch names no breach"}      # cannot be: said, not raised
+            was_nights = was.get("nights") if isinstance(was.get("nights"), int) else 1
+            o["shutoff"] = {**sh, "pending_from": was.get("pending_from") or before["session"], "nights": was_nights + 1}
+    if "shutoff" in o:
+        try:
+            o["report"] = report(o)
+        except Exception as e:  # noqa: BLE001 - the night's line is written whatever a stored line held
+            o["report"] = (f"⚠️ feed recorder {o['session']}: the result of the switch could not be put in words "
+                           f"({type(e).__name__}); result: {state(o['shutoff'])}; see the session's line")
 
 
 def write(line: dict, path: Path = OUT) -> None:
@@ -298,8 +337,8 @@ def main(argv: list[str] | None = None) -> int:
     print(words(o))
     if o.get("shutoff"):
         print("shutoff:", json.dumps(o["shutoff"], sort_keys=True))
-    failed = (o.get("shutoff") or {}).get("result") == "failed"
-    return 1 if failed or (o.get("symbols") and len(o.get("symbols_failed", [])) == o["symbols"]) else 0
+    failed = state(o.get("shutoff")) in OPEN                         # not made, or made and not acknowledged: the job fails,
+    return 1 if failed or (o.get("symbols") and len(o.get("symbols_failed", [])) == o["symbols"]) else 0   # which the runner texts
 
 
 if __name__ == "__main__":

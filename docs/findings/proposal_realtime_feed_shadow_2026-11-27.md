@@ -184,19 +184,33 @@ check, a full one or an early close. What the job does, in this order: keeps the
 the long book's raw cadence rows of the window, `reports/feed_shadow/evidence/<session>.json`, never written
 over); creates `reports/feed_shadow/OFF` whole or not at all and never over an existing file (a temporary file
 linked into place), with the session, each failed figure, what was observed and its limit; waits up to 10 seconds
-for the recorder's own database to say it is off. The recorder's watchdog sees the file within 2 seconds and ends
-the recorder's two threads. Nothing else is touched: no restart, no book, size, flag or registered figure; every
-database is opened read-only by this job.
+for the running recorder to acknowledge (its own database says it is off). The recorder's watchdog sees the file
+within 2 seconds and ends the recorder's two threads. Nothing else is touched: no restart, no process stopped or
+signalled, no book, size, flag or registered figure; every database is opened read-only by this job.
+
+**No acknowledgment is not success** (owner 2026-11-27, night). A file that is in place while the recorder has not
+said it is off within 10 seconds is reported as **SHUTOFF UNCONFIRMED**: the recorder cannot start again while the
+file exists, and whether it still records in the running process is not known. Like a file that could not be made
+(**SHUTOFF FAILED, THE RECORDER IS STILL ON**), it ends the job with a failure, which the runner texts at once
+through its existing job-failure text (worded for this case) and the next digest lists; the summary text carries
+it too. No trading process is stopped for either.
+
+**Retries are bounded, and a made file is never made twice.** The file is tried 3 times in one run, 2 seconds
+apart. A switch still failed or unconfirmed is taken up again by the following scheduled runs, 5 runs in all, each
+said in that night's line ("Switch still open from session ..."); the fifth says that no further automatic retry
+follows. A failed switch is retried by making the file. An unconfirmed one is only looked at again: if the file is
+still there the recorder is asked once more; if a person has removed it, that is the owner's decision to put the
+recorder back on, it stands, and nothing is done.
 
 What it never does: it never removes the file and nothing puts the recorder back on but a person (remove the file,
-then the next guarded deploy). It makes the switch once per session: a second run of the same session's check (a
-closed weekday, a run by hand) does not make it again, and a run for a named session reports and never switches.
-A recorder that already says it is off is left as it is and no file is made.
+then the next guarded deploy; `docs/runbooks/intraday_operations.md`). A switch that succeeded is made once per
+session: a second run of the same session's check (a closed weekday, a run by hand) does not make it again, and a
+run for a named session reports and never switches. A recorder that already says it is off is left as it is and
+no file is made.
 
 The summary text says what happened, before the other figures: the failed figure, the observed value, the limit,
-and one of: switched off and confirmed after N seconds; file created but the recorder did not confirm (it cannot
-start while the file exists); file was already there; already off; or **SHUTOFF FAILED, THE RECORDER IS STILL ON**
-with the error, in which case the job also ends with a failure, which the runner texts and the next digest lists.
+and one of: switched off and confirmed after N seconds; file was already there and the recorder confirms it is
+off; already off; SHUTOFF UNCONFIRMED; SHUTOFF FAILED with the error and the number of tries.
 Whenever the OFF file exists the summary line says so, whatever else it says. The isolation row is checked once
 after the deploy, by hand.
 
@@ -207,10 +221,15 @@ this check would have said "not measured" every night. It is now one file per UT
 window is split and no day's file is cut while its session runs. The old file is read (the day of the change has
 rows in both) and never written or removed. Bounds: late-pass rows stop at 1 MB for the day and the 10-minute
 interval rows, which this check needs, at 2 MB; both stops are said in the nightly health line, and at the first
-stop this check says "late passes: not measured" instead of "0". Day files older than 60 days are removed by the
-nightly health line's own process (never by a thread of a book), and the line says how many. At most 61 day
-files: about 3 MB as measured, 122 MB if every day reached both stops. The evidence of a breach is kept outside
-this retention. A write is one `stat` and one append of one line, with no lock, no sync and no read of the file.
+stop this check says "late passes: not measured" instead of "0", and at the second every figure that would have
+been inside is "not measured": a size stop never produces a pass. Day files older than 60 days are removed by the
+nightly health line's own process (never by a thread of a book), and the line says how many. A day that is an
+exchange session and has no line of this check is never removed, whatever its age, and the line says how many are
+kept for that reason (so the bound below holds only while the check runs; where it has never written a line it is
+not in use and no day waits for it). Only files named exactly like a day file in that one folder are ever listed:
+the recorder's lines and database, the `OFF` file, the evidence kept for a breach and the research data are in
+other folders and cannot be reached by it. At most 61 day files: about 3 MB as measured, 122 MB if every day
+reached both stops. The evidence of a breach is kept outside this retention. A write is one `stat` and one append of one line, with no lock, no sync and no read of the file.
 
 **What this comparison can and cannot carry.** The baseline is two full sessions. The record resolves 0.1 s and
 keeps one figure per 10 minutes (the longest pass), not a distribution: a cost under 0.1 s a pass cannot be seen in

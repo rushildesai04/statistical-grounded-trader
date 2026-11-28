@@ -77,10 +77,11 @@ def files(folder: Path, days) -> list[Path]:
     return [Path(folder) / GAPS_NAME] + [part(folder, d) for d in sorted({str(d) for d in days})]
 
 
-def capped(folder: Path, day: str) -> bool:
-    """Whether the day's file has reached the size at which late-pass rows are no longer written."""
+def capped(folder: Path, day: str, hard: bool = False) -> bool:
+    """Whether the day's file has reached the size at which late-pass rows are no longer written (``hard``: the size
+    at which no row is written any more, the interval rows included)."""
     try:
-        return part(folder, day).stat().st_size > GAPS_MAX_BYTES
+        return part(folder, day).stat().st_size > GAPS_MAX_BYTES * (2 if hard else 1)
     except OSError:
         return False
 
@@ -116,18 +117,59 @@ def _write(folder: Path, row: dict) -> None:
         log.exception("late pass not recorded")
 
 
-def prune(folder: Path, today: date | None = None, keep_days: int = GAPS_KEEP_DAYS) -> list[str]:
+def unevaluated(folder: Path):
+    """``day -> bool``: True when the day is an exchange session that the nightly recorder check
+    (``scripts/feed_shadow.py``, one line a session in ``reports/feed_shadow/daily.jsonl``) has no line for. Such a
+    day's file is never pruned: its rows have not been held against the tolerance. Where that check has never
+    written a line at all it is not in use and no day is waiting for it. Anything that cannot be decided (the file
+    cannot be read, the calendar cannot be asked) counts as unevaluated: kept."""
+    lines = Path(folder).resolve().parent / "feed_shadow" / "daily.jsonl"
+    try:
+        if not lines.exists():
+            return lambda day: False
+        seen = set()
+        for ln in lines.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ln)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and r.get("session"):
+                seen.add(str(r["session"]))
+        from sgt.intraday.calendar import default_calendar
+
+        cal = default_calendar()
+    except Exception:  # noqa: BLE001 - undecided: keep everything
+        log.exception("stop-check record: cannot tell which sessions were evaluated; nothing is removed")
+        return lambda day: True
+
+    def waiting(day: str) -> bool:
+        try:
+            return day not in seen and bool(cal.is_session(date.fromisoformat(day)))
+        except Exception:  # noqa: BLE001 - undecided: keep
+            return True
+    return waiting
+
+
+def prune(folder: Path, today: date | None = None, keep_days: int = GAPS_KEEP_DAYS, waiting=None,
+          kept: list[str] | None = None) -> list[str]:
     """Remove the day files older than ``keep_days`` and return their names. Only files named exactly like a day
-    file with a real date: never the old single file, never today's or a later day's, nothing else in the folder.
-    Called by the nightly health line, in its own process and long after each day was read. Never raises."""
+    file with a real date: never the old single file, never today's or a later day's, nothing else in the folder
+    and nothing in any other folder (the recorder's lines, the evidence kept for a breach and the research data
+    live elsewhere and are never listed here). A day ``waiting(day)`` says is an unevaluated session is kept
+    whatever its age, and named in ``kept``. Called by the nightly health line, in its own process. Never raises."""
     gone = []
     try:
         today = today or datetime.now(timezone.utc).date()
+        waiting = unevaluated(folder) if waiting is None else waiting
         for p in sorted(Path(folder).glob("loop_gaps.*.jsonl")):
             m = _DAY_FILE.fullmatch(p.name)
             try:
                 old = m is not None and (today - date.fromisoformat(m.group(1))).days > keep_days
             except ValueError:
+                continue
+            if old and waiting(m.group(1)):
+                if kept is not None:
+                    kept.append(p.name)
                 continue
             if old:
                 try:
@@ -322,8 +364,10 @@ def clause(folder: Path, day: str, in_hours=None) -> str:
             bad.append(f"listener restarted {len(down)}x in alert hours, longest silence {gap:.0f} s (at {at:%H:%M} UTC)")
         if capped(folder, day):                             # a full day stops taking rows: say so, never silently
             bad.append("the record of stop checks is full for this day (later late checks are not in it)")
-        gone = prune(folder)                                # this process, at night: never a book's thread
-        kept = f"; {len(gone)} day files of the record older than {GAPS_KEEP_DAYS} days removed" if gone else ""
+        held: list[str] = []
+        gone = prune(folder, kept=held)                     # this process, at night: never a book's thread
+        kept = (f"; {len(gone)} day files of the record older than {GAPS_KEEP_DAYS} days removed" if gone else "") + (
+            f"; {len(held)} older day files kept: their sessions have no recorder check yet" if held else "")
         return (("⚠️ stop checks: " + measured + "; ".join(bad)) if bad else
                 f"stop checks: {measured}none late, no restart in alert hours") + kept
     except Exception as e:  # noqa: BLE001 - the summary must go out
