@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from sgt.fast import feed_shadow as fs  # noqa: E402
 from sgt.fast.feed_shadow_check import (  # noqa: E402, F401 - the check lives there; the names stay reachable here
     ATTEMPTS, CONFIRM_S, DONE, EVIDENCE, HOLE_S, LIMITS, LOOP, MAX_NIGHTS, OPEN, PACE, PLAIN, POLICY, TOL, _pace, breaches,
-    integrity, keep_evidence, pace, recheck, report, shutoff, still_open, verdict,
+    integrity, keep_evidence, pace, recheck, report, shutoff, state, still_open, verdict,
 )
 
 OUT = Path("reports/feed_shadow/daily.jsonl")
@@ -203,14 +203,15 @@ def act(o: dict, named: bool) -> None:
     MAX_NIGHTS scheduled runs in all, and said in this session's line."""
     found = breaches(o)
     done = (line_of(o["session"], OUT) or {}).get("shutoff") or {}
+    was_here, nights = state(done), done.get("nights") if isinstance(done.get("nights"), int) else 1
     if found and named:
         o["shutoff"] = {"result": "not attempted", "note": "a run for a named session reports and never switches"}
-    elif found and done.get("result") in DONE:
+    elif found and was_here in DONE:
         o["shutoff"] = {**done, "repeated": False}
-    elif found and done.get("result") == "unconfirmed":
-        o["shutoff"] = {**recheck(done, fs.DB), "nights": int(done.get("nights") or 1)}
+    elif found and was_here == "unconfirmed":
+        o["shutoff"] = {**recheck(done, fs.DB), "nights": nights}
     elif found:
-        o["shutoff"] = {**shutoff(o, fs.DB, _pace(o["session"], PACE)[1], EVIDENCE), "nights": int(done.get("nights") or 1)}
+        o["shutoff"] = {**shutoff(o, fs.DB, _pace(o["session"], PACE)[1], EVIDENCE), "nights": nights}
     elif not named:
         before = line_before(o["session"], OUT)
         was = still_open(before)
@@ -219,9 +220,14 @@ def act(o: dict, named: bool) -> None:
             sh = (recheck(was, fs.DB) if was["result"] == "unconfirmed"
                   else shutoff(src, fs.DB, _pace(before["session"], PACE)[1], EVIDENCE, found=was.get("breaches")))
             sh = sh or {"result": "not attempted", "note": "the open switch names no breach"}      # cannot be: said, not raised
-            o["shutoff"] = {**sh, "pending_from": was.get("pending_from") or before["session"], "nights": int(was.get("nights") or 1) + 1}
+            was_nights = was.get("nights") if isinstance(was.get("nights"), int) else 1
+            o["shutoff"] = {**sh, "pending_from": was.get("pending_from") or before["session"], "nights": was_nights + 1}
     if "shutoff" in o:
-        o["report"] = report(o)
+        try:
+            o["report"] = report(o)
+        except Exception as e:  # noqa: BLE001 - the night's line is written whatever a stored line held
+            o["report"] = (f"⚠️ feed recorder {o['session']}: the result of the switch could not be put in words "
+                           f"({type(e).__name__}); result: {state(o['shutoff'])}; see the session's line")
 
 
 def write(line: dict, path: Path = OUT) -> None:
@@ -331,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     print(words(o))
     if o.get("shutoff"):
         print("shutoff:", json.dumps(o["shutoff"], sort_keys=True))
-    failed = (o.get("shutoff") or {}).get("result") in OPEN          # not made, or made and not acknowledged: the job fails,
+    failed = state(o.get("shutoff")) in OPEN                         # not made, or made and not acknowledged: the job fails,
     return 1 if failed or (o.get("symbols") and len(o.get("symbols_failed", [])) == o["symbols"]) else 0   # which the runner texts
 
 

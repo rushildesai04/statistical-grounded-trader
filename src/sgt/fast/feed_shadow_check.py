@@ -323,19 +323,39 @@ def recheck(prev: dict, db: Path = fs.DB, wait_s: float = CONFIRM_S, sleep=time.
     return {**out, "result": "unconfirmed"} if took is None else {**out, "result": "created", "confirmed_after_s": took}
 
 
+def state(sh: dict | None) -> str | None:
+    """The result of a stored switch as it counts now. A line written before 2026-11-27 (night) could say "created"
+    without the recorder's acknowledgment (no number of seconds): that is "unconfirmed", never a success."""
+    r = (sh or {}).get("result")
+    if r == "created" and not isinstance((sh or {}).get("confirmed_after_s"), (int, float)):
+        return "unconfirmed"
+    return r
+
+
+def _nights(sh: dict | None) -> int:
+    try:
+        return max(1, int((sh or {}).get("nights") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
 def still_open(prev: dict | None) -> dict | None:
-    """The switch of an earlier session that is still open (failed or unconfirmed) and may be taken up again."""
+    """The switch of an earlier session that is still open (failed or unconfirmed) and may be taken up again, with
+    its result as it counts now."""
     sh = (prev or {}).get("shutoff") or {}
-    return sh if sh.get("result") in OPEN and int(sh.get("nights") or 1) < MAX_NIGHTS else None
+    return {**sh, "result": state(sh)} if state(sh) in OPEN and _nights(sh) < MAX_NIGHTS else None
 
 
 def _shutoff_words(sh: dict | None) -> str:
     if not sh:
         return f"{POLICY}."
-    hm = f"{pd.Timestamp(sh['at']).tz_convert(fs.ET):%H:%M} ET" if sh.get("at") else "an unrecorded time"
-    r, last = sh.get("result"), int(sh.get("nights") or 1) >= MAX_NIGHTS
+    try:
+        hm = f"{pd.Timestamp(sh['at']).tz_convert(fs.ET):%H:%M} ET" if sh.get("at") else "an unrecorded time"
+    except (TypeError, ValueError):                     # a stored line is data: a stamp that cannot be read is said
+        hm = "an unrecorded time"
+    r, last = state(sh), _nights(sh) >= MAX_NIGHTS
     again = (" No further automatic retry: act by hand." if last else
-             f" The next scheduled run tries again (run {int(sh.get('nights') or 1)} of {MAX_NIGHTS}).")
+             f" The next scheduled run tries again (run {_nights(sh)} of {MAX_NIGHTS}).")
     if r == "created":
         return (f"RECORDER SWITCHED OFF by this check at {hm}: OFF file created; the recorder confirmed off after "
                 f"{sh['confirmed_after_s']:.1f} s. It stays off until a person removes the file.")

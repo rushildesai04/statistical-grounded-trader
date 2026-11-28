@@ -773,6 +773,29 @@ def test_one_refusal_inside_a_run_is_retried_and_a_file_already_there_needs_the_
     assert (quiet["result"], quiet["made"]) == ("unconfirmed", "already present")
 
 
+def test_a_stored_line_that_says_created_without_the_recorders_word_counts_as_unconfirmed(night, tmp_path):
+    """Review 2026-11-27: the first version of the switch could write "created" with no acknowledgment. Such a line,
+    met again on a closed day's rerun, is never worded as switched off and never breaks the night's line."""
+    old = {"result": "created", "confirmed_after_s": None, "at": "2026-11-10T02:40:02+00:00", "breaches": [], "file": "x"}
+    assert job.state(old) == "unconfirmed" and job.state({**old, "confirmed_after_s": 2.0}) == "created"
+    text = job.report({**breached(tmp_path), "shutoff": old})
+    assert "SHUTOFF UNCONFIRMED" in text and "RECORDER SWITCHED OFF" not in text
+    assert "SHUTOFF UNCONFIRMED" in job.report({**breached(tmp_path), "shutoff": {**old, "at": "not a time", "nights": "x"}})
+    job.write({**breached(tmp_path), "note": "stub", "shutoff": old}, job.OUT)                       # the stored line
+    night.off.write_text("made by the first version\n")
+    night.answers = False
+    assert night.run(DAY, 0.7) == 1 and night.line(DAY)["shutoff"]["result"] == "unconfirmed"        # looked at again, not "done"
+    assert night.off.read_text() == "made by the first version\n"
+    recorder_db(night.db, off=True)
+    assert night.run("2026-11-10", 0.1) == 0 and night.line("2026-11-10")["shutoff"]["result"] == "created"
+    job.write({**breached(tmp_path), "note": "stub", "session": "2026-11-12", "shutoff": {"result": "failed", "at": 5, "nights": [1]}}, job.OUT)
+    night.off.unlink()
+    recorder_db(night.db)
+    night.answers = True
+    assert night.run("2026-11-13", 0.1) == 0 and night.line("2026-11-13")["shutoff"]["result"] == "created"   # odd stored values: no crash
+    assert night.line("2026-11-13")["shutoff"]["nights"] == 2
+
+
 def test_the_failure_text_says_what_happened_to_the_switch(tmp_path):
     """The existing job-failure text (scripts/ops_notify.py), for this job only when its switch is the reason."""
     import ops_notify
