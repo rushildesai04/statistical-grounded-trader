@@ -6,7 +6,10 @@ are official by then (fadesettle 20:40 ET), anything not yet official is labelle
 """
 from __future__ import annotations
 
+import json
+import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from sgt.fast import est_costs, fade
 from sgt.ops import chartserver
@@ -14,6 +17,8 @@ from sgt.ops.sms_style import bold
 from sgt.ops.store import OpsStore
 
 ENTERED = ("open", "est_closed", "settled")
+RECORDER_ENV = "SGT_FEED_SHADOW"            # sgt.fast.feed_shadow.ENV (pinned equal by a test)
+RECORDER_BYTES, RECORDER_CHARS = 5_000_000, 700
 
 
 def _usd(x: float) -> str:
@@ -113,6 +118,35 @@ def real_day(db: OpsStore, day: date) -> dict | None:
             "usd": fade_real.realized(db, day.isoformat())}
 
 
+def recorder_line(db: OpsStore, day: date) -> str:
+    """The feed recorder's frozen check for ``day``, as its nightly job wrote it at 21:40 ET (``report`` in the
+    session's line of ``reports/feed_shadow/daily.jsonl``, ``scripts/feed_shadow.py``): owner 2026-11-27, the result
+    is delivered in this text and not only in a file somebody has to read. "" only where the recorder is not
+    switched on and its job never wrote a line. A missing line or a line without the check is said as "not
+    measured", never left out and never read as a pass. The text comes from our own job's file: read as data, one
+    line, bounded in size."""
+    p = Path(db.path).resolve().parent.parent / "feed_shadow" / "daily.jsonl"
+    head = f"📡 feed recorder {day.isoformat()}: not measured: "
+    if not p.exists():
+        return head + "its nightly job has written no line" if os.environ.get(RECORDER_ENV) == "1" else ""
+    if p.stat().st_size > RECORDER_BYTES:
+        return head + "its nightly file is too large to read"
+    last = None
+    for ln in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and r.get("session") == day.isoformat():
+            last = r
+    if last is None:
+        return head + "its nightly job wrote no line for this session"
+    said = last.get("report")
+    if not isinstance(said, str) or not said.strip():
+        return head + "the session's line carries no check (written before the check was deployed)"
+    return "📡 " + " ".join(said.split())[:RECORDER_CHARS]
+
+
 def build(db: OpsStore, day: date) -> str:
     f = fade_day(db, day)
     lines = [f"[SGT] 🌙 {bold(f'{day:%a %b} {day.day} summary')}"]
@@ -152,6 +186,12 @@ def build(db: OpsStore, day: date) -> str:
             lines.append(rv)
     except Exception:  # noqa: BLE001 - one informational line; said, never silent
         lines.append("✏️ Revisions: unavailable")
+    try:                                        # owner 2026-11-27: the recorder's frozen check, in the report itself
+        rl = recorder_line(db, day)
+        if rl:
+            lines.append(rl)
+    except Exception:  # noqa: BLE001 - one informational line; said, never silent and never a pass
+        lines.append("📡 feed recorder: not measured: the check could not be read")
     total = f["usd"] + lg["usd"] + sum(v for _, v in counted)     # the same books the nightly digest adds up
     lines.append(f"🧾 Paper total (trading books): {bold(_usd(total))}")
     page = chartserver.link()

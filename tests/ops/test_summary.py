@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unicodedata
 from datetime import date, timedelta
 
@@ -127,3 +128,42 @@ def test_the_long_book_is_in_the_summary_and_in_the_total(db):
     with db.tx() as c:                                    # once all are official the long dollars equal the digest's
         c.execute("DELETE FROM long_trades WHERE symbol='LIVE'")
     assert summary.long_day(db, DAY)["usd"] == pytest.approx(digest.long_today(db, DAY)[1], abs=1e-6)   # was within $1
+
+
+def recorder_file(tmp_path, lines):
+    db = OpsStore(tmp_path / "reports" / "ops" / "ops.db")
+    f = tmp_path / "reports" / "feed_shadow" / "daily.jsonl"
+    f.parent.mkdir(parents=True)
+    f.write_text("\n".join(x if isinstance(x, str) else json.dumps(x) for x in lines) + "\n")
+    return db
+
+
+def test_the_feed_recorders_frozen_check_is_in_the_summary_text(tmp_path, monkeypatch):
+    """Owner 2026-11-27: the result is delivered through the report itself, not only a file somebody has to read."""
+    from sgt.fast import feed_shadow
+
+    assert summary.RECORDER_ENV == feed_shadow.ENV
+    said = "⚠️ feed recorder 2026-11-05: timing OUTSIDE: longest pass (maximum); integrity inside. 1520 passes"
+    db = recorder_file(tmp_path, [{"session": "2026-11-04", "report": "feed recorder 2026-11-04: timing inside; integrity inside."},
+                                  "torn", {"session": DAY.isoformat(), "report": "an earlier run"},
+                                  {"session": DAY.isoformat(), "report": said + "\nsecond line " + "x" * 2000}])
+    line = summary.recorder_line(db, DAY)
+    assert line.startswith("📡 " + said + " second line xxx") and "\n" not in line and len(line) == 2 + summary.RECORDER_CHARS
+    text = summary.build(db, DAY).split("\n")
+    assert text[-2] == line and "Paper total" in plain(text[-1])           # with the day's other lines, before the total
+
+
+def test_a_missing_recorder_result_is_said_as_not_measured_and_never_left_out(tmp_path, monkeypatch):
+    db = recorder_file(tmp_path, [{"session": "2026-11-04", "report": "feed recorder 2026-11-04: inside"},
+                                  {"session": "2026-11-06", "note": "no look was recorded for this session"}])
+    assert summary.recorder_line(db, DAY) == ("📡 feed recorder 2026-11-05: not measured: its nightly job wrote no line "
+                                              "for this session")
+    assert summary.recorder_line(db, date(2026, 11, 6)) == (
+        "📡 feed recorder 2026-11-06: not measured: the session's line carries no check (written before the check was deployed)")
+    (tmp_path / "reports" / "feed_shadow" / "daily.jsonl").unlink()
+    monkeypatch.delenv(summary.RECORDER_ENV, raising=False)
+    assert summary.recorder_line(db, DAY) == "" and "feed recorder" not in summary.build(db, DAY)   # never switched on
+    monkeypatch.setenv(summary.RECORDER_ENV, "1")
+    assert summary.recorder_line(db, DAY) == "📡 feed recorder 2026-11-05: not measured: its nightly job has written no line"
+    monkeypatch.setattr(summary, "recorder_line", lambda *a: 1 / 0)
+    assert "📡 feed recorder: not measured: the check could not be read" in summary.build(db, DAY)

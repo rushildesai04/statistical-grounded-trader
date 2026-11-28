@@ -297,6 +297,25 @@ def test_cmd_digest_sends_every_part(db, monkeypatch):
     assert len(sent) == 3 and sent[0].startswith("(1/3)") and "line 29" in sent[-1]
 
 
+def test_cmd_summary_sends_every_part(db, monkeypatch):
+    """2026-11-27: the midnight summary gained a line; a long one is split like the digest, never cut at SMS_MAX."""
+    sent = []
+
+    class FakeSms:
+        def send(self, text):
+            sent.append(text)
+
+        def close(self):
+            pass
+    monkeypatch.setattr(sc, "Sms", FakeSms)
+    big = "\n".join(f"line {i} " + "z" * 100 for i in range(30))
+    monkeypatch.setattr(sc.summary, "build", lambda *a, **k: big)
+    assert sc.cmd_summary(db) == 0
+    assert len(sent) == 3 and sent[0].startswith("(1/3)") and "line 29" in sent[-1]
+    monkeypatch.setattr(sc.summary, "build", lambda *a, **k: "short")
+    assert sc.cmd_summary(db) == 0 and len(sent) == 3                    # once per session: not sent again
+
+
 def test_fade_off_line_and_forward_record_problems_reach_the_digest(tmp_path, monkeypatch):
     # owner 2026-11-12 night: shorts off -> the digest says so every night; a broken forward record is a NEEDS YOU line
     from sgt.learning import live_monitor
