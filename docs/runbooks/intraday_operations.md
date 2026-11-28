@@ -154,3 +154,61 @@ The research concluded that no active strategy beat passive investing after cost
   `rebal-YYYYMM-*`); sells before buys; limit orders 0.3% through the last trade; per-order cap;
   only SPY/IEF are managed, other holdings are never touched. Each run writes
   `reports/rebalance/YYYY-MM.json`.
+
+## Deploying to the Fly runner by hand (written 2026-11-27)
+
+There is no scheduled or automatic deploy. A commit reaches the runner only when a person, or a working session
+on the owner's machine, runs the steps below; a deploy that was "queued" in a working session is a process of that
+session and is gone when the session or the machine stops. If that happens nothing is half-done: the runner keeps
+the version it had. To recover, run these steps for the commit that should be live. All commands are run from the
+repository root.
+
+**Guards (all must hold; none is skipped).**
+
+1. The checkout is clean `main` at exactly the commit to deploy: `git status --porcelain` prints nothing and
+   `git rev-parse --short HEAD` is that commit.
+2. The clock is outside the no-deploy windows (America/New_York, `TZ=America/New_York date`): 09:25-16:10
+   (session), 20:25-20:56 (settle and digest), 21:00-23:05 (nightly jobs). Open windows on a session day are
+   16:11-20:20 and 23:06 onward; a deploy restarts the listener, so it is never made while a job or a session runs.
+3. No alert paper trade is open on the runner. Read-only check; both numbers must be 0:
+
+   ```sh
+   fly ssh console -a sgt-runner -C "python -c \"import sqlite3; c = sqlite3.connect('file:/data/sgt/reports/ops/ops.db?mode=ro', uri=True); print('open shorts', c.execute('SELECT COUNT(*) FROM fade_trades WHERE status IN (\\\"ask\\\", \\\"pending\\\", \\\"open\\\")').fetchone()[0], '| open longs', c.execute('SELECT COUNT(*) FROM long_trades WHERE status = \\\"open\\\"').fetchone()[0])\""
+   ```
+
+4. Lint and the test suite pass on that commit (one run at a time: a timing test is unreliable under load):
+
+   ```sh
+   ruff check --select E9,F63,F7,F82,F811 src scripts tests
+   .venv/bin/python -m pytest -q --ignore=tests/research -p no:cacheprovider
+   ```
+
+**Deploy, then rebuild the two pages.**
+
+```sh
+fly deploy -c deploy/fly/fly.toml --remote-only --depot=false
+fly ssh console -a sgt-runner -C "/app/deploy/entrypoint.sh job charts"
+fly ssh console -a sgt-runner -C "/app/deploy/entrypoint.sh job lab"
+```
+
+`deploy/fly/deploy.sh` runs guard 4 and the deploy; it does not check guards 1 to 3.
+
+**Verify what is running** (the image carries no commit id; compare files). For each file the commit changed:
+
+```sh
+git show <commit>:src/sgt/ops/own_thread.py | shasum -a 256
+fly ssh console -a sgt-runner -C "sha256sum /app/src/sgt/ops/own_thread.py"
+```
+
+`src/...` and `scripts/...` are at `/app/src/...` and `/app/scripts/...`; `deploy/fly/crontab` and
+`deploy/fly/entrypoint.sh` are at `/app/deploy/`. Then `fly status -a sgt-runner` (machine `started`, the new
+version number) and, read-only in the ops database, the flags `fade_off` and `long_off` (both `0` unless the owner
+turned a book off) and `fade_heartbeat` (seconds old).
+
+A deploy is reported as done only after this verification, never from the deploy command's own output.
+
+**The feed recorder's OFF file** (`/data/sgt/reports/feed_shadow/OFF` on the runner). While it exists the recorder
+is off and does not start. The nightly check creates it on a confirmed breach; nothing removes it automatically.
+Removing it is the owner's decision to put the recorder back on, and takes effect at the next deploy. To switch the
+recorder off by hand: `fly ssh console -a sgt-runner -C "touch /data/sgt/reports/feed_shadow/OFF"` (no restart;
+nothing else is touched).

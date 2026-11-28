@@ -52,6 +52,13 @@ POLICY = ("A confirmed breach switches the recorder off (the nightly job creates
 # restart, no book, size, flag or registered figure is touched, and nothing here ever removes the file.
 EVIDENCE = Path("reports/feed_shadow/evidence")
 CONFIRM_S = 10.0
+# Owner 2026-11-27 (night): a switch the running recorder does not acknowledge within CONFIRM_S is "unconfirmed",
+# never a success, and goes out through the job-failure path like a file that could not be made. "Once per session"
+# stops a second SUCCESSFUL switch, not a retry after a failed one: the file is tried ATTEMPTS times in one run, and
+# a switch still failed or unconfirmed is taken up again by the following scheduled runs, MAX_NIGHTS in all. A file
+# that was made is never made again: a person who removes it has put the recorder back on, and that stands.
+ATTEMPTS, ATTEMPT_PAUSE_S, MAX_NIGHTS = 3, 2.0, 5
+DONE, OPEN = ("created", "already present", "already off", "removed by a person"), ("failed", "unconfirmed")
 
 
 def pace(session: str, path: Path = PACE) -> dict:
@@ -85,6 +92,7 @@ def _pace(session: str, path: Path = PACE) -> tuple[dict, list[str]]:
     if not found:
         return ({**out, "note": "the cadence record could not be read (FileNotFoundError)"}, [])
     full = any(own_thread.capped(Path(path).parent, d.isoformat()) for d in {lo.date(), hi.date()})
+    stopped = any(own_thread.capped(Path(path).parent, d.isoformat(), hard=True) for d in {lo.date(), hi.date()})
     n, counts, work, late, stamps, rows = 0, [0, 0, 0, 0], [], 0, [], []
     unread, pending, prev = 0, 0, None      # a line that cannot be read counts unless its neighbours place it outside
     for ln in raw:
@@ -122,7 +130,7 @@ def _pace(session: str, path: Path = PACE) -> tuple[dict, list[str]]:
     edges = [lo] + sorted(stamps) + [hi]
     hole = max((b - a).total_seconds() for a, b in zip(edges, edges[1:]))
     out.update(passes=n, counts=counts, late=late, periods=len(work), unreadable_lines=unread,
-               longest_stretch_without_a_row_s=round(hole), whole=hole < HOLE_S and not unread)
+               longest_stretch_without_a_row_s=round(hole), whole=hole < HOLE_S and not unread and not stopped)
     if not n:
         return ({**out, "note": "no cadence row of the long book in the session's regular hours"}, rows)
     w = sorted(work)
@@ -132,7 +140,8 @@ def _pace(session: str, path: Path = PACE) -> tuple[dict, list[str]]:
             "work_p90": p90 <= TOL["work_p90_max_s"], "work_max": top <= TOL["work_max_max_s"]}
     if not out["whole"]:
         why = ([f"longest stretch of the window without a row {hole / 60:.0f} min"] if hole >= HOLE_S else []) + (
-            [f"{unread} lines that cannot be read and may belong to the window"] if unread else [])
+            [f"{unread} lines that cannot be read and may belong to the window"] if unread else []) + (
+            ["the day's record reached the size at which no row is written any more"] if stopped else [])
         out["incomplete"] = "the cadence record is not whole (" + "; ".join(why) + "): a figure inside its limit is not measured"
         seen = {k: (False if v is False else None) for k, v in seen.items()}
     if full and seen["late"] is True:                   # the day's file reached the size where late-pass rows stop
@@ -225,17 +234,34 @@ def keep_evidence(o: dict, rows: list[str], folder: Path = EVIDENCE) -> str:
     return str(path)
 
 
+def _acknowledged(db: Path, wait_s: float, sleep) -> float | None:
+    """Seconds until the recorder's own database says it is off (its writer's last act; a fresh start clears it,
+    and it cannot start while the file exists), or None when it has not said so within ``wait_s``."""
+    waited, step = 0.0, 0.5
+    while True:
+        if _off_at(db):
+            return waited
+        if waited >= wait_s:
+            return None
+        sleep(step)
+        waited += step
+
+
 def shutoff(o: dict, db: Path = fs.DB, rows: list[str] | None = None, evidence: Path = EVIDENCE,
-            wait_s: float = CONFIRM_S, sleep=time.sleep) -> dict | None:
+            wait_s: float = CONFIRM_S, sleep=time.sleep, found: list[dict] | None = None) -> dict | None:
     """On a confirmed breach: keep the evidence, then create the recorder's OFF file, whole or not at all and never
-    over an existing one (a temporary file linked into place). Returns what happened, for the session's line and
-    the summary text; None when no check is outside. Never raises: a failure is a result ("failed") that says the
-    recorder is still on. It never removes the file and nothing else is touched.
+    over an existing one (a temporary file linked into place), then wait for the running recorder to acknowledge.
+    Returns what happened, for the session's line and the summary text; None when no check is outside.
+
+    Results: "created" (made and acknowledged), "already present" (the file was there and the recorder says it is
+    off), "already off" (see below), "unconfirmed" (the file exists but the recorder did not acknowledge within
+    ``wait_s``: NOT a success), "failed" (the file could not be made in ATTEMPTS tries: the recorder is still on).
+    Never raises. It never removes the file, never stops or signals a process, and nothing else is touched.
 
     A recorder that already says it is off (its own trip, or an earlier switch) is left as it is and no file is
     made: there is nothing to stop, and a person who has removed the file to bring it back at the next deploy is
-    not overruled by a later night's check."""
-    found = breaches(o)
+    not overruled by a later night's check. ``found``: the breaches of an earlier session whose switch is retried."""
+    found = found or breaches(o)
     if not found:
         return None
     off, at = Path(db).parent / fs.OFF_NAME, datetime.now(timezone.utc)
@@ -250,51 +276,84 @@ def shutoff(o: dict, db: Path = fs.DB, rows: list[str] | None = None, evidence: 
         out["evidence"] = f"not kept ({type(e).__name__}: {str(e)[:100]})"
     why = (f"{at.isoformat()} switched off by the nightly check of session {o['session']}: "
            + "; ".join(f"{b['metric']} {b['observed']} (limit {b['limit']})" for b in found) + "\n")
-    tmp = off.with_name(f".{fs.OFF_NAME}.{os.getpid()}.tmp")
+    tmp, made, error = off.with_name(f".{fs.OFF_NAME}.{os.getpid()}.tmp"), None, None
+    for attempt in range(1, ATTEMPTS + 1):              # bounded: a full volume or a refusal is not tried for ever
+        out["attempts"] = attempt
+        try:
+            if off.exists():
+                made = "already present"
+                break
+            off.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(why, encoding="utf-8")
+            try:
+                os.link(tmp, off)
+                made = "created"
+            except FileExistsError:
+                made = "already present"
+            break
+        except Exception as e:  # noqa: BLE001 - e.g. a full volume or no permission
+            error = f"{type(e).__name__}: {str(e)[:120]}"
+            if attempt < ATTEMPTS:
+                sleep(ATTEMPT_PAUSE_S)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+    if made is None:
+        return {**out, "result": "failed", "error": error}
+    took = _acknowledged(db, wait_s, sleep)
+    if took is None:                                    # the file is there; the running recorder has not answered
+        return {**out, "result": "unconfirmed", "file": str(off), "made": made}
+    return {**out, "result": made, "confirmed_after_s": took}
+
+
+def recheck(prev: dict, db: Path = fs.DB, wait_s: float = CONFIRM_S, sleep=time.sleep) -> dict:
+    """A later run's look at a switch that was made but not acknowledged. It never makes the file: if a person has
+    removed it since, that is their choice and nothing is done; if it is still there, the recorder is asked once
+    more whether it is off."""
+    off, at = Path(db).parent / fs.OFF_NAME, datetime.now(timezone.utc)
+    out = {"breaches": prev.get("breaches") or [], "at": at.isoformat(), "file": str(off)}
     try:
-        was = _off_at(db)
-        if off.exists():
-            return {**out, "result": "already present", "note": off.read_text(encoding="utf-8", errors="replace")[:200].strip()}
-        off.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(why, encoding="utf-8")
-        try:
-            os.link(tmp, off)
-        except FileExistsError:
-            return {**out, "result": "already present", "note": off.read_text(encoding="utf-8", errors="replace")[:200].strip()}
-    except Exception as e:  # noqa: BLE001 - e.g. a full volume or no permission: said, with the recorder still on
-        return {**out, "result": "failed", "error": f"{type(e).__name__}: {str(e)[:120]}"}
-    finally:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-    waited, step = 0.0, 0.5
-    while waited < wait_s:                              # the recorder's watchdog looks every 2 s
-        sleep(step)
-        waited += step
-        now = _off_at(db)
-        if now and now != was:
-            return {**out, "result": "created", "confirmed_after_s": waited}
-    return {**out, "result": "created", "confirmed_after_s": None}
+        if not off.exists():
+            return {**out, "result": "removed by a person"}
+        took = _acknowledged(db, wait_s, sleep)
+    except Exception as e:  # noqa: BLE001 - said, never raised
+        return {**out, "result": "unconfirmed", "error": f"{type(e).__name__}: {str(e)[:120]}"}
+    return {**out, "result": "unconfirmed"} if took is None else {**out, "result": "created", "confirmed_after_s": took}
+
+
+def still_open(prev: dict | None) -> dict | None:
+    """The switch of an earlier session that is still open (failed or unconfirmed) and may be taken up again."""
+    sh = (prev or {}).get("shutoff") or {}
+    return sh if sh.get("result") in OPEN and int(sh.get("nights") or 1) < MAX_NIGHTS else None
 
 
 def _shutoff_words(sh: dict | None) -> str:
     if not sh:
         return f"{POLICY}."
     hm = f"{pd.Timestamp(sh['at']).tz_convert(fs.ET):%H:%M} ET" if sh.get("at") else "an unrecorded time"
-    r = sh.get("result")
+    r, last = sh.get("result"), int(sh.get("nights") or 1) >= MAX_NIGHTS
+    again = (" No further automatic retry: act by hand." if last else
+             f" The next scheduled run tries again (run {int(sh.get('nights') or 1)} of {MAX_NIGHTS}).")
     if r == "created":
-        sure = (f"the recorder confirmed off after {sh['confirmed_after_s']:.1f} s" if sh.get("confirmed_after_s") is not None
-                else f"the recorder did not confirm within {CONFIRM_S:.0f} s (not running, or no answer); it cannot start while the file exists")
-        return f"RECORDER SWITCHED OFF by this check at {hm}: OFF file created; {sure}. It stays off until a person removes the file."
+        return (f"RECORDER SWITCHED OFF by this check at {hm}: OFF file created; the recorder confirmed off after "
+                f"{sh['confirmed_after_s']:.1f} s. It stays off until a person removes the file.")
     if r == "already present":
-        return "OFF file was already there and is left as it is: the recorder stays off until a person removes it."
+        return ("OFF file was already there and is left as it is; the recorder confirms it is off. It stays off until a "
+                "person removes the file.")
     if r == "already off":
         return (f"The recorder was already off ({sh.get('note')}): nothing was switched; OFF file "
                 + ("present." if sh.get("file_present") else "not present: it stays off until its process restarts."))
+    if r == "unconfirmed":
+        return (f"SHUTOFF UNCONFIRMED at {hm}: the OFF file is in place, but the running recorder did not acknowledge "
+                f"within {CONFIRM_S:.0f} s. It cannot start again while the file exists; whether it still records in the "
+                "running process is not known. No trading process was stopped." + again)
     if r == "failed":
-        return (f"SHUTOFF FAILED at {hm} ({sh.get('error')}): THE RECORDER IS STILL ON. Create reports/feed_shadow/OFF "
-                "on the runner by hand.")
+        return (f"SHUTOFF FAILED at {hm} after {sh.get('attempts', ATTEMPTS)} tries ({sh.get('error')}): THE RECORDER IS "
+                "STILL ON. Create reports/feed_shadow/OFF on the runner by hand." + again)
+    if r == "removed by a person":
+        return "The OFF file of that switch has been removed by a person since: that choice stands and nothing was done."
     return f"The recorder was not switched by this run ({sh.get('note') or r})."
 
 
@@ -315,9 +374,12 @@ def report(o: dict) -> str:
                    f"{o.get('longs_entered', 0)} longs entered")
     else:
         figures = p.get("note") or "no timing figure"
-    outside = ("Outside: " + "; ".join(f"{b['metric']} {b['observed']} (limit {b['limit']})" for b in breaches(o))
-               + ". " + _shutoff_words(o.get("shutoff")) + " ") if bad else ""
-    return (("⚠️ " if bad else "") + f"feed recorder {o['session']}"
+    sh = o.get("shutoff") or {}
+    said = "; ".join(f"{b['metric']} {b['observed']} (limit {b['limit']})" for b in (breaches(o) if bad else sh.get("breaches") or []))
+    outside = (f"Outside: {said}. " + _shutoff_words(o.get("shutoff")) + " ") if bad else (
+        f"Switch still open from session {sh['pending_from']} ({said}): " + _shutoff_words(sh) + " ") if sh.get("pending_from") else ""
+    warn = bad or sh.get("result") in OPEN
+    return (("⚠️ " if warn else "") + f"feed recorder {o['session']}"
             + ("" if p.get("full_session") else " (not a full session)") + f": timing {timing}; integrity {whole}. "
             + outside + figures + (f"; {p['incomplete']}" if p.get("incomplete") else "")
             + (". The record resolves 0.1 s per 10 minutes: inside is not proof of no effect."

@@ -89,8 +89,29 @@ def cause(log: Path | None) -> str:
     return "an internal error (logged for a fix)"
 
 
+_SWITCH = re.compile(r'^shutoff: \{.*"result": "(failed|unconfirmed)"', re.M)
+
+
+def switch_note(log: Path | None) -> str | None:
+    """'failed' or 'unconfirmed' when the feed recorder's nightly job ended because its switch-off after a breach
+    was not made or not acknowledged (the ``shutoff:`` line of THIS run, after the last run header in the log)."""
+    if not (log and log.exists()):
+        return None
+    with log.open(errors="replace") as fh:
+        tail = "".join(deque(fh, maxlen=TAIL_LINES))
+    m = _SWITCH.search(tail[max(tail.rfind("\n=== "), 0):])
+    return m.group(1) if m else None
+
+
 def build_message(job: str, log: Path | None, now: datetime | None = None) -> str:
     now = (now or datetime.now(ET)).astimezone(ET)
+    how = switch_note(log) if job == "feedshadow" else None
+    if how:                                     # owner 2026-11-27: an unconfirmed switch is never reported as a success
+        return (f"[SGT] ⚠️ Feed recorder ({now:%a %H:%M} ET): its nightly check found a figure outside the tolerance and the "
+                + ("switch-off could NOT be made: the recorder is still on." if how == "failed" else
+                   "switch-off is UNCONFIRMED: the OFF file is in place but the running recorder did not acknowledge within 10 s.")
+                + " Nothing was traded and no trading process was stopped. Details are in the midnight summary; the file is "
+                  "reports/feed_shadow/OFF on the runner.")
     what, impact = JOBS.get(job, ("a scheduled job", "Reply STATUS to check the books."))
     return (f"[SGT] Heads-up: the {what} did not finish ({now:%a %H:%M} ET): {cause(log)}. {impact} "
             "No action needed; text PAUSE if you want to stop all trading.")
